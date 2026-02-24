@@ -19,11 +19,11 @@ The workflow that Springfield formalizes has been developed through hands-on exp
 5. Running verification loops that certify the codebase adheres to specs
 6. Running test plan generation loops
 
-Each stage uses a different prompt. Today these prompts are manually selected and kicked off. The prompts are mostly stable templates with project-specific inserts (backpressure commands, caveats, etc.), resulting in many near-duplicate markdown files across projects.
+Each stage uses a different prompt. Today these prompts are manually selected and kicked off, and live as near-duplicate markdown files across projects.
 
 The problems Springfield solves:
 - **Manual orchestration**: switching prompts and kicking off stages by hand
-- **Prompt duplication**: similar prompt files across projects with minor variations
+- **Prompt duplication**: near-identical prompt files across projects with minor per-project caveats sprinkled in
 - **Messy issue tracking**: markdown-based issue logging is unreliable for agents — they struggle with the multi-step process of creating directories, writing files, and following naming conventions
 - **No persistent structured memory**: agents lose context between sessions and have no reliable, non-markdown way to track work items and issues across loop iterations
 - **No unified monitoring**: no way to observe multiple loops across projects
@@ -45,9 +45,8 @@ springfield/
 
 ### Components
 
-**`sgf`** — The CLI entry point. All developer interaction goes through this binary. It delegates to the other crates internally. Also responsible for project scaffolding, prompt assembly, and memento generation. 
-- `sgf init` — generating project structure from templates
-- Prompt assembly — composing base templates with project-specific config, caveats, and pensa CLI instructions
+**`sgf`** — The CLI entry point. All developer interaction goes through this binary. It delegates to the other crates internally. Also responsible for project scaffolding and memento generation.
+- `sgf init` — scaffolding project structure, seeding prompt templates into `.sgf/prompts/`
 - Memento generation — scanning project state and specs to build the lookup table
 
 **`pensa`** (Latin: "tasks", singular: pensum) — A Rust CLI that serves as the agent's persistent structured memory. Replaces markdown-based issue logging and implementation plan tracking. Inspired by [beads](https://github.com/steveyegge/beads) but built in Rust with tighter integration into the Springfield workflow. Stores issues with tags, dependencies, priorities, ownership, and status tracking. Uses SQLite locally with JSONL export for git portability.
@@ -133,7 +132,13 @@ After `sgf init`, a project contains:
 .pensa/
 ├── db.sqlite                  (gitignored)
 └── issues.jsonl               (committed)
-.sgf                           (committed — stack type, prompt overrides, caveats)
+.sgf/
+├── config.toml                (committed — stack type, project config)
+└── prompts/                   (committed — editable prompt templates)
+    ├── build.md
+    ├── discuss.md
+    ├── verify.md
+    └── test-plan.md
 .pre-commit-config.yaml        (prek hooks for pensa sync)
 memento.md                     (generated lookup table)
 AGENTS.md                      (hand-authored operational guidance)
@@ -153,11 +158,12 @@ This is the agent's map. It reads the memento, knows where everything is, and di
 
 **`AGENTS.md`** — Hand-authored operational guidance. Contains information that doesn't fit the memento's structured format — code style preferences, runtime notes, special instructions. Linked from CLAUDE.md so Claude Code auto-loads it.
 
-**`CLAUDE.md`** — Entry point for Claude Code. Links to memento.md and AGENTS.md.
+**`CLAUDE.md`** — Entry point for Claude Code. Links to memento.md and AGENTS.md (via `ln -s`).
 
-**`.sgf`** — Project-specific configuration (TOML):
+**`.sgf/config.toml`** — Project-specific configuration:
 - `stack` — project type (rust, typescript, tauri, etc.), used by `sgf` to select backpressure templates for memento generation
-- `prompt_overrides` — project-specific caveats injected into assembled prompts (e.g., "Mac-first builds", "tracer bullets", "gate slow tests behind #[ignore]")
+
+**`.sgf/prompts/`** — Editable prompt templates for each workflow stage (`build.md`, `discuss.md`, `verify.md`, `test-plan.md`). Seeded by `sgf init` from Springfield's built-in templates. Once seeded, the project owns these files — edit them freely to evolve the prompts as you learn what works for the project. To improve defaults for future projects, update the templates in the Springfield repo itself.
 
 **`specs/`** — Prose specification files (one per topic of concern). These are authored documents — written during the discussion phase, consumed during builds. Indexed in the memento's specs table.
 
@@ -177,7 +183,7 @@ sgf logs <loop-id>             — tail a running loop's output
 
 ### Deployment Model
 
-**Decentralized**: Springfield is project-aware — it reads `.sgf` from the current working directory. There is no global registry or central config. Each project is self-contained. To work on multiple projects, run `sgf` from each project directory.
+**Decentralized**: Springfield is project-aware — it reads `.sgf/` from the current working directory. There is no global registry or central config. Each project is self-contained. To work on multiple projects, run `sgf` from each project directory.
 
 ### Sandboxing
 
@@ -202,12 +208,7 @@ This same workflow applies to adding new features to an existing project — it'
 
 ### 2. Build (`sgf build`)
 
-Runs a Ralph loop. `sgf` assembles the prompt from:
-- Base build template (shared across all projects)
-- Project config from `.sgf` (caveats, overrides)
-- Pensa CLI instructions (how to claim tasks, log issues, close work)
-
-The assembled prompt tells the agent:
+Runs a Ralph loop using `.sgf/prompts/build.md` as the prompt. The prompt tells the agent:
 1. Read `memento.md` to orient
 2. Run `pn ready --json` to find the next unblocked task
 3. Claim it with `pn update <id> --claim`
@@ -224,7 +225,7 @@ Run interactively first for a few supervised rounds, then switch to AFK mode (`-
 
 ### 3. Verify (`sgf verify`)
 
-Runs a Ralph loop with the verification prompt. The agent:
+Runs a Ralph loop using `.sgf/prompts/verify.md`. The agent:
 1. Reads specs from `memento.md` index
 2. Investigates each spec against the actual codebase
 3. Marks conformance (matches / partial / missing)
@@ -233,7 +234,7 @@ Runs a Ralph loop with the verification prompt. The agent:
 
 ### 4. Test Plan (`sgf test-plan`)
 
-Runs a Ralph loop with the test plan prompt. The agent:
+Runs a Ralph loop using `.sgf/prompts/test-plan.md`. The agent:
 1. Studies specs and codebase
 2. Generates a testing plan
 3. Ensures tests are automatable (can be run by agents in loops)
@@ -244,23 +245,19 @@ Not a separate `sgf` command — issues are logged by agents during any stage vi
 
 ---
 
-## Prompt Assembly
+## Prompts
 
-`sgf` assembles prompts from composable parts rather than maintaining near-duplicate markdown files:
+Each workflow stage has a corresponding prompt file in `.sgf/prompts/`. These are plain markdown files — edit them directly.
 
-**Base template** (per stage — build, verify, test-plan):
-- Shared instructions (read memento, one task per iteration, commit when done)
-- Pensa workflow instructions (how to find/claim/close tasks)
+**Seeding**: `sgf init` copies the current prompt templates from Springfield into `.sgf/prompts/`. From that point, the project owns its prompts.
 
-**Project config** (from `.sgf`):
-- Caveats injected into the prompt (e.g., "Mac-first builds", "tracer bullets")
-- Any prompt overrides
+**Editing**: Prompts evolve as you learn what works for a project. Add caveats ("Mac-first builds"), change the workflow ("commit" vs "commit and push"), tune instructions. Edit the files in your editor, read diffs in git — they're just markdown.
 
-**Memento reference**:
-- The prompt tells the agent to read `memento.md` first
-- Backpressure commands are in the memento, not duplicated in the prompt
+**Upstream improvements**: To improve defaults for all future projects, update the templates in the Springfield repo. Existing projects keep their copies and can pull changes manually if desired.
 
-This eliminates the duplication seen in buddy-ralph's `prompts/building/` directory where 8 similar files existed with minor variations.
+**Backpressure**: Backpressure commands (build, test, lint, format) live in `memento.md`, not in the prompts. The prompts tell the agent to read the memento and apply backpressure — the specific commands are defined once in the memento.
+
+This replaces the duplication seen in buddy-ralph's `prompts/building/` directory where 8 similar files existed with minor variations. Instead of near-duplicate files with caveats sprinkled in, there's one editable copy per project.
 
 ---
 
@@ -272,7 +269,7 @@ This eliminates the duplication seen in buddy-ralph's `prompts/building/` direct
 
 **Structured memory over markdown**: Pensa replaces unstructured markdown files for issues and tasks. A single CLI command replaces multi-step file creation. The agent finds this easier and more reliable.
 
-**Prompt composition over duplication**: `sgf` assembles stage-specific prompts from templates + config. Project-specific caveats are configuration, not copy-pasted prompt text.
+**Editable prompts over duplication**: `sgf init` seeds prompt templates into the project. Each project owns and can evolve its prompts. No near-duplicate files across projects — one editable copy per stage, per project.
 
 **Backpressure drives quality**: Build, test, lint, and format commands (defined in the memento) are applied after every change. Failed validation forces correction before commits.
 
