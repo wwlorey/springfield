@@ -77,30 +77,88 @@ Sync is automated via prek (git hooks):
 
 ### Schema
 
-Everything is an issue (following the GitHub model). Issues are distinguished by tags rather than separate entity types.
+Everything is an issue (following the GitHub model, matching beads' single-entity approach). Issues are distinguished by tags rather than separate entity types.
 
-Each issue has: ID (hash-based to prevent merge collisions), title, description, status, priority, tags, dependencies, owner, timestamps.
+#### Issues table
 
-**Tags** (freeform, starting set):
+Each issue has: ID (hash-based to prevent merge collisions), title, description, status, priority, tags, assignee, timestamps, close_reason.
+
+**Statuses**: `open`, `in_progress`, `blocked`, `closed`.
+
+**Tags** (freeform, multiple per issue, starting set):
 - **`bug`** — problems discovered during build/verify
-- **`task`** — implementation plan items from the spec phase
+- **`task`** — implementation plan items from the discuss phase
 - **`chore`** — tech debt, refactoring, dependency updates, CI fixes
+
+No separate labels concept — freeform tags cover what beads splits into `issue_type` + `labels`.
+
+#### Dependencies table
+
+`issue_id`, `depends_on_id` (composite PK). Models blocking relationships. `pn ready` uses this to filter to unblocked issues.
+
+#### Comments table
+
+`issue_id`, `author`, `text`, `created_at`. Agents record observations about issues between fresh-context iterations without overwriting the description.
+
+#### Events table (audit log)
+
+`issue_id`, `event_type`, `actor`, `detail`, `created_at`. Every mutation (create, update, close, reopen, claim, comment, dep add/remove) gets logged. Powers `pn history`.
 
 ### CLI Commands
 
+All commands support `--json` for agent consumption.
+
+**Global flags**: `--actor <name>` (who is running this command — for audit trail; resolution: `--actor` flag > `PN_ACTOR` env var > `git config user.name` > `$USER`).
+
+#### Working with issues
+
 ```
-pn create "title" -p <priority> [-t bug|task|chore]
-pn ready [--json]              # show unblocked issues
-pn update <id> --claim         # take ownership, mark in-progress
-pn close <id> --reason "..."   # complete with reasoning
-pn show <id> [--json]          # full details + history
-pn list [--json] [-t <tag>]    # list all, optionally filter by tag
-pn dep add <child> <parent>    # wire up dependencies
-pn sync                        # export SQLite → JSONL
-pn import                      # rebuild SQLite from JSONL
+pn create "title" [-p <pri>] [-t <tag>] [-a <assignee>] [--description <text>] [--dep <id>]
+pn q "title" [-p <pri>] [-t <tag>]     # quick capture, outputs only ID
+pn update <id> [--title <t>] [--status <s>] [--priority <p>] [-t <tag>] [-a <assignee>] [--description <d>] [--claim]
+pn close <id> [--reason "..."] [--force]
+pn reopen <id> [--reason "..."]
+pn delete <id> [--force]
+pn show <id> [--short]
 ```
 
-All commands support `--json` for agent consumption.
+#### Views and queries
+
+```
+pn list [--status <s>] [--priority <p>] [-a <assignee>] [-t <tag>] [--sort <field>] [-n <limit>]
+pn ready [-n <limit>] [-p <pri>] [-a <assignee>] [-t <tag>]
+pn blocked
+pn search <query>
+pn count [--by-status] [--by-priority] [--by-type] [--by-assignee]
+pn status                               # project health snapshot
+pn history <id>                          # issue change history from audit log
+```
+
+#### Dependencies
+
+```
+pn dep add <child> <parent>
+pn dep remove <child> <parent>
+pn dep list <id>
+pn dep tree <id> [--direction up|down]
+pn dep cycles
+```
+
+#### Comments
+
+```
+pn comment add <id> "text"
+pn comment list <id>
+```
+
+#### Data and maintenance
+
+```
+pn sync                                  # export SQLite → JSONL
+pn import                                # rebuild SQLite from JSONL
+pn doctor [--fix]                        # health checks and auto-repair
+pn where                                 # show .pensa/ directory path
+```
 
 ### Git Hooks (via prek)
 
