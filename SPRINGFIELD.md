@@ -2,7 +2,7 @@
 
 ## What Is Springfield?
 
-Springfield is a suite of Rust tools for orchestrating AI-driven software development using iterative Claude Code loops. It codifies a workflow inspired by the [Ralph Wiggum technique](https://github.com/ghuntley/how-to-ralph-wiggum) — breaking projects into well-scoped tasks and executing them through tight, single-task loops with fresh context each iteration.
+Springfield is a suite of Rust tools for orchestrating AI-driven software development using iterative AI agent loops. It codifies a workflow inspired by the [Ralph Wiggum technique](https://github.com/ghuntley/how-to-ralph-wiggum) — breaking projects into well-scoped tasks and executing them through tight, single-task loops with fresh context each iteration.
 
 The CLI entry point is `sgf`.
 
@@ -12,7 +12,7 @@ The CLI entry point is `sgf`.
 
 The workflow that Springfield formalizes has been developed through hands-on experience building projects with Claude Code. The current manual process involves:
 
-1. Having a freeform discussion with Claude Code to define what to build (Claude interviews the developer)
+1. Having a freeform discussion with Claude Code to define what to build (Claude interviews the developer, i.e., "let's have a discussion and you can interview me" prompt)
 2. Generating specifications and an implementation plan from that discussion
 3. Running iterative Claude Code loops (via a tool called Ralph) in interactive mode for a few supervised rounds
 4. Switching to AFK mode and letting it run autonomously
@@ -25,7 +25,7 @@ The problems Springfield solves:
 - **Manual orchestration**: switching prompts and kicking off stages by hand
 - **Prompt duplication**: similar prompt files across projects with minor variations
 - **Messy issue tracking**: markdown-based issue logging is unreliable for agents — they struggle with the multi-step process of creating directories, writing files, and following naming conventions
-- **No persistent structured memory**: agents lose context between sessions and have no reliable way to track work items and issues across loop iterations
+- **No persistent structured memory**: agents lose context between sessions and have no reliable, non-markdown way to track work items and issues across loop iterations
 - **No unified monitoring**: no way to observe multiple loops across projects
 
 ---
@@ -38,24 +38,21 @@ The problems Springfield solves:
 springfield/
 ├── Cargo.toml                 (workspace)
 ├── crates/
-│   ├── sgf/                   — CLI binary, entry point
+│   ├── sgf/                   — CLI binary, entry point, scaffolding, prompt assembly
 │   ├── pensa/                 — agent persistent memory (CLI binary + library)
-│   ├── ralph/                 — loop runner (library + binary)
-│   └── harnesser/             — scaffolding, prompt assembly (library only)
+│   └── ralph/                 — loop runner (library + binary)
 ```
 
 ### Components
 
-**`sgf`** — The CLI entry point. All developer interaction goes through this binary. It delegates to the other crates internally.
+**`sgf`** — The CLI entry point. All developer interaction goes through this binary. It delegates to the other crates internally. Also responsible for project scaffolding, prompt assembly, and memento generation. 
+- `sgf init` — generating project structure from templates
+- Prompt assembly — composing base templates with project-specific config, caveats, and pensa CLI instructions
+- Memento generation — scanning project state and specs to build the lookup table
 
 **`pensa`** (Latin: "tasks", singular: pensum) — A Rust CLI that serves as the agent's persistent structured memory. Replaces markdown-based issue logging and implementation plan tracking. Inspired by [beads](https://github.com/steveyegge/beads) but built in Rust with tighter integration into the Springfield workflow. Stores issues and tasks with dependencies, priorities, ownership, and status tracking. Uses SQLite locally with JSONL export for git portability.
 
 **`ralph`** — The loop runner. Executes Claude Code iteratively against a prompt file inside Docker sandboxes. Supports interactive mode (terminal passthrough with notification sounds) and AFK mode (NDJSON stream parsing with formatted output). Exists as both a library crate (called by `sgf build`) and a standalone binary for direct use. Originally developed in the [buddy-ralph](../buddy-ralph/ralph/) project.
-
-**`harnesser`** — A library crate (no standalone binary) responsible for project scaffolding, prompt assembly, and memento generation. Called by `sgf` for:
-- `sgf init` — generating project structure from templates
-- Prompt assembly — composing base templates with project-specific config, caveats, and pensa CLI instructions
-- Memento generation — scanning project state and specs to build the lookup table
 
 ---
 
@@ -148,14 +145,14 @@ specs/                         (prose specification files)
 - Specs index (table mapping each spec to file path, status, and one-line summary)
 - Directory structure with one-liner descriptions
 
-This is the agent's map. It reads the memento, knows where everything is, and dives into specific files only when needed. Dense and scannable, not prose. Generated by harnesser from project state + config.
+This is the agent's map. It reads the memento, knows where everything is, and dives into specific files only when needed. Dense and scannable, not prose. Generated by `sgf` from project state + config.
 
 **`AGENTS.md`** — Hand-authored operational guidance. Contains information that doesn't fit the memento's structured format — code style preferences, runtime notes, special instructions. Linked from CLAUDE.md so Claude Code auto-loads it.
 
 **`CLAUDE.md`** — Entry point for Claude Code. Links to memento.md and AGENTS.md.
 
 **`.harness/config.toml`** — Project-specific configuration:
-- `stack` — project type (rust, typescript, tauri, etc.), used by harnesser to select backpressure templates for memento generation
+- `stack` — project type (rust, typescript, tauri, etc.), used by `sgf` to select backpressure templates for memento generation
 - `prompt_overrides` — project-specific caveats injected into assembled prompts (e.g., "Mac-first builds", "tracer bullets", "gate slow tests behind #[ignore]")
 
 **`specs/`** — Prose specification files (one per topic of concern). These are authored documents — written during the discussion phase, consumed during builds. Indexed in the memento's specs table.
@@ -201,7 +198,7 @@ This same workflow applies to adding new features to an existing project — it'
 
 ### 2. Build (`sgf build`)
 
-Runs a Ralph loop. Harnesser assembles the prompt from:
+Runs a Ralph loop. `sgf` assembles the prompt from:
 - Base build template (shared across all projects)
 - Project config from `.harness/config.toml` (caveats, overrides)
 - Pensa CLI instructions (how to claim tasks, log issues, close work)
@@ -245,7 +242,7 @@ Not a separate `sgf` command — issues are logged by agents during any stage vi
 
 ## Prompt Assembly
 
-Harnesser assembles prompts from composable parts rather than maintaining near-duplicate markdown files:
+`sgf` assembles prompts from composable parts rather than maintaining near-duplicate markdown files:
 
 **Base template** (per stage — build, verify, test-plan):
 - Shared instructions (read memento, one task per iteration, commit when done)
@@ -271,7 +268,7 @@ This eliminates the duplication seen in buddy-ralph's `prompts/building/` direct
 
 **Structured memory over markdown**: Pensa replaces unstructured markdown files for issues and tasks. A single CLI command replaces multi-step file creation. The agent finds this easier and more reliable.
 
-**Prompt composition over duplication**: Harnesser assembles stage-specific prompts from templates + config. Project-specific caveats are configuration, not copy-pasted prompt text.
+**Prompt composition over duplication**: `sgf` assembles stage-specific prompts from templates + config. Project-specific caveats are configuration, not copy-pasted prompt text.
 
 **Backpressure drives quality**: Build, test, lint, and format commands (defined in the memento) are applied after every change. Failed validation forces correction before commits.
 
@@ -283,7 +280,7 @@ This eliminates the duplication seen in buddy-ralph's `prompts/building/` direct
 
 ## Open Questions
 
-- **Build order**: Pensa first (self-contained, agents need it immediately), then harnesser/sgf init (scaffolding), then sgf discuss/build (prompt assembly + ralph integration)?
+- **Build order**: Pensa first (self-contained, agents need it immediately), then sgf init (scaffolding), then sgf discuss/build (prompt assembly + ralph integration)?
 - **Ralph migration**: Copy ralph's code from buddy-ralph into this workspace, or depend on it externally initially?
 - **TUI**: Deferred for now. CLI-first. TUI can be added later as a view layer over the same operations. Desired feel: Neovim-like (modal, keyboard-driven, information-dense, panes for multiple loops).
 - **Multi-project monitoring**: Deferred with TUI. For now, multiple terminals.
