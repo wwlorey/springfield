@@ -331,6 +331,8 @@ This replaces the duplication seen in buddy-ralph's `prompts/building/` director
 
 **Editable prompts over duplication**: `sgf init` seeds prompt templates into the project. Each project owns and can evolve its prompts. No near-duplicate files across projects — one editable copy per stage, per project.
 
+**Search before assuming**: The agent must search the codebase before deciding something isn't implemented. Without this, agents create duplicate implementations. The build prompt must enforce: "don't assume not implemented — search first." This is the single most common failure mode in Ralph loops.
+
 **Backpressure drives quality**: Build, test, lint, and format commands (defined in the memento) are applied after every change. Failed validation forces correction before commits.
 
 **Decentralized projects**: Each project is self-contained. No global state, no central server, no coordination between projects. Run `sgf` from the project directory.
@@ -345,6 +347,13 @@ This replaces the duplication seen in buddy-ralph's `prompts/building/` director
 - **Ralph migration**: Copy ralph's code from buddy-ralph into this workspace, or depend on it externally initially?
 - **TUI**: Deferred for now. CLI-first. TUI can be added later as a view layer over the same operations. Desired feel: Neovim-like (modal, keyboard-driven, information-dense, panes for multiple loops).
 - **Multi-project monitoring**: Deferred with TUI. For now, multiple terminals.
+
+---
+
+## Potential Future Work
+
+- **Context-efficient backpressure**: Swallow all build/test/lint output on success (show only a checkmark), dump full output only on failure. Preserves context window budget. Could be a wrapper script agents call or a prompt-level instruction. See HumanLayer's `run_silent()` pattern.
+- **Claude Code hooks for enforcement**: Use `PreToolUse` / `PostToolUse` hooks to enforce backpressure at the framework level — auto-run linters after file edits, block destructive commands. Defense-in-depth: even if prompt instructions are ignored, hooks still fire. Could be scaffolded into `.sgf/` by `sgf init`.
 
 ---
 
