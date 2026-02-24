@@ -133,8 +133,7 @@ After `sgf init`, a project contains:
 .pensa/
 ├── db.sqlite                  (gitignored)
 └── issues.jsonl               (committed)
-.harness/
-└── config.toml                (committed — stack type, prompt overrides, caveats)
+.sgf                           (committed — stack type, prompt overrides, caveats)
 .pre-commit-config.yaml        (prek hooks for pensa sync)
 memento.md                     (generated lookup table)
 AGENTS.md                      (hand-authored operational guidance)
@@ -156,7 +155,7 @@ This is the agent's map. It reads the memento, knows where everything is, and di
 
 **`CLAUDE.md`** — Entry point for Claude Code. Links to memento.md and AGENTS.md.
 
-**`.harness/config.toml`** — Project-specific configuration:
+**`.sgf`** — Project-specific configuration (TOML):
 - `stack` — project type (rust, typescript, tauri, etc.), used by `sgf` to select backpressure templates for memento generation
 - `prompt_overrides` — project-specific caveats injected into assembled prompts (e.g., "Mac-first builds", "tracer bullets", "gate slow tests behind #[ignore]")
 
@@ -178,7 +177,7 @@ sgf logs <loop-id>             — tail a running loop's output
 
 ### Deployment Model
 
-**Decentralized**: Springfield is project-aware — it reads `.harness/config.toml` from the current working directory. There is no global registry or central config. Each project is self-contained. To work on multiple projects, run `sgf` from each project directory.
+**Decentralized**: Springfield is project-aware — it reads `.sgf` from the current working directory. There is no global registry or central config. Each project is self-contained. To work on multiple projects, run `sgf` from each project directory.
 
 ### Sandboxing
 
@@ -205,7 +204,7 @@ This same workflow applies to adding new features to an existing project — it'
 
 Runs a Ralph loop. `sgf` assembles the prompt from:
 - Base build template (shared across all projects)
-- Project config from `.harness/config.toml` (caveats, overrides)
+- Project config from `.sgf` (caveats, overrides)
 - Pensa CLI instructions (how to claim tasks, log issues, close work)
 
 The assembled prompt tells the agent:
@@ -253,7 +252,7 @@ Not a separate `sgf` command — issues are logged by agents during any stage vi
 - Shared instructions (read memento, one task per iteration, commit when done)
 - Pensa workflow instructions (how to find/claim/close tasks)
 
-**Project config** (from `.harness/config.toml`):
+**Project config** (from `.sgf`):
 - Caveats injected into the prompt (e.g., "Mac-first builds", "tracer bullets")
 - Any prompt overrides
 
