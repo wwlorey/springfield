@@ -374,12 +374,10 @@ This replaces the duplication seen in buddy-ralph's `prompts/building/` director
 
 ---
 
-## Open Questions
+## Resolved Decisions
 
-- **Build order**: Pensa first (self-contained, agents need it immediately), then sgf init (scaffolding), then sgf spec/build (prompt assembly + ralph integration)?
-- **Ralph migration**: Copy ralph's code from buddy-ralph into this workspace, or depend on it externally initially?
-- **TUI**: Deferred for now. CLI-first. TUI can be added later as a view layer over the same operations. Desired feel: Neovim-like (modal, keyboard-driven, information-dense, panes for multiple loops).
-- **Multi-project monitoring**: Deferred with TUI. For now, multiple terminals.
+- **Build order**: Pensa first (self-contained, agents need it immediately), then sgf init (scaffolding), then sgf spec/build (prompt assembly + ralph integration).
+- **Ralph migration**: Copy ralph's code from buddy-ralph into this workspace. Clean break, full ownership.
 
 ---
 
@@ -387,6 +385,8 @@ This replaces the duplication seen in buddy-ralph's `prompts/building/` director
 
 - **Context-efficient backpressure**: Swallow all build/test/lint output on success (show only a checkmark), dump full output only on failure. Preserves context window budget. Could be a wrapper script agents call or a prompt-level instruction. See HumanLayer's `run_silent()` pattern.
 - **Claude Code hooks for enforcement**: Use `PreToolUse` / `PostToolUse` hooks to enforce backpressure at the framework level — auto-run linters after file edits, block destructive commands. Defense-in-depth: even if prompt instructions are ignored, hooks still fire. Could be scaffolded into `.sgf/` by `sgf init`.
+- **TUI**: CLI-first for now. TUI can be added later as a view layer over the same operations. Desired feel: Neovim-like (modal, keyboard-driven, information-dense, panes for multiple loops).
+- **Multi-project monitoring**: Deferred with TUI. For now, multiple terminals.
 
 ---
 
