@@ -50,7 +50,7 @@ springfield/
 - Prompt assembly — composing base templates with project-specific config, caveats, and pensa CLI instructions
 - Memento generation — scanning project state and specs to build the lookup table
 
-**`pensa`** (Latin: "tasks", singular: pensum) — A Rust CLI that serves as the agent's persistent structured memory. Replaces markdown-based issue logging and implementation plan tracking. Inspired by [beads](https://github.com/steveyegge/beads) but built in Rust with tighter integration into the Springfield workflow. Stores issues and tasks with dependencies, priorities, ownership, and status tracking. Uses SQLite locally with JSONL export for git portability.
+**`pensa`** (Latin: "tasks", singular: pensum) — A Rust CLI that serves as the agent's persistent structured memory. Replaces markdown-based issue logging and implementation plan tracking. Inspired by [beads](https://github.com/steveyegge/beads) but built in Rust with tighter integration into the Springfield workflow. Stores issues with tags, dependencies, priorities, ownership, and status tracking. Uses SQLite locally with JSONL export for git portability.
 
 **`ralph`** — The loop runner. Executes Claude Code iteratively against a prompt file inside Docker sandboxes. Supports interactive mode (terminal passthrough with notification sounds) and AFK mode (NDJSON stream parsing with formatted output). Exists as both a library crate (called by `sgf build`) and a standalone binary for direct use. Originally developed in the [buddy-ralph](../buddy-ralph/ralph/) project.
 
@@ -60,7 +60,7 @@ springfield/
 
 ### Purpose
 
-Give agents a CLI-accessible, structured way to log issues and track work items that persists across sessions. A single command like `pn create "login crash on empty password" -p 0` replaces the error-prone multi-step process of creating directories and writing markdown files.
+Give agents a CLI-accessible, structured way to log issues and track work items that persists across sessions. A single command like `pn create "login crash on empty password" -p 0 -t bug` replaces the error-prone multi-step process of creating directories and writing markdown files.
 
 ### Storage Model
 
@@ -72,23 +72,26 @@ Sync is automated via prek (git hooks):
 - **Pre-commit hook**: runs `pn export` to write SQLite → JSONL
 - **Post-merge hook**: runs `pn import` to rebuild JSONL → SQLite
 
-### Entity Types
+### Schema
 
-Two entity types:
-- **Issues** — bugs, problems found during building/verification
-- **Tasks** — implementation plan items, work to be done
+Everything is an issue (following the GitHub model). Issues are distinguished by tags rather than separate entity types.
 
-Both have: ID (hash-based to prevent merge collisions), title, description, status, priority, dependencies, owner, timestamps.
+Each issue has: ID (hash-based to prevent merge collisions), title, description, status, priority, tags, dependencies, owner, timestamps.
+
+**Tags** (freeform, starting set):
+- **`bug`** — problems discovered during build/verify
+- **`task`** — implementation plan items from the discuss phase
+- **`chore`** — tech debt, refactoring, dependency updates, CI fixes
 
 ### CLI Commands
 
 ```
-pn create "title" --type issue|task -p <priority>
-pn ready [--json]              # show unblocked tasks
+pn create "title" -p <priority> [-t bug|task|chore]
+pn ready [--json]              # show unblocked issues
 pn update <id> --claim         # take ownership, mark in-progress
 pn close <id> --reason "..."   # complete with reasoning
 pn show <id> [--json]          # full details + history
-pn list [--json]               # list all
+pn list [--json] [-t <tag>]    # list all, optionally filter by tag
 pn dep add <child> <parent>    # wire up dependencies
 pn sync                        # export SQLite → JSONL
 pn import                      # rebuild SQLite from JSONL
@@ -190,7 +193,7 @@ Opens a Claude Code session with an injected prompt that instructs the agent to 
 When the developer is satisfied the agent understands the requirements, they give a natural language cue (e.g., "looks good, write it up", "go ahead and generate the specs"). The injected prompt has already told the agent what to do at this point:
 1. Write spec files to `specs/`
 2. Update `memento.md` with new spec entries
-3. Create implementation plan items via `pn create`
+3. Create implementation plan items via `pn create -t task`
 
 The prompt makes this deterministic by constraining the decision to a simple trigger: "has the user said go or not?"
 
@@ -209,7 +212,7 @@ The assembled prompt tells the agent:
 3. Claim it with `pn update <id> --claim`
 4. Implement it (one task per iteration)
 5. Apply full backpressure (build, test, lint — per memento)
-6. If issues are discovered: `pn create "description" --type issue`
+6. If issues are discovered: `pn create "description" -t bug`
 7. Close the task: `pn close <id> --reason "..."`
 8. Commit changes
 9. `pn sync`
