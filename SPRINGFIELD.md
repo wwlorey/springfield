@@ -2,7 +2,7 @@
 
 ## What Is Springfield?
 
-Springfield is a suite of Rust tools for orchestrating AI-driven software development using iterative AI agent loops. It codifies a workflow inspired by Geoffrey Huntley and the [Ralph Wiggum technique](https://github.com/ghuntley/how-to-ralph-wiggum) — breaking projects into well-scoped tasks and executing them through tight, single-task loops with fresh context each iteration.
+Springfield is a suite of Rust tools for orchestrating AI-driven software development using iterative agent loops. It codifies a workflow inspired by Geoffrey Huntley and the [Ralph Wiggum technique](https://github.com/ghuntley/how-to-ralph-wiggum) — breaking projects into well-scoped tasks and executing them through tight, single-task loops with fresh context each iteration.
 
 The CLI entry point is `sgf`.
 
