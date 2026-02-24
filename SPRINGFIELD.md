@@ -261,7 +261,7 @@ sgf logs <loop-id>             — tail a running loop's output
 
 ### Sandboxing
 
-All loops run inside Docker sandboxes (same model as Ralph today). The spec phase (`sgf spec`) opens a normal Claude Code session since the human is present and in control.
+All sessions run inside Docker sandboxes, including human-in-the-loop stages like `sgf spec` and `sgf issues log`.
 
 ---
 
@@ -340,11 +340,13 @@ After all test items are closed, a final iteration generates `test-report.md` in
 
 ### 6. Issues Log (`sgf issues log`)
 
-Opens an interactive Claude Code session with the issues prompt. The developer describes bugs they've observed, and the agent interviews them to capture the details — steps to reproduce, expected vs actual behavior, relevant context — then logs each bug to pensa via `pn create -t bug`.
+Runs a Ralph loop using `.sgf/prompts/issues.md`. Each iteration handles one bug:
+1. The developer describes a bug they've observed
+2. The agent interviews them to capture details — steps to reproduce, expected vs actual behavior, relevant context
+3. Logs the bug to pensa via `pn create -t bug`
+4. The session exits and a fresh one spawns
 
-This is a long-running session. The developer keeps the window open and logs bugs as they encounter them. The agent structures and records; the developer describes and moves on.
-
-Like `sgf spec`, this is a human-in-the-loop session — no Docker sandbox.
+One bug per iteration, fresh context each time. The developer describes, the agent captures, the session dies. This prevents context from accumulating across unrelated bugs and keeps each interaction focused.
 
 ### 7. Issues Plan (`sgf issues plan`)
 
@@ -403,7 +405,7 @@ This replaces the duplication seen in buddy-ralph's `prompts/building/` director
 
 **Decentralized projects**: Each project is self-contained. No global state, no central server, no coordination between projects. Run `sgf` from the project directory.
 
-**Sandboxed execution**: All autonomous loops run in Docker sandboxes. Human-in-the-loop sessions (spec) run without sandboxes.
+**Sandboxed execution**: All sessions run in Docker sandboxes — autonomous and human-in-the-loop alike.
 
 ---
 
