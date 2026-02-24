@@ -14,9 +14,12 @@ The workflow that Springfield formalizes has been developed through hands-on exp
 
 1. Running a Claude Code session that interviews the developer, then generates specs and an implementation plan
 2. Running iterative Claude Code loops (via a tool called Ralph) in interactive mode for a few supervised rounds
-4. Switching to AFK mode and letting it run autonomously
-5. Running verification loops that certify the codebase adheres to specs
-6. Running test plan generation loops
+3. Switching to AFK mode and letting it run autonomously
+4. Running verification loops that certify the codebase adheres to specs
+5. Running test plan generation loops
+6. Revising specifications — either because verification revealed gaps or because the developer wants to add/change features — then generating new implementation plan items and re-entering the build cycle
+
+The process is cyclical: discuss → build → verify → revise specs → build again. Step 6 is always human-in-the-loop — the developer re-enters a discussion session to update existing specs and create new plan items for the delta.
 
 Each stage uses a different prompt. Today these prompts are manually selected and kicked off, and live as near-duplicate markdown files across projects.
 
