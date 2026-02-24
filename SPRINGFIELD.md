@@ -16,10 +16,11 @@ The workflow that Springfield formalizes has been developed through hands-on exp
 2. Running iterative Claude Code loops (via a tool called Ralph) in interactive mode for a few supervised rounds
 3. Switching to AFK mode and letting it run autonomously
 4. Running verification loops that certify the codebase adheres to specs
-5. Running test plan generation and verification loops that certify the code functions as intended
-6. Revising specifications — either because verification revealed gaps or because the developer wants to add/change features — then generating new implementation plan items and re-entering the build cycle
+5. Running test plan generation loops that produce test items
+6. Running test execution loops that run the test items and produce a test report
+7. Revising specifications — either because verification revealed gaps or because the developer wants to add/change features — then generating new implementation plan items and re-entering the build cycle
 
-The process is cyclical: discuss → build → verify → revise specs → build again. Step 6 is always human-in-the-loop — the developer re-enters a discussion session to update existing specs and create new plan items for the delta.
+The process is cyclical: discuss → build → verify → revise specs → build again. Step 7 is always human-in-the-loop — the developer re-enters a discussion session to update existing specs and create new plan items for the delta.
 
 Each stage uses a different prompt. Today these prompts are manually selected and kicked off, and live as near-duplicate markdown files across projects.
 
@@ -88,8 +89,9 @@ Each issue has: ID (hash-based to prevent merge collisions), title, description,
 **Statuses**: `open`, `in_progress`, `blocked`, `closed`.
 
 **Tags** (freeform, multiple per issue, starting set):
-- **`bug`** — problems discovered during build/verify
+- **`bug`** — problems discovered during build/verify/test
 - **`task`** — implementation plan items from the spec phase
+- **`test`** — test plan items from the test-plan phase
 - **`chore`** — tech debt, refactoring, dependency updates, CI fixes
 
 No separate labels concept — freeform tags cover what beads splits into `issue_type` + `labels`.
@@ -200,11 +202,14 @@ After `sgf init`, a project contains:
     ├── build.md
     ├── spec.md
     ├── verify.md
-    └── test-plan.md
+    ├── test-plan.md
+    └── test.md
 .pre-commit-config.yaml        (prek hooks for pensa sync)
 memento.md                     (generated lookup table)
 AGENTS.md                      (hand-authored operational guidance)
 CLAUDE.md                      (links to memento + agents)
+test-report.md                 (generated — test execution results)
+verification-report.md         (generated — spec conformance results)
 specs/                         (prose specification files)
 ```
 
@@ -239,6 +244,7 @@ sgf spec                       — generate specs and implementation plan
 sgf build [-a] [iterations]    — run a Ralph loop (interactive or AFK)
 sgf verify                     — run verification loop
 sgf test-plan                  — run test plan generation loop
+sgf test [-a] [iterations]     — run test execution loop (interactive or AFK)
 sgf status                     — show project state (active loops, pensa summary)
 sgf logs <loop-id>             — tail a running loop's output
 ```
@@ -308,8 +314,23 @@ Runs a Ralph loop using `.sgf/prompts/test-plan.md`. The agent:
 1. Studies specs and codebase
 2. Generates a testing plan
 3. Ensures tests are automatable (can be run by agents in loops)
+4. Creates test items via `pn create -t test --spec <stem>`, with dependencies and priorities
 
-### 5. Issue Logging
+### 5. Test (`sgf test`)
+
+Runs a Ralph loop using `.sgf/prompts/test.md`. Mirrors the build pattern — one test per iteration:
+1. Read `memento.md` to orient
+2. Run `pn ready -t test --json` to find the next unblocked test item
+3. Claim it with `pn update <id> --claim`
+4. Execute the test
+5. If failures: `pn create "description" -t bug`
+6. Close the test item: `pn close <id> --reason "..."`
+7. Commit changes
+8. `pn sync`
+
+After all test items are closed, a final iteration generates `test-report.md` in the project root — a summary of all test results, pass/fail status, and any bugs logged.
+
+### 6. Issue Logging
 
 Not a separate `sgf` command — issues are logged by agents during any stage via `pn create`. The agent can also be instructed to log issues during the discussion phase.
 
