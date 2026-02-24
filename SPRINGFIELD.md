@@ -241,10 +241,10 @@ This is the agent's map. It reads the memento, knows where everything is, and di
 ```
 sgf init                       — scaffold a new project
 sgf spec                       — generate specs and implementation plan
-sgf build [-a] [iterations]    — run a Ralph loop (interactive or AFK)
+sgf build [--spec <stem>] [-a] [iterations] — run a Ralph loop (interactive or AFK)
 sgf verify                     — run verification loop
 sgf test-plan                  — run test plan generation loop
-sgf test [-a] [iterations]     — run test execution loop (interactive or AFK)
+sgf test [--spec <stem>] [-a] [iterations] — run test execution loop (interactive or AFK)
 sgf status                     — show project state (active loops, pensa summary)
 sgf logs <loop-id>             — tail a running loop's output
 ```
@@ -284,9 +284,11 @@ Specs are living documents, never sealed/frozen.
 
 ### 2. Build (`sgf build`)
 
-Runs a Ralph loop using `.sgf/prompts/build.md` as the prompt. The prompt tells the agent:
+Runs a Ralph loop using `.sgf/prompts/build.md` as the prompt. Accepts an optional `--spec <stem>` flag to focus on a single spec's tasks. When omitted, the agent works across all specs and open issues.
+
+`sgf` assembles the prompt by injecting the spec filter (if any) into the build template before passing it to Ralph. The prompt tells the agent:
 1. Read `memento.md` to orient
-2. Run `pn ready --json` to find the next unblocked task
+2. Run `pn ready [--spec <stem>] --json` to find the next unblocked task
 3. Claim it with `pn update <id> --claim`
 4. Implement it (one task per iteration)
 5. Apply full backpressure (build, test, lint — per memento)
@@ -318,9 +320,9 @@ Runs a Ralph loop using `.sgf/prompts/test-plan.md`. The agent:
 
 ### 5. Test (`sgf test`)
 
-Runs a Ralph loop using `.sgf/prompts/test.md`. Mirrors the build pattern — one test per iteration:
+Runs a Ralph loop using `.sgf/prompts/test.md`. Accepts an optional `--spec <stem>` flag to focus on a single spec's test items. When omitted, the agent works across all specs. Mirrors the build pattern — one test per iteration:
 1. Read `memento.md` to orient
-2. Run `pn ready -t test --json` to find the next unblocked test item
+2. Run `pn ready -t test [--spec <stem>] --json` to find the next unblocked test item
 3. Claim it with `pn update <id> --claim`
 4. Execute the test
 5. If failures: `pn create "description" -t bug`
