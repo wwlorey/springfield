@@ -81,13 +81,15 @@ Everything is an issue (following the GitHub model, matching beads' single-entit
 
 #### Issues table
 
-Each issue has: ID (hash-based to prevent merge collisions), title, description, status, priority, tags, assignee, timestamps, close_reason.
+Each issue has: ID (hash-based to prevent merge collisions), title, description, status, priority, tags, spec, assignee, timestamps, close_reason.
+
+**`spec`** (optional) — filename stem of the spec this issue implements (e.g., `auth` for `specs/auth.md`). Populated for `task` items, typically absent for `bug` and `chore` items. There is no separate "implementation plan" entity — the living set of tasks linked to a spec *is* the implementation plan for that spec.
 
 **Statuses**: `open`, `in_progress`, `blocked`, `closed`.
 
 **Tags** (freeform, multiple per issue, starting set):
 - **`bug`** — problems discovered during build/verify
-- **`task`** — implementation plan items from the discuss phase
+- **`task`** — implementation plan items from the spec phase
 - **`chore`** — tech debt, refactoring, dependency updates, CI fixes
 
 No separate labels concept — freeform tags cover what beads splits into `issue_type` + `labels`.
@@ -113,8 +115,8 @@ All commands support `--json` for agent consumption.
 #### Working with issues
 
 ```
-pn create "title" [-p <pri>] [-t <tag>] [-a <assignee>] [--description <text>] [--dep <id>]
-pn q "title" [-p <pri>] [-t <tag>]     # quick capture, outputs only ID
+pn create "title" [-p <pri>] [-t <tag>] [-a <assignee>] [--spec <stem>] [--description <text>] [--dep <id>]
+pn q "title" [-p <pri>] [-t <tag>] [--spec <stem>]  # quick capture, outputs only ID
 pn update <id> [--title <t>] [--status <s>] [--priority <p>] [-t <tag>] [-a <assignee>] [--description <d>] [--claim]
 pn close <id> [--reason "..."] [--force]
 pn reopen <id> [--reason "..."]
@@ -125,8 +127,8 @@ pn show <id> [--short]
 #### Views and queries
 
 ```
-pn list [--status <s>] [--priority <p>] [-a <assignee>] [-t <tag>] [--sort <field>] [-n <limit>]
-pn ready [-n <limit>] [-p <pri>] [-a <assignee>] [-t <tag>]
+pn list [--status <s>] [--priority <p>] [-a <assignee>] [-t <tag>] [--spec <stem>] [--sort <field>] [-n <limit>]
+pn ready [-n <limit>] [-p <pri>] [-a <assignee>] [-t <tag>] [--spec <stem>]
 pn blocked
 pn search <query>
 pn count [--by-status] [--by-priority] [--by-type] [--by-assignee]
@@ -258,13 +260,21 @@ All loops run inside Docker sandboxes (same model as Ralph today). The spec phas
 Opens a Claude Code session with the spec prompt. The developer provides an outline of what to build, the agent interviews them to fill in gaps, and then generates both deliverables:
 
 1. Write spec files to `specs/`
-2. Create implementation plan items via `pn create -t task`, with dependencies and priorities
+2. Create implementation plan items via `pn create -t task --spec <stem>`, with dependencies and priorities
 3. Update `memento.md` with new spec entries
 4. Commit and push
 
 The interview and generation happen in a single session. The agent asks clarifying questions as needed, but the goal is always to produce specs and a plan. The prompt instructs the agent to design specs so the result can be end-to-end tested from the command line.
 
-This same workflow applies to adding new features to an existing project — run `sgf spec` again to update specs and create new plan items. Specs are living documents, never sealed/frozen.
+There is no separate "implementation plan" entity. The set of open tasks linked to a spec via `--spec <stem>` *is* the implementation plan for that spec. Querying the plan is just `pn list -t task --spec <stem>`.
+
+**Spec revision**: This same workflow applies to revising existing specs — run `sgf spec` again. When revising, the agent:
+1. Reviews existing tasks for the spec: `pn list --spec <stem> --json`
+2. Closes tasks that are no longer relevant: `pn close <id> --reason "superseded by revised spec"`
+3. Creates new tasks for the delta: `pn create "..." -t task --spec <stem>`
+4. Updates the spec file in `specs/`
+
+Specs are living documents, never sealed/frozen.
 
 ### 2. Build (`sgf build`)
 
@@ -328,6 +338,8 @@ This replaces the duplication seen in buddy-ralph's `prompts/building/` director
 **One task per iteration**: The agent picks one unblocked task, implements it fully, applies backpressure, commits, and exits. The loop restarts with fresh context.
 
 **Structured memory over markdown**: Pensa replaces unstructured markdown files for issues and tasks. A single CLI command replaces multi-step file creation. The agent finds this easier and more reliable.
+
+**Tasks are the plan**: There is no separate "implementation plan" entity. The set of open `task` issues linked to a spec via the `spec` field is the implementation plan for that spec. Revising a spec means closing superseded tasks and creating new ones — the plan is always the current state of pensa, not a document that drifts.
 
 **Editable prompts over duplication**: `sgf init` seeds prompt templates into the project. Each project owns and can evolve its prompts. No near-duplicate files across projects — one editable copy per stage, per project.
 
