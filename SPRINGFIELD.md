@@ -12,9 +12,8 @@ The CLI entry point is `sgf`.
 
 The workflow that Springfield formalizes has been developed through hands-on experience building projects with Claude Code. The current manual process involves:
 
-1. Having a freeform discussion with Claude Code to define what to build (Claude interviews the developer, i.e., "let's have a discussion and you can interview me" prompt)
-2. Generating specifications and an implementation plan from that discussion
-3. Running iterative Claude Code loops (via a tool called Ralph) in interactive mode for a few supervised rounds
+1. Running a Claude Code session that interviews the developer, then generates specs and an implementation plan
+2. Running iterative Claude Code loops (via a tool called Ralph) in interactive mode for a few supervised rounds
 4. Switching to AFK mode and letting it run autonomously
 5. Running verification loops that certify the codebase adheres to specs
 6. Running test plan generation loops
@@ -81,7 +80,7 @@ Each issue has: ID (hash-based to prevent merge collisions), title, description,
 
 **Tags** (freeform, starting set):
 - **`bug`** — problems discovered during build/verify
-- **`task`** — implementation plan items from the discuss phase
+- **`task`** — implementation plan items from the spec phase
 - **`chore`** — tech debt, refactoring, dependency updates, CI fixes
 
 ### CLI Commands
@@ -136,7 +135,7 @@ After `sgf init`, a project contains:
 ├── config.toml                (committed — stack type, project config)
 └── prompts/                   (committed — editable prompt templates)
     ├── build.md
-    ├── discuss.md
+    ├── spec.md
     ├── verify.md
     └── test-plan.md
 .pre-commit-config.yaml        (prek hooks for pensa sync)
@@ -163,9 +162,9 @@ This is the agent's map. It reads the memento, knows where everything is, and di
 **`.sgf/config.toml`** — Project-specific configuration:
 - `stack` — project type (rust, typescript, tauri, etc.), used by `sgf` to select backpressure templates for memento generation
 
-**`.sgf/prompts/`** — Editable prompt templates for each workflow stage (`build.md`, `discuss.md`, `verify.md`, `test-plan.md`). Seeded by `sgf init` from Springfield's built-in templates. Once seeded, the project owns these files — edit them freely to evolve the prompts as you learn what works for the project. To improve defaults for future projects, update the templates in the Springfield repo itself.
+**`.sgf/prompts/`** — Editable prompt templates for each workflow stage (`spec.md`, `build.md`, `verify.md`, `test-plan.md`). Seeded by `sgf init` from Springfield's built-in templates. Once seeded, the project owns these files — edit them freely to evolve the prompts as you learn what works for the project. To improve defaults for future projects, update the templates in the Springfield repo itself.
 
-**`specs/`** — Prose specification files (one per topic of concern). These are authored documents — written during the discussion phase, consumed during builds. Indexed in the memento's specs table.
+**`specs/`** — Prose specification files (one per topic of concern). These are authored documents — written during the spec phase, consumed during builds. Indexed in the memento's specs table.
 
 ---
 
@@ -173,7 +172,7 @@ This is the agent's map. It reads the memento, knows where everything is, and di
 
 ```
 sgf init                       — scaffold a new project
-sgf discuss                    — open Claude Code with discussion prompt
+sgf spec                       — generate specs and implementation plan
 sgf build [-a] [iterations]    — run a Ralph loop (interactive or AFK)
 sgf verify                     — run verification loop
 sgf test-plan                  — run test plan generation loop
@@ -187,24 +186,24 @@ sgf logs <loop-id>             — tail a running loop's output
 
 ### Sandboxing
 
-All loops run inside Docker sandboxes (same model as Ralph today). The discussion phase (`sgf discuss`) opens a normal Claude Code session since the human is present and in control.
+All loops run inside Docker sandboxes (same model as Ralph today). The spec phase (`sgf spec`) opens a normal Claude Code session since the human is present and in control.
 
 ---
 
 ## Workflow Stages
 
-### 1. Discuss (`sgf discuss`)
+### 1. Spec (`sgf spec`)
 
-Opens a Claude Code session with an injected prompt that instructs the agent to interview the developer about what they're building. This is a freeform, human-in-the-loop conversation.
+Opens a Claude Code session with the spec prompt. The developer provides an outline of what to build, the agent interviews them to fill in gaps, and then generates both deliverables:
 
-When the developer is satisfied the agent understands the requirements, they give a natural language cue (e.g., "looks good, write it up", "go ahead and generate the specs"). The injected prompt has already told the agent what to do at this point:
 1. Write spec files to `specs/`
-2. Update `memento.md` with new spec entries
-3. Create implementation plan items via `pn create -t task`
+2. Create implementation plan items via `pn create -t task`, with dependencies and priorities
+3. Update `memento.md` with new spec entries
+4. Commit and push
 
-The prompt makes this deterministic by constraining the decision to a simple trigger: "has the user said go or not?"
+The interview and generation happen in a single session. The agent asks clarifying questions as needed, but the goal is always to produce specs and a plan. The prompt instructs the agent to design specs so the result can be end-to-end tested from the command line.
 
-This same workflow applies to adding new features to an existing project — it's always: discuss → update specs → create plan items. Specs are living documents, never sealed/frozen.
+This same workflow applies to adding new features to an existing project — run `sgf spec` again to update specs and create new plan items. Specs are living documents, never sealed/frozen.
 
 ### 2. Build (`sgf build`)
 
@@ -275,13 +274,13 @@ This replaces the duplication seen in buddy-ralph's `prompts/building/` director
 
 **Decentralized projects**: Each project is self-contained. No global state, no central server, no coordination between projects. Run `sgf` from the project directory.
 
-**Sandboxed execution**: All autonomous loops run in Docker sandboxes. Human-in-the-loop sessions (discuss) run without sandboxes.
+**Sandboxed execution**: All autonomous loops run in Docker sandboxes. Human-in-the-loop sessions (spec) run without sandboxes.
 
 ---
 
 ## Open Questions
 
-- **Build order**: Pensa first (self-contained, agents need it immediately), then sgf init (scaffolding), then sgf discuss/build (prompt assembly + ralph integration)?
+- **Build order**: Pensa first (self-contained, agents need it immediately), then sgf init (scaffolding), then sgf spec/build (prompt assembly + ralph integration)?
 - **Ralph migration**: Copy ralph's code from buddy-ralph into this workspace, or depend on it externally initially?
 - **TUI**: Deferred for now. CLI-first. TUI can be added later as a view layer over the same operations. Desired feel: Neovim-like (modal, keyboard-driven, information-dense, panes for multiple loops).
 - **Multi-project monitoring**: Deferred with TUI. For now, multiple terminals.
