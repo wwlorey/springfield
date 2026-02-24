@@ -100,6 +100,8 @@ No separate labels concept — freeform tags cover what beads splits into `issue
 
 `issue_id`, `depends_on_id` (composite PK). Models blocking relationships. `pn ready` uses this to filter to unblocked issues.
 
+**Bug planning gate**: `pn ready` excludes items tagged `bug` that lack the `planned` tag. An unplanned bug is not ready — it needs to go through the planning loop (`sgf issues plan`) first. This keeps the build loop's prompt simple: it just picks from `pn ready` without any bug-specific conditional logic.
+
 #### Comments table
 
 `issue_id`, `author`, `text`, `created_at`. Agents record observations about issues between fresh-context iterations without overwriting the description.
@@ -203,7 +205,9 @@ After `sgf init`, a project contains:
     ├── spec.md
     ├── verify.md
     ├── test-plan.md
-    └── test.md
+    ├── test.md
+    ├── issues.md
+    └── issues-plan.md
 .pre-commit-config.yaml        (prek hooks for pensa sync)
 memento.md                     (generated lookup table)
 AGENTS.md                      (hand-authored operational guidance)
@@ -245,6 +249,8 @@ sgf build [--spec <stem>] [-a] [iterations] — run a Ralph loop (interactive or
 sgf verify                     — run verification loop
 sgf test-plan                  — run test plan generation loop
 sgf test [--spec <stem>] [-a] [iterations] — run test execution loop (interactive or AFK)
+sgf issues log                 — interactive session for logging bugs
+sgf issues plan [-a] [iterations] — run bug planning loop (AFK)
 sgf status                     — show project state (active loops, pensa summary)
 sgf logs <loop-id>             — tail a running loop's output
 ```
@@ -332,9 +338,34 @@ Runs a Ralph loop using `.sgf/prompts/test.md`. Accepts an optional `--spec <ste
 
 After all test items are closed, a final iteration generates `test-report.md` in the project root — a summary of all test results, pass/fail status, and any bugs logged.
 
-### 6. Issue Logging
+### 6. Issues Log (`sgf issues log`)
 
-Not a separate `sgf` command — issues are logged by agents during any stage via `pn create`. The agent can also be instructed to log issues during the discussion phase.
+Opens an interactive Claude Code session with the issues prompt. The developer describes bugs they've observed, and the agent interviews them to capture the details — steps to reproduce, expected vs actual behavior, relevant context — then logs each bug to pensa via `pn create -t bug`.
+
+This is a long-running session. The developer keeps the window open and logs bugs as they encounter them. The agent structures and records; the developer describes and moves on.
+
+Like `sgf spec`, this is a human-in-the-loop session — no Docker sandbox.
+
+### 7. Issues Plan (`sgf issues plan`)
+
+Runs a Ralph loop using `.sgf/prompts/issues-plan.md`. A separate concurrent process from `sgf build`. The agent:
+1. Read `memento.md` to orient
+2. Run `pn list -t bug --status open --json` to find bugs without a `planned` tag
+3. Pick one unplanned bug
+4. Claim it with `pn update <id> --claim`
+5. Study the codebase — read specs, trace the bug, identify root cause, determine files to modify
+6. Write the implementation plan as a comment: `pn comment add <id> "plan text"`
+7. Add the `planned` tag: `pn update <id> -t planned`
+8. Release the claim: `pn update <id> --status open`
+9. `pn sync`
+
+Each iteration plans one bug. The `planned` tag signals that the bug is ready for implementation. The build loop (`sgf build`) picks up planned bugs via `pn ready` alongside tasks and chores.
+
+**Typical setup**: two terminals running concurrently — `sgf issues plan` producing planned bugs, `sgf build` consuming them alongside other work items. A third terminal with `sgf issues` open for the developer to log new bugs as they're found.
+
+### 8. Inline Issue Logging
+
+Issues are also logged by agents during any stage via `pn create`. The build loop logs bugs it discovers during implementation. The verify loop logs spec gaps. The test loop logs test failures. `sgf issues log` is for developer-reported bugs; inline logging is for agent-discovered bugs.
 
 ---
 
