@@ -72,6 +72,8 @@ Sync is automated via prek (git hooks):
 - **Pre-commit hook**: runs `pn export` to write SQLite → JSONL
 - **Post-merge hook**: runs `pn import` to rebuild JSONL → SQLite
 
+**Why not Dolt?** Dolt (version-controlled SQL database) was evaluated as an alternative that would eliminate the dual-layer sync. However, SQLite + JSONL is the better fit: SQLite is tiny and ubiquitous (no extra binary in Docker sandboxes), JSONL travels with the project's git repo (no second remote like DoltHub needed), and `rusqlite` is a mature Rust integration (vs. shelling out to `dolt sql -q`). Dolt's strengths — native table-level merges, built-in branching — matter more in multi-user scenarios, which Springfield doesn't target. The sync hooks are a few lines of prek config.
+
 ### Schema
 
 Everything is an issue (following the GitHub model). Issues are distinguished by tags rather than separate entity types.
