@@ -51,7 +51,7 @@ springfield/
 **`sgf`** — The CLI entry point. All developer interaction goes through this binary. It delegates to the other crates internally. Also responsible for project scaffolding.
 - `sgf init` — scaffolds project structure: `.sgf/` (config, backpressure, prompts), `.pensa/`, skeleton `memento.md`, empty `specs/README.md`, Claude deny settings for `.sgf/` protection
 
-**`pensa`** (Latin: "tasks", singular: pensum) — A Rust CLI that serves as the agent's persistent structured memory. Replaces markdown-based issue logging and implementation plan tracking. Inspired by [beads](https://github.com/steveyegge/beads) but built in Rust with tighter integration into the Springfield workflow. Stores issues with tags, dependencies, priorities, ownership, and status tracking. Uses SQLite locally with JSONL export for git portability.
+**`pensa`** (Latin: "tasks", singular: pensum) — A Rust CLI that serves as the agent's persistent structured memory. Replaces markdown-based issue logging and implementation plan tracking. Inspired by [beads](https://github.com/steveyegge/beads) but built in Rust with tighter integration into the Springfield workflow. Stores issues with typed classification, dependencies, priorities, ownership, and status tracking. Uses SQLite locally with JSONL export for git portability.
 
 **`ralph`** — The loop runner. Executes Claude Code iteratively against a prompt file inside Docker sandboxes. Supports interactive mode (terminal passthrough with notification sounds) and AFK mode (NDJSON stream parsing with formatted output). Standalone binary — `sgf` invokes it as a subprocess, assembling prompts and passing them as arguments. Originally developed in the [buddy-ralph](../buddy-ralph/ralph/) project; copied into this workspace as a clean break with full ownership.
 
@@ -61,7 +61,7 @@ springfield/
 
 ### Purpose
 
-Give agents a CLI-accessible, structured way to log issues and track work items that persists across sessions. A single command like `pn create "login crash on empty password" -p 0 -t bug` replaces the error-prone multi-step process of creating directories and writing markdown files.
+Give agents a CLI-accessible, structured way to log issues and track work items that persists across sessions. A single command like `pn create "login crash on empty password" -p 0 -t bug` (where `-t` specifies the issue type) replaces the error-prone multi-step process of creating directories and writing markdown files.
 
 ### Storage Model
 
@@ -77,33 +77,33 @@ Sync is automated via prek (git hooks):
 
 ### Schema
 
-Everything is an issue (following the GitHub model, matching beads' single-entity approach). Issues are distinguished by tags rather than separate entity types.
+Everything is an issue (following the GitHub model, matching beads' single-entity approach). Issues are distinguished by `issue_type` — a required enum — rather than separate entity types.
 
 #### Issues table
 
-Each issue has: `id`, `title`, `description`, `status`, `priority`, `tags`, `spec`, `assignee`, `created_at`, `updated_at`, `closed_at`, `close_reason`.
+Each issue has: `id`, `title`, `description`, `issue_type`, `status`, `priority`, `spec`, `fixes`, `assignee`, `created_at`, `updated_at`, `closed_at`, `close_reason`.
 
 **`id`** — Format: `pn-` prefix + 8 hex chars from UUIDv7 (timestamp component + random bytes). Example: `pn-a1b2c3d4`. Short enough for agents to type in commands, collision-resistant across concurrent agents and branches. Not content-based — two agents logging the same bug get different IDs.
 
-**`spec`** (optional) — filename stem of the spec this issue implements (e.g., `auth` for `specs/auth.md`). Populated for `task` items, typically absent for `bug` and `chore` items. There is no separate "implementation plan" entity — the living set of tasks linked to a spec *is* the implementation plan for that spec.
-
-**`priority`** — Integer 0–4. 0 = critical, 4 = low (P0–P4, matching beads convention — smaller number = more urgent).
-
-**Statuses**: `open`, `in_progress`, `blocked`, `closed`.
-
-**Tags** — Stored in a junction table (`issue_tags` with `issue_id` + `tag`). Freeform, multiple per issue. Starting set:
+**`issue_type`** (required) — Enum: `bug`, `task`, `test`, `chore`. Set at creation, immutable after that. Matching beads' `issue_type` concept.
 - **`bug`** — problems discovered during build/verify/test
 - **`task`** — implementation plan items from the spec phase
 - **`test`** — test plan items from the test-plan phase
 - **`chore`** — tech debt, refactoring, dependency updates, CI fixes
 
-No separate labels concept — freeform tags cover what beads splits into `issue_type` + `labels`.
+**`spec`** (optional) — filename stem of the spec this issue implements (e.g., `auth` for `specs/auth.md`). Populated for `task` items, typically absent for `bug` and `chore` items. There is no separate "implementation plan" entity — the living set of tasks linked to a spec *is* the implementation plan for that spec.
+
+**`fixes`** (optional) — ID of a bug that this issue resolves. Set on `task` items created by `sgf issues plan`. When a task with a `fixes` link is closed, the linked bug is automatically closed with reason `"fixed by pn-xxxx"`. Models the same relationship as GitHub's "fixes #123".
+
+**`priority`** — Integer 0–4. 0 = critical, 4 = low (P0–P4, matching beads convention — smaller number = more urgent).
+
+**Statuses**: `open`, `in_progress`, `blocked`, `closed`.
 
 #### Dependencies table
 
 `issue_id`, `depends_on_id` (composite PK). Models blocking relationships. `pn ready` uses this to filter to unblocked issues.
 
-**Bug planning gate**: `pn ready` excludes items tagged `bug` that lack the `planned` tag. An unplanned bug is not ready — it needs to go through the planning loop (`sgf issues plan`) first. This keeps the build loop's prompt simple: it just picks from `pn ready` without any bug-specific conditional logic.
+**Bugs are never "ready"**: `pn ready` only returns items with `issue_type` in (`task`, `test`, `chore`) — bugs are excluded entirely. Bugs are problem reports, not work items. The `sgf issues plan` loop converts bugs into tasks (with a `fixes` link), and those tasks flow through `pn ready` like any other work item.
 
 #### Comments table
 
@@ -124,9 +124,9 @@ All commands support `--json` for agent consumption.
 #### Working with issues
 
 ```
-pn create "title" [-p <pri>] [-t <tag>] [-a <assignee>] [--spec <stem>] [--description <text>] [--dep <id>]
-pn q "title" [-p <pri>] [-t <tag>] [--spec <stem>]  # quick capture, outputs only ID
-pn update <id> [--title <t>] [--status <s>] [--priority <p>] [-t <tag>] [-a <assignee>] [--description <d>] [--claim] [--unclaim]
+pn create "title" -t <issue_type> [-p <pri>] [-a <assignee>] [--spec <stem>] [--fixes <bug-id>] [--description <text>] [--dep <id>]
+pn q "title" -t <issue_type> [-p <pri>] [--spec <stem>]  # quick capture, outputs only ID
+pn update <id> [--title <t>] [--status <s>] [--priority <p>] [-a <assignee>] [--description <d>] [--claim] [--unclaim]
 pn close <id> [--reason "..."] [--force]
 pn reopen <id> [--reason "..."]
 pn release <id>                            # unclaim: set status→open, clear assignee
@@ -137,11 +137,11 @@ pn show <id> [--short]
 #### Views and queries
 
 ```
-pn list [--status <s>] [--priority <p>] [-a <assignee>] [-t <tag>] [--spec <stem>] [--sort <field>] [-n <limit>]
-pn ready [-n <limit>] [-p <pri>] [-a <assignee>] [-t <tag>] [--spec <stem>]
+pn list [--status <s>] [--priority <p>] [-a <assignee>] [-t <issue_type>] [--spec <stem>] [--sort <field>] [-n <limit>]
+pn ready [-n <limit>] [-p <pri>] [-a <assignee>] [-t <issue_type>] [--spec <stem>]
 pn blocked
 pn search <query>                          # substring match on title + description
-pn count [--by-status] [--by-priority] [--by-tag] [--by-assignee]
+pn count [--by-status] [--by-priority] [--by-issue-type] [--by-assignee]
 pn status                               # project health snapshot
 pn history <id>                          # issue change history from audit log
 ```
@@ -308,7 +308,7 @@ Opens a Claude Code session with the spec prompt. The developer provides an outl
 
 The interview and generation happen in a single session. The agent asks clarifying questions as needed, but the goal is always to produce specs and a plan. The prompt instructs the agent to design specs so the result can be end-to-end tested from the command line.
 
-There is no separate "implementation plan" entity. The set of open tasks linked to a spec via `--spec <stem>` *is* the implementation plan for that spec. Querying the plan is just `pn list -t task --spec <stem>`.
+There is no separate "implementation plan" entity. The set of open tasks linked to a spec via `--spec <stem>` *is* the implementation plan for that spec. Querying the plan is just `pn list -t task --spec <stem>` (where `-t` filters by issue type).
 
 **Spec revision**: This same workflow applies to revising existing specs — run `sgf spec` again. **Stop any running build loops before revising specs** to avoid race conditions where in-progress tasks get superseded mid-iteration. When revising, the agent:
 1. Reviews existing tasks for the spec: `pn list --spec <stem> --json`
@@ -383,18 +383,17 @@ One bug per iteration, fresh context each time. The developer describes, the age
 
 Runs a Ralph loop using `.sgf/prompts/issues-plan.md`. A separate concurrent process from `sgf build`. The agent:
 1. Read `memento.md` to orient
-2. Run `pn list -t bug --status open --json` to find bugs without a `planned` tag
+2. Run `pn list -t bug --status open --json` to find bugs without a linked fix task
 3. Pick one unplanned bug
 4. Claim it with `pn update <id> --claim`
 5. Study the codebase — read specs, trace the bug, identify root cause, determine files to modify
-6. Write the implementation plan as a comment: `pn comment add <id> "plan text"`
-7. Add the `planned` tag: `pn update <id> -t planned`
-8. Release the claim: `pn release <id>`
-9. `pn export`
+6. Create a fix task with the plan: `pn create -t task "fix: <description>" --fixes <bug-id> --description "plan text..."`
+7. Release the bug claim: `pn release <id>`
+8. `pn export`
 
-Each iteration plans one bug. The `planned` tag signals that the bug is ready for implementation. The build loop (`sgf build`) picks up planned bugs via `pn ready` alongside tasks and chores.
+Each iteration plans one bug by creating a task that fixes it. The bug stays open as the problem record. The fix task flows through `pn ready` and gets picked up by the build loop. When the build loop closes the fix task, the linked bug is automatically closed with reason `"fixed by pn-xxxx"`.
 
-**Typical setup**: two terminals running concurrently — `sgf issues plan` producing planned bugs, `sgf build` consuming them alongside other work items. A third terminal with `sgf issues` open for the developer to log new bugs as they're found.
+**Typical setup**: two terminals running concurrently — `sgf issues plan` producing fix tasks from bugs, `sgf build` consuming them alongside other work items. A third terminal with `sgf issues` open for the developer to log new bugs as they're found.
 
 ### 8. Inline Issue Logging
 
@@ -450,7 +449,9 @@ This replaces the duplication seen in buddy-ralph's `prompts/building/` director
 - **Ralph migration**: Copy ralph's code from buddy-ralph into this workspace. Clean break, full ownership. Ralph stays as a standalone binary — `sgf` invokes it as a subprocess rather than calling it as a library crate.
 - **ID format**: `pn-` prefix + 8 hex chars from UUIDv7. Not content-based — random component prevents collisions across concurrent agents.
 - **Priority scheme**: Integer 0–4 (P0–P4), matching beads convention. P0 = critical.
-- **Tag storage**: Junction table (`issue_tags`), not comma-separated strings.
+- **Issue classification**: `issue_type` enum column (`bug`, `task`, `test`, `chore`) on the issues table. Not freeform tags — agents get a fixed set of choices. Matches beads' `issue_type` concept. No separate labels feature.
+- **Bug-to-task lifecycle**: Bugs are problem reports, not work items. `sgf issues plan` creates a fix task with `--fixes <bug-id>`. Closing the fix task auto-closes the linked bug. Bugs never appear in `pn ready`.
+- **`-t` flag**: Short flag for `--issue-type` (reuses the former `-t` for tags). Required on `pn create`, filter on `pn list`/`pn ready`.
 - **JSONL structure**: Separate files per entity (`issues.jsonl`, `deps.jsonl`, `comments.jsonl`). Events not exported.
 - **Naming**: `pn export` / `pn import` (directional). No `pn sync` alias. `actor` (not `author`) everywhere.
 - **Report files**: `test-report.md` and `verification-report.md` are overwritten each run and committed to git. Current-state documents, not append logs.
