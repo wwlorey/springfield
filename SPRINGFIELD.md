@@ -61,7 +61,7 @@ springfield/
 
 ### Purpose
 
-Give agents a CLI-accessible, structured way to log issues and track work items that persists across sessions. A single command like `pn create "login crash on empty password" -p 0 -t bug` (where `-t` specifies the issue type) replaces the error-prone multi-step process of creating directories and writing markdown files.
+Give agents a CLI-accessible, structured way to log issues and track work items that persists across sessions. A single command like `pn create "login crash on empty password" -p p0 -t bug` (where `-t` specifies the issue type) replaces the error-prone multi-step process of creating directories and writing markdown files.
 
 ### Storage Model
 
@@ -95,7 +95,7 @@ Each issue has: `id`, `title`, `description`, `issue_type`, `status`, `priority`
 
 **`fixes`** (optional) — ID of a bug that this issue resolves. Set on `task` items created by `sgf issues plan`. When a task with a `fixes` link is closed, the linked bug is automatically closed with reason `"fixed by pn-xxxx"`. Models the same relationship as GitHub's "fixes #123".
 
-**`priority`** — Integer 0–4. 0 = critical, 4 = low (P0–P4, matching beads convention — smaller number = more urgent).
+**`priority`** — Enum: `p0` (critical), `p1` (high), `p2` (normal), `p3` (low). Smaller number = more urgent.
 
 **Statuses**: `open`, `in_progress`, `blocked`, `closed`.
 
@@ -448,7 +448,7 @@ This replaces the duplication seen in buddy-ralph's `prompts/building/` director
 - **Build order**: Pensa first (self-contained, agents need it immediately), then sgf init (scaffolding), then sgf spec/build (prompt assembly + ralph integration).
 - **Ralph migration**: Copy ralph's code from buddy-ralph into this workspace. Clean break, full ownership. Ralph stays as a standalone binary — `sgf` invokes it as a subprocess rather than calling it as a library crate.
 - **ID format**: `pn-` prefix + 8 hex chars from UUIDv7. Not content-based — random component prevents collisions across concurrent agents.
-- **Priority scheme**: Integer 0–4 (P0–P4), matching beads convention. P0 = critical.
+- **Priority scheme**: Enum `p0`–`p3`. P0 = critical, P3 = low. Four levels — no P4.
 - **Issue classification**: `issue_type` enum column (`bug`, `task`, `test`, `chore`) on the issues table. Not freeform tags — agents get a fixed set of choices. Matches beads' `issue_type` concept. No separate labels feature.
 - **Bug-to-task lifecycle**: Bugs are problem reports, not work items. `sgf issues plan` creates a fix task with `--fixes <bug-id>`. Closing the fix task auto-closes the linked bug. Bugs never appear in `pn ready`.
 - **`-t` flag**: Short flag for `--issue-type` (reuses the former `-t` for tags). Required on `pn create`, filter on `pn list`/`pn ready`.
