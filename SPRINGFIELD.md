@@ -43,7 +43,7 @@ springfield/
 ├── crates/
 │   ├── sgf/                   — CLI binary, entry point, scaffolding, prompt assembly
 │   ├── pensa/                 — agent persistent memory (CLI binary + library)
-│   └── ralph/                 — loop runner (library + binary)
+│   └── ralph/                 — loop runner (standalone binary)
 ```
 
 ### Components
@@ -54,7 +54,7 @@ springfield/
 
 **`pensa`** (Latin: "tasks", singular: pensum) — A Rust CLI that serves as the agent's persistent structured memory. Replaces markdown-based issue logging and implementation plan tracking. Inspired by [beads](https://github.com/steveyegge/beads) but built in Rust with tighter integration into the Springfield workflow. Stores issues with tags, dependencies, priorities, ownership, and status tracking. Uses SQLite locally with JSONL export for git portability.
 
-**`ralph`** — The loop runner. Executes Claude Code iteratively against a prompt file inside Docker sandboxes. Supports interactive mode (terminal passthrough with notification sounds) and AFK mode (NDJSON stream parsing with formatted output). Exists as both a library crate (called by `sgf build`) and a standalone binary for direct use. Originally developed in the [buddy-ralph](../buddy-ralph/ralph/) project.
+**`ralph`** — The loop runner. Executes Claude Code iteratively against a prompt file inside Docker sandboxes. Supports interactive mode (terminal passthrough with notification sounds) and AFK mode (NDJSON stream parsing with formatted output). Standalone binary — `sgf` invokes it as a subprocess, assembling prompts and passing them as arguments. Originally developed in the [buddy-ralph](../buddy-ralph/ralph/) project; copied into this workspace as a clean break with full ownership.
 
 ---
 
@@ -68,7 +68,7 @@ Give agents a CLI-accessible, structured way to log issues and track work items 
 
 Dual-layer storage (same pattern as beads):
 - **`.pensa/db.sqlite`** — the working database, gitignored. Rebuilt from JSONL on clone.
-- **`.pensa/issues.jsonl`** — the git-committed export. Human-readable, diffs cleanly.
+- **`.pensa/*.jsonl`** — the git-committed exports. Separate files per entity: `issues.jsonl`, `deps.jsonl`, `comments.jsonl`. Events are not exported (derivable from issue history, avoids monotonic file growth). Human-readable, diffs cleanly.
 
 Sync is automated via prek (git hooks):
 - **Pre-commit hook**: runs `pn export` to write SQLite → JSONL
@@ -82,13 +82,17 @@ Everything is an issue (following the GitHub model, matching beads' single-entit
 
 #### Issues table
 
-Each issue has: ID (hash-based to prevent merge collisions), title, description, status, priority, tags, spec, assignee, timestamps, close_reason.
+Each issue has: `id`, `title`, `description`, `status`, `priority`, `tags`, `spec`, `assignee`, `created_at`, `updated_at`, `closed_at`, `close_reason`.
+
+**`id`** — Format: `pn-` prefix + 8 hex chars from UUIDv7 (timestamp component + random bytes). Example: `pn-a1b2c3d4`. Short enough for agents to type in commands, collision-resistant across concurrent agents and branches. Not content-based — two agents logging the same bug get different IDs.
 
 **`spec`** (optional) — filename stem of the spec this issue implements (e.g., `auth` for `specs/auth.md`). Populated for `task` items, typically absent for `bug` and `chore` items. There is no separate "implementation plan" entity — the living set of tasks linked to a spec *is* the implementation plan for that spec.
 
+**`priority`** — Integer 0–4. 0 = critical, 4 = low (P0–P4, matching beads convention — smaller number = more urgent).
+
 **Statuses**: `open`, `in_progress`, `blocked`, `closed`.
 
-**Tags** (freeform, multiple per issue, starting set):
+**Tags** — Stored in a junction table (`issue_tags` with `issue_id` + `tag`). Freeform, multiple per issue. Starting set:
 - **`bug`** — problems discovered during build/verify/test
 - **`task`** — implementation plan items from the spec phase
 - **`test`** — test plan items from the test-plan phase
@@ -104,7 +108,7 @@ No separate labels concept — freeform tags cover what beads splits into `issue
 
 #### Comments table
 
-`issue_id`, `author`, `text`, `created_at`. Agents record observations about issues between fresh-context iterations without overwriting the description.
+`id` (hash-based, same format as issue IDs), `issue_id`, `actor`, `text`, `created_at`. Agents record observations about issues between fresh-context iterations without overwriting the description.
 
 #### Events table (audit log)
 
@@ -116,14 +120,17 @@ All commands support `--json` for agent consumption.
 
 **Global flags**: `--actor <name>` (who is running this command — for audit trail; resolution: `--actor` flag > `PN_ACTOR` env var > `git config user.name` > `$USER`).
 
+**`--claim`** is shorthand for `--status in_progress -a <current_actor>`. **`--unclaim`** is shorthand for `--status open -a ""`. **`pn release <id>`** is an alias for `pn update <id> --unclaim`.
+
 #### Working with issues
 
 ```
 pn create "title" [-p <pri>] [-t <tag>] [-a <assignee>] [--spec <stem>] [--description <text>] [--dep <id>]
 pn q "title" [-p <pri>] [-t <tag>] [--spec <stem>]  # quick capture, outputs only ID
-pn update <id> [--title <t>] [--status <s>] [--priority <p>] [-t <tag>] [-a <assignee>] [--description <d>] [--claim]
+pn update <id> [--title <t>] [--status <s>] [--priority <p>] [-t <tag>] [-a <assignee>] [--description <d>] [--claim] [--unclaim]
 pn close <id> [--reason "..."] [--force]
 pn reopen <id> [--reason "..."]
+pn release <id>                            # unclaim: set status→open, clear assignee
 pn delete <id> [--force]
 pn show <id> [--short]
 ```
@@ -134,8 +141,8 @@ pn show <id> [--short]
 pn list [--status <s>] [--priority <p>] [-a <assignee>] [-t <tag>] [--spec <stem>] [--sort <field>] [-n <limit>]
 pn ready [-n <limit>] [-p <pri>] [-a <assignee>] [-t <tag>] [--spec <stem>]
 pn blocked
-pn search <query>
-pn count [--by-status] [--by-priority] [--by-type] [--by-assignee]
+pn search <query>                          # substring match on title + description
+pn count [--by-status] [--by-priority] [--by-tag] [--by-assignee]
 pn status                               # project health snapshot
 pn history <id>                          # issue change history from audit log
 ```
@@ -160,9 +167,9 @@ pn comment list <id>
 #### Data and maintenance
 
 ```
-pn sync                                  # export SQLite → JSONL
-pn import                                # rebuild SQLite from JSONL
-pn doctor [--fix]                        # health checks and auto-repair
+pn export                                # SQLite → JSONL (issues.jsonl, deps.jsonl, comments.jsonl)
+pn import                                # JSONL → SQLite (rebuild from committed files)
+pn doctor [--fix]                        # health checks: stale claims (in_progress >30min), orphaned deps, sync drift. --fix releases stale claims and repairs integrity.
 pn where                                 # show .pensa/ directory path
 ```
 
@@ -185,7 +192,7 @@ repos:
         entry: pn import
         language: system
         always_run: true
-        stages: [post-merge]
+        stages: [post-merge, post-checkout, post-rewrite]
 ```
 
 ---
@@ -197,7 +204,9 @@ After `sgf init`, a project contains:
 ```
 .pensa/
 ├── db.sqlite                  (gitignored)
-└── issues.jsonl               (committed)
+├── issues.jsonl               (committed)
+├── deps.jsonl                 (committed)
+└── comments.jsonl             (committed)
 .sgf/
 ├── config.toml                (committed — stack type, project config)
 └── prompts/                   (committed — editable prompt templates)
@@ -212,8 +221,8 @@ After `sgf init`, a project contains:
 memento.md                     (generated lookup table)
 AGENTS.md                      (hand-authored operational guidance)
 CLAUDE.md                      (links to memento + agents)
-test-report.md                 (generated — test execution results)
-verification-report.md         (generated — spec conformance results)
+test-report.md                 (generated — overwritten each run, committed)
+verification-report.md         (generated — overwritten each run, committed)
 specs/                         (prose specification files)
 ```
 
@@ -232,7 +241,10 @@ This is the agent's map. It reads the memento, knows where everything is, and di
 **`CLAUDE.md`** — Entry point for Claude Code. Links to memento.md and AGENTS.md (via `ln -s`).
 
 **`.sgf/config.toml`** — Project-specific configuration:
-- `stack` — project type (rust, typescript, tauri, etc.), used by `sgf` to select backpressure templates for memento generation
+- `stack` — project type (rust, typescript, tauri, go, etc.), used by `sgf` to select backpressure templates for memento generation
+- `docker_template` — Docker sandbox template name (default per stack preset)
+- `auto_push` — whether loops auto-push after commits (default: `true`)
+- `default_iterations` — default iteration count for AFK loops (default: `25`)
 
 **`.sgf/prompts/`** — Editable prompt templates for each workflow stage (`spec.md`, `build.md`, `verify.md`, `test-plan.md`). Seeded by `sgf init` from Springfield's built-in templates. Once seeded, the project owns these files — edit them freely to evolve the prompts as you learn what works for the project. To improve defaults for future projects, update the templates in the Springfield repo itself.
 
@@ -243,7 +255,7 @@ This is the agent's map. It reads the memento, knows where everything is, and di
 ## SGF Commands
 
 ```
-sgf init                       — scaffold a new project
+sgf init [--stack <type>]       — scaffold a new project (interactive preset selection, or --stack flag)
 sgf spec                       — generate specs and implementation plan
 sgf build [--spec <stem>] [-a] [iterations] — run a Ralph loop (interactive or AFK)
 sgf verify                     — run verification loop
@@ -267,6 +279,10 @@ All sessions run inside Docker sandboxes, including human-in-the-loop stages lik
 
 ## Workflow Stages
 
+**Stage transitions are human-initiated.** The developer decides when to move between stages. Suggested heuristics: run verify when `pn ready --spec <stem>` returns nothing (all tasks for a spec are done); run test-plan after verify passes; run test after test-plan produces test items. These are guidelines, not gates.
+
+**Concurrency model**: Multiple loops (e.g., `sgf build` + `sgf issues plan`) can run concurrently on the same branch. SQLite provides atomic claims (`UPDATE ... WHERE status = 'open'` prevents double-claiming). `pn export` runs at commit time via the pre-commit hook. If `git push` fails due to a concurrent commit, the loop should `git pull --rebase` and retry. Stop build loops before running `sgf spec` to avoid task-supersession race conditions.
+
 ### 1. Spec (`sgf spec`)
 
 Opens a Claude Code session with the spec prompt. The developer provides an outline of what to build, the agent interviews them to fill in gaps, and then generates both deliverables:
@@ -280,11 +296,12 @@ The interview and generation happen in a single session. The agent asks clarifyi
 
 There is no separate "implementation plan" entity. The set of open tasks linked to a spec via `--spec <stem>` *is* the implementation plan for that spec. Querying the plan is just `pn list -t task --spec <stem>`.
 
-**Spec revision**: This same workflow applies to revising existing specs — run `sgf spec` again. When revising, the agent:
+**Spec revision**: This same workflow applies to revising existing specs — run `sgf spec` again. **Stop any running build loops before revising specs** to avoid race conditions where in-progress tasks get superseded mid-iteration. When revising, the agent:
 1. Reviews existing tasks for the spec: `pn list --spec <stem> --json`
 2. Closes tasks that are no longer relevant: `pn close <id> --reason "superseded by revised spec"`
 3. Creates new tasks for the delta: `pn create "..." -t task --spec <stem>`
 4. Updates the spec file in `specs/`
+5. Restart build loops after revision is committed
 
 Specs are living documents, never sealed/frozen.
 
@@ -301,7 +318,7 @@ Runs a Ralph loop using `.sgf/prompts/build.md` as the prompt. Accepts an option
 6. If issues are discovered: `pn create "description" -t bug`
 7. Close the task: `pn close <id> --reason "..."`
 8. Commit changes
-9. `pn sync`
+9. `pn export`
 
 Each iteration gets fresh context. The pensa database persists state between iterations.
 
@@ -334,7 +351,7 @@ Runs a Ralph loop using `.sgf/prompts/test.md`. Accepts an optional `--spec <ste
 5. If failures: `pn create "description" -t bug`
 6. Close the test item: `pn close <id> --reason "..."`
 7. Commit changes
-8. `pn sync`
+8. `pn export`
 
 After all test items are closed, a final iteration generates `test-report.md` in the project root — a summary of all test results, pass/fail status, and any bugs logged.
 
@@ -358,8 +375,8 @@ Runs a Ralph loop using `.sgf/prompts/issues-plan.md`. A separate concurrent pro
 5. Study the codebase — read specs, trace the bug, identify root cause, determine files to modify
 6. Write the implementation plan as a comment: `pn comment add <id> "plan text"`
 7. Add the `planned` tag: `pn update <id> -t planned`
-8. Release the claim: `pn update <id> --status open`
-9. `pn sync`
+8. Release the claim: `pn release <id>`
+9. `pn export`
 
 Each iteration plans one bug. The `planned` tag signals that the bug is ready for implementation. The build loop (`sgf build`) picks up planned bugs via `pn ready` alongside tasks and chores.
 
@@ -412,7 +429,17 @@ This replaces the duplication seen in buddy-ralph's `prompts/building/` director
 ## Resolved Decisions
 
 - **Build order**: Pensa first (self-contained, agents need it immediately), then sgf init (scaffolding), then sgf spec/build (prompt assembly + ralph integration).
-- **Ralph migration**: Copy ralph's code from buddy-ralph into this workspace. Clean break, full ownership.
+- **Ralph migration**: Copy ralph's code from buddy-ralph into this workspace. Clean break, full ownership. Ralph stays as a standalone binary — `sgf` invokes it as a subprocess rather than calling it as a library crate.
+- **ID format**: `pn-` prefix + 8 hex chars from UUIDv7. Not content-based — random component prevents collisions across concurrent agents.
+- **Priority scheme**: Integer 0–4 (P0–P4), matching beads convention. P0 = critical.
+- **Tag storage**: Junction table (`issue_tags`), not comma-separated strings.
+- **JSONL structure**: Separate files per entity (`issues.jsonl`, `deps.jsonl`, `comments.jsonl`). Events not exported.
+- **Naming**: `pn export` / `pn import` (directional). No `pn sync` alias. `actor` (not `author`) everywhere.
+- **Report files**: `test-report.md` and `verification-report.md` are overwritten each run and committed to git. Current-state documents, not append logs.
+- **Stage transitions**: Human-initiated, not automated gates.
+- **Concurrency**: Concurrent loops on same branch. Atomic claims via SQLite. Pull-rebase-retry on push conflicts.
+- **Spec revision protocol**: Stop build loops before revising specs. Restart after revision is committed.
+- **sgf init**: Interactive preset selection or `--stack <type>` flag. Presets define backpressure templates and Docker defaults.
 
 ---
 
