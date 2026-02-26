@@ -145,6 +145,10 @@ Sync is automated via prek (git hooks):
 - **Pre-commit hook**: runs `pn export` to write SQLite → JSONL
 - **Post-merge hook**: runs `pn import` to rebuild JSONL → SQLite
 
+**Runtime sharing model**: All concurrent loops share a single `.pensa/db.sqlite` via bind-mounted host directory. SQLite uses the default DELETE journal mode (not WAL — WAL requires shared memory via mmap, which breaks across Docker Desktop's VirtioFS boundary). A busy timeout (`PRAGMA busy_timeout=5000`) handles the rare case of simultaneous access. Pensa's write operations are brief and infrequent (a few per minute across all loops), so serialized writes are effectively invisible. JSONL files are the git-portable layer — they capture a snapshot at commit time via `pn export` and are never read at runtime by concurrent loops. On clone or post-merge, `pn import` rebuilds SQLite from JSONL.
+
+*Note: Docker Desktop on macOS/Windows uses VirtioFS, which has [known file-locking limitations](https://github.com/docker/for-mac/issues/7004). Springfield's low write frequency makes contention practically unlikely, but concurrent loops are most reliable on native Linux Docker.*
+
 **Why not Dolt?** Dolt (version-controlled SQL database) was evaluated as an alternative that would eliminate the dual-layer sync. However, SQLite + JSONL is the better fit: SQLite is tiny and ubiquitous (no extra binary in Docker sandboxes), JSONL travels with the project's git repo (no second remote like DoltHub needed), and `rusqlite` is a mature Rust integration (vs. shelling out to `dolt sql -q`). Dolt's strengths — native table-level merges, built-in branching — matter more in multi-user scenarios, which Springfield doesn't target. The sync hooks are a few lines of prek config.
 
 ### Schema
@@ -539,6 +543,7 @@ This replaces the duplication seen in buddy-ralph's `prompts/building/` director
 - **Spec index location**: `specs/README.md`, matching loom's format. Agent-maintained `| Spec | Code | Purpose |` tables.
 - **Backpressure location**: `.sgf/backpressure.md`. Generated from stack templates by `sgf init`, developer-editable, agent-readonly.
 - **`.sgf/` protection**: Claude deny settings (`.claude/settings.json`), scaffolded by `sgf init`. Framework-level enforcement, not prompt-level.
+- **SQLite journal mode**: DELETE (default), not WAL. WAL requires shared memory via mmap, which breaks across Docker Desktop's VirtioFS boundary. DELETE mode with `busy_timeout=5000` is sufficient for Springfield's low write frequency. Bind-mounted host directory enables atomic claims across concurrent loops.
 
 ---
 

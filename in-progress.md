@@ -4,9 +4,9 @@
 
 ## Systems Unification & Operation
 
-- [ ] **State the SQLite/JSONL/git consistency model** — One sentence: "All concurrent loops share a single `.pensa/db.sqlite` via bind-mounted host directory. WAL mode enables concurrent access." Without this, the concurrent loop design is internally contradictory.
 - [ ] **Define `pn ready` empty-result behavior** — Specify what happens when no tasks are available: agent outputs a sentinel (e.g., `SGF_LOOP_COMPLETE`), ralph recognizes it and terminates the loop cleanly.
 
-## Concurrency & Failure Modes
+## Agent Ergonomics & Developer Experience
 
-- [ ] **Mandate WAL mode and busy timeout** — Spec should require `PRAGMA journal_mode=WAL` and `PRAGMA busy_timeout=5000` on database creation. Without busy timeout, concurrent loops get intermittent `SQLITE_BUSY` errors.
+- [ ] **Specify backpressure error recovery protocol** — Define retry policy (e.g., "fix once per validation step; if second run fails, log bug, unclaim task"). Add circuit breaker for cascading failures. This is the most complex part of the loop and currently gets one sentence.
+

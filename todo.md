@@ -42,7 +42,6 @@ Findings from four-agent spec review. Tackle outside this conversation.
 - [ ] **Handle rebase conflicts** — Specify retry count (e.g., 3). On conflict: `git rebase --abort`, re-export JSONL from SQLite, create fresh commit, retry push. If conflict is in source code, iteration is failed — release task and move on.
 - [ ] **Make `pn export` rebase-aware** — During rebase (detect via `.git/rebase-merge/`), skip export. Post-rebase: run `pn export` once for the final state.
 - [ ] **Address JSONL merge conflicts** — Guaranteed to happen with concurrent loops. Options: (a) custom git merge driver for `*.jsonl`, (b) post-rebase unconditional `pn export` rebuild treating SQLite as sole source of truth, (c) both. Option (b) is simplest.
-- [ ] **Specify SQLite persistence model across Docker sandboxes** — Bind-mount from host? Rebuilt each iteration via `pn import`? This determines whether atomic claims work across concurrent loops. Document the chosen model.
 - [ ] **Handle dirty working tree at iteration start** — Ralph should discard uncommitted changes (`git checkout -- .`) from crashed previous iterations before starting work. Document: "Work is only preserved when committed."
 - [ ] **Specify Claude Code crash behavior** — Non-zero exit from Claude Code = iteration failed. Ralph logs failure, discards uncommitted changes, proceeds to next iteration. Document whether ralph releases the claim or lets doctor handle it.
 - [ ] **Document single-branch concurrency model** — Explicitly state that branch-based workflows (feature branches both modifying pensa) require manual JSONL conflict resolution or a custom merge driver. All concurrent work happens on one branch.
@@ -53,7 +52,6 @@ Findings from four-agent spec review. Tackle outside this conversation.
 
 ## Agent Ergonomics & Developer Experience
 
-- [ ] **Specify backpressure error recovery protocol** — Define retry policy (e.g., "fix once per validation step; if second run fails, log bug, unclaim task"). Add circuit breaker for cascading failures. This is the most complex part of the loop and currently gets one sentence.
 - [ ] **Mandate failure comments for inter-iteration learning** — Build prompt must require: before dying on failure, `pn comment add <id> "Attempted: <what>. Failed: <why>."`. Next iteration checks `pn comment list <id>` after claiming.
 - [ ] **Document `--json` output schema** — Specify envelope format (`{"ok": bool, "data": ..., "error": ...}`), that errors with `--json` go to stdout as JSON, and field names for each command's response.
 - [ ] **Add task sizing guidance to spec phase** — "Each task should be completable in a single iteration — roughly one file or one logical change. If >3-4 files, split it." Add a task-splitting protocol for build agents.
