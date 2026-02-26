@@ -145,7 +145,7 @@ Sync is automated via prek (git hooks):
 - **Pre-commit hook**: runs `pn export` to write SQLite → JSONL
 - **Post-merge hook**: runs `pn import` to rebuild JSONL → SQLite
 
-**Runtime sharing model**: All concurrent loops share a single `.pensa/db.sqlite` via bind-mounted host directory. SQLite uses the default DELETE journal mode (not WAL — WAL requires shared memory via mmap, which breaks across Docker Desktop's VirtioFS boundary). A busy timeout (`PRAGMA busy_timeout=5000`) handles the rare case of simultaneous access. Pensa's write operations are brief and infrequent (a few per minute across all loops), so serialized writes are effectively invisible. JSONL files are the git-portable layer — they capture a snapshot at commit time via `pn export` and are never read at runtime by concurrent loops. On clone or post-merge, `pn import` rebuilds SQLite from JSONL.
+**Runtime sharing model**: All concurrent loops share a single `.pensa/db.sqlite` via bind-mounted host directory. SQLite uses the default DELETE journal mode (not WAL — WAL requires shared memory via mmap, which breaks across Docker Desktop's VirtioFS boundary). Pensa sets these pragmas on every connection: `busy_timeout=5000` (retries for 5s on lock contention instead of failing immediately) and `foreign_keys=ON` (enforces referential integrity for deps and comments). Pensa's write operations are brief and infrequent (a few per minute across all loops), so serialized writes are effectively invisible. JSONL files are the git-portable layer — they capture a snapshot at commit time via `pn export` and are never read at runtime by concurrent loops. On clone or post-merge, `pn import` rebuilds SQLite from JSONL.
 
 *Note: Docker Desktop on macOS/Windows uses VirtioFS, which has [known file-locking limitations](https://github.com/docker/for-mac/issues/7004). Springfield's low write frequency makes contention practically unlikely, but concurrent loops are most reliable on native Linux Docker.*
 
@@ -214,7 +214,7 @@ pn show <id> [--short]
 
 ```
 pn list [--status <s>] [--priority <p>] [-a <assignee>] [-t <issue_type>] [--spec <stem>] [--sort <field>] [-n <limit>]
-pn ready [-n <limit>] [-p <pri>] [-a <assignee>] [-t <issue_type>] [--spec <stem>]
+pn ready [-n <limit>] [-p <pri>] [-a <assignee>] [-t <issue_type>] [--spec <stem>]  # returns [] when nothing matches
 pn blocked
 pn search <query>                          # substring match on title + description
 pn count [--by-status] [--by-priority] [--by-issue-type] [--by-assignee]
@@ -405,7 +405,7 @@ Runs a Ralph loop using `.sgf/prompts/build.md` as the prompt. Accepts an option
 
 `sgf` assembles the prompt by injecting the spec filter (if any) into the build template before passing it to Ralph. The prompt tells the agent:
 1. Read `memento.md` to orient
-2. Run `pn ready [--spec <stem>] --json` to find the next unblocked task
+2. Run `pn ready [--spec <stem>] --json` to find the next unblocked task. If empty, create `.ralph-complete` and exit — the loop is finished.
 3. Claim it with `pn update <id> --claim`
 4. Implement it (one task per iteration)
 5. Apply full backpressure (build, test, lint — per `.sgf/backpressure.md`)
@@ -439,7 +439,7 @@ Runs a Ralph loop using `.sgf/prompts/test-plan.md`. The agent:
 
 Runs a Ralph loop using `.sgf/prompts/test.md`. Accepts an optional `--spec <stem>` flag to focus on a single spec's test items. When omitted, the agent works across all specs. Mirrors the build pattern — one test per iteration:
 1. Read `memento.md` to orient
-2. Run `pn ready -t test [--spec <stem>] --json` to find the next unblocked test item
+2. Run `pn ready -t test [--spec <stem>] --json` to find the next unblocked test item. If empty, create `.ralph-complete` and exit — the loop is finished.
 3. Claim it with `pn update <id> --claim`
 4. Execute the test
 5. If failures: `pn create "description" -t bug`
@@ -463,7 +463,7 @@ One bug per iteration, fresh context each time. The developer describes, the age
 
 Runs a Ralph loop using `.sgf/prompts/issues-plan.md`. A separate concurrent process from `sgf build`. The agent:
 1. Read `memento.md` to orient
-2. Run `pn list -t bug --status open --json` to find bugs without a linked fix task
+2. Run `pn list -t bug --status open --json` to find bugs without a linked fix task. If none, create `.ralph-complete` and exit — the loop is finished.
 3. Pick one unplanned bug
 4. Claim it with `pn update <id> --claim`
 5. Study the codebase — read specs, trace the bug, identify root cause, determine files to modify
@@ -509,59 +509,4 @@ This replaces the duplication seen in buddy-ralph's `prompts/building/` director
 
 **Editable prompts over duplication**: `sgf init` seeds prompt templates into the project. Each project owns and can evolve its prompts. No near-duplicate files across projects — one editable copy per stage, per project.
 
-**Search before assuming**: The agent must search the codebase before deciding something isn't implemented. Without this, agents create duplicate implementations. The build prompt must enforce: "don't assume not implemented — search first." This is the single most common failure mode in Ralph loops.
-
-**Backpressure drives quality**: Build, test, lint, and format commands (defined in `.sgf/backpressure.md`) are applied after every change. Failed validation forces correction before commits.
-
-**Thin memento, rich references**: The memento is a table of contents — it contains references to backpressure, the spec index, and pensa, not the content itself. What evolves is the referenced files; the memento is written once by `sgf init` and rarely changes. Matches the loom pattern.
-
-**Scaffolding is protected**: The `.sgf/` directory (prompts, backpressure, config) is developer-owned and agent-readonly, enforced via Claude deny settings. Agents read these files but cannot modify them.
-
-**Decentralized projects**: Each project is self-contained. No global state, no central server, no coordination between projects. Run `sgf` from the project directory.
-
-**Sandboxed execution**: All sessions run in Docker sandboxes — autonomous and human-in-the-loop alike.
-
----
-
-## Resolved Decisions
-
-- **Build order**: Pensa first (self-contained, agents need it immediately), then sgf init (scaffolding), then sgf spec/build (prompt assembly + ralph integration).
-- **Ralph migration**: Copy ralph's code from buddy-ralph into this workspace. Clean break, full ownership. Ralph stays as a standalone binary — `sgf` invokes it as a subprocess rather than calling it as a library crate.
-- **ID format**: `pn-` prefix + 8 hex chars from UUIDv7. Not content-based — random component prevents collisions across concurrent agents.
-- **Priority scheme**: Enum `p0`–`p3`. P0 = critical, P3 = low. Four levels — no P4.
-- **Issue classification**: `issue_type` enum column (`bug`, `task`, `test`, `chore`) on the issues table. Not freeform tags — agents get a fixed set of choices. Matches beads' `issue_type` concept. No separate labels feature.
-- **Bug-to-task lifecycle**: Bugs are problem reports, not work items. `sgf issues plan` creates a fix task with `--fixes <bug-id>`. Closing the fix task auto-closes the linked bug. Bugs never appear in `pn ready`.
-- **`-t` flag**: Short flag for `--issue-type` (reuses the former `-t` for tags). Required on `pn create`, filter on `pn list`/`pn ready`.
-- **JSONL structure**: Separate files per entity (`issues.jsonl`, `deps.jsonl`, `comments.jsonl`). Events not exported.
-- **Naming**: `pn export` / `pn import` (directional). No `pn sync` alias. `actor` (not `author`) everywhere.
-- **Report files**: `test-report.md` and `verification-report.md` are overwritten each run and committed to git. Current-state documents, not append logs.
-- **Stage transitions**: Human-initiated, not automated gates.
-- **Concurrency**: Concurrent loops on same branch. Atomic claims via SQLite. Pull-rebase-retry on push conflicts.
-- **Spec revision protocol**: Stop build loops before revising specs. Restart after revision is committed.
-- **sgf init**: Interactive preset selection or `--stack <type>` flag. Presets define backpressure templates and Docker defaults. Scaffolds Claude deny settings for `.sgf/` protection.
-- **Memento model**: Thin reference document pointing to `specs/README.md`, `.sgf/backpressure.md`, and pensa. Not a content-heavy generated file. Written once by `sgf init`, rarely modified after.
-- **Spec index location**: `specs/README.md`, matching loom's format. Agent-maintained `| Spec | Code | Purpose |` tables.
-- **Backpressure location**: `.sgf/backpressure.md`. Generated from stack templates by `sgf init`, developer-editable, agent-readonly.
-- **`.sgf/` protection**: Claude deny settings (`.claude/settings.json`), scaffolded by `sgf init`. Framework-level enforcement, not prompt-level.
-- **SQLite journal mode**: DELETE (default), not WAL. WAL requires shared memory via mmap, which breaks across Docker Desktop's VirtioFS boundary. DELETE mode with `busy_timeout=5000` is sufficient for Springfield's low write frequency. Bind-mounted host directory enables atomic claims across concurrent loops.
-
----
-
-## Potential Future Work
-
-- **Context-efficient backpressure**: Swallow all build/test/lint output on success (show only a checkmark), dump full output only on failure. Preserves context window budget. Could be a wrapper script agents call or a prompt-level instruction. See HumanLayer's `run_silent()` pattern.
-- **Claude Code hooks for enforcement**: Use `PreToolUse` / `PostToolUse` hooks to enforce backpressure at the framework level — auto-run linters after file edits, block destructive commands. Defense-in-depth: even if prompt instructions are ignored, hooks still fire. Could be scaffolded into `.sgf/` by `sgf init`.
-- **TUI**: CLI-first for now. TUI can be added later as a view layer over the same operations. Desired feel: Neovim-like (modal, keyboard-driven, information-dense, panes for multiple loops).
-- **Multi-project monitoring**: Deferred with TUI. For now, multiple terminals.
-
----
-
-## References
-
-- [Ralph Wiggum technique](https://github.com/ghuntley/how-to-ralph-wiggum)
-- [Beads — graph issue tracker for AI agents](https://github.com/steveyegge/beads)
-- [Dolt — version-controlled SQL database](https://github.com/dolthub/dolt)
-- [prek — Rust-based git hook manager](https://github.com/j178/prek)
-- [Ralph implementation (buddy-ralph)](../buddy-ralph/ralph/)
-- [buddy-ralph project structure](../buddy-ralph/) — reference implementation of the manual workflow Springfield codifies
-- [Loom specs/README.md](https://github.com/ghuntley/loom/blob/trunk/specs/README.md) — reference format for spec index tables
+**Search before assuming**: The agent must search the codebase before deciding something isn't implemented. Without this, agents create duplicate implementations. The build prompt must enforce: "don't assume not implemented — search first." This is the single most common failure mode in Ra
