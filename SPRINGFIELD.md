@@ -97,7 +97,7 @@ Each issue has: `id`, `title`, `description`, `issue_type`, `status`, `priority`
 
 **`priority`** — Enum: `p0` (critical), `p1` (high), `p2` (normal), `p3` (low). Smaller number = more urgent.
 
-**Statuses**: `open`, `in_progress`, `blocked`, `closed`.
+**Statuses**: `open`, `in_progress`, `closed`.
 
 #### Dependencies table
 
