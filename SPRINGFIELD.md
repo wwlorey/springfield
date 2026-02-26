@@ -55,6 +55,78 @@ springfield/
 
 **`ralph`** — The loop runner. Executes Claude Code iteratively against a prompt file inside Docker sandboxes. Supports interactive mode (terminal passthrough with notification sounds) and AFK mode (NDJSON stream parsing with formatted output). Standalone binary — `sgf` invokes it as a subprocess, assembling prompts and passing them as arguments. Originally developed in the [buddy-ralph](../buddy-ralph/ralph/) project; copied into this workspace as a clean break with full ownership.
 
+### sgf-to-ralph Contract
+
+Ralph is template-unaware. `sgf` owns all prompt assembly — it reads the template from `.sgf/prompts/<stage>.md`, substitutes variables, writes the result to `.sgf/prompts/.assembled/<stage>.md`, and passes that file path to ralph. Ralph receives a final prompt and runs it.
+
+#### Invocation
+
+```
+sgf → ralph [-a] [--loop-id ID] [--template T] [--auto-push BOOL] [--max-iterations N] ITERATIONS PROMPT
+```
+
+`sgf` reads `.sgf/config.toml` and translates settings into CLI flags. Ralph does not read config files — all configuration arrives via flags.
+
+#### CLI Flags
+
+| Flag | Type | Source | Description |
+|------|------|--------|-------------|
+| `-a` / `--afk` | bool | sgf command (e.g., `sgf build -a`) | AFK mode: NDJSON stream parsing with formatted output |
+| `--loop-id` | string | sgf-generated | Unique identifier for this loop run (see Loop ID format below) |
+| `--template` | string | `config.toml → docker_template` | Docker sandbox template image |
+| `--auto-push` | bool | `config.toml → auto_push` | Auto-push after commits |
+| `--max-iterations` | u32 | `config.toml → default_iterations` | Safety limit for iterations |
+| `--command` | string | (testing only) | Override executable for testing |
+| `ITERATIONS` | u32 | sgf command args or `config.toml → default_iterations` | Number of iterations to run |
+| `PROMPT` | path | `.sgf/prompts/.assembled/<stage>.md` | Assembled prompt file |
+
+#### Exit Codes
+
+| Code | Meaning | sgf response |
+|------|---------|--------------|
+| `0` | Sentinel found (`.ralph-complete`) — loop completed its work | Log success, clean up |
+| `1` | Error (bad args, missing prompt, etc.) | Log error, alert developer |
+| `2` | Iterations exhausted — may have remaining work | Developer decides: re-launch or stop |
+| `130` | Interrupted (SIGINT/SIGTERM) | Log interruption, clean up |
+
+Claude Code crashes (non-zero exit from a single iteration) and push failures are handled within ralph as warnings — they do not produce distinct exit codes. Ralph logs the failure and continues to the next iteration.
+
+#### Completion Sentinel
+
+The agent creates a `.ralph-complete` file when `pn ready` returns no tasks. Ralph checks for this file after each iteration. If found, ralph deletes it, performs a final auto-push (if enabled), and exits with code `0`.
+
+#### Prompt Assembly
+
+`sgf` handles all prompt templating before invoking ralph:
+
+1. Read the template from `.sgf/prompts/<stage>.md`
+2. Substitute variables (e.g., spec filter, stage-specific flags)
+3. Write the assembled prompt to `.sgf/prompts/.assembled/<stage>.md`
+4. Pass the file path as ralph's `PROMPT` argument
+
+The `.assembled/` directory is gitignored. Assembled prompts persist for debugging — inspect what was actually sent to the agent.
+
+#### Loop ID Format
+
+`sgf` generates loop IDs with the pattern: `<stage>[-<spec>]-<YYYYMMDDTHHmmss>`
+
+Examples:
+- `build-auth-20260226T143000` (build loop filtered to auth spec)
+- `verify-20260226T150000` (verify loop, no spec filter)
+- `issues-plan-20260226T160000` (issues plan loop)
+
+Ralph includes the loop ID in log output. `sgf logs` uses the loop ID to locate log files.
+
+#### Logging
+
+`sgf` tees ralph's stdout to both the terminal and `.sgf/logs/<loop-id>.log`. Ralph owns formatting — in AFK mode it emits human-readable one-liners (tool calls, text blocks); in interactive mode it passes through the terminal. `sgf` does not parse ralph's output.
+
+The `.sgf/logs/` directory is gitignored.
+
+#### Recovery
+
+Ralph does not perform iteration-start cleanup. Recovery from crashed iterations (dirty working tree, stale claims) is handled externally — either manually by the developer or by `sgf` before re-launching a loop. See the recovery procedure documentation.
+
 ---
 
 ## Pensa — Agent Persistent Memory
@@ -209,14 +281,18 @@ After `sgf init`, a project contains:
 .sgf/
 ├── config.toml                (committed — stack type, project config)
 ├── backpressure.md            (committed — build/test/lint/format commands)
-└── prompts/                   (committed — editable prompt templates)
-    ├── build.md
+├── logs/                      (gitignored — AFK loop output)
+│   └── <loop-id>.log
+└── prompts/
+    ├── build.md               (committed — editable prompt templates)
     ├── spec.md
     ├── verify.md
     ├── test-plan.md
     ├── test.md
     ├── issues.md
-    └── issues-plan.md
+    ├── issues-plan.md
+    └── .assembled/            (gitignored — assembled prompts for debugging)
+        └── <stage>.md
 .pre-commit-config.yaml        (prek hooks for pensa sync)
 memento.md                     (committed — thin reference document)
 AGENTS.md                      (hand-authored operational guidance)

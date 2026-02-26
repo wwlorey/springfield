@@ -21,12 +21,9 @@ Findings from four-agent spec review. Tackle outside this conversation.
 
 ## Systems Unification & Operation
 
-- [ ] **Specify sgf-to-ralph CLI contract** — Define ralph's arguments, exit codes, NDJSON stream schema, and prompt templating mechanism (variable syntax, required placeholders). This is the primary integration seam and currently gets one sentence.
-- [ ] **Define `pn ready` empty-result behavior** — Specify what happens when no tasks are available: agent outputs a sentinel (e.g., `SGF_LOOP_COMPLETE`), ralph recognizes it and terminates the loop cleanly.
 - [ ] **Add `sgf stop` command** — No way to cleanly stop a running loop. Should send SIGTERM to ralph, which completes/aborts current iteration, releases claimed task, and exits.
 - [ ] **Specify sandbox environment** — Document what is bind-mounted into Docker containers, what binaries are available inside (pn, git, build tools), and what operations happen inside vs. outside.
 - [ ] **Clarify pre-commit hook staging** — Does the hook also `git add .pensa/*.jsonl`? If not, exports won't be committed. Remove explicit `pn export` from agent prompts (hook handles it) or document why both are needed.
-- [ ] **State the SQLite/JSONL/git consistency model** — One sentence: "All concurrent loops share a single `.pensa/db.sqlite` via bind-mounted host directory. WAL mode enables concurrent access." Without this, the concurrent loop design is internally contradictory.
 - [ ] **Define prompt template variable syntax** — Document which variables exist in which prompts, and have `sgf` validate that required variables are present before launching a loop.
 - [ ] **Specify `sgf status` output** — Show running loops (iteration count, last task), pensa summary (open/in_progress/closed by type), recent activity.
 - [ ] **Specify `sgf logs` behavior** — What it shows (raw output, NDJSON, pensa mutations), where AFK logs are stored, how long retained.
@@ -39,7 +36,6 @@ Findings from four-agent spec review. Tackle outside this conversation.
 
 ## Concurrency & Failure Modes
 
-- [ ] **Mandate WAL mode and busy timeout** — Spec should require `PRAGMA journal_mode=WAL` and `PRAGMA busy_timeout=5000` on database creation. Without busy timeout, concurrent loops get intermittent `SQLITE_BUSY` errors.
 - [ ] **Run `pn doctor --fix` at iteration start** — Ralph should automatically release stale claims before `pn ready`. Costs one query, prevents stuck tasks from crashed iterations.
 - [ ] **Replace 30-min stale threshold with heartbeat** — Fixed timeout is too aggressive (Rust builds can exceed 30min). Ralph should periodically touch `updated_at` on claimed tasks; doctor checks `updated_at` staleness instead of claim time.
 - [ ] **Add atomic `pn claim-next` command** — Combines `pn ready` + `pn update --claim` in a single transaction, eliminating the TOCTOU race window. Returns either a claimed task or "nothing available."
