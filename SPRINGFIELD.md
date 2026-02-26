@@ -377,6 +377,26 @@ All sessions run inside Docker sandboxes, including human-in-the-loop stages lik
 
 **Concurrency model**: Multiple loops (e.g., `sgf build` + `sgf issues plan`) can run concurrently on the same branch. SQLite provides atomic claims (`UPDATE ... WHERE status = 'open'` prevents double-claiming). `pn export` runs at commit time via the pre-commit hook. If `git push` fails due to a concurrent commit, the loop should `git pull --rebase` and retry. Stop build loops before running `sgf spec` to avoid task-supersession race conditions.
 
+### Standard Loop Iteration
+
+Build, Test, and Issues Plan stages share a common iteration pattern. Each iteration:
+
+1. **Orient** — read `memento.md`
+2. **Query** — find the next work item via pensa. If none, write `.ralph-complete` and exit — the loop is finished.
+3. **Claim** — `pn update <id> --claim`
+4. **Work** — stage-specific (see below)
+5. **Log issues** — if problems are discovered: `pn create "description" -t bug`
+6. **Close/release** — close or release the work item
+7. **Commit** — commit all changes (the pre-commit hook runs `pn export` automatically, syncing SQLite to JSONL)
+
+Each iteration gets fresh context. The pensa database persists state between iterations. The stages differ only in their query, work, and close steps:
+
+| Stage | Query | Work | Close |
+|-------|-------|------|-------|
+| Build | `pn ready [--spec <stem>] --json` | Implement the task; apply backpressure (build, test, lint per `.sgf/backpressure.md`) | `pn close <id> --reason "..."` |
+| Test | `pn ready -t test [--spec <stem>] --json` | Execute the test | `pn close <id> --reason "..."` |
+| Issues Plan | `pn list -t bug --status open --json` (no linked fix) | Study codebase, create fix task: `pn create -t task "fix: ..." --fixes <bug-id>` | `pn release <id>` (bug stays open) |
+
 ### 1. Spec (`sgf spec`)
 
 Opens a Claude Code session with the spec prompt. The developer provides an outline of what to build, the agent interviews them to fill in gaps, and then generates both deliverables:
@@ -401,20 +421,9 @@ Specs are living documents, never sealed/frozen.
 
 ### 2. Build (`sgf build`)
 
-Runs a Ralph loop using `.sgf/prompts/build.md` as the prompt. Accepts an optional `--spec <stem>` flag to focus on a single spec's tasks. When omitted, the agent works across all specs and open issues.
+Follows the standard loop iteration. Runs a Ralph loop using `.sgf/prompts/build.md`. Accepts an optional `--spec <stem>` flag to focus on a single spec's tasks. When omitted, the agent works across all specs and open issues.
 
-`sgf` assembles the prompt by injecting the spec filter (if any) into the build template before passing it to Ralph. The prompt tells the agent:
-1. Read `memento.md` to orient
-2. Run `pn ready [--spec <stem>] --json` to find the next unblocked task. If empty, create `.ralph-complete` and exit — the loop is finished.
-3. Claim it with `pn update <id> --claim`
-4. Implement it (one task per iteration)
-5. Apply full backpressure (build, test, lint — per `.sgf/backpressure.md`)
-6. If issues are discovered: `pn create "description" -t bug`
-7. Close the task: `pn close <id> --reason "..."`
-8. Commit changes
-9. `pn export`
-
-Each iteration gets fresh context. The pensa database persists state between iterations.
+`sgf` assembles the prompt by injecting the spec filter (if any) into the build template before passing it to Ralph. The build stage adds **backpressure** to the work step — after implementing the task, the agent runs build, test, and lint commands per `.sgf/backpressure.md` before committing.
 
 Run interactively first for a few supervised rounds, then switch to AFK mode (`-a`) for autonomous execution.
 
@@ -437,15 +446,7 @@ Runs a Ralph loop using `.sgf/prompts/test-plan.md`. The agent:
 
 ### 5. Test (`sgf test`)
 
-Runs a Ralph loop using `.sgf/prompts/test.md`. Accepts an optional `--spec <stem>` flag to focus on a single spec's test items. When omitted, the agent works across all specs. Mirrors the build pattern — one test per iteration:
-1. Read `memento.md` to orient
-2. Run `pn ready -t test [--spec <stem>] --json` to find the next unblocked test item. If empty, create `.ralph-complete` and exit — the loop is finished.
-3. Claim it with `pn update <id> --claim`
-4. Execute the test
-5. If failures: `pn create "description" -t bug`
-6. Close the test item: `pn close <id> --reason "..."`
-7. Commit changes
-8. `pn export`
+Follows the standard loop iteration. Runs a Ralph loop using `.sgf/prompts/test.md`. Accepts an optional `--spec <stem>` flag to focus on a single spec's test items. When omitted, the agent works across all specs.
 
 After all test items are closed, a final iteration generates `test-report.md` in the project root — a summary of all test results, pass/fail status, and any bugs logged.
 
@@ -461,17 +462,9 @@ One bug per iteration, fresh context each time. The developer describes, the age
 
 ### 7. Issues Plan (`sgf issues plan`)
 
-Runs a Ralph loop using `.sgf/prompts/issues-plan.md`. A separate concurrent process from `sgf build`. The agent:
-1. Read `memento.md` to orient
-2. Run `pn list -t bug --status open --json` to find bugs without a linked fix task. If none, create `.ralph-complete` and exit — the loop is finished.
-3. Pick one unplanned bug
-4. Claim it with `pn update <id> --claim`
-5. Study the codebase — read specs, trace the bug, identify root cause, determine files to modify
-6. Create a fix task with the plan: `pn create -t task "fix: <description>" --fixes <bug-id> --description "plan text..."`
-7. Release the bug claim: `pn release <id>`
-8. `pn export`
+Follows the standard loop iteration. Runs a Ralph loop using `.sgf/prompts/issues-plan.md`. A separate concurrent process from `sgf build`.
 
-Each iteration plans one bug by creating a task that fixes it. The bug stays open as the problem record. The fix task flows through `pn ready` and gets picked up by the build loop. When the build loop closes the fix task, the linked bug is automatically closed with reason `"fixed by pn-xxxx"`.
+Unlike build and test, the close step uses `pn release <id>` — the bug stays open as the problem record. The work step creates a fix task (`pn create -t task "fix: ..." --fixes <bug-id>`) that flows through `pn ready` and gets picked up by the build loop. When the build loop closes the fix task, the linked bug is automatically closed with reason `"fixed by pn-xxxx"`.
 
 **Typical setup**: two terminals running concurrently — `sgf issues plan` producing fix tasks from bugs, `sgf build` consuming them alongside other work items. A third terminal with `sgf issues` open for the developer to log new bugs as they're found.
 
