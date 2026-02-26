@@ -14,7 +14,6 @@ Findings from four-agent spec review. Tackle outside this conversation.
 - [ ] **Condense "Why not Dolt?"** — 5 lines justifying a made decision. Condense to one parenthetical.
 - [ ] **Trim Design Principles section** — 80% restates earlier content. Keep "Search before assuming" and 1-2 others that add new insight. Reference earlier sections for the rest.
 - [ ] **Condense memento lifecycle** — 4 bullets to say "doesn't change after init." Replace with one sentence.
-- [ ] **Factor out loop boilerplate** — Build, Test, and Issues Plan stages repeat the same 8-step pattern. Define the "standard loop iteration" once, then each stage references it with its specifics.
 - [ ] **Condense Future Work items 2-3** — Claude Code hooks and TUI entries are over-detailed for aspirational items. One line each.
 
 ---
