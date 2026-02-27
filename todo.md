@@ -12,7 +12,6 @@ Findings from four-agent spec review. Tackle outside this conversation.
 
 ## Systems Unification & Operation
 
-- [ ] **Specify `sgf logs` behavior** — What it shows (raw output, NDJSON, pensa mutations), where AFK logs are stored, how long retained.
 ---
 
 ---
