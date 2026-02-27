@@ -41,7 +41,7 @@ The problems Springfield solves:
 springfield/
 ├── Cargo.toml                 (workspace)
 ├── crates/
-│   ├── sgf/                   — CLI binary, entry point, scaffolding, prompt assembly
+│   ├── springfield/           — CLI binary, entry point, scaffolding, prompt assembly
 │   ├── pensa/                 — agent persistent memory (CLI binary + library)
 │   └── ralph/                 — loop runner (standalone binary)
 ```

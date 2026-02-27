@@ -1,4 +1,4 @@
-# sgf Specification
+# springfield Specification
 
 CLI entry point for Springfield. All developer interaction goes through this binary. It handles project scaffolding, prompt assembly, loop orchestration, recovery, and daemon lifecycle. Delegates iteration execution to ralph and persistent memory to pensa.
 
@@ -63,7 +63,7 @@ Scaffolds a new project. Takes no arguments.
     └── .assembled/                    (empty, gitignored)
 .claude/settings.json                  (deny rules for .sgf/**)
 .pre-commit-config.yaml                (prek hooks for pensa sync)
-.gitignore                             (additions for .pensa/db.sqlite, .sgf/logs/, .sgf/run/, .sgf/prompts/.assembled/, .ralph-complete, .ralph-ding)
+.gitignore                             (Springfield entries + stack-specific entries)
 memento.md                             (skeleton reference document)
 CLAUDE.md                              (links to memento + AGENTS.md)
 specs/
@@ -112,6 +112,33 @@ repos:
 ```
 
 If `.pre-commit-config.yaml` already exists, `sgf init` appends the pensa hooks without duplicating them.
+
+### Gitignore
+
+`sgf init` creates `.gitignore` or appends entries to an existing one. Entries are added idempotently — existing lines are not duplicated.
+
+#### Entries added
+
+```gitignore
+# Springfield
+.pensa/db.sqlite
+.sgf/logs/
+.sgf/run/
+.sgf/prompts/.assembled/
+.ralph-complete
+.ralph-ding
+
+# Rust
+/target
+
+# Node
+node_modules/
+
+# SvelteKit
+.svelte-kit/
+```
+
+All entries are always added regardless of what exists in the directory. If an entry already exists anywhere in the file, it is not added again.
 
 ### Skeleton memento.md
 
