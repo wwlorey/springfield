@@ -455,7 +455,7 @@ Build, Test, and Issues Plan stages share a common iteration pattern. Each itera
 4. **Work** — stage-specific (see below)
 5. **Log issues** — if problems are discovered: `pn create "description" -t bug`
 6. **Close/release** — close or release the work item
-7. **Commit** — commit all changes (the pre-commit hook runs `pn export` automatically, syncing SQLite to JSONL)
+7. **Commit** — prefix the commit message with `[<task-id>]` (e.g., `[pn-a1b2c3d4] Implement login validation`). The pre-commit hook runs `pn export` automatically, syncing SQLite to JSONL. The prefix enables `git log --grep` for per-task history.
 
 Each iteration gets fresh context. The pensa database persists state between iterations. The stages differ only in their query, work, and close steps:
 
