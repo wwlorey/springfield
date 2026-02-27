@@ -300,25 +300,7 @@ The `code` field is present only when there's a machine-readable error code. Kno
 
 ### Git Hooks (via prek)
 
-[prek](https://github.com/j178/prek) is used for git hook management. `.pre-commit-config.yaml`:
-
-```yaml
-repos:
-  - repo: local
-    hooks:
-      - id: pensa-export
-        name: Export pensa DB to JSONL
-        entry: pn export
-        language: system
-        always_run: true
-        stages: [pre-commit]
-      - id: pensa-import
-        name: Import JSONL to pensa DB
-        entry: pn import
-        language: system
-        always_run: true
-        stages: [post-merge, post-checkout, post-rewrite]
-```
+[prek](https://github.com/j178/prek) manages git hooks via `.pre-commit-config.yaml`. Two hooks automate pensa sync: a pre-commit hook runs `pn export` (SQLite → JSONL before every commit), and post-merge/post-checkout/post-rewrite hooks run `pn import` (JSONL → SQLite after pulls and rebases).
 
 ---
 
