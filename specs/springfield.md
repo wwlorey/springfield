@@ -501,7 +501,7 @@ And the implementation plan should END with:
 
 IMPORTANT:
 - **The spec should be designed so that the result can be end-to-end tested from the command line.** If more tools are required to achieve this, make that known.
-- **Commit and push the changes when finished.**
+- **Commit the changes when finished.**
 ```
 
 ### build.md
