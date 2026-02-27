@@ -9,13 +9,11 @@ Implementation plan for the `pn` CLI and daemon, based on [`specs/pensa.md`](spe
 Install all tools referenced in [`AGENTS.md`](AGENTS.md) and verify the workspace builds.
 
 - ✅ Install Rust toolchain (stable) and confirm `rustup show` reports a valid toolchain
-- Install `cargo-geiger` for unsafe code detection: `cargo install cargo-geiger`
-  - Referenced in `AGENTS.md`: "Detect unsafe code usage: `cargo geiger`"
 - ✅ Confirm existing workspace compiles: `cargo build --workspace`
 - ✅ Confirm existing tests pass: `cargo test --workspace`
 - ✅ Confirm linting passes: `cargo clippy --workspace -- -D warnings`
 - ✅ Confirm formatting: `cargo fmt --all --check`
-- **Note:** The workspace declares `edition = "2024"` in [`Cargo.toml:7`](Cargo.toml). This requires Rust 1.85+. Verify the installed toolchain supports it; if not, either update the toolchain or change to `edition = "2021"`.
+- **Note:** The workspace declares `edition = "2024"` in [`Cargo.toml:7`](Cargo.toml). This requires Rust 1.85+.
 
 ---
 
@@ -23,36 +21,12 @@ Install all tools referenced in [`AGENTS.md`](AGENTS.md) and verify the workspac
 
 Create the `crates/pensa/` directory structure and `Cargo.toml`.
 
-- ✅ Create `crates/pensa/Cargo.toml` following the pattern in [`crates/ralph/Cargo.toml`](crates/ralph/Cargo.toml):
-  - `name = "pensa"`, inherit `version`, `edition`, `license` from workspace
-  - Define `[[bin]] name = "pn"` pointing to `src/main.rs`
-  - Dependencies (per [`specs/pensa.md:49-53`](specs/pensa.md) — Technology choices):
-    - `axum` — daemon HTTP server
-    - `tokio` with `full` features — async runtime for axum
-    - `reqwest` with `blocking` feature — CLI HTTP client
-    - `rusqlite` with `bundled` feature — SQLite with bundled driver
-    - `clap` with `derive` and `env` features — CLI argument parsing
-    - `serde` with `derive` feature — serialization
-    - `serde_json` — JSON serialization
-    - `uuid` with `v7` feature — UUIDv7 for ID generation ([`specs/pensa.md:81`](specs/pensa.md))
-    - `tracing` and `tracing-subscriber` — structured logging per `AGENTS.md` code style
-    - `chrono` with `serde` feature — ISO 8601 timestamp handling ([`specs/pensa.md:139-141`](specs/pensa.md))
-  - Dev-dependencies:
-    - `tempfile` — test isolation (following [`crates/ralph/Cargo.toml:19`](crates/ralph/Cargo.toml))
-    - `assert_cmd` — CLI integration testing
-    - `predicates` — assertion helpers for CLI output
-    - `tokio-test` or `tokio` (with `test-util`) — async test support
-- ✅ Create source files (not just stubs — includes Phase 2 types, id gen, error types):
-  - `crates/pensa/src/main.rs` — binary entry point with clap CLI skeleton (daemon, where subcommands)
-  - `crates/pensa/src/lib.rs` — module declarations
-  - `crates/pensa/src/types.rs` — Issue, Comment, Event, Dep, DepTreeNode, enums
-  - `crates/pensa/src/id.rs` — UUIDv7-based ID generation with tests
-  - `crates/pensa/src/error.rs` — PensaError enum, ErrorResponse
-- ✅ Verify the new crate compiles: `cargo build -p pensa`
-- ✅ Verify the workspace still compiles: `cargo build --workspace`
-- ✅ All tests pass: `cargo test --workspace` (34 tests)
-- ✅ Clippy clean: `cargo clippy --workspace -- -D warnings`
-- ✅ Formatting clean: `cargo fmt --all --check`
+- ✅ `crates/pensa/Cargo.toml` — `name = "pensa"`, `[[bin]] name = "pn"`, all deps declared
+- ✅ `crates/pensa/src/main.rs` — clap skeleton (daemon, where subcommands)
+- ✅ `crates/pensa/src/lib.rs` — module declarations
+- ✅ `crates/pensa/src/types.rs` — Issue, Comment, Event, Dep, DepTreeNode, enums
+- ✅ `crates/pensa/src/id.rs` — UUIDv7-based ID generation with 2 unit tests
+- ✅ `crates/pensa/src/error.rs` — PensaError enum, ErrorResponse
 
 ### Lessons learned
 
@@ -62,163 +36,354 @@ Create the `crates/pensa/` directory structure and `Cargo.toml`.
 
 ## Phase 2: Shared Types & ID Generation ✅ (completed as part of Phase 1)
 
-Define the core domain types that both daemon and CLI share.
-
-- **Source:** [`specs/pensa.md:59-141`](specs/pensa.md) — Schema section
-- Create `crates/pensa/src/types.rs`:
-  - `IssueType` enum: `Bug`, `Task`, `Test`, `Chore` — with serde rename to lowercase ([`specs/pensa.md:68`](specs/pensa.md))
-  - `Status` enum: `Open`, `InProgress`, `Closed` — matching CHECK constraint ([`specs/pensa.md:69`](specs/pensa.md))
-  - `Priority` enum: `P0`, `P1`, `P2`, `P3` — with `Ord` impl where P0 < P1 < P2 < P3 ([`specs/pensa.md:93`](specs/pensa.md))
-  - `Issue` struct — all fields from the issues table, with `Option<T>` for nullable fields ([`specs/pensa.md:64-78`](specs/pensa.md), [`specs/pensa.md:309`](specs/pensa.md))
-  - `Comment` struct — id, issue_id, actor, text, created_at ([`specs/pensa.md:113-119`](specs/pensa.md))
-  - `Event` struct — id, issue_id, event_type, actor, detail, created_at ([`specs/pensa.md:127-134`](specs/pensa.md))
-  - `Dep` struct — issue_id, depends_on_id ([`specs/pensa.md:100-106`](specs/pensa.md))
-  - `DepTreeNode` struct — id, title, status, priority, issue_type, depth ([`specs/pensa.md:300`](specs/pensa.md))
-  - Serde: derive `Serialize`, `Deserialize` on all types; use `#[serde(skip_serializing_if = "Option::is_none")]` for optional fields ([`specs/pensa.md:309`](specs/pensa.md) — "Absent optional fields are omitted")
-- Create `crates/pensa/src/id.rs`:
-  - `generate_id() -> String` — produce `pn-` + 8 hex chars from UUIDv7 ([`specs/pensa.md:81`](specs/pensa.md))
-- Create `crates/pensa/src/error.rs`:
-  - `PensaError` enum with variants for each error code: `NotFound`, `AlreadyClaimed`, `CycleDetected`, `InvalidStatusTransition` ([`specs/pensa.md:278-282`](specs/pensa.md))
-  - `ErrorResponse` struct: `{ error: String, code: Option<String> }` ([`specs/pensa.md:279`](specs/pensa.md))
+Completed inline with Phase 1 — see above.
 
 ---
 
-## Phase 3: Database Layer
+## Phase 3: DB — Schema & Open
 
-Implement SQLite schema, migrations, and query functions that the daemon will call.
+Create `crates/pensa/src/db.rs` with the `Db` struct, connection management, and schema migrations.
 
 - **Source:** [`specs/pensa.md:62-141`](specs/pensa.md) — Schema; [`specs/pensa.md:375-384`](specs/pensa.md) — Database Initialization
 - Create `crates/pensa/src/db.rs`:
-  - `Db` struct wrapping `rusqlite::Connection`
+  - `Db` struct wrapping `rusqlite::Connection` + `pensa_dir: PathBuf`
   - `Db::open(path: &Path) -> Result<Db>`:
     - Create `.pensa/` directory if needed ([`specs/pensa.md:379`](specs/pensa.md))
     - Open or create `db.sqlite` ([`specs/pensa.md:380`](specs/pensa.md))
     - Set pragmas: `busy_timeout=5000`, `foreign_keys=ON` ([`specs/pensa.md:37`](specs/pensa.md), [`specs/pensa.md:381`](specs/pensa.md))
-    - Run migrations — CREATE TABLE IF NOT EXISTS for all four tables ([`specs/pensa.md:382`](specs/pensa.md))
-    - Auto-import from JSONL if DB is empty but JSONL files exist ([`specs/pensa.md:383`](specs/pensa.md))
-  - Issue CRUD:
-    - `create_issue(...)` — INSERT into issues + INSERT event ([`specs/pensa.md:155-156`](specs/pensa.md))
-    - `get_issue(id)` — SELECT with deps and comments for `show` ([`specs/pensa.md:162`](specs/pensa.md))
-    - `update_issue(id, ...)` — partial UPDATE + event logging ([`specs/pensa.md:157`](specs/pensa.md))
-    - `claim_issue(id, actor)` — atomic UPDATE with `WHERE status = 'open'`, return `AlreadyClaimed` error if fails ([`specs/pensa.md:165-166`](specs/pensa.md))
-    - `close_issue(id, reason, force)` — status transition + auto-close linked bug via `fixes` field ([`specs/pensa.md:158`](specs/pensa.md), [`specs/pensa.md:171`](specs/pensa.md))
-    - `reopen_issue(id, reason)` ([`specs/pensa.md:159`](specs/pensa.md))
-    - `release_issue(id)` — set status=open, clear assignee ([`specs/pensa.md:169`](specs/pensa.md))
-    - `delete_issue(id, force)` — require force if dependents or comments exist ([`specs/pensa.md:173`](specs/pensa.md))
-  - Query functions:
-    - `list_issues(filters)` — with optional status/priority/assignee/type/spec filters, sort, limit ([`specs/pensa.md:178`](specs/pensa.md), [`specs/pensa.md:189`](specs/pensa.md))
-    - `ready_issues(filters)` — open, unblocked, type in (task/test/chore), sorted priority→created_at ([`specs/pensa.md:179`](specs/pensa.md), [`specs/pensa.md:187`](specs/pensa.md))
-    - `blocked_issues()` — issues with at least one open dependency ([`specs/pensa.md:192`](specs/pensa.md))
-    - `search_issues(query)` — case-insensitive LIKE on title+description ([`specs/pensa.md:193`](specs/pensa.md))
-    - `count_issues(group_by)` — with optional grouping ([`specs/pensa.md:195-196`](specs/pensa.md))
-    - `project_status()` — open/in_progress/closed by type ([`specs/pensa.md:197`](specs/pensa.md))
-    - `issue_history(id)` — events for issue, newest first ([`specs/pensa.md:199`](specs/pensa.md))
-  - Dependency functions:
-    - `add_dep(child, parent)` — with cycle detection before insert ([`specs/pensa.md:211`](specs/pensa.md))
-    - `remove_dep(child, parent)` ([`specs/pensa.md:205`](specs/pensa.md))
-    - `list_deps(id)` ([`specs/pensa.md:206`](specs/pensa.md))
-    - `dep_tree(id, direction)` — recursive CTE, return flat `DepTreeNode` array ([`specs/pensa.md:207`](specs/pensa.md), [`specs/pensa.md:300`](specs/pensa.md))
-    - `detect_cycles()` — scan and report ([`specs/pensa.md:215`](specs/pensa.md))
-    - Private `has_cycle(child, parent)` — BFS/DFS reachability check used by `add_dep`
-  - Comment functions:
-    - `add_comment(issue_id, actor, text)` ([`specs/pensa.md:220`](specs/pensa.md))
-    - `list_comments(issue_id)` ([`specs/pensa.md:221`](specs/pensa.md))
-  - Export/import:
-    - `export_jsonl(pensa_dir)` — dump issues, deps, comments to separate `.jsonl` files, sorted for stable diffs ([`specs/pensa.md:246`](specs/pensa.md), [`specs/pensa.md:357-371`](specs/pensa.md))
-    - `import_jsonl(pensa_dir)` — drop and recreate tables, insert from JSONL ([`specs/pensa.md:248`](specs/pensa.md))
-  - Doctor:
-    - `doctor(fix: bool)` — detect stale claims, orphaned deps, JSONL/SQLite drift; optionally fix ([`specs/pensa.md:250-255`](specs/pensa.md))
+    - Run migrations — CREATE TABLE IF NOT EXISTS for all four tables: issues, deps, comments, events ([`specs/pensa.md:382`](specs/pensa.md))
+    - Schema must match spec exactly: [`specs/pensa.md:64-134`](specs/pensa.md)
+    - Auto-import from JSONL deferred to Phase 8 (add a TODO comment)
+  - Helper: `now() -> String` — ISO 8601 UTC timestamp (`2026-02-27T14:30:00Z` format — [`specs/pensa.md:139-141`](specs/pensa.md))
+- Wire module: add `pub mod db` to `lib.rs`
+- **Tests** (in `db.rs` via `#[cfg(test)]`):
+  - `open_creates_tables` — open a tempdir DB, verify all four tables exist
+  - `open_is_idempotent` — open the same DB twice, no error
+  - `foreign_keys_enforced` — insert a dep referencing a nonexistent issue, verify it fails
+- **Verify:** `cargo build -p pensa && cargo test -p pensa && cargo clippy -p pensa -- -D warnings && cargo fmt --all --check`
 
 ---
 
-## Phase 4: Daemon (HTTP Server)
+## Phase 4: DB — Issue CRUD
 
-Implement the axum-based daemon that owns the database.
+Implement `create_issue`, `get_issue`, `update_issue`.
 
-- **Source:** [`specs/pensa.md:33-53`](specs/pensa.md) — Runtime Architecture; [`specs/pensa.md:319-354`](specs/pensa.md) — HTTP API
+- **Source:** [`specs/pensa.md:155-157`](specs/pensa.md), [`specs/pensa.md:162`](specs/pensa.md)
+- `create_issue(title, issue_type, priority, description, spec, fixes, assignee, deps, actor)`:
+  - Generate ID via `generate_id()` ([`specs/pensa.md:81`](specs/pensa.md))
+  - INSERT into issues with `created_at`/`updated_at` = `now()`
+  - INSERT "created" event with actor
+  - If `deps` provided, insert each into deps table
+  - Return the created `Issue`
+- `get_issue(id) -> Result<IssueDetail>`:
+  - SELECT issue by id, return `NotFound` if missing
+  - Also fetch deps (as issue objects) and comments for the "show" view ([`specs/pensa.md:162`](specs/pensa.md))
+  - Define `IssueDetail` struct (or similar): issue fields + `deps: Vec<Issue>` + `comments: Vec<Comment>` — add Serialize/Deserialize
+- `update_issue(id, UpdateFields, actor)`:
+  - `UpdateFields` struct with all-optional fields: title, description, priority, status, assignee, spec, fixes
+  - Build dynamic SET clause for non-None fields
+  - Always update `updated_at`
+  - INSERT "updated" event with changed fields in detail
+  - Return updated `Issue`
+  - **Warning from previous attempt:** Dynamic SET with string interpolation is error-prone. Use parameterized queries where possible; if string interpolation is needed for column names, escape values carefully (single-quote doubling).
+- **Tests:**
+  - `create_and_get` — create issue, get it back, verify all fields match
+  - `get_nonexistent` — returns NotFound
+  - `update_fields` — update title and priority, verify changes persisted and unchanged fields preserved
+  - `update_logs_event` — after update, verify an "updated" event exists
+- **Verify:** build + test + clippy + fmt
+
+---
+
+## Phase 5: DB — Issue Lifecycle
+
+Implement `claim_issue`, `release_issue`, `close_issue` (with `fixes` auto-close), `reopen_issue`, `delete_issue`.
+
+- **Source:** [`specs/pensa.md:158-159`](specs/pensa.md), [`specs/pensa.md:165-173`](specs/pensa.md)
+- `claim_issue(id, actor)`:
+  - Atomic: `UPDATE ... SET status='in_progress', assignee=<actor> WHERE id=<id> AND status='open'` ([`specs/pensa.md:165`](specs/pensa.md))
+  - If 0 rows affected: check if issue exists (→ `NotFound`) or already claimed (→ `AlreadyClaimed` with current holder)
+  - INSERT "claimed" event
+- `release_issue(id)`:
+  - SET status='open', assignee=NULL ([`specs/pensa.md:169`](specs/pensa.md))
+  - INSERT "released" event
+- `close_issue(id, reason, force, actor)`:
+  - Without force: error if already closed (`InvalidStatusTransition`) ([`specs/pensa.md:171`](specs/pensa.md))
+  - With force: close regardless of current status
+  - SET status='closed', closed_at=now(), close_reason=reason
+  - If issue has `fixes` field: auto-close the linked bug with reason `"fixed by <task-id>"` ([`specs/pensa.md:91`](specs/pensa.md), [`specs/pensa.md:171`](specs/pensa.md))
+  - INSERT "closed" event (and "closed" event for auto-closed bug)
+- `reopen_issue(id, reason, actor)`:
+  - SET status='open', closed_at=NULL, close_reason=NULL ([`specs/pensa.md:159`](specs/pensa.md))
+  - INSERT "reopened" event
+- `delete_issue(id, force)`:
+  - Check for dependents (other issues that depend on this one) and comments ([`specs/pensa.md:173`](specs/pensa.md))
+  - If any exist and force=false → `DeleteRequiresForce` error
+  - With force: DELETE cascading deps, comments, events, then the issue itself
+- **Tests:**
+  - `claim_sets_in_progress` — claim sets status=in_progress + assignee
+  - `double_claim_fails` — second claim returns AlreadyClaimed
+  - `release_clears` — release sets status=open, clears assignee
+  - `close_reopen_cycle` — close, verify closed; reopen, verify open
+  - `fixes_auto_close` — create bug, create task with fixes=bug_id, close task → bug is closed with reason
+  - `delete_requires_force` — issue with comments, delete without force → error
+  - `force_delete_cascades` — force delete removes deps, comments, events
+- **Verify:** build + test + clippy + fmt
+
+---
+
+## Phase 6: DB — Queries
+
+Implement `list_issues`, `ready_issues`, `blocked_issues`, `search_issues`, `count_issues`, `project_status`, `issue_history`.
+
+- **Source:** [`specs/pensa.md:178-199`](specs/pensa.md)
+- `ListFilters` struct: optional status, priority, assignee, issue_type, spec, sort (`String`), limit (`usize`)
+- `list_issues(filters)`:
+  - Build WHERE clause from non-None filters
+  - Default sort: priority ASC, created_at ASC ([`specs/pensa.md:189`](specs/pensa.md))
+  - Supported sort fields: `priority`, `created_at`, `updated_at`, `status`, `title`
+  - Apply LIMIT if set
+- `ready_issues(filters)`:
+  - WHERE status='open' AND issue_type IN ('task','test','chore') — **bugs excluded** ([`specs/pensa.md:187`](specs/pensa.md))
+  - AND id NOT IN (issues with at least one non-closed dependency)
+  - Sort: priority ASC, created_at ASC
+  - Optional filters: limit, priority, assignee, issue_type, spec
+  - Returns `[]` when nothing matches ([`specs/pensa.md:187`](specs/pensa.md))
+- `blocked_issues()`:
+  - Issues with at least one non-closed dependency ([`specs/pensa.md:192`](specs/pensa.md))
+- `search_issues(query)`:
+  - Case-insensitive LIKE on title + description ([`specs/pensa.md:193`](specs/pensa.md))
+- `count_issues(group_by_fields)`:
+  - No grouping: count of non-closed issues → shape `{"count": N}` ([`specs/pensa.md:195`](specs/pensa.md))
+  - With grouping (by status/priority/issue_type/assignee): grouped counts ([`specs/pensa.md:196`](specs/pensa.md))
+- `project_status()`:
+  - Open/in_progress/closed counts broken down by issue_type ([`specs/pensa.md:197`](specs/pensa.md))
+- `issue_history(id)`:
+  - SELECT from events WHERE issue_id=id ORDER BY created_at DESC ([`specs/pensa.md:199`](specs/pensa.md))
+- **Tests:**
+  - `list_with_filters` — create issues with different statuses/priorities, verify filters work
+  - `ready_excludes_bugs` — create a bug + a task, ready returns only the task
+  - `ready_excludes_blocked` — create A, B, add dep B→A, ready returns A but not B
+  - `blocked_returns_blocked` — same setup, blocked returns B
+  - `search_case_insensitive` — search "LOGIN" matches "login crash"
+  - `count_basic` — count returns correct total
+  - `history_newest_first` — create, update, close → history returns close, update, create
+- **Verify:** build + test + clippy + fmt
+
+---
+
+## Phase 7: DB — Dependencies
+
+Implement `add_dep` (with cycle detection), `remove_dep`, `list_deps`, `dep_tree`, `detect_cycles`.
+
+- **Source:** [`specs/pensa.md:201-215`](specs/pensa.md), [`specs/pensa.md:300`](specs/pensa.md)
+- `add_dep(child_id, parent_id, actor)`:
+  - Validate both issues exist (→ `NotFound`) ([`specs/pensa.md:211`](specs/pensa.md))
+  - Call `has_cycle(child_id, parent_id)` — if true → `CycleDetected`
+  - INSERT into deps
+  - INSERT "dep_added" event on child
+- `remove_dep(child_id, parent_id, actor)`:
+  - DELETE from deps ([`specs/pensa.md:205`](specs/pensa.md))
+  - INSERT "dep_removed" event
+- `list_deps(id)`:
+  - Return issue objects that this issue depends on ([`specs/pensa.md:206`](specs/pensa.md))
+- `dep_tree(id, direction)`:
+  - Recursive CTE traversal ([`specs/pensa.md:207`](specs/pensa.md))
+  - direction=down (default): what does this issue block? Follow deps WHERE depends_on_id=id
+  - direction=up: what blocks this issue? Follow deps WHERE issue_id=id
+  - Return flat array of `DepTreeNode` (id, title, status, priority, issue_type, depth) ([`specs/pensa.md:300`](specs/pensa.md))
+- `detect_cycles()`:
+  - Full graph scan for cycles ([`specs/pensa.md:215`](specs/pensa.md))
+  - Should return `[]` in a healthy database (since `add_dep` prevents cycles)
+- Private `has_cycle(child_id, parent_id)`:
+  - **Note from previous attempt:** BFS from `parent_id` checking if `child_id` is reachable. If adding `child → parent`, we check whether `parent` can already reach `child` via existing deps. If so, the new edge would create a cycle.
+- **Tests:**
+  - `add_and_list_deps` — add dep, list returns the dependency
+  - `cycle_detection_rejects` — A→B→C→A is rejected with CycleDetected
+  - `dep_tree_down` — A blocks B blocks C, tree(A, down) returns B and C with depths
+  - `dep_tree_up` — same setup, tree(C, up) returns B and A
+  - `remove_dep` — add then remove, list returns empty
+  - `detect_cycles_empty` — after rejected cycle, detect_cycles returns []
+- **Verify:** build + test + clippy + fmt
+
+---
+
+## Phase 8: DB — Comments, Export/Import, Doctor
+
+Implement comments, JSONL export/import (with auto-import in `Db::open`), and doctor.
+
+- **Source:** [`specs/pensa.md:220-221`](specs/pensa.md), [`specs/pensa.md:246-255`](specs/pensa.md), [`specs/pensa.md:357-371`](specs/pensa.md), [`specs/pensa.md:383`](specs/pensa.md)
+- **Comments:**
+  - `add_comment(issue_id, actor, text)`:
+    - Generate comment ID via `generate_id()` ([`specs/pensa.md:122`](specs/pensa.md))
+    - INSERT into comments
+    - INSERT "commented" event
+    - Return the `Comment`
+  - `list_comments(issue_id)`:
+    - SELECT from comments WHERE issue_id ORDER BY created_at ([`specs/pensa.md:221`](specs/pensa.md))
+- **Export/import:**
+  - `export_jsonl(pensa_dir)`:
+    - Write `issues.jsonl` — one JSON object per line, sorted by `created_at` ([`specs/pensa.md:363`](specs/pensa.md))
+    - Write `deps.jsonl` — one per dep, sorted by `issue_id` then `depends_on_id` ([`specs/pensa.md:367`](specs/pensa.md))
+    - Write `comments.jsonl` — one per comment, sorted by `created_at` ([`specs/pensa.md:371`](specs/pensa.md))
+    - Events are NOT exported (derivable, avoids file growth) ([`specs/pensa.md:16`](specs/pensa.md))
+    - Return counts: `{issues: N, deps: N, comments: N}`
+  - `import_jsonl(pensa_dir)`:
+    - Drop and recreate all four tables (issues, deps, comments, events) ([`specs/pensa.md:248`](specs/pensa.md))
+    - Read and insert from each JSONL file
+    - Return counts
+  - Update `Db::open()` to auto-import: if JSONL files exist but DB tables are empty, call `import_jsonl` ([`specs/pensa.md:383`](specs/pensa.md))
+- **Doctor:**
+  - `doctor(fix: bool)` ([`specs/pensa.md:250-255`](specs/pensa.md)):
+    - Check 1: Stale claims — in_progress issues (no recent activity threshold)
+    - Check 2: Orphaned deps — deps referencing non-existent issues
+    - Check 3: JSONL/SQLite drift — compare counts between DB and JSONL files
+    - If fix=true: release all in_progress claims (status→open, clear assignee), remove orphaned deps
+    - Return report: findings array + fixes applied
+- **Tests:**
+  - `add_and_list_comments` — add comment, list returns it
+  - `export_import_roundtrip` — create issues with deps and comments → export → delete DB → import → verify all data intact
+  - `jsonl_sorted` — export, verify issues sorted by created_at, deps by issue_id+depends_on_id, comments by created_at
+  - `auto_import_on_open` — export JSONL, delete DB file, open() auto-imports from JSONL
+  - `doctor_detects_stale` — create in_progress issues, doctor reports them
+  - `doctor_fix_releases` — doctor(fix=true) sets stale claims to open
+- **Verify:** build + test + clippy + fmt
+
+---
+
+## Phase 9: Daemon — Skeleton & Issue Endpoints
+
+Create the axum server with app state, error mapping, startup/shutdown, and all issue endpoints.
+
+- **Source:** [`specs/pensa.md:33-53`](specs/pensa.md) — Runtime Architecture; [`specs/pensa.md:319-354`](specs/pensa.md) — HTTP API; [`specs/pensa.md:278-282`](specs/pensa.md) — Errors
 - Create `crates/pensa/src/daemon.rs`:
-  - App state: `Arc<Mutex<Db>>` (all mutation serialized through the daemon — [`specs/pensa.md:38`](specs/pensa.md))
-  - `start(port: u16, project_dir: PathBuf)`:
-    - Open DB via `Db::open(project_dir.join(".pensa"))` ([`specs/pensa.md:41`](specs/pensa.md))
+  - App state: `Arc<Mutex<Db>>` (all mutation serialized — [`specs/pensa.md:38`](specs/pensa.md))
+  - `pub async fn start(port: u16, project_dir: PathBuf)`:
+    - Open DB via `Db::open(project_dir)` ([`specs/pensa.md:41`](specs/pensa.md))
     - Build axum Router with all routes
     - Bind to `0.0.0.0:{port}` (default 7533 — [`specs/pensa.md:35`](specs/pensa.md))
-    - Install SIGTERM handler for graceful shutdown ([`specs/pensa.md:40`](specs/pensa.md))
+    - Install SIGTERM/SIGINT handler for graceful shutdown via `tokio::signal` ([`specs/pensa.md:40`](specs/pensa.md))
     - Run in foreground ([`specs/pensa.md:39`](specs/pensa.md))
-  - Route handlers mapping CLI commands to HTTP endpoints ([`specs/pensa.md:325-351`](specs/pensa.md)):
-    - `POST /issues` → create
-    - `PATCH /issues/:id` → update (including claim/unclaim)
-    - `POST /issues/:id/close` → close
-    - `POST /issues/:id/reopen` → reopen
-    - `POST /issues/:id/release` → release
-    - `DELETE /issues/:id` → delete (query param `force`)
-    - `GET /issues/:id` → show
-    - `GET /issues` → list (query params for filters)
-    - `GET /issues/ready` → ready (query params for filters)
-    - `GET /issues/blocked` → blocked
-    - `GET /issues/search` → search (query param `q`)
-    - `GET /issues/count` → count (query params for grouping)
-    - `GET /status` → status
-    - `GET /issues/:id/history` → history
-    - `POST /deps` → dep add
-    - `DELETE /deps` → dep remove (query params)
-    - `GET /issues/:id/deps` → dep list
-    - `GET /issues/:id/deps/tree` → dep tree (query param `direction`)
-    - `GET /deps/cycles` → dep cycles
-    - `POST /issues/:id/comments` → comment add
-    - `GET /issues/:id/comments` → comment list
-    - `POST /export` → export
-    - `POST /import` → import
-    - `POST /doctor` → doctor (query param `fix`)
-  - Error responses: map `PensaError` to appropriate HTTP status codes + JSON error body ([`specs/pensa.md:278-282`](specs/pensa.md))
+  - Error mapping — `PensaError` → HTTP response:
+    - `NotFound` → 404
+    - `AlreadyClaimed` → 409 Conflict
+    - `CycleDetected` → 409 Conflict
+    - `InvalidStatusTransition` → 409 Conflict
+    - `DeleteRequiresForce` → 409 Conflict
+    - `Internal` → 500
+    - Response body: `ErrorResponse` JSON ([`specs/pensa.md:278-282`](specs/pensa.md))
+  - Actor: read from `X-Pensa-Actor` header or JSON body `actor` field
   - All endpoints accept and return JSON ([`specs/pensa.md:353`](specs/pensa.md))
-  - Actor passed via `X-Pensa-Actor` header or JSON body field
+  - Issue endpoints ([`specs/pensa.md:325-332`](specs/pensa.md)):
+    - `POST /issues` → `create_issue` (body: title, issue_type, priority, description, spec, fixes, assignee, deps)
+    - `GET /issues/:id` → `get_issue`
+    - `PATCH /issues/:id` → `update_issue` (body: optional fields including claim/unclaim flags)
+    - `DELETE /issues/:id` → `delete_issue` (query param: `force`)
+    - `POST /issues/:id/close` → `close_issue` (body: reason, force)
+    - `POST /issues/:id/reopen` → `reopen_issue` (body: reason)
+    - `POST /issues/:id/release` → `release_issue`
+- Wire module: add `pub mod daemon` to `lib.rs`
+- **Verify:** `cargo build -p pensa && cargo clippy -p pensa -- -D warnings && cargo fmt --all --check`
+- Note: no unit tests — daemon is tested via integration tests in Phases 15-16
 
 ---
 
-## Phase 5: CLI Client
+## Phase 10: Daemon — Query Endpoints
 
-Implement the `pn` binary that sends HTTP requests to the daemon.
+Add all query/read endpoints.
 
-- **Source:** [`specs/pensa.md:44-48`](specs/pensa.md) — CLI client; [`specs/pensa.md:145-257`](specs/pensa.md) — CLI Commands
+- **Source:** [`specs/pensa.md:334-340`](specs/pensa.md)
+- Query endpoints:
+  - `GET /issues` → `list_issues` (query params: status, priority, assignee, type, spec, sort, limit) ([`specs/pensa.md:334`](specs/pensa.md))
+  - `GET /issues/ready` → `ready_issues` (query params: limit, priority, assignee, type, spec) ([`specs/pensa.md:335`](specs/pensa.md))
+  - `GET /issues/blocked` → `blocked_issues` ([`specs/pensa.md:336`](specs/pensa.md))
+  - `GET /issues/search` → `search_issues` (query param: `q`) ([`specs/pensa.md:337`](specs/pensa.md))
+  - `GET /issues/count` → `count_issues` (query params: by_status, by_priority, by_issue_type, by_assignee) ([`specs/pensa.md:338`](specs/pensa.md))
+  - `GET /status` → `project_status` ([`specs/pensa.md:339`](specs/pensa.md))
+  - `GET /issues/:id/history` → `issue_history` ([`specs/pensa.md:340`](specs/pensa.md))
+- **Important routing note:** `/issues/ready`, `/issues/blocked`, `/issues/search`, `/issues/count` must be registered before `/issues/:id` to avoid the path parameter capturing literal segment names.
+- **Verify:** build + clippy + fmt
+
+---
+
+## Phase 11: Daemon — Dep, Comment & Data Endpoints
+
+Add dependency, comment, and data management endpoints.
+
+- **Source:** [`specs/pensa.md:341-350`](specs/pensa.md)
+- Dependency endpoints:
+  - `POST /deps` → `add_dep` (body: issue_id, depends_on_id) ([`specs/pensa.md:341`](specs/pensa.md))
+  - `DELETE /deps` → `remove_dep` (query params: issue_id, depends_on_id) ([`specs/pensa.md:342`](specs/pensa.md))
+  - `GET /issues/:id/deps` → `list_deps` ([`specs/pensa.md:343`](specs/pensa.md))
+  - `GET /issues/:id/deps/tree` → `dep_tree` (query param: direction — `up` or `down`, default `down`) ([`specs/pensa.md:344`](specs/pensa.md))
+  - `GET /deps/cycles` → `detect_cycles` ([`specs/pensa.md:345`](specs/pensa.md))
+- Comment endpoints:
+  - `POST /issues/:id/comments` → `add_comment` (body: text; actor from header) ([`specs/pensa.md:346`](specs/pensa.md))
+  - `GET /issues/:id/comments` → `list_comments` ([`specs/pensa.md:347`](specs/pensa.md))
+- Data endpoints:
+  - `POST /export` → `export_jsonl` ([`specs/pensa.md:348`](specs/pensa.md))
+  - `POST /import` → `import_jsonl` ([`specs/pensa.md:349`](specs/pensa.md))
+  - `POST /doctor` → `doctor` (query param: `fix`) ([`specs/pensa.md:350`](specs/pensa.md))
+- **Verify:** build + clippy + fmt
+
+---
+
+## Phase 12: CLI — Client, Clap & Issue Commands
+
+Create the HTTP client, full clap CLI definition, actor resolution, output formatting, and wire all issue commands.
+
+- **Source:** [`specs/pensa.md:44-48`](specs/pensa.md) — CLI client; [`specs/pensa.md:145-257`](specs/pensa.md) — CLI Commands; [`specs/pensa.md:262-315`](specs/pensa.md) — Output
 - Create `crates/pensa/src/client.rs`:
-  - `Client` struct wrapping `reqwest::blocking::Client` + daemon URL
-  - Daemon URL discovery: `PN_DAEMON` env var → default `http://localhost:7533` ([`specs/pensa.md:46`](specs/pensa.md))
-  - If daemon is unreachable, fail with clear error and non-zero exit ([`specs/pensa.md:47`](specs/pensa.md))
-  - One method per CLI command, translating args into HTTP requests per the endpoint mapping
-- Implement `crates/pensa/src/main.rs`:
-  - Use clap derive API to define the CLI ([`specs/pensa.md:145-257`](specs/pensa.md)):
-    - Global flag: `--actor <name>` ([`specs/pensa.md:151`](specs/pensa.md))
-    - Global flag: `--json` for structured output ([`specs/pensa.md:147`](specs/pensa.md))
-    - Subcommands: `create`, `update`, `close`, `reopen`, `release`, `delete`, `show`, `list`, `ready`, `blocked`, `search`, `count`, `status`, `history`, `dep`, `comment`, `daemon`, `export`, `import`, `doctor`, `where`
-  - Actor resolution order: `--actor` flag → `PN_ACTOR` env var → `git config user.name` → `$USER` ([`specs/pensa.md:151`](specs/pensa.md))
-  - `pn daemon` subcommand starts the daemon directly (not via HTTP client) ([`specs/pensa.md:227-233`](specs/pensa.md))
-  - `pn daemon status` checks reachability, prints info, exits 0/1 ([`specs/pensa.md:233`](specs/pensa.md))
-  - `pn where` is client-only — prints `.pensa/` path, no daemon request ([`specs/pensa.md:257`](specs/pensa.md), [`specs/pensa.md:351`](specs/pensa.md))
-  - `pn export` sends POST to daemon, then runs `git add .pensa/*.jsonl` locally ([`specs/pensa.md:246`](specs/pensa.md))
+  - `Client` struct wrapping `reqwest::blocking::Client` + `daemon_url: String`
+  - `Client::new()`: discover daemon URL from `PN_DAEMON` env var, default `http://localhost:7533` ([`specs/pensa.md:46`](specs/pensa.md))
+  - If daemon is unreachable, fail with clear error + exit 1 ([`specs/pensa.md:47`](specs/pensa.md))
+  - One method per CLI command, translating args → HTTP request → parse response or error
 - Create `crates/pensa/src/output.rs`:
-  - Human-readable formatting when `--json` is not set ([`specs/pensa.md:313-315`](specs/pensa.md)):
-    - Compact, scannable output similar to `git log --oneline` density
-  - JSON output: direct data to stdout, errors to stderr ([`specs/pensa.md:262-270`](specs/pensa.md))
-  - Exit codes: 0 success, 1 error ([`specs/pensa.md:273-275`](specs/pensa.md))
+  - `OutputMode` enum: `Json`, `Human`
+  - Print functions for each output shape: single issue, issue list, error, dep status, comment, event list, count, status report, doctor report, export/import result
+  - Human-readable: compact, scannable, `git log --oneline` density ([`specs/pensa.md:313-315`](specs/pensa.md))
+  - JSON: direct data to stdout, errors to stderr ([`specs/pensa.md:262-270`](specs/pensa.md))
   - Null arrays always `[]`, never `null` ([`specs/pensa.md:285-286`](specs/pensa.md))
+  - Exit codes: 0 success, 1 error ([`specs/pensa.md:273-275`](specs/pensa.md))
+- Update `crates/pensa/src/main.rs`:
+  - Full clap derive CLI with all subcommands ([`specs/pensa.md:145-257`](specs/pensa.md)):
+    - Global flags: `--actor <name>`, `--json` ([`specs/pensa.md:147`](specs/pensa.md), [`specs/pensa.md:151`](specs/pensa.md))
+    - Issue subcommands: `create`, `update`, `close`, `reopen`, `release`, `delete`, `show`
+    - Query subcommands: `list`, `ready`, `blocked`, `search`, `count`, `status`, `history`
+    - Dep subcommands: `dep add`, `dep remove`, `dep list`, `dep tree`, `dep cycles`
+    - Comment subcommands: `comment add`, `comment list`
+    - Data subcommands: `export`, `import`, `doctor`
+    - Other: `daemon` (start / status), `where`
+  - Actor resolution order: `--actor` flag → `PN_ACTOR` env var → `git config user.name` → `$USER` ([`specs/pensa.md:151`](specs/pensa.md))
+  - `pn daemon` starts the daemon directly (not via HTTP) ([`specs/pensa.md:227-233`](specs/pensa.md))
+  - `pn daemon status` checks reachability, prints info, exits 0/1 ([`specs/pensa.md:233`](specs/pensa.md))
+  - `pn where` prints `.pensa/` path, no daemon request ([`specs/pensa.md:257`](specs/pensa.md), [`specs/pensa.md:351`](specs/pensa.md))
+- Wire issue commands through client: `create`, `show`, `update`, `delete`, `close`, `reopen`, `release`
+- Wire modules: add `pub mod client`, `pub mod output` to `lib.rs`
+- **Verify:** build + clippy + fmt
 
 ---
 
-## Phase 6: Module Wiring & Build Verification
+## Phase 13: CLI — Query, Dep, Comment & Data Commands
 
-Connect all modules and verify the crate compiles and passes lint.
+Wire all remaining commands through the client.
 
-- Wire modules in `crates/pensa/src/lib.rs`: `pub mod types`, `pub mod id`, `pub mod error`, `pub mod db`, `pub mod daemon`, `pub mod client`, `pub mod output`
-- Wire the `main.rs` entry point: clap parsing → dispatch to daemon start or client methods
-- `cargo build -p pensa` — verify clean compile
-- `cargo clippy -p pensa -- -D warnings` — zero warnings
-- `cargo fmt --all --check` — formatting clean
-- `cargo geiger` — review any unsafe code usage
-- `cargo build --workspace` — full workspace still builds
+- Query commands: `list`, `ready`, `blocked`, `search`, `count`, `status`, `history`
+- Dep commands: `dep add`, `dep remove`, `dep list`, `dep tree`, `dep cycles`
+- Comment commands: `comment add`, `comment list`
+- Data commands:
+  - `export`: POST to daemon, then run `git add .pensa/*.jsonl` locally ([`specs/pensa.md:246`](specs/pensa.md))
+  - `import`: POST to daemon ([`specs/pensa.md:248`](specs/pensa.md))
+  - `doctor [--fix]`: POST to daemon (with fix query param) ([`specs/pensa.md:250-255`](specs/pensa.md))
+  - `where`: print `.pensa/` path, no daemon request (client-only) ([`specs/pensa.md:257`](specs/pensa.md))
+- Daemon commands (wired in Phase 12 but finalized here if needed):
+  - `pn daemon [--port <port>] [--project-dir <path>]` — start daemon in foreground
+  - `pn daemon status` — check reachability, exit 0/1
+- **Verify:** `cargo build -p pensa && cargo clippy -p pensa -- -D warnings && cargo fmt --all --check && cargo build --workspace`
 
 ---
 
-## Phase 7: Documentation
+## Phase 14: Documentation
 
 - Create `crates/pensa/README.md`:
   - Project overview — what pensa is and why it exists
@@ -239,16 +404,16 @@ Connect all modules and verify the crate compiles and passes lint.
 
 ---
 
-## Phase 8: Integration Tests
+## Phase 15: Integration Tests — Core Scenarios
 
-End-to-end tests that start a real daemon on a random port, run `pn` commands against it, and assert on stdout/stderr/exit codes. Following the pattern established in [`crates/ralph/tests/integration.rs`](crates/ralph/tests/integration.rs).
+End-to-end tests that start a real daemon, run `pn` commands against it, and assert on stdout/stderr/exit codes. Following the pattern in [`crates/ralph/tests/integration.rs`](crates/ralph/tests/integration.rs).
 
 - **Source:** [`specs/pensa.md:387-402`](specs/pensa.md) — Testing Strategy
 - **Tools required:** No additional tools beyond `cargo test`. Tests use the built `pn` binary via `env!("CARGO_BIN_EXE_pn")` and `std::process::Command` (same pattern as ralph).
 - Create `crates/pensa/tests/integration.rs`:
   - **Test harness:**
-    - `start_daemon()` → spawn `pn daemon --port 0 --project-dir <tempdir>` (or a random high port), wait for readiness via `pn daemon status`, return the port and child process handle
-    - `pn_cmd(port)` → build a `Command` with `PN_DAEMON=http://localhost:{port}` and `PN_ACTOR=test-agent`
+    - `start_daemon()` → spawn `pn daemon --port <random> --project-dir <tempdir>`, wait for readiness via `pn daemon status`, return port + child handle
+    - `pn_cmd(port)` → build `Command` with `PN_DAEMON=http://localhost:{port}` and `PN_ACTOR=test-agent`
     - Teardown: kill daemon child process after each test
   - **Test: CRUD lifecycle** ([`specs/pensa.md:393`](specs/pensa.md)):
     - `pn create "login crash" -t bug -p p0 --json` → assert exit 0, stdout contains issue with status=open, priority=p0, issue_type=bug
@@ -262,55 +427,62 @@ End-to-end tests that start a real daemon on a random port, run `pn` commands ag
     - `pn update <id> --claim` with actor=agent-2 → assert exit 1, stderr contains `already_claimed`
     - `pn release <id>` → assert status=open, assignee cleared
     - `pn update <id> --claim` with actor=agent-2 → assert success
-  - **Test: Dependencies and ready** ([`specs/pensa.md:395`](specs/pensa.md)):
-    - Create task-A and task-B → `pn dep add B A` (B depends on A)
-    - `pn ready --json` → assert B is absent (blocked), A is present
-    - `pn blocked --json` → assert B is listed
-    - `pn close A` → `pn ready --json` → assert B now appears
-    - `pn dep list B --json` → verify dep structure
-  - **Test: Cycle detection** ([`specs/pensa.md:396`](specs/pensa.md)):
-    - Create A, B, C → `pn dep add B A` → `pn dep add C B` → `pn dep add A C` → assert exit 1, stderr contains `cycle_detected`
-    - `pn dep cycles --json` → assert `[]` (the cycle was rejected)
   - **Test: `fixes` auto-close** ([`specs/pensa.md:397`](specs/pensa.md)):
     - Create bug → create task with `--fixes <bug-id>` → close the task → `pn show <bug-id> --json` → assert bug is also closed, close_reason contains "fixed by"
-  - **Test: `ready` excludes bugs** ([`specs/pensa.md:398`](specs/pensa.md)):
-    - Create a bug (open) → `pn ready --json` → assert the bug is not in the result
-    - Create a task (open) → `pn ready --json` → assert the task is in the result
-  - **Test: Export/import round-trip** ([`specs/pensa.md:399`](specs/pensa.md)):
-    - Create several issues with deps and comments → `pn export` → verify `.pensa/*.jsonl` files exist
-    - Delete `db.sqlite` → `pn import` → `pn list --json` → assert all data intact, matches pre-export state
-    - Verify JSONL files are sorted (issues by created_at, deps by issue_id then depends_on_id, comments by created_at — [`specs/pensa.md:363-371`](specs/pensa.md))
-  - **Test: Doctor** ([`specs/pensa.md:400`](specs/pensa.md)):
-    - Create issues → claim them (set in_progress) → `pn doctor --json` → assert stale claims reported
-    - `pn doctor --fix --json` → assert fixes applied
-    - `pn list --status open --json` → assert all previously claimed issues are now open
-  - **Test: Concurrent claims** ([`specs/pensa.md:401`](specs/pensa.md)):
-    - Create a task → spawn two `pn update <id> --claim` processes simultaneously → assert exactly one succeeds, one fails with `already_claimed`
-  - **Test: JSON output shapes** ([`specs/pensa.md:402`](specs/pensa.md)):
-    - For each command, run with `--json` and validate the output matches the documented shapes ([`specs/pensa.md:290-305`](specs/pensa.md)):
-      - `create` returns single issue object
-      - `list` returns array
-      - `ready` returns array (and `[]` when nothing matches — [`specs/pensa.md:187`](specs/pensa.md))
-      - `count` returns `{"count": N}` or `{"total": N, "groups": [...]}`
-      - `dep tree` returns flat array of `DepTreeNode` objects
-      - etc.
-  - **Test: Human-readable output**:
-    - Run `pn list` (without `--json`) → assert stdout contains formatted text, not JSON
-  - **Test: Daemon status**:
-    - `pn daemon status` when daemon is running → assert exit 0
-    - `pn daemon status` when daemon is not running → assert exit 1
-  - **Test: `pn where`**:
-    - Assert it prints the `.pensa/` directory path and exits 0
-    - Assert it works without a running daemon (client-only command)
-  - **Test: Delete with force**:
+  - **Test: Delete with force:**
     - Create issue with comments → `pn delete <id>` (no force) → assert exit 1
     - `pn delete <id> --force` → assert exit 0
     - `pn show <id>` → assert exit 1, not_found
-  - **Test: Search**:
-    - Create issues with distinct titles → `pn search "login" --json` → assert only matching issues returned
-    - Verify case-insensitive: search for "LOGIN" matches "login crash"
-  - **Test: Comments**:
-    - Create issue → `pn comment add <id> "observation" --json` → assert comment returned
-    - `pn comment list <id> --json` → assert array with the comment
-  - **Test: History**:
-    - Create issue → update it → close it → `pn history <id> --json` → assert events in newest-first order, covering create/update/close
+  - **Test: Daemon status:**
+    - `pn daemon status` when daemon is running → assert exit 0
+    - `pn daemon status` when daemon is not running → assert exit 1
+  - **Test: `pn where`:**
+    - Assert it prints the `.pensa/` directory path and exits 0
+    - Assert it works without a running daemon (client-only command)
+- **Verify:** `cargo test -p pensa -- --test integration`
+
+---
+
+## Phase 16: Integration Tests — Advanced Scenarios
+
+- **Test: Dependencies and ready** ([`specs/pensa.md:395`](specs/pensa.md)):
+  - Create task-A and task-B → `pn dep add B A` (B depends on A)
+  - `pn ready --json` → assert B is absent (blocked), A is present
+  - `pn blocked --json` → assert B is listed
+  - `pn close A` → `pn ready --json` → assert B now appears
+  - `pn dep list B --json` → verify dep structure
+- **Test: Cycle detection** ([`specs/pensa.md:396`](specs/pensa.md)):
+  - Create A, B, C → `pn dep add B A` → `pn dep add C B` → `pn dep add A C` → assert exit 1, stderr contains `cycle_detected`
+  - `pn dep cycles --json` → assert `[]` (the cycle was rejected)
+- **Test: `ready` excludes bugs** ([`specs/pensa.md:398`](specs/pensa.md)):
+  - Create a bug (open) → `pn ready --json` → assert the bug is not in the result
+  - Create a task (open) → `pn ready --json` → assert the task is in the result
+- **Test: Export/import round-trip** ([`specs/pensa.md:399`](specs/pensa.md)):
+  - Create several issues with deps and comments → `pn export` → verify `.pensa/*.jsonl` files exist
+  - Delete `db.sqlite` → `pn import` → `pn list --json` → assert all data intact, matches pre-export state
+  - Verify JSONL files are sorted (issues by created_at, deps by issue_id then depends_on_id, comments by created_at — [`specs/pensa.md:363-371`](specs/pensa.md))
+- **Test: Doctor** ([`specs/pensa.md:400`](specs/pensa.md)):
+  - Create issues → claim them (set in_progress) → `pn doctor --json` → assert stale claims reported
+  - `pn doctor --fix --json` → assert fixes applied
+  - `pn list --status open --json` → assert all previously claimed issues are now open
+- **Test: Concurrent claims** ([`specs/pensa.md:401`](specs/pensa.md)):
+  - Create a task → spawn two `pn update <id> --claim` processes simultaneously → assert exactly one succeeds, one fails with `already_claimed`
+- **Test: Search:**
+  - Create issues with distinct titles → `pn search "login" --json` → assert only matching issues returned
+  - Verify case-insensitive: search for "LOGIN" matches "login crash"
+- **Test: Comments:**
+  - Create issue → `pn comment add <id> "observation" --json` → assert comment returned
+  - `pn comment list <id> --json` → assert array with the comment
+- **Test: History:**
+  - Create issue → update it → close it → `pn history <id> --json` → assert events in newest-first order, covering create/update/close
+- **Test: JSON output shapes** ([`specs/pensa.md:402`](specs/pensa.md)):
+  - For each command, run with `--json` and validate output matches documented shapes ([`specs/pensa.md:290-305`](specs/pensa.md)):
+    - `create` returns single issue object
+    - `list` returns array
+    - `ready` returns array (and `[]` when nothing matches)
+    - `count` returns `{"count": N}` or `{"total": N, "groups": [...]}`
+    - `dep tree` returns flat array of `DepTreeNode` objects
+    - etc.
+- **Test: Human-readable output:**
+  - Run `pn list` (without `--json`) → assert stdout contains formatted text, not JSON
+- **Verify:** `cargo test -p pensa`
