@@ -547,6 +547,8 @@ This replaces the duplication seen in buddy-ralph's `prompts/building/` director
 
 **One task, fresh context**: Each iteration picks one unblocked task, implements it fully, commits, and exits. The loop restarts with a clean context window. No accumulated confusion, no multi-task sprawl.
 
+**Atomic iterations**: An iteration either commits fully or is discarded entirely. Partial work from crashed iterations is never preserved — sgf's pre-launch recovery wipes uncommitted state before the next run.
+
 Remaining principles — structured memory, tasks-as-plan, editable prompts, thin memento, protected scaffolding, decentralized projects, sandboxed execution, backpressure — are defined in their respective sections above.
 
 ---
