@@ -154,7 +154,7 @@ Dual-layer storage (same pattern as beads):
 - **`.pensa/*.jsonl`** — the git-committed exports. Separate files per entity: `issues.jsonl`, `deps.jsonl`, `comments.jsonl`. Events are not exported (derivable from issue history, avoids monotonic file growth). Human-readable, diffs cleanly.
 
 Sync is automated via prek (git hooks):
-- **Pre-commit hook**: runs `pn export` to write SQLite → JSONL
+- **Pre-commit hook**: runs `pn export` to write SQLite → JSONL and stage the JSONL files
 - **Post-merge hook**: runs `pn import` to rebuild JSONL → SQLite
 
 **Runtime sharing model**: All concurrent loops share a single `.pensa/db.sqlite` via bind-mounted host directory. SQLite uses the default DELETE journal mode (not WAL — WAL requires shared memory via mmap, which breaks across Docker Desktop's VirtioFS boundary). Pensa sets these pragmas on every connection: `busy_timeout=5000` (retries for 5s on lock contention instead of failing immediately) and `foreign_keys=ON` (enforces referential integrity for deps and comments). Pensa's write operations are brief and infrequent (a few per minute across all loops), so serialized writes are effectively invisible. JSONL files are the git-portable layer — they capture a snapshot at commit time via `pn export` and are never read at runtime by concurrent loops. On clone or post-merge, `pn import` rebuilds SQLite from JSONL.
@@ -254,7 +254,7 @@ pn comment list <id>
 #### Data and maintenance
 
 ```
-pn export                                # SQLite → JSONL (issues.jsonl, deps.jsonl, comments.jsonl)
+pn export                                # SQLite → JSONL, then `git add .pensa/*.jsonl`
 pn import                                # JSONL → SQLite (rebuild from committed files)
 pn doctor [--fix]                        # health checks: stale claims (in_progress >30min), orphaned deps, sync drift. --fix releases stale claims and repairs integrity.
 pn where                                 # show .pensa/ directory path

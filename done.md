@@ -27,3 +27,7 @@
 - [x] **Specify SQLite persistence model across Docker sandboxes** — Answered by the consistency model: bind-mount from host. All containers share one db.sqlite. Atomic claims work across concurrent loops.
 - [x] **Add atomic `pn claim-next` command** — Resolved differently: no new command. Following beads' pattern, `pn update --claim` is the atomic operation (`UPDATE ... WHERE status = 'open'`, fails with `already_claimed` if another agent got there first). Agent keeps choice — queries via pensa, picks a task, attempts claim, re-queries on conflict. Standard Loop Iteration stays 7 steps with explicit Query → Choose & Claim separation.
 - [x] **Document recovery procedure** — Recovery is sgf's responsibility, not ralph's. sgf writes PID files to `.sgf/run/<loop-id>.pid` on launch. Before launching ralph, sgf checks all PIDs: if any alive, skip cleanup (concurrent loop is running); if all stale, recover (`git checkout -- .`, `git clean -fd`, `pn doctor --fix`). Added `.sgf/run/` to project structure.
+
+## Systems Unification & Operation
+
+- [x] **Clarify pre-commit hook staging** — `pn export` auto-stages: writes SQLite → JSONL then runs `git add .pensa/*.jsonl`. This makes the pre-commit hook self-contained — no shell glue needed in the hook config. Beads sidesteps this problem entirely by using Dolt (which has built-in version control), but Springfield's SQLite + JSONL design requires explicit staging. Updated Storage Model sync description and `pn export` command comment.
