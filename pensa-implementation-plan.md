@@ -4,26 +4,26 @@ Implementation plan for the `pn` CLI and daemon, based on [`specs/pensa.md`](spe
 
 ---
 
-## Phase 0: Toolchain & Environment Setup
+## Phase 0: Toolchain & Environment Setup ✅
 
 Install all tools referenced in [`AGENTS.md`](AGENTS.md) and verify the workspace builds.
 
-- Install Rust toolchain (stable) and confirm `rustup show` reports a valid toolchain
+- ✅ Install Rust toolchain (stable) and confirm `rustup show` reports a valid toolchain
 - Install `cargo-geiger` for unsafe code detection: `cargo install cargo-geiger`
   - Referenced in `AGENTS.md`: "Detect unsafe code usage: `cargo geiger`"
-- Confirm existing workspace compiles: `cargo build --workspace`
-- Confirm existing tests pass: `cargo test --workspace`
-- Confirm linting passes: `cargo clippy --workspace -- -D warnings`
-- Confirm formatting: `cargo fmt --all --check`
+- ✅ Confirm existing workspace compiles: `cargo build --workspace`
+- ✅ Confirm existing tests pass: `cargo test --workspace`
+- ✅ Confirm linting passes: `cargo clippy --workspace -- -D warnings`
+- ✅ Confirm formatting: `cargo fmt --all --check`
 - **Note:** The workspace declares `edition = "2024"` in [`Cargo.toml:7`](Cargo.toml). This requires Rust 1.85+. Verify the installed toolchain supports it; if not, either update the toolchain or change to `edition = "2021"`.
 
 ---
 
-## Phase 1: Crate Scaffolding
+## Phase 1: Crate Scaffolding ✅
 
 Create the `crates/pensa/` directory structure and `Cargo.toml`.
 
-- Create `crates/pensa/Cargo.toml` following the pattern in [`crates/ralph/Cargo.toml`](crates/ralph/Cargo.toml):
+- ✅ Create `crates/pensa/Cargo.toml` following the pattern in [`crates/ralph/Cargo.toml`](crates/ralph/Cargo.toml):
   - `name = "pensa"`, inherit `version`, `edition`, `license` from workspace
   - Define `[[bin]] name = "pn"` pointing to `src/main.rs`
   - Dependencies (per [`specs/pensa.md:49-53`](specs/pensa.md) — Technology choices):
@@ -42,15 +42,25 @@ Create the `crates/pensa/` directory structure and `Cargo.toml`.
     - `assert_cmd` — CLI integration testing
     - `predicates` — assertion helpers for CLI output
     - `tokio-test` or `tokio` (with `test-util`) — async test support
-- Create source file stubs:
-  - `crates/pensa/src/main.rs` — binary entry point
-  - `crates/pensa/src/lib.rs` — shared types and modules
-- Verify the new crate compiles: `cargo build -p pensa`
-- Verify the workspace still compiles: `cargo build --workspace`
+- ✅ Create source files (not just stubs — includes Phase 2 types, id gen, error types):
+  - `crates/pensa/src/main.rs` — binary entry point with clap CLI skeleton (daemon, where subcommands)
+  - `crates/pensa/src/lib.rs` — module declarations
+  - `crates/pensa/src/types.rs` — Issue, Comment, Event, Dep, DepTreeNode, enums
+  - `crates/pensa/src/id.rs` — UUIDv7-based ID generation with tests
+  - `crates/pensa/src/error.rs` — PensaError enum, ErrorResponse
+- ✅ Verify the new crate compiles: `cargo build -p pensa`
+- ✅ Verify the workspace still compiles: `cargo build --workspace`
+- ✅ All tests pass: `cargo test --workspace` (34 tests)
+- ✅ Clippy clean: `cargo clippy --workspace -- -D warnings`
+- ✅ Formatting clean: `cargo fmt --all --check`
+
+### Lessons learned
+
+- **UUIDv7 first 8 hex chars are NOT unique within the same millisecond.** The first 8 hex chars are the top 32 bits of the 48-bit timestamp — two IDs generated in rapid succession share them. Use the last 8 hex chars (random_b portion) instead.
 
 ---
 
-## Phase 2: Shared Types & ID Generation
+## Phase 2: Shared Types & ID Generation ✅ (completed as part of Phase 1)
 
 Define the core domain types that both daemon and CLI share.
 
