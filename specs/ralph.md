@@ -91,7 +91,8 @@ The default value `prompt.md` is treated specially: if no explicit prompt is pro
 | Code | Meaning |
 |------|---------|
 | `0` | Completion file `.ralph-complete` detected |
-| `1` | Max iterations exhausted, prompt file missing, or other error |
+| `1` | Error (prompt file missing, etc.) |
+| `2` | Iterations exhausted without completion |
 | `130` | Interrupted by SIGINT (Ctrl+C) or SIGTERM |
 
 ### Examples
@@ -325,7 +326,7 @@ For each iteration `i` in `1..=iterations`:
 8. If interrupted: print "Interrupted.", exit 130
 9. If `--auto-push` and HEAD changed: run `git push`
 
-After loop: search for and delete sentinel files (depth <= 2), print max iterations banner, exit 1.
+After loop: search for and delete sentinel files (depth <= 2), print max iterations banner, exit 2.
 
 ## Git Auto-Push
 
@@ -345,7 +346,7 @@ The sentinel file is created by Claude (via `Bash(touch .ralph-complete)` or `Wr
 
 Ralph deletes any stale `.ralph-complete` sentinel file (found via the same recursive search) at the start of the run and at all exit paths. The file is gitignored.
 
-If all iterations complete without the sentinel file appearing, ralph exits with code 1.
+If all iterations complete without the sentinel file appearing, ralph exits with code 2.
 
 ### Sentinel Search Details
 
@@ -410,7 +411,7 @@ Binary-level E2E tests using `cargo test -p ralph`. Each test:
 | AFK formats text blocks | `afk-session.ndjson` | stdout contains Claude's text verbatim |
 | AFK formats tool calls as one-liners | `afk-session.ndjson` | stdout contains `-> Read(...)` format, no raw JSON args |
 | AFK detects completion file | `complete.ndjson` + sentinel file | exit code 0, sentinel cleaned up |
-| AFK exhausts iterations without completion | `afk-session.ndjson` | exit code 1 |
+| AFK exhausts iterations without completion | `afk-session.ndjson` | exit code 2 |
 | Missing prompt file | — | exit code 1, stderr contains error message |
 | Iterations clamped to max | `afk-session.ndjson` | stdout contains "Warning: Reducing iterations" |
 | Help flag | — | exit code 0, stdout contains usage info |
