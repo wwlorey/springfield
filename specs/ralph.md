@@ -25,7 +25,7 @@ CLI tool for iterative Claude Code execution via Docker sandbox. Replaces `scrip
 ```
 ralph/
 ├── src/
-│   ├── main.rs      # CLI, startup banner (mode, prompt, iterations, sandbox), iteration loop, docker invocation, git operations
+│   ├── main.rs      # CLI, startup banner (mode, prompt, iterations, sandbox, loop-id), iteration loop, docker invocation, git operations
 │   └── format.rs    # NDJSON parsing, tool call formatting, completion detection
 ├── tests/
 │   ├── integration.rs           # Binary-level E2E tests with mocked docker
@@ -60,6 +60,12 @@ No async runtime. Process spawning and I/O use `std::process` and `std::io::BufR
 ralph [OPTIONS] [ITERATIONS] [PROMPT]
 ```
 
+When invoked by `sgf`, the full command looks like:
+
+```
+ralph [-a] [--loop-id ID] [--template T] [--auto-push BOOL] [--max-iterations N] ITERATIONS PROMPT
+```
+
 ### Arguments
 
 | Argument | Type | Default | Description |
@@ -81,6 +87,7 @@ The default value `prompt.md` is treated specially: if no explicit prompt is pro
 | Flag/Option | Env Var | Default | Description |
 |-------------|---------|---------|-------------|
 | `-a`, `--afk` | — | `false` | Run in AFK mode (non-interactive) |
+| `--loop-id` | — | — | Loop identifier (sgf-generated, included in banner output) |
 | `--template` | `RALPH_TEMPLATE` | `tauri-sandbox:latest` | Docker sandbox template image |
 | `--max-iterations` | `RALPH_MAX_ITERATIONS` | `100` | Safety limit for iterations |
 | `--auto-push` | `RALPH_AUTO_PUSH` | `true` | Auto-push after new commits |
@@ -105,6 +112,7 @@ ralph 5 "fix the login bug"           # Inline text prompt
 ralph -a 3 "refactor auth module"     # AFK mode with inline text
 RALPH_TEMPLATE=custom:v2 ralph -a 3   # Custom docker template
 RALPH_AUTO_PUSH=false ralph -a 10     # Disable auto-push
+ralph -a --loop-id build-auth-20260226T143000 10 prompt.md  # With loop ID (sgf passes this)
 ```
 
 ## Modes
@@ -312,9 +320,11 @@ Prompt resolution (before the loop):
 - If explicit prompt provided and it is a path to an existing file → use as file prompt (`@` prefix)
 - If explicit prompt provided and it is not an existing file → use as inline text (no `@` prefix)
 
+The startup banner includes mode, prompt source, iteration count, sandbox template, and loop ID (if provided via `--loop-id`).
+
 For each iteration `i` in `1..=iterations`:
 
-1. Print iteration banner
+1. Print iteration banner (includes loop ID if provided)
 2. Record `git rev-parse HEAD` as `head_before`
 3. Execute Claude via Docker (or `--command` override):
    - Interactive: start notification watcher thread, `.status()` with inherited stdio, stop watcher thread
