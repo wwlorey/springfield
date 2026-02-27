@@ -44,6 +44,7 @@
 
 ## Systems Unification & Operation
 
+- [x] **Define prompt template variable syntax** — Templates use `{{var}}` syntax. The only variable is `spec` (spec stem), used in `build.md` and `test.md` templates. `sgf` substitutes variables, then validates no unresolved `{{...}}` tokens remain before launching. Made `--spec` a required positional arg for `sgf build` and `sgf test`. Other stages have no variables.
 - [x] **Evaluate ralph as library crate** — Keep as subprocess. Ralph has standalone CLI value beyond sgf — developer may use it directly. The well-defined CLI contract (flags, exit codes, invocation pattern) is the right boundary. Library crate's typed errors and shared config don't outweigh losing ralph as an independent tool.
 - [x] **Clarify pre-commit hook staging** — `pn export` auto-stages: writes SQLite → JSONL then runs `git add .pensa/*.jsonl`. This makes the pre-commit hook self-contained — no shell glue needed in the hook config. Beads sidesteps this problem entirely by using Dolt (which has built-in version control), but Springfield's SQLite + JSONL design requires explicit staging. Updated Storage Model sync description and `pn export` command comment.
 - [x] **Add `sgf stop` command** — Won't fix. Killing the process is sufficient; no dedicated stop command needed.

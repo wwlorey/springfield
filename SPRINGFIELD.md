@@ -100,9 +100,16 @@ The agent creates a `.ralph-complete` file when `pn ready` returns no tasks. Ral
 `sgf` handles all prompt templating before invoking ralph:
 
 1. Read the template from `.sgf/prompts/<stage>.md`
-2. Substitute variables (e.g., spec filter, stage-specific flags)
-3. Write the assembled prompt to `.sgf/prompts/.assembled/<stage>.md`
-4. Pass the file path as ralph's `PROMPT` argument
+2. Substitute variables — replace `{{var}}` tokens with their values
+3. Validate — scan for unresolved `{{...}}` tokens and fail with an error before launching
+4. Write the assembled prompt to `.sgf/prompts/.assembled/<stage>.md`
+5. Pass the file path as ralph's `PROMPT` argument
+
+**Template variables**: Templates use `{{var}}` syntax for variable substitution. The only variable is `spec` — the spec stem passed to `sgf build` or `sgf test`. Templates for other stages contain no variables and are passed through unchanged.
+
+| Variable | Stages | Value | Example |
+|----------|--------|-------|---------|
+| `spec` | `build`, `test` | Spec stem from positional arg | `auth` |
 
 The `.assembled/` directory is gitignored. Assembled prompts persist for debugging — inspect what was actually sent to the agent.
 
@@ -398,10 +405,10 @@ The memento is a table of contents. The agent reads it, follows the references t
 ```
 sgf init [--stack <type>]       — scaffold a new project (interactive preset selection, or --stack flag)
 sgf spec                       — generate specs and implementation plan
-sgf build [--spec <stem>] [-a] [iterations] — run a Ralph loop (interactive or AFK)
+sgf build <spec> [-a] [iterations] — run a Ralph loop (interactive or AFK)
 sgf verify                     — run verification loop
 sgf test-plan                  — run test plan generation loop
-sgf test [--spec <stem>] [-a] [iterations] — run test execution loop (interactive or AFK)
+sgf test <spec> [-a] [iterations] — run test execution loop (interactive or AFK)
 sgf issues log                 — interactive session for logging bugs
 sgf issues plan [-a] [iterations] — run bug planning loop (AFK)
 sgf status                     — show project state (active loops, pensa summary)
@@ -461,8 +468,8 @@ Each iteration gets fresh context. The pensa database persists state between ite
 
 | Stage | Query | Work | Close |
 |-------|-------|------|-------|
-| Build | `pn ready [--spec <stem>] --json` | Implement the task; apply backpressure (build, test, lint per `.sgf/backpressure.md`) | `pn close <id> --reason "..."` |
-| Test | `pn ready -t test [--spec <stem>] --json` | Execute the test | `pn close <id> --reason "..."` |
+| Build | `pn ready --spec <stem> --json` | Implement the task; apply backpressure (build, test, lint per `.sgf/backpressure.md`) | `pn close <id> --reason "..."` |
+| Test | `pn ready -t test --spec <stem> --json` | Execute the test | `pn close <id> --reason "..."` |
 | Issues Plan | `pn list -t bug --status open --json` | Study codebase, create fix task: `pn create -t task "fix: ..." --fixes <bug-id>` | `pn release <id>` (bug stays open) |
 
 ### 1. Spec (`sgf spec`)
@@ -489,9 +496,9 @@ Specs are living documents, never sealed/frozen.
 
 ### 2. Build (`sgf build`)
 
-Follows the standard loop iteration. Runs a Ralph loop using `.sgf/prompts/build.md`. Accepts an optional `--spec <stem>` flag to focus on a single spec's tasks. When omitted, the agent works across all specs and open issues.
+Follows the standard loop iteration. Runs a Ralph loop using `.sgf/prompts/build.md`. Requires a spec stem — `sgf build auth` builds tasks for the `auth` spec.
 
-`sgf` assembles the prompt by injecting the spec filter (if any) into the build template before passing it to Ralph. The build stage adds **backpressure** to the work step — after implementing the task, the agent runs build, test, and lint commands per `.sgf/backpressure.md` before committing.
+`sgf` assembles the prompt by substituting `{{spec}}` in the build template before passing it to Ralph. The build stage adds **backpressure** to the work step — after implementing the task, the agent runs build, test, and lint commands per `.sgf/backpressure.md` before committing.
 
 Run interactively first for a few supervised rounds, then switch to AFK mode (`-a`) for autonomous execution.
 
@@ -514,7 +521,7 @@ Runs a Ralph loop using `.sgf/prompts/test-plan.md`. The agent:
 
 ### 5. Test (`sgf test`)
 
-Follows the standard loop iteration. Runs a Ralph loop using `.sgf/prompts/test.md`. Accepts an optional `--spec <stem>` flag to focus on a single spec's test items. When omitted, the agent works across all specs.
+Follows the standard loop iteration. Runs a Ralph loop using `.sgf/prompts/test.md`. Requires a spec stem — `sgf test auth` runs test items for the `auth` spec.
 
 After all test items are closed, a final iteration generates `test-report.md` in the project root — a summary of all test results, pass/fail status, and any bugs logged.
 
