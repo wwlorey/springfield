@@ -1,4 +1,7 @@
-# Specs
+# Springfield Specifications
+
+Design documentation for Springfield, an AI-powered coding agent in Rust.
+
 
 | Spec | Code | Purpose |
 |------|------|---------|
