@@ -422,7 +422,7 @@ Opens a Claude Code session with the spec prompt. The developer provides an outl
 
 The interview and generation happen in a single session. The agent asks clarifying questions as needed, but the goal is always to produce specs and a plan. The prompt instructs the agent to design specs so the result can be end-to-end tested from the command line.
 
-There is no separate "implementation plan" entity. The set of open tasks linked to a spec via `--spec <stem>` *is* the implementation plan for that spec. Querying the plan is just `pn list -t task --spec <stem>` (where `-t` filters by issue type).
+Tasks linked to a spec *are* the implementation plan (see Schema). Query with `pn list -t task --spec <stem>`.
 
 **Spec revision**: This same workflow applies to revising existing specs — run `sgf spec` again. **Stop any running build loops before revising specs** to avoid race conditions where in-progress tasks get superseded mid-iteration. When revising, the agent:
 1. Reviews existing tasks for the spec: `pn list --spec <stem> --json`
