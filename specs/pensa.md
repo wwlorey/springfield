@@ -153,13 +153,13 @@ The binary is named `pn`. All commands support `--json` for structured agent con
 ### Working with issues
 
 ```
-pn create "title" -t <issue_type> [-p <pri>] [-a <assignee>] [--spec <stem>] [--fixes <bug-id>] [--description <text>] [--dep <id>]
+pn create "title" -t <issue_type> [-p <pri>] [-a <assignee>] [--spec <stem>] [--fixes <bug-id>] [--description <text>] [--dep <id>...]
 pn update <id> [--title <t>] [--status <s>] [--priority <p>] [-a <assignee>] [--description <d>] [--claim] [--unclaim]
 pn close <id> [--reason "..."] [--force]
 pn reopen <id> [--reason "..."]
 pn release <id>
 pn delete <id> [--force]
-pn show <id> [--short]
+pn show <id>
 ```
 
 **`--claim`** is atomic: `UPDATE ... SET status = 'in_progress', assignee = <actor> WHERE id = <id> AND status = 'open'`. If another agent already claimed the issue, the command fails with an `already_claimed` error (and reports who holds it). The agent should re-run `pn ready` and pick a different task.
@@ -243,7 +243,7 @@ pn where
 
 Since the daemon owns the database, `pn export` and `pn import` are daemon commands — the CLI sends the request, the daemon performs the I/O.
 
-**`pn export`** — dumps SQLite → JSONL files in `.pensa/`, then runs `git add .pensa/*.jsonl` to stage them. Issues, deps, and comments each get their own file.
+**`pn export`** — the daemon dumps SQLite → JSONL files in `.pensa/`. The CLI then runs `git add .pensa/*.jsonl` to stage them. Issues, deps, and comments each get their own file.
 
 **`pn import`** — rebuilds SQLite from the committed JSONL files. Drops and recreates tables, then inserts from JSONL. Used after clone or post-merge.
 
@@ -329,7 +329,7 @@ The daemon exposes a REST API. The CLI translates subcommands into HTTP requests
 | `close` | POST | `/issues/:id/close` |
 | `reopen` | POST | `/issues/:id/reopen` |
 | `release` | POST | `/issues/:id/release` |
-| `delete` | DELETE | `/issues/:id` |
+| `delete` | DELETE | `/issues/:id?force=true` |
 | `show` | GET | `/issues/:id` |
 | `list` | GET | `/issues` |
 | `ready` | GET | `/issues/ready` |
@@ -339,7 +339,7 @@ The daemon exposes a REST API. The CLI translates subcommands into HTTP requests
 | `status` | GET | `/status` |
 | `history` | GET | `/issues/:id/history` |
 | `dep add` | POST | `/deps` |
-| `dep remove` | DELETE | `/deps` |
+| `dep remove` | DELETE | `/deps?issue_id=...&depends_on_id=...` |
 | `dep list` | GET | `/issues/:id/deps` |
 | `dep tree` | GET | `/issues/:id/deps/tree` |
 | `dep cycles` | GET | `/deps/cycles` |
@@ -348,7 +348,7 @@ The daemon exposes a REST API. The CLI translates subcommands into HTTP requests
 | `export` | POST | `/export` |
 | `import` | POST | `/import` |
 | `doctor` | POST | `/doctor` |
-| `where` | GET | `/where` |
+| `where` | — | *(client-only, no daemon request)* |
 
 All endpoints accept and return JSON. Query parameters map to CLI filter flags.
 

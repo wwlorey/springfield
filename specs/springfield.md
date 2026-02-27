@@ -326,6 +326,10 @@ Ralph includes the loop ID in log output. `sgf logs` uses the loop ID to locate 
 
 The `.sgf/logs/` directory is gitignored.
 
+### sgf logs
+
+`sgf logs <loop-id>` runs `tail -f .sgf/logs/<loop-id>.log`. If the log file does not exist, print an error and exit 1.
+
 ---
 
 ## Recovery
@@ -391,7 +395,7 @@ Each iteration gets fresh context. The pensa database persists state between ite
 
 ### 1. Spec (`sgf spec`)
 
-Opens an interactive Claude Code session with the spec prompt. The developer provides an outline of what to build, the agent interviews them to fill in gaps, and then generates deliverables:
+Opens an interactive Claude Code session with the spec prompt. Runs via ralph with 1 iteration in interactive mode (no AFK, no sentinel detection needed). The developer provides an outline of what to build, the agent interviews them to fill in gaps, and then generates deliverables:
 
 1. Write spec files to `specs/`
 2. Update `specs/README.md` with new index entries (loom-style `| Spec | Code | Purpose |` rows)
@@ -448,14 +452,13 @@ After all test items are closed, a final iteration generates `test-report.md` �
 
 ### 6. Issues Log (`sgf issues log`)
 
-Runs via ralph using `.sgf/prompts/issues.md`. Each iteration handles one bug:
+Runs via ralph with 1 iteration in interactive mode using `.sgf/prompts/issues.md`. Each session handles one bug:
 
 1. The developer describes a bug they've observed
 2. The agent interviews them to capture details — steps to reproduce, expected vs actual behavior, relevant context
 3. Logs the bug via `pn create -t bug`
-4. The session exits and a fresh one spawns
 
-One bug per iteration, fresh context each time. This prevents context from accumulating across unrelated bugs and keeps each interaction focused.
+One bug per session. The developer runs `sgf issues log` again for additional bugs — fresh context each time prevents accumulation across unrelated issues.
 
 ### 7. Issues Plan (`sgf issues plan`)
 
