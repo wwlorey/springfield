@@ -20,6 +20,7 @@
 - [x] **Delete "Resolved Decisions" section** — Kept "Build order" (only unique item) in the section, removed 18 duplicate bullets. Updated downstream todo items that referenced Resolved Decisions.
 - [x] **Trim Design Principles section** — Cut 9 of 11 principles that restated content from earlier sections. Kept "Search before assuming" (unique insight, most common failure mode) and "One task, fresh context" (merged two principles into one-liner with rationale). Added reference line pointing to earlier sections for the rest.
 - [x] **Deduplicate "tasks are the plan"** — Schema keeps the authoritative definition. Spec stage replaced with one-line reference + query example. Design Principles already just a reference (from Trim task).
+- [x] **Cut prek YAML block** — Replaced 17-line YAML block with two sentences describing what each hook does and when it fires. All information preserved: pre-commit runs `pn export`, post-merge/checkout/rewrite runs `pn import`.
 
 ## Concurrency & Failure Modes
 

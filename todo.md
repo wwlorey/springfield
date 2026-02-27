@@ -8,7 +8,6 @@ Findings from four-agent spec review. Tackle outside this conversation.
 
 - [ ] **Deduplicate `.sgf/` protection** — stated 2 times (File Purposes, Design Principles). Keep in File Purposes only.
 - [ ] **Deduplicate bug-to-task lifecycle** — stated in Schema and Issues Plan stage. Keep Schema + workflow, cut the other.
-- [ ] **Cut prek YAML block** — 17 lines of implementation detail. Replace with a two-sentence description of what the hooks do.
 - [ ] **Condense "Why not Dolt?"** — 5 lines justifying a made decision. Condense to one parenthetical.
 - [ ] **Condense memento lifecycle** — 4 bullets to say "doesn't change after init." Replace with one sentence.
 - [ ] **Condense Future Work items 2-3** — Claude Code hooks and TUI entries are over-detailed for aspirational items. One line each.

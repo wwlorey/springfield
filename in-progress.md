@@ -7,3 +7,4 @@
 
 - [ ] **Specify Claude Code crash behavior** — Non-zero exit from Claude Code = iteration failed. Ralph logs failure, discards uncommitted changes, proceeds to next iteration. Document whether ralph releases the claim or lets doctor handle it.
 
+
