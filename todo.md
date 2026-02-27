@@ -6,7 +6,6 @@ Findings from four-agent spec review. Tackle outside this conversation.
 
 ## Extraneous Content (Pruning)
 
-- [ ] **Deduplicate `.sgf/` protection** — stated 2 times (File Purposes, Design Principles). Keep in File Purposes only.
 - [ ] **Deduplicate bug-to-task lifecycle** — stated in Schema and Issues Plan stage. Keep Schema + workflow, cut the other.
 - [ ] **Condense Future Work items 2-3** — Claude Code hooks and TUI entries are over-detailed for aspirational items. One line each.
 
