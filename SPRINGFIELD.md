@@ -150,18 +150,28 @@ Give agents a CLI-accessible, structured way to log issues and track work items 
 ### Storage Model
 
 Dual-layer storage (same pattern as beads):
-- **`.pensa/db.sqlite`** — the working database, gitignored. Rebuilt from JSONL on clone.
+- **`.pensa/db.sqlite`** — the working database, gitignored. Lives on the host, owned by the pensa daemon. Rebuilt from JSONL on clone.
 - **`.pensa/*.jsonl`** — the git-committed exports. Separate files per entity: `issues.jsonl`, `deps.jsonl`, `comments.jsonl`. Events are not exported (derivable from issue history, avoids monotonic file growth). Human-readable, diffs cleanly.
 
-Sync is automated via prek (git hooks):
+Git sync is automated via prek (git hooks):
 - **Pre-commit hook**: runs `pn export` to write SQLite → JSONL and stage the JSONL files
 - **Post-merge hook**: runs `pn import` to rebuild JSONL → SQLite
 
-**Runtime sharing model**: All concurrent loops share a single `.pensa/db.sqlite` via bind-mounted host directory. SQLite uses the default DELETE journal mode (not WAL — WAL requires shared memory via mmap, which breaks across Docker Desktop's VirtioFS boundary). Pensa sets these pragmas on every connection: `busy_timeout=5000` (retries for 5s on lock contention instead of failing immediately) and `foreign_keys=ON` (enforces referential integrity for deps and comments). Pensa's write operations are brief and infrequent (a few per minute across all loops), so serialized writes are effectively invisible. JSONL files are the git-portable layer — they capture a snapshot at commit time via `pn export` and are never read at runtime by concurrent loops. On clone or post-merge, `pn import` rebuilds SQLite from JSONL.
+#### Runtime Architecture
 
-*Note: Docker Desktop on macOS/Windows uses VirtioFS, which has [known file-locking limitations](https://github.com/docker/for-mac/issues/7004). Springfield's low write frequency makes contention practically unlikely, but concurrent loops are most reliable on native Linux Docker.*
+Pensa uses a client/daemon model. The daemon runs on the host, owns the SQLite database, and handles all reads and writes. The `pn` CLI is a thin client that connects to the daemon over HTTP.
 
-**Why not Dolt?** Dolt (version-controlled SQL database) was evaluated as an alternative that would eliminate the dual-layer sync. However, SQLite + JSONL is the better fit: SQLite is tiny and ubiquitous (no extra binary in Docker sandboxes), JSONL travels with the project's git repo (no second remote like DoltHub needed), and `rusqlite` is a mature Rust integration (vs. shelling out to `dolt sql -q`). Dolt's strengths — native table-level merges, built-in branching — matter more in multi-user scenarios, which Springfield doesn't target. The sync hooks are a few lines of prek config.
+**Why a daemon?** Docker sandboxes use Mutagen-based file synchronization (not bind mounts). POSIX file locks don't propagate across the sync boundary — two sandboxes writing to the same SQLite file would corrupt it. The daemon keeps SQLite on the host behind a single process, making concurrent access from multiple sandboxes safe.
+
+**Daemon** (`pn daemon`): Listens on a local port (default: `7533`). Owns `.pensa/db.sqlite` directly via `rusqlite`. Sets pragmas on every connection: `busy_timeout=5000`, `foreign_keys=ON`. All mutation is serialized through the daemon — no concurrent SQLite writers.
+
+**CLI client**: Every `pn` command (create, list, ready, close, etc.) sends an HTTP request to the daemon. The CLI discovers the daemon via `PN_DAEMON` env var (default: `http://localhost:7533`). Inside Docker sandboxes, this is `http://host.docker.internal:7533`. If the daemon is unreachable, the CLI fails with a clear error.
+
+**Lifecycle**: `sgf` starts the daemon automatically before launching loops (if not already running). The daemon can also be started manually via `pn daemon`. It runs in the foreground (daemonization is the caller's responsibility — `sgf` backgrounds it). Stops on SIGTERM or when `sgf` shuts down.
+
+**JSONL export**: JSONL files are the git-portable layer — they capture a snapshot at commit time via `pn export` (called by the pre-commit hook) and are never read at runtime. On clone or post-merge, `pn import` rebuilds SQLite from JSONL. Since the daemon owns the database, `pn export` and `pn import` are daemon commands — the CLI sends the request, the daemon performs the I/O.
+
+**Why not Dolt?** SQLite + JSONL is simpler: SQLite is tiny, JSONL travels with git (no DoltHub remote needed), and `rusqlite` is mature. Dolt's strengths (table-level merges, branching) matter more in multi-user scenarios.
 
 ### Schema
 
@@ -249,6 +259,13 @@ pn dep cycles
 ```
 pn comment add <id> "text"
 pn comment list <id>
+```
+
+#### Daemon
+
+```
+pn daemon [--port <port>]               # start the daemon (foreground, default port 7533)
+pn daemon status                        # check if daemon is running and reachable
 ```
 
 #### Data and maintenance
@@ -414,7 +431,7 @@ COPY pn /usr/local/bin/pn
 USER agent
 ```
 
-**Pensa in the sandbox**: The `pn` binary is baked into every template image. Since the workspace syncs bidirectionally, `pn` reads and writes `.pensa/db.sqlite` inside the synced workspace — all concurrent sandboxes share the same SQLite file on the host. After updating `pn`, rebuild template images to pick up the new version.
+**Pensa in the sandbox**: The `pn` binary is baked into every template image. Inside the sandbox, `pn` connects to the pensa daemon on the host via `http://host.docker.internal:7533` — the SQLite database never enters the sync boundary. All sandboxes and the host CLI share the same daemon, so concurrent access is safe. After updating `pn`, rebuild template images to pick up the new version.
 
 **Credentials**: The sandbox uses Docker Desktop's credential proxy (`--credentials host`), which intercepts outbound API requests and injects authentication headers from the host. API keys never enter the sandbox.
 
@@ -426,7 +443,7 @@ USER agent
 
 **Stage transitions are human-initiated.** The developer decides when to move between stages. Suggested heuristics: run verify when `pn ready --spec <stem>` returns nothing (all tasks for a spec are done); run test-plan after verify passes; run test after test-plan produces test items. These are guidelines, not gates.
 
-**Concurrency model**: Multiple loops (e.g., `sgf build` + `sgf issues plan`) can run concurrently on the same branch. SQLite provides atomic claims via `pn update --claim` (`UPDATE ... WHERE status = 'open'` — fails with `already_claimed` if another agent got there first). `pn export` runs at commit time via the pre-commit hook. If `git push` fails due to a concurrent commit, the loop should `git pull --rebase` and retry. Stop build loops before running `sgf spec` to avoid task-supersession race conditions.
+**Concurrency model**: Multiple loops (e.g., `sgf build` + `sgf issues plan`) can run concurrently on the same branch. The pensa daemon serializes all database access, providing atomic claims via `pn update --claim` (fails with `already_claimed` if another agent got there first). `pn export` runs at commit time via the pre-commit hook. If `git push` fails due to a concurrent commit, the loop should `git pull --rebase` and retry. Stop build loops before running `sgf spec` to avoid task-supersession race conditions.
 
 ### Standard Loop Iteration
 
@@ -515,7 +532,7 @@ One bug per iteration, fresh context each time. The developer describes, the age
 
 Follows the standard loop iteration. Runs a Ralph loop using `.sgf/prompts/issues-plan.md`. A separate concurrent process from `sgf build`.
 
-Unlike build and test, the close step uses `pn release <id>` — the bug stays open as the problem record. The fix task flows through `pn ready` and gets picked up by the build loop. When the build loop closes the fix task, the linked bug is automatically closed with reason `"fixed by pn-xxxx"`.
+Unlike build and test, the close step uses `pn release <id>` — the bug stays open while the fix task (created with `--fixes`) flows through `pn ready` into the build loop.
 
 **Typical setup**: two terminals running concurrently — `sgf issues plan` producing fix tasks from bugs, `sgf build` consuming them alongside other work items. A third terminal with `sgf issues` open for the developer to log new bugs as they're found.
 
