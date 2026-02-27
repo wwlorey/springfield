@@ -136,6 +136,14 @@ node_modules/
 
 # SvelteKit
 .svelte-kit/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# macOS
+.DS_Store
 ```
 
 All entries are always added regardless of what exists in the directory. If an entry already exists anywhere in the file, it is not added again.
