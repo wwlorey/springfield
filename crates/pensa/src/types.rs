@@ -1,5 +1,19 @@
+use std::fmt;
+use std::str::FromStr;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+
+#[derive(Debug)]
+pub struct ParseEnumError(pub String);
+
+impl fmt::Display for ParseEnumError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "invalid enum value: {}", self.0)
+    }
+}
+
+impl std::error::Error for ParseEnumError {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -10,12 +24,58 @@ pub enum IssueType {
     Chore,
 }
 
+impl IssueType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            IssueType::Bug => "bug",
+            IssueType::Task => "task",
+            IssueType::Test => "test",
+            IssueType::Chore => "chore",
+        }
+    }
+}
+
+impl FromStr for IssueType {
+    type Err = ParseEnumError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "bug" => Ok(IssueType::Bug),
+            "task" => Ok(IssueType::Task),
+            "test" => Ok(IssueType::Test),
+            "chore" => Ok(IssueType::Chore),
+            _ => Err(ParseEnumError(s.to_string())),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Status {
     Open,
     InProgress,
     Closed,
+}
+
+impl Status {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Status::Open => "open",
+            Status::InProgress => "in_progress",
+            Status::Closed => "closed",
+        }
+    }
+}
+
+impl FromStr for Status {
+    type Err = ParseEnumError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "open" => Ok(Status::Open),
+            "in_progress" => Ok(Status::InProgress),
+            "closed" => Ok(Status::Closed),
+            _ => Err(ParseEnumError(s.to_string())),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -25,6 +85,30 @@ pub enum Priority {
     P1,
     P2,
     P3,
+}
+
+impl Priority {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Priority::P0 => "p0",
+            Priority::P1 => "p1",
+            Priority::P2 => "p2",
+            Priority::P3 => "p3",
+        }
+    }
+}
+
+impl FromStr for Priority {
+    type Err = ParseEnumError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "p0" => Ok(Priority::P0),
+            "p1" => Ok(Priority::P1),
+            "p2" => Ok(Priority::P2),
+            "p3" => Ok(Priority::P3),
+            _ => Err(ParseEnumError(s.to_string())),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,6 +144,14 @@ pub struct Comment {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IssueDetail {
+    #[serde(flatten)]
+    pub issue: Issue,
+    pub deps: Vec<Issue>,
+    pub comments: Vec<Comment>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Event {
     pub id: i64,
     pub issue_id: String,
@@ -85,4 +177,28 @@ pub struct DepTreeNode {
     pub priority: Priority,
     pub issue_type: IssueType,
     pub depth: i32,
+}
+
+#[derive(Debug, Clone)]
+pub struct CreateIssueParams {
+    pub title: String,
+    pub issue_type: IssueType,
+    pub priority: Priority,
+    pub description: Option<String>,
+    pub spec: Option<String>,
+    pub fixes: Option<String>,
+    pub assignee: Option<String>,
+    pub deps: Vec<String>,
+    pub actor: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct UpdateFields {
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub priority: Option<Priority>,
+    pub status: Option<Status>,
+    pub assignee: Option<String>,
+    pub spec: Option<String>,
+    pub fixes: Option<String>,
 }

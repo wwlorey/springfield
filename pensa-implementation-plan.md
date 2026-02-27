@@ -55,34 +55,26 @@ Create `crates/pensa/src/db.rs` with the `Db` struct, connection management, and
 
 ---
 
-## Phase 4: DB — Issue CRUD
+## Phase 4: DB — Issue CRUD ✅
 
 Implement `create_issue`, `get_issue`, `update_issue`.
 
-- **Source:** [`specs/pensa.md:155-157`](specs/pensa.md), [`specs/pensa.md:162`](specs/pensa.md)
-- `create_issue(title, issue_type, priority, description, spec, fixes, assignee, deps, actor)`:
-  - Generate ID via `generate_id()` ([`specs/pensa.md:81`](specs/pensa.md))
-  - INSERT into issues with `created_at`/`updated_at` = `now()`
-  - INSERT "created" event with actor
-  - If `deps` provided, insert each into deps table
-  - Return the created `Issue`
-- `get_issue(id) -> Result<IssueDetail>`:
-  - SELECT issue by id, return `NotFound` if missing
-  - Also fetch deps (as issue objects) and comments for the "show" view ([`specs/pensa.md:162`](specs/pensa.md))
-  - Define `IssueDetail` struct (or similar): issue fields + `deps: Vec<Issue>` + `comments: Vec<Comment>` — add Serialize/Deserialize
-- `update_issue(id, UpdateFields, actor)`:
-  - `UpdateFields` struct with all-optional fields: title, description, priority, status, assignee, spec, fixes
-  - Build dynamic SET clause for non-None fields
-  - Always update `updated_at`
-  - INSERT "updated" event with changed fields in detail
-  - Return updated `Issue`
-  - **Warning from previous attempt:** Dynamic SET with string interpolation is error-prone. Use parameterized queries where possible; if string interpolation is needed for column names, escape values carefully (single-quote doubling).
-- **Tests:**
-  - `create_and_get` — create issue, get it back, verify all fields match
-  - `get_nonexistent` — returns NotFound
-  - `update_fields` — update title and priority, verify changes persisted and unchanged fields preserved
-  - `update_logs_event` — after update, verify an "updated" event exists
-- **Verify:** build + test + clippy + fmt
+- ✅ `create_issue(&self, params: &CreateIssueParams) -> Result<Issue>` — uses `CreateIssueParams` struct to satisfy clippy's max-args limit
+- ✅ `get_issue(&self, id) -> Result<IssueDetail>` — fetches issue + deps (as issue objects via JOIN) + comments
+- ✅ `get_issue_only(&self, id) -> Result<Issue>` — internal helper, returns just the issue (no deps/comments)
+- ✅ `update_issue(&self, id, &UpdateFields, actor) -> Result<Issue>` — dynamic SET via `rusqlite::types::Value` + `params_from_iter`
+- ✅ Helper functions: `issue_from_row`, `comment_from_row`, `parse_dt` for SQLite → Rust type conversion
+- ✅ New types: `IssueDetail` (with `#[serde(flatten)]`), `UpdateFields` (with `Default`), `CreateIssueParams`
+- ✅ Enum conversion: `as_str()` + `FromStr` impls for `IssueType`, `Status`, `Priority`
+- ✅ Tests: `create_and_get`, `get_nonexistent`, `update_fields`, `update_logs_event` (4 new, 9 total)
+- ✅ Verified: build + test (9 pass) + clippy + fmt
+
+### Design decisions
+
+- **`CreateIssueParams` struct** instead of 10 positional args — clippy `too_many_arguments` lint enforces max 7.
+- **Dynamic UPDATE via `rusqlite::types::Value`** — column names are hardcoded strings (safe from injection), values are parameterized via `params_from_iter(Vec<Value>)`. Empty assignee string maps to `Value::Null` to support clearing.
+- **`issue_from_row` / `comment_from_row` as `pub(crate)` free functions** — reusable across future phases without coupling to `Db`.
+- **`parse_dt` uses `unwrap()`** — DB only stores timestamps from our `now()` function (guaranteed RFC 3339), so parse failure is an invariant violation.
 
 ---
 
