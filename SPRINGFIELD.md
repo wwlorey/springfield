@@ -207,7 +207,7 @@ All commands support `--json` for agent consumption.
 
 **Global flags**: `--actor <name>` (who is running this command — for audit trail; resolution: `--actor` flag > `PN_ACTOR` env var > `git config user.name` > `$USER`).
 
-**`--claim`** is shorthand for `--status in_progress -a <current_actor>`. **`--unclaim`** is shorthand for `--status open -a ""`. **`pn release <id>`** is an alias for `pn update <id> --unclaim`.
+**`--claim`** is atomic: `UPDATE ... SET status = 'in_progress', assignee = <actor> WHERE id = <id> AND status = 'open'`. If another agent already claimed the issue, the command fails with an `already_claimed` error (and reports who holds it). The agent should re-run `pn ready` and pick a different task. **`--unclaim`** is shorthand for `--status open -a ""`. **`pn release <id>`** is an alias for `pn update <id> --unclaim`.
 
 #### Working with issues
 
@@ -227,7 +227,6 @@ pn show <id> [--short]
 ```
 pn list [--status <s>] [--priority <p>] [-a <assignee>] [-t <issue_type>] [--spec <stem>] [--sort <field>] [-n <limit>]
 pn ready [-n <limit>] [-p <pri>] [-a <assignee>] [-t <issue_type>] [--spec <stem>]  # returns [] when nothing matches
-pn claim-next [-p <pri>] [-t <issue_type>] [--spec <stem>]  # atomic ready + claim; returns claimed issue or null
 pn blocked
 pn search <query>                          # substring match on title + description
 pn count [--by-status] [--by-priority] [--by-issue-type] [--by-assignee]
@@ -390,25 +389,27 @@ All sessions run inside Docker sandboxes, including human-in-the-loop stages lik
 
 **Stage transitions are human-initiated.** The developer decides when to move between stages. Suggested heuristics: run verify when `pn ready --spec <stem>` returns nothing (all tasks for a spec are done); run test-plan after verify passes; run test after test-plan produces test items. These are guidelines, not gates.
 
-**Concurrency model**: Multiple loops (e.g., `sgf build` + `sgf issues plan`) can run concurrently on the same branch. SQLite provides atomic claims via `pn claim-next` (`SELECT ... WHERE status = 'open' + UPDATE` in a single transaction, preventing double-claiming). `pn export` runs at commit time via the pre-commit hook. If `git push` fails due to a concurrent commit, the loop should `git pull --rebase` and retry. Stop build loops before running `sgf spec` to avoid task-supersession race conditions.
+**Concurrency model**: Multiple loops (e.g., `sgf build` + `sgf issues plan`) can run concurrently on the same branch. SQLite provides atomic claims via `pn update --claim` (`UPDATE ... WHERE status = 'open'` — fails with `already_claimed` if another agent got there first). `pn export` runs at commit time via the pre-commit hook. If `git push` fails due to a concurrent commit, the loop should `git pull --rebase` and retry. Stop build loops before running `sgf spec` to avoid task-supersession race conditions.
 
 ### Standard Loop Iteration
 
-Build and Test stages share a common iteration pattern. Each iteration:
+Build, Test, and Issues Plan stages share a common iteration pattern. Each iteration:
 
 1. **Orient** — read `memento.md`
-2. **Claim** — `pn claim-next [filters] --json`. If none, write `.ralph-complete` and exit — the loop is finished.
-3. **Work** — stage-specific (see below)
-4. **Log issues** — if problems are discovered: `pn create "description" -t bug`
-5. **Close/release** — close or release the work item
-6. **Commit** — commit all changes (the pre-commit hook runs `pn export` automatically, syncing SQLite to JSONL)
+2. **Query** — find work items via pensa (stage-specific query, see table). If none, write `.ralph-complete` and exit — the loop is finished.
+3. **Choose & Claim** — pick a task from the results, then `pn update <id> --claim`. If the claim fails (`already_claimed`), re-query and pick another.
+4. **Work** — stage-specific (see below)
+5. **Log issues** — if problems are discovered: `pn create "description" -t bug`
+6. **Close/release** — close or release the work item
+7. **Commit** — commit all changes (the pre-commit hook runs `pn export` automatically, syncing SQLite to JSONL)
 
-Each iteration gets fresh context. The pensa database persists state between iterations. The stages differ only in their claim filters, work, and close steps:
+Each iteration gets fresh context. The pensa database persists state between iterations. The stages differ only in their query, work, and close steps:
 
-| Stage | Claim | Work | Close |
+| Stage | Query | Work | Close |
 |-------|-------|------|-------|
-| Build | `pn claim-next [--spec <stem>] --json` | Implement the task; apply backpressure (build, test, lint per `.sgf/backpressure.md`) | `pn close <id> --reason "..."` |
-| Test | `pn claim-next -t test [--spec <stem>] --json` | Execute the test | `pn close <id> --reason "..."` |
+| Build | `pn ready [--spec <stem>] --json` | Implement the task; apply backpressure (build, test, lint per `.sgf/backpressure.md`) | `pn close <id> --reason "..."` |
+| Test | `pn ready -t test [--spec <stem>] --json` | Execute the test | `pn close <id> --reason "..."` |
+| Issues Plan | `pn list -t bug --status open --json` | Study codebase, create fix task: `pn create -t task "fix: ..." --fixes <bug-id>` | `pn release <id>` (bug stays open) |
 
 ### 1. Spec (`sgf spec`)
 
@@ -475,16 +476,9 @@ One bug per iteration, fresh context each time. The developer describes, the age
 
 ### 7. Issues Plan (`sgf issues plan`)
 
-Runs a Ralph loop using `.sgf/prompts/issues-plan.md`. A separate concurrent process from `sgf build`. Does not follow the standard loop iteration — bugs are problem reports excluded from `pn ready`, so Issues Plan uses its own claim flow:
+Follows the standard loop iteration. Runs a Ralph loop using `.sgf/prompts/issues-plan.md`. A separate concurrent process from `sgf build`.
 
-1. **Orient** — read `memento.md`
-2. **Find** — `pn list -t bug --status open --json`. If none, write `.ralph-complete` and exit.
-3. **Claim** — `pn update <id> --claim`
-4. **Work** — study codebase, create fix task: `pn create -t task "fix: ..." --fixes <bug-id>`
-5. **Release** — `pn release <id>` (bug stays open as the problem record)
-6. **Commit** — commit all changes
-
-The fix task flows through `pn ready` and gets picked up by the build loop. When the build loop closes the fix task, the linked bug is automatically closed with reason `"fixed by pn-xxxx"`.
+Unlike build and test, the close step uses `pn release <id>` — the bug stays open as the problem record. The fix task flows through `pn ready` and gets picked up by the build loop. When the build loop closes the fix task, the linked bug is automatically closed with reason `"fixed by pn-xxxx"`.
 
 **Typical setup**: two terminals running concurrently — `sgf issues plan` producing fix tasks from bugs, `sgf build` consuming them alongside other work items. A third terminal with `sgf issues` open for the developer to log new bugs as they're found.
 
