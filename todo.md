@@ -22,9 +22,6 @@ Findings from four-agent spec review. Tackle outside this conversation.
 
 ## Concurrency & Failure Modes
 
-- [ ] **Replace 30-min stale threshold with heartbeat** — Fixed timeout is too aggressive (Rust builds can exceed 30min). Ralph should periodically touch `updated_at` on claimed tasks; doctor checks `updated_at` staleness instead of claim time.
-- [ ] **Handle rebase conflicts** — Specify retry count (e.g., 3). On conflict: `git rebase --abort`, re-export JSONL from SQLite, create fresh commit, retry push. If conflict is in source code, iteration is failed — release task and move on.
-- [ ] **Make `pn export` rebase-aware** — During rebase (detect via `.git/rebase-merge/`), skip export. Post-rebase: run `pn export` once for the final state.
 - [ ] **Document single-branch concurrency model** — Explicitly state that branch-based workflows (feature branches both modifying pensa) require manual JSONL conflict resolution or a custom merge driver. All concurrent work happens on one branch.
 - [ ] **Enforce spec-revision pause mechanically** — Add a `spec_revision_active` flag to pensa. When set, `pn ready` returns empty with a message. `sgf spec` sets on entry, clears on exit. `pn doctor --fix` clears if stale.
 

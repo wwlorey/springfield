@@ -35,6 +35,8 @@
 - [x] **Handle dirty working tree at iteration start** — Resolved by crash behavior decision: ralph does not clean up between iterations. Forward correction within a run; sgf pre-launch recovery between runs.
 - [x] **Run `pn doctor --fix` at iteration start** — Resolved by crash behavior decision: ralph does not run doctor between iterations. Stale claims are cleared by sgf pre-launch recovery (`pn doctor --fix`) before the next ralph run.
 - [x] **Document iteration atomicity principle** — Added "Atomic iterations" to Design Principles: an iteration either commits fully or is discarded entirely. Kept terse (one sentence + reference to sgf pre-launch recovery) to match the trimmed style of the section.
+- [x] **Handle rebase conflicts** — Not needed. Mutagen file sync means all sandboxes share the same git history — concurrent loops see each other's commits within seconds, so push conflicts don't arise and `git pull --rebase` is unnecessary. Removed incorrect `git pull --rebase` advice from Concurrency model paragraph. Replaced with explanation of why shared-filesystem sync eliminates the problem.
+- [x] **Make `pn export` rebase-aware** — Not needed. Same reasoning: rebase isn't part of the workflow when sandboxes share git state via Mutagen sync.
 
 ## Systems Unification & Operation
 

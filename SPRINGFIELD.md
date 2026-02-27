@@ -443,7 +443,7 @@ USER agent
 
 **Stage transitions are human-initiated.** The developer decides when to move between stages. Suggested heuristics: run verify when `pn ready --spec <stem>` returns nothing (all tasks for a spec are done); run test-plan after verify passes; run test after test-plan produces test items. These are guidelines, not gates.
 
-**Concurrency model**: Multiple loops (e.g., `sgf build` + `sgf issues plan`) can run concurrently on the same branch. The pensa daemon serializes all database access, providing atomic claims via `pn update --claim` (fails with `already_claimed` if another agent got there first). `pn export` runs at commit time via the pre-commit hook. If `git push` fails due to a concurrent commit, the loop should `git pull --rebase` and retry. Stop build loops before running `sgf spec` to avoid task-supersession race conditions.
+**Concurrency model**: Multiple loops (e.g., `sgf build` + `sgf issues plan`) can run concurrently on the same branch. The pensa daemon serializes all database access, providing atomic claims via `pn update --claim` (fails with `already_claimed` if another agent got there first). `pn export` runs at commit time via the pre-commit hook. Concurrent sandboxes share the same git history via Mutagen file sync — push conflicts don't arise because each sandbox sees the other's commits within seconds. Stop build loops before running `sgf spec` to avoid task-supersession race conditions.
 
 ### Standard Loop Iteration
 
