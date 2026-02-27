@@ -297,7 +297,7 @@ Always `[]`, never `null`.
 | `history` | Array of event objects |
 | `dep add`, `dep remove` | `{"status": "added"/"removed", "issue_id": "...", "depends_on_id": "..."}` |
 | `dep list` | Array of issue objects |
-| `dep tree` | Array of tree nodes |
+| `dep tree` | Flat array of tree nodes: `{"id", "title", "status", "priority", "issue_type", "depth"}` |
 | `dep cycles` | Array of arrays (each inner array is one cycle) |
 | `comment add` | Single comment object |
 | `comment list` | Array of comment objects |
