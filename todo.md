@@ -13,10 +13,7 @@ Findings from four-agent spec review. Tackle outside this conversation.
 ## Systems Unification & Operation
 
 - [ ] **Specify `sgf logs` behavior** — What it shows (raw output, NDJSON, pensa mutations), where AFK logs are stored, how long retained.
-- [ ] **Evaluate ralph as library crate** — Currently a subprocess; sgf is its sole consumer. Library crate would give typed errors, shared config, no serialization boundary. Could keep a thin binary for standalone use.
 - [ ] **Add `specs/README.md` conflict prevention** — Have `sgf spec` check for running loops and warn/refuse if any are active, since both spec and build stages can update this file.
-- [ ] **Consider whether build loop should handle trivial bugs inline** — Currently all bugs go through the issues-plan pipeline (3+ iteration boundaries). Trivial self-discovered bugs could be fixed in the same iteration.
-
 ---
 
 ## Concurrency & Failure Modes

@@ -57,3 +57,7 @@
 ## Agent Ergonomics & Developer Experience
 
 - [x] **Add task sizing guidance to spec phase** — Closed without spec change. Task sizing is a prompt template concern, not a spec concern. The spec already defers to the prompt ("The prompt instructs the agent to design specs so the result can be end-to-end tested from the command line"). Implementation plan structure — tooling setup first, cited bullet points, docs + integration tests last — lives in `.sgf/prompts/spec.md`, seeded by `sgf init` and editable per-project.
+
+## Systems Unification & Operation
+
+- [x] **Consider whether build loop should handle trivial bugs inline** — Closed without spec change. The spec already gives agents discretion — Standard Loop Iteration step 5 says "**if** problems are discovered." Agents fix trivial issues inline as part of the current task; only genuinely non-trivial, out-of-scope bugs are worth logging to pensa. This is prompt-level tuning (build prompt can reinforce "fix trivial issues you encounter; only log bugs outside the scope of your current task"), not a spec-level change.
