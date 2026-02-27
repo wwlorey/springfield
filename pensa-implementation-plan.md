@@ -40,27 +40,18 @@ Completed inline with Phase 1 — see above.
 
 ---
 
-## Phase 3: DB — Schema & Open
+## Phase 3: DB — Schema & Open ✅
 
 Create `crates/pensa/src/db.rs` with the `Db` struct, connection management, and schema migrations.
 
-- **Source:** [`specs/pensa.md:62-141`](specs/pensa.md) — Schema; [`specs/pensa.md:375-384`](specs/pensa.md) — Database Initialization
-- Create `crates/pensa/src/db.rs`:
-  - `Db` struct wrapping `rusqlite::Connection` + `pensa_dir: PathBuf`
-  - `Db::open(path: &Path) -> Result<Db>`:
-    - Create `.pensa/` directory if needed ([`specs/pensa.md:379`](specs/pensa.md))
-    - Open or create `db.sqlite` ([`specs/pensa.md:380`](specs/pensa.md))
-    - Set pragmas: `busy_timeout=5000`, `foreign_keys=ON` ([`specs/pensa.md:37`](specs/pensa.md), [`specs/pensa.md:381`](specs/pensa.md))
-    - Run migrations — CREATE TABLE IF NOT EXISTS for all four tables: issues, deps, comments, events ([`specs/pensa.md:382`](specs/pensa.md))
-    - Schema must match spec exactly: [`specs/pensa.md:64-134`](specs/pensa.md)
-    - Auto-import from JSONL deferred to Phase 8 (add a TODO comment)
-  - Helper: `now() -> String` — ISO 8601 UTC timestamp (`2026-02-27T14:30:00Z` format — [`specs/pensa.md:139-141`](specs/pensa.md))
-- Wire module: add `pub mod db` to `lib.rs`
-- **Tests** (in `db.rs` via `#[cfg(test)]`):
-  - `open_creates_tables` — open a tempdir DB, verify all four tables exist
-  - `open_is_idempotent` — open the same DB twice, no error
-  - `foreign_keys_enforced` — insert a dep referencing a nonexistent issue, verify it fails
-- **Verify:** `cargo build -p pensa && cargo test -p pensa && cargo clippy -p pensa -- -D warnings && cargo fmt --all --check`
+- ✅ `Db` struct wrapping `rusqlite::Connection` + `pensa_dir: PathBuf`
+- ✅ `Db::open(path: &Path) -> Result<Db>` — creates `.pensa/` dir, opens `db.sqlite`, sets pragmas, runs migrations
+- ✅ Schema matches spec exactly (all four tables: issues, deps, comments, events)
+- ✅ Auto-import from JSONL deferred to Phase 8 (TODO comment in place)
+- ✅ `now() -> String` helper — ISO 8601 UTC timestamp
+- ✅ Wired `pub mod db` in `lib.rs`
+- ✅ Tests: `open_creates_tables`, `open_is_idempotent`, `foreign_keys_enforced`
+- ✅ Verified: build + test (5 pass) + clippy + fmt
 
 ---
 
