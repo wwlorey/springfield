@@ -48,7 +48,6 @@ Findings from four-agent spec review. Tackle outside this conversation.
 
 ## Agent Ergonomics & Developer Experience
 
-- [ ] **Mandate failure comments for inter-iteration learning** — Build prompt must require: before dying on failure, `pn comment add <id> "Attempted: <what>. Failed: <why>."`. Next iteration checks `pn comment list <id>` after claiming.
 - [ ] **Document `--json` output schema** — Specify envelope format (`{"ok": bool, "data": ..., "error": ...}`), that errors with `--json` go to stdout as JSON, and field names for each command's response.
 - [ ] **Add task sizing guidance to spec phase** — "Each task should be completable in a single iteration — roughly one file or one logical change. If >3-4 files, split it." Add a task-splitting protocol for build agents.
 - [ ] **Consider `pn q` removal or redefinition** — Currently redundant with `pn create --json`. Either remove or give it a genuinely different semantic.

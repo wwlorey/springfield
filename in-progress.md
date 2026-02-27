@@ -2,7 +2,7 @@
 
 ---
 
-## Systems Unification & Operation
+## Agent Ergonomics & Developer Experience
 
-- [ ] **Document recovery procedure** — After a failed iteration: `git checkout .` to discard uncommitted changes, `pn doctor --fix` to release stale claims, restart loop. Consider having ralph do this automatically at iteration start.
+- [ ] **Mandate failure comments for inter-iteration learning** — Build prompt must require: before dying on failure, `pn comment add <id> "Attempted: <what>. Failed: <why>."`. Next iteration checks `pn comment list <id>` after claiming.
 

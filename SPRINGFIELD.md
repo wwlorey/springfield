@@ -125,7 +125,19 @@ The `.sgf/logs/` directory is gitignored.
 
 #### Recovery
 
-Ralph does not perform iteration-start cleanup. Recovery from crashed iterations (dirty working tree, stale claims) is handled externally — either manually by the developer or by `sgf` before re-launching a loop. See the recovery procedure documentation.
+Ralph does not perform iteration-start cleanup. Recovery is `sgf`'s responsibility, executed before launching ralph.
+
+**PID files**: `sgf` writes `.sgf/run/<loop-id>.pid` on launch (containing its process ID) and removes it on clean exit. The `.sgf/run/` directory is gitignored.
+
+**Pre-launch cleanup**: Before launching ralph, `sgf` scans all PID files in `.sgf/run/`:
+
+- **Any PID alive** (verified via `kill -0`) → another loop is running. Skip cleanup and launch normally — the dirty tree or in-progress claims may belong to that loop.
+- **All PIDs stale** (process dead) → no loops are running. Remove stale PID files, then recover:
+  1. `git checkout -- .` — discard modifications to tracked files
+  2. `git clean -fd` — remove untracked files (respects `.gitignore`, so `db.sqlite`, logs, and assembled prompts are safe)
+  3. `pn doctor --fix` — release stale claims and repair integrity
+
+**Principle**: Work is only preserved when committed. Uncommitted changes from crashed iterations are discarded — the agent that produced them is gone and cannot continue them.
 
 ---
 
@@ -288,6 +300,8 @@ After `sgf init`, a project contains:
 ├── backpressure.md            (committed — build/test/lint/format commands)
 ├── logs/                      (gitignored — AFK loop output)
 │   └── <loop-id>.log
+├── run/                       (gitignored — PID files for running loops)
+│   └── <loop-id>.pid
 └── prompts/
     ├── build.md               (committed — editable prompt templates)
     ├── spec.md
