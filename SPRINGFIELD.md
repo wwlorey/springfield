@@ -273,7 +273,7 @@ pn daemon status                        # check if daemon is running and reachab
 ```
 pn export                                # SQLite → JSONL, then `git add .pensa/*.jsonl`
 pn import                                # JSONL → SQLite (rebuild from committed files)
-pn doctor [--fix]                        # health checks: stale claims (in_progress >30min), orphaned deps, sync drift. --fix releases stale claims and repairs integrity.
+pn doctor [--fix]                        # health checks: stale claims, orphaned deps, sync drift. --fix releases all in_progress claims and repairs integrity.
 pn where                                 # show .pensa/ directory path
 ```
 
