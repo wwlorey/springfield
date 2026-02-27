@@ -2,6 +2,10 @@
 
 ---
 
+## Agent Ergonomics & Developer Experience
+
+- [x] **Require task ID in commit messages** — Convention: `[pn-abc123] Implement login validation`. Added to Standard Loop Iteration step 7: commit messages in build, test, and issues-plan stages are prefixed with `[<task-id>]`. Enforced via prompt instructions, not git hooks. Other stages (spec, verify, test-plan, issues-log) commit without a prefix. Enables `git log --grep` for per-task history.
+
 ## Systems Unification & Operation
 
 - [x] **Specify sgf-to-ralph CLI contract** — Define ralph's arguments, exit codes, NDJSON stream schema, and prompt templating mechanism (variable syntax, required placeholders). This is the primary integration seam and currently gets one sentence.
@@ -49,3 +53,7 @@
 - [x] **Replace 30-min stale threshold with heartbeat** — Resolved simpler: dropped the time threshold entirely. sgf's pre-launch recovery already confirms all loops are dead via PID checks before calling `pn doctor --fix`, so every in_progress claim is stale by definition. No heartbeat needed — PID liveness is the authority. Doctor now releases all in_progress claims unconditionally.
 - [x] **Address JSONL merge conflicts** — Not needed. Mutagen file sync means all sandboxes share the same git history on the host — there are no independent push/pull races, so JSONL merge conflicts can't arise. The pensa daemon serializes all database access, and `pn export` produces a consistent snapshot at commit time. The problem this item described was eliminated by the sandbox architecture (Mutagen sync + pensa daemon).
 - [x] **Document single-branch concurrency model** — Not needed. Single-branch operation is already implied by the architecture: Mutagen sync shares one host directory across all sandboxes, the pensa daemon serves one SQLite per project, and `sgf` has no branch-targeting mechanism. Multi-branch conflicts can't arise without deliberately going outside Springfield's workflow.
+
+## Agent Ergonomics & Developer Experience
+
+- [x] **Add task sizing guidance to spec phase** — Closed without spec change. Task sizing is a prompt template concern, not a spec concern. The spec already defers to the prompt ("The prompt instructs the agent to design specs so the result can be end-to-end tested from the command line"). Implementation plan structure — tooling setup first, cited bullet points, docs + integration tests last — lives in `.sgf/prompts/spec.md`, seeded by `sgf init` and editable per-project.
