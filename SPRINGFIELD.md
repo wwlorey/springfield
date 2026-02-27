@@ -230,7 +230,6 @@ All commands support `--json` for agent consumption (see [JSON Output](#json-out
 
 ```
 pn create "title" -t <issue_type> [-p <pri>] [-a <assignee>] [--spec <stem>] [--fixes <bug-id>] [--description <text>] [--dep <id>]
-pn q "title" -t <issue_type> [-p <pri>] [--spec <stem>]  # quick capture, outputs only ID
 pn update <id> [--title <t>] [--status <s>] [--priority <p>] [-a <assignee>] [--description <d>] [--claim] [--unclaim]
 pn close <id> [--reason "..."] [--force]
 pn reopen <id> [--reason "..."]
@@ -305,7 +304,6 @@ The `code` field is present only when there's a machine-readable error code. Kno
 | Command | Shape |
 |---------|-------|
 | `create`, `update`, `close`, `reopen`, `release` | Single issue object |
-| `q` | `{"id": "pn-a1b2c3d4"}` |
 | `show` | Single issue detail object (issue fields + `deps`, `comments` arrays) |
 | `list`, `ready`, `blocked`, `search` | Array of issue objects |
 | `count` | `{"count": N}` or `{"total": N, "groups": [...]}` when grouped |

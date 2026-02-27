@@ -67,3 +67,15 @@
 - [x] **Add `specs/README.md` conflict prevention** — Not needed. Mutagen file sync means concurrent sandboxes share the same git history — no merge conflicts arise. Build agents don't update `specs/README.md` (only the spec stage writes index entries). The documented discipline ("stop build loops before running `sgf spec`") is sufficient; the worst case is one wasted build iteration, not data loss.
 - [x] **Enforce spec-revision pause mechanically** — Closed without spec change. Mutagen sync eliminates git-level conflicts, and the pensa daemon serializes DB access. The only risk from concurrent spec revision + build loops is wasted work (agent implements a task that gets superseded). The developer runs `sgf spec` deliberately and the existing warning ("Stop build loops before running `sgf spec`") is sufficient. Mechanical enforcement via a pensa flag adds complexity for a problem that's a minor inconvenience, not a correctness issue.
 - [x] **Specify `sgf logs` behavior** — Closed without spec change. The spec already defines where logs go (`.sgf/logs/<loop-id>.log`), how they're created (sgf tees ralph's stdout), and ralph's formatting (human-readable one-liners in AFK mode, terminal passthrough in interactive mode). The remaining details (tail vs cat, retention, loop ID discovery) are implementation decisions that don't need specification — the builder will make obvious choices.
+
+## Extraneous Content (Pruning)
+
+- [x] **Condense Future Work items 2-3** — Won't fix. Not worth the churn for aspirational content.
+
+## Agent Ergonomics & Developer Experience
+
+- [x] **Consider `pn q` removal or redefinition** — Removed. `pn q` was redundant with `pn create --json`. Deleted from CLI commands and JSON output table in spec.
+- [x] **Add `sgf pause` / `sgf resume`** — Not needed. Killing the process is sufficient.
+- [x] **Consider `sgf context` or `pn ready --verbose`** — Not needed. The agent needs to choose its own task and read context selectively — collapsing orientation into one command removes that agency.
+- [x] **Add `sgf status --watch`** — Premature. TUI-adjacent; deferred with TUI.
+- [x] **Consider `pn pin <id>`** — Cut. Not needed.
