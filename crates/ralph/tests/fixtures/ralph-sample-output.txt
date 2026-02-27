@@ -1,0 +1,1002 @@
+will@mba13 buddy-ralph > ./scripts/ralph.sh --afk 10                            (master *)
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣤⡴⣶⠖⡲⠒⡶⠒⣖⢲⡤⣄⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⢴⡾⣻⠟⢉⡞⢁⡞⠁⢠⠇⠀⠸⡄⠳⡈⢫⡙⢦⣄⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⢀⡴⢚⡵⢋⡜⠁⢠⡎⠀⡞⠀⠀⢸⠀⠀⠀⡇⠀⢹⡀⠹⡌⢳⡙⣦⡀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠐⠋⠀⡞⠀⣸⠔⠒⠲⣄⠀⠀⠀⢀⡔⠋⠉⠙⠲⡀⠀⢷⠀⢹⡀⢱⡘⣟⣆⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⢰⠃⢸⠁⠀⣤⠄⠈⡇⠀⠀⢸⠀⠀⠾⠆⠀⡇⠀⠈⠀⠀⣇⠀⢧⢸⡘⡆⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⢸⠀⠘⢆⡀⠀⣠⠴⢧⠀⠀⠈⠳⣄⣀⣠⠜⠁⠀⠀⠀⠀⠀⠀⠸⠄⡇⡇⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⢀⡼⠀⠀⠀⠉⠉⣇⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣤⠖⠲⣇⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⣏⠀⠀⠀⠀⠀⠀⠀⠉⠁⠀⠀⠀⠀⠀⠀⠀⠀⣀⣤⡄⠀⠀⠀⠀⢿⠓⣹⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠈⠓⠦⠤⠭⢿⡒⠒⠒⠒⠒⠒⠒⠒⠒⠊⠉⠉⠁⠀⠁⠀⠀⠀⠦⡤⠖⠃⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⣾⡁⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⢴⡶⡇⠀⠀⠀⠀⠀⠀⣀⣀⣀⡤⠤⠤⠖⠚⠉⠁⠀⢧⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⢾⠏⠈⠳⣇⠀⠀⠀⠀⣠⠞⠁⠲⣄⠀⠀⠀⠀⠀⠀⢀⣠⡾⢤⡀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⣠⡾⠃⢸⡴⠚⠁⠈⠳⢤⡠⠞⠁⠀⠀⠀⠈⢦⢀⣀⡤⠖⠛⢩⠋⠀⠀⠈⢣⡀⠀⠀⠀
+⠀⠀⠀⠀⠀⢀⣾⡟⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠉⠀⠀⠀⠀⡞⠀⠀⠀⠀⠀⠹⡄⠀⠀
+⠀⠀⠀⠀⢠⢏⡟⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡇⠀⠀⠀⠀⠀⠀⠹⡀⠀
+⠀⠀⠀⣰⠃⡼⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣷⠀⠀⠀⠀⠀⠀⠀⢳⠀
+⠀⠀⢠⠇⢰⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⠀⠀⠀⠀⠀⠀⠀⠘⡆
+⠀⠀⡏⠀⢸⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⠀⠀⠀⠀⠀⠀⠀⠀⣇
+⠀⢰⢡⠀⢸⠀⠀⠀⠀⠀⢀⣀⣤⣤⣤⣤⣤⣤⣀⣠⣤⣤⣄⣀⣀⣀⣀⣀⣀⡀⠈⡇⠀⠀⠀⠀⠀⠀⠀⣿
+⠀⢸⢀⣀⣸⠞⠋⠉⠉⢉⣹⣿⣿⣿⣿⣿⣿⣿⣀⣀⣀⣀⣀⣀⣀⣀⣀⡀⠉⠉⠉⡗⠒⠒⠢⠤⣄⡀⠀⡿
+⠀⠘⢿⠁⢸⡴⠖⠛⠉⠉⠙⠛⠛⠛⠋⠉⠉⠁⠀⠀⠀⠀⠀⠀⠀⠀⠉⠉⠉⣽⠟⠁⠀⠀⠀⠀⠀⠙⡖⠃
+⠀⠀⠘⣆⢣⣳⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠧⣤⠴⡄⠀⢀⠀⠀⢠⠃⠀
+⠀⠀⠀⠈⠢⣝⣻⣦⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡼⠃⢀⡞⢠⠆⡞⠀⠀
+⠀⠀⠀⠀⠀⠀⠈⣯⠳⣦⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠳⢶⣏⡴⠯⠞⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⢸⣿⠀⠀⠙⠶⣤⣀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⠁⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⢸⡏⠀⠀⠀⠀⠀⠉⠉⠛⠒⢲⠖⠚⠋⢹⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⣼⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⠀⠀⠀⢸⡆⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⡆⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⡏⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠸⡆⠀⠀⢸⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⡇⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⢸⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡇⠀⠀⢸⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢷⠀⠀⠀⠀⠀⠀
+⠀⠀⣠⡴⠒⠛⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠙⠛⣻⠖⠚⠉⠉⠉⠉⠉⠉⠉⠉⠉⠛⠛⠛⠛⢦⡀⠀⠀⠀⠀
+⢠⡾⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⡞⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡇⠀⠀⠀⠀
+========================================
+Ralph Loop Starting
+========================================
+Mode:        AFK
+Prompt:      prompt.md
+Iterations:  10
+========================================
+
+
+========================================
+Iteration 1 of 10
+========================================
+
+
+
+I'll start by studying the required files to understand the context and plan.
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/specs/README.md)
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/plans/cleanup/buddy-llm.md)
+
+Now I can see the cleanup plan. Many items are checked off (`[x]`), but several remain unchecked (`[ ]`). Let me identify the remaining tasks:
+
+1. **specs/tokenizer-embedding.md** — Replace mistral.rs integration code with llama-cpp-2
+2. **specs/tokenizer-embedding-implementation-plan.md** — Mark entire file as obsolete
+3. **specs/buddy-llm-simplification-plan.md** — Fix model constants (Phase 1.1), Fix tokenizer approach (Phase 1.2-1.3), Add superseded notice
+4. **specs/resources-bundling-implementation-plan.md** — Add note about subsequent inference engine change
+5. **specs/buddy-llm-test.md** — Fix model size (3.0 GB → 2.15 GB)
+6. **specs/buddy-llm-token-counting.md** — Fix "embedded" to "bundled"
+7. **specs/buddy-transcript-to-case-note-implementation-plan.md** — Fix tokenizer path, Fix model size
+8. **specs/buddy-transcript-to-case-note.md** — Update buddy-llm integration to present tense
+9. **specs/README.md** — Fix tokenizer-embedding description
+
+I'll pick ONE task and implement it. Let me start with a focused task that has clear, concrete changes. I'll tackle **specs/tokenizer-embedding.md** — replacing the mistral.rs integration code with llama-cpp-2.
+
+-> TodoWrite(todos: [{"content":"Update specs/tokenizer-embedding.md: replace mistral.rs code with llama-cpp-2","status":"in_progress","activeForm":"Updating specs/tokenizer-embedding.md with llama-cpp-2 code"},{"content":"Update the cleanup plan to mark task complete","status":"pending","activeForm":"Updating cleanup plan"},{"content":"Commit the changes","status":"pending","activeForm":"Committing changes"}])
+
+Let me read the relevant files in parallel to understand both the current spec and the actual code.
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/specs/tokenizer-embedding.md)
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/crates/buddy-llm/src/inference.rs)
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/specs/buddy-llm.md)
+
+Now I have full context. The task for `specs/tokenizer-embedding.md` is clear: lines 41-52 reference `GgufModelBuilder` from mistral.rs, but the codebase now uses `llama-cpp-2`. I need to replace that code snippet with the current `llama-cpp-2` loading approach and describe the tokenizer being loaded via the `tokenizers` crate from `resources/tokenizer.json`.
+
+Looking at the current `inference.rs`, the model loading is done via:
+- `LlamaModel::load_from_file()` for the GGUF model
+- `Tokenizer::from_file()` for the tokenizer (loaded from `resources/tokenizer.json`)
+
+Let me update the spec.
+
+-> Edit(replace_all: false, file_path: /Users/william/Repos/buddy-ralph/specs/tokenizer-embedding.md, old_string: ## Integration with Inference
+
+                                                    The `load_model()` function points mistral.rs to the bundled resources:
+
+                                ```rust
+                                       // Point to bundled tokenizer files
+                                                                          let resources_dir = get_resources_dir();  // repo/resources/ or app bundle
+                                                         let model = GgufModelBuilder::new(
+    resources_dir.join("Ministral-3-3B-Instruct-2512-Q4_K_M.gguf"),
+                                                                       vec![]
+                                                                             )
+                                                                              .with_tok_model_id(resources_dir.to_string_lossy())  // Uses local directory
+                                                               .build()
+                                                                       .await?;
+                                                                               ```, new_string: ## Integration with Inference
+
+                                  The model and tokenizer are loaded separately using `llama-cpp-2` and the `tokenizers` crate:
+
+                                    ```rust
+                                           // Model loading via llama-cpp-2
+                                                                           let model_path = resources_dir().join("Ministral-3-3B-Instruct-2512-Q4_K_M.gguf");
+                                                                  let backend = LlamaBackend::init()?;
+           let model_params = LlamaModelParams::default().with_n_gpu_layers(u32::MAX);
+                                                                                      let model = LlamaModel::load_from_file(&backend, &model_path, &model_params)?;
+
+                                                                         // Tokenizer loaded from bundled resources via the `tokenizers` crate
+                                                   let tokenizer_path = resources_dir().join("tokenizer.json");
+                    let tokenizer = Tokenizer::from_file(&tokenizer_path)?;
+                                                                           ```)
+
+Now update the cleanup plan to mark this task as complete.
+
+-> TodoWrite(todos: [{"content":"Update specs/tokenizer-embedding.md: replace mistral.rs code with llama-cpp-2","status":"completed","activeForm":"Updating specs/tokenizer-embedding.md with llama-cpp-2 code"},{"content":"Update the cleanup plan to mark task complete","status":"in_progress","activeForm":"Updating cleanup plan"},{"content":"Commit the changes","status":"pending","activeForm":"Committing changes"}])
+
+-> Edit(replace_all: false, file_path: /Users/william/Repos/buddy-ralph/plans/cleanup/buddy-llm.md, old_string: - [ ] **Replace mistral.rs integration code with llama-cpp-2** — lines 41-52 use `GgufModelBuilder` from mistral.rs, new_string: - [x] **Replace mistral.rs integration code with llama-cpp-2** — lines 41-52 use `GgufModelBuilder` from mistral.rs)
+
+-> TodoWrite(todos: [{"content":"Update specs/tokenizer-embedding.md: replace mistral.rs code with llama-cpp-2","status":"completed","activeForm":"Updating specs/tokenizer-embedding.md with llama-cpp-2 code"},{"content":"Update the cleanup plan to mark task complete","status":"completed","activeForm":"Updating cleanup plan"},{"content":"Commit the changes","status":"in_progress","activeForm":"Committing changes"}])
+
+Now let me commit the changes.
+
+-> Bash(command: git diff specs/tokenizer-embedding.md plans/cleanup/buddy-llm.md, description: Show diff of changes to commit)
+
+-> Bash(command: git log --oneline -5, description: Show recent commit messages for style)
+
+-> Bash(command: git add specs/tokenizer-embedding.md plans/cleanup/buddy-llm.md && git commit -m "$(cat <<'EOF'
+                     Replace mistral.rs code snippet with llama-cpp-2 in tokenizer embedding spec
+
+      Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+                                                             EOF
+                                                                )", description: Stage and commit the changes)
+
+-> TodoWrite(todos: [{"content":"Update specs/tokenizer-embedding.md: replace mistral.rs code with llama-cpp-2","status":"completed","activeForm":"Updating specs/tokenizer-embedding.md with llama-cpp-2 code"},{"content":"Update the cleanup plan to mark task complete","status":"completed","activeForm":"Updating cleanup plan"},{"content":"Commit the changes","status":"completed","activeForm":"Committing changes"}])
+
+Done. Updated `specs/tokenizer-embedding.md` to replace the outdated `GgufModelBuilder` (mistral.rs) code snippet with the current `llama-cpp-2` model loading and `tokenizers` crate tokenizer loading approach, matching what's in `crates/buddy-llm/src/inference.rs`. Marked the task complete in the cleanup plan and committed.
+
+
+Iteration 1 complete, continuing...
+New commits detected, pushing...
+Enumerating objects: 13, done.
+Counting objects: 100% (13/13), done.
+Delta compression using up to 10 threads
+Compressing objects: 100% (5/5), done.
+Writing objects: 100% (7/7), 904 bytes | 904.00 KiB/s, done.
+Total 7 (delta 4), reused 0 (delta 0), pack-reused 0 (from 0)
+remote: Resolving deltas: 100% (4/4), completed with 4 local objects.
+To github.com:wwlorey/buddy-ralph.git
+   79a4520..170c9b2  master -> master
+
+========================================
+Iteration 2 of 10
+========================================
+
+
+
+I'll start by studying the required files to understand the context and plan.
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/specs/README.md)
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/plans/cleanup/buddy-llm.md)
+
+I've reviewed both files. The cleanup plan has many checked-off items (completed) and several remaining unchecked items. Let me identify the remaining tasks.
+
+-> TodoWrite(todos: [{"content":"Review cleanup plan for next unchecked task","status":"in_progress","activeForm":"Reviewing cleanup plan for next task"},{"content":"Implement the chosen task","status":"pending","activeForm":"Implementing the chosen task"},{"content":"Update the cleanup plan","status":"pending","activeForm":"Updating the cleanup plan"},{"content":"Commit the changes","status":"pending","activeForm":"Committing the changes"}])
+
+The remaining unchecked tasks are:
+
+1. **specs/tokenizer-embedding-implementation-plan.md** — Mark entire file as obsolete
+2. **specs/buddy-llm-simplification-plan.md** — Fix model constants (Phase 1.1), Fix tokenizer approach (Phase 1.2-1.3), Add superseded notice
+3. **specs/resources-bundling-implementation-plan.md** — Add note about subsequent inference engine change
+4. **specs/buddy-llm-test.md** — Fix model size (`3.0 GB` → `2.15 GB`)
+5. **specs/buddy-llm-token-counting.md** — Fix "embedded" to "bundled"
+6. **specs/buddy-transcript-to-case-note-implementation-plan.md** — Fix tokenizer path, Fix model size
+7. **specs/buddy-transcript-to-case-note.md** — Update buddy-llm integration to present tense
+8. **specs/README.md** — Fix tokenizer-embedding description
+
+I'll pick the first unchecked task: **Mark `specs/tokenizer-embedding-implementation-plan.md` as obsolete.**
+
+Let me read the file and the source of truth to understand the changes needed.
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/specs/tokenizer-embedding-implementation-plan.md)
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/specs/buddy-llm.md, limit: 50)
+
+Good. The task is clear: mark `specs/tokenizer-embedding-implementation-plan.md` as obsolete. The plan says to add an obsolescence header explaining that this plan documents the old multi-model tokenizer embedding approach, and to reference `buddy-llm.md` for the current architecture. Alternatively, the file can be deleted entirely.
+
+I'll add an obsolescence header since the plan suggests either option, and a header preserves the historical record while making the status clear.
+
+-> TodoWrite(todos: [{"content":"Review cleanup plan for next unchecked task","status":"completed","activeForm":"Reviewing cleanup plan for next task"},{"content":"Mark tokenizer-embedding-implementation-plan.md as obsolete","status":"in_progress","activeForm":"Marking tokenizer-embedding-implementation-plan.md as obsolete"},{"content":"Update the cleanup plan","status":"pending","activeForm":"Updating the cleanup plan"},{"content":"Commit the changes","status":"pending","activeForm":"Committing the changes"}])
+
+-> Edit(replace_all: false, file_path: /Users/william/Repos/buddy-ralph/specs/tokenizer-embedding-implementation-plan.md, old_string: # Tokenizer Embedding Implementation Plan
+
+                                                                                    Step-by-step implementation checklist with specification citations and code references., new_string: **OBSOLETE:** This plan documents the old multi-model tokenizer embedding approach (`include_bytes!()` for qwen3-8b, llama-3.1-8b, phi-3.5-mini). The architecture has since moved to a single bundled model (Ministral 3B) with tokenizer files in `resources/`. See [buddy-llm.md](./buddy-llm.md) for the current architecture.
+
+                                                    ---
+
+                                                       # Tokenizer Embedding Implementation Plan
+
+     Step-by-step implementation checklist with specification citations and code references.)
+
+Now let me update the cleanup plan to mark this task as done.
+
+-> TodoWrite(todos: [{"content":"Review cleanup plan for next unchecked task","status":"completed","activeForm":"Reviewing cleanup plan for next task"},{"content":"Mark tokenizer-embedding-implementation-plan.md as obsolete","status":"completed","activeForm":"Marking tokenizer-embedding-implementation-plan.md as obsolete"},{"content":"Update the cleanup plan","status":"in_progress","activeForm":"Updating the cleanup plan"},{"content":"Commit the changes","status":"pending","activeForm":"Committing the changes"}])
+
+-> Edit(replace_all: false, file_path: /Users/william/Repos/buddy-ralph/plans/cleanup/buddy-llm.md, old_string: - [ ] **Mark entire file as obsolete** — documents multi-model `include_bytes!()` embedding for qwen3-8b, llama-3.1-8b, phi-3.5-mini, new_string: - [x] **Mark entire file as obsolete** — documents multi-model `include_bytes!()` embedding for qwen3-8b, llama-3.1-8b, phi-3.5-mini)
+
+-> TodoWrite(todos: [{"content":"Review cleanup plan for next unchecked task","status":"completed","activeForm":"Reviewing cleanup plan for next task"},{"content":"Mark tokenizer-embedding-implementation-plan.md as obsolete","status":"completed","activeForm":"Marking tokenizer-embedding-implementation-plan.md as obsolete"},{"content":"Update the cleanup plan","status":"completed","activeForm":"Updating the cleanup plan"},{"content":"Commit the changes","status":"in_progress","activeForm":"Committing the changes"}])
+
+Now let me commit the changes.
+
+-> Bash(command: git diff specs/tokenizer-embedding-implementation-plan.md plans/cleanup/buddy-llm.md, description: Show staged and unstaged changes)
+
+-> Bash(command: git log --oneline -5, description: Show recent commits for style reference)
+
+-> Bash(command: git add specs/tokenizer-embedding-implementation-plan.md plans/cleanup/buddy-llm.md && git commit -m "$(cat <<'EOF'
+                                         Mark tokenizer embedding implementation plan as obsolete
+
+      Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+                                                             EOF
+                                                                )", description: Stage and commit changes)
+
+-> TodoWrite(todos: [{"content":"Review cleanup plan for next unchecked task","status":"completed","activeForm":"Reviewing cleanup plan for next task"},{"content":"Mark tokenizer-embedding-implementation-plan.md as obsolete","status":"completed","activeForm":"Marking tokenizer-embedding-implementation-plan.md as obsolete"},{"content":"Update the cleanup plan","status":"completed","activeForm":"Updating the cleanup plan"},{"content":"Commit the changes","status":"completed","activeForm":"Committing the changes"}])
+
+Done. I added an obsolescence header to `specs/tokenizer-embedding-implementation-plan.md` noting that it documents the old multi-model `include_bytes!()` approach and pointing to `buddy-llm.md` for the current single-model bundled architecture. The cleanup plan has been updated and changes committed as `ae550b6`.
+
+
+Iteration 2 complete, continuing...
+New commits detected, pushing...
+Enumerating objects: 13, done.
+Counting objects: 100% (13/13), done.
+Delta compression using up to 10 threads
+Compressing objects: 100% (5/5), done.
+Writing objects: 100% (7/7), 830 bytes | 830.00 KiB/s, done.
+Total 7 (delta 4), reused 0 (delta 0), pack-reused 0 (from 0)
+remote: Resolving deltas: 100% (4/4), completed with 4 local objects.
+To github.com:wwlorey/buddy-ralph.git
+   170c9b2..ae550b6  master -> master
+
+========================================
+Iteration 3 of 10
+========================================
+
+
+
+I'll start by studying the required files to understand the context and plan.
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/specs/README.md)
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/plans/cleanup/buddy-llm.md)
+
+Now I can see the cleanup plan. Many tasks are already checked off (`[x]`), but there are still unchecked items remaining. Let me identify the next task to work on. The remaining unchecked items are:
+
+**specs/buddy-llm-simplification-plan.md:**
+1. Fix model constants in Phase 1.1
+2. Fix tokenizer approach in Phase 1.2-1.3
+3. Add superseded notice
+
+**specs/resources-bundling-implementation-plan.md:**
+4. Add note about subsequent inference engine change
+
+**specs/buddy-llm-test.md:**
+5. Fix model size
+
+**specs/buddy-llm-token-counting.md:**
+6. Fix "embedded" to "bundled"
+
+**specs/buddy-transcript-to-case-note-implementation-plan.md:**
+7. Fix tokenizer path
+8. Fix model size in test annotation
+
+**specs/buddy-transcript-to-case-note.md:**
+9. Update buddy-llm integration to present tense
+
+**specs/README.md:**
+10. Fix tokenizer-embedding description
+
+I'll tackle the first unchecked group: **specs/buddy-llm-simplification-plan.md** (3 tasks). Let me read the necessary files.
+
+-> TodoWrite(todos: [{"content":"Fix model constants in Phase 1.1 of buddy-llm-simplification-plan.md","status":"in_progress","activeForm":"Fixing model constants in Phase 1.1"},{"content":"Fix tokenizer approach in Phase 1.2-1.3 of buddy-llm-simplification-plan.md","status":"pending","activeForm":"Fixing tokenizer approach in Phase 1.2-1.3"},{"content":"Add superseded notice to buddy-llm-simplification-plan.md","status":"pending","activeForm":"Adding superseded notice"},{"content":"Update cleanup plan and commit changes","status":"pending","activeForm":"Updating cleanup plan and committing"}])
+
+Let me read the files I need to make the changes.
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/specs/buddy-llm-simplification-plan.md)
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/crates/buddy-llm/src/models.rs)
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/crates/buddy-llm/src/config.rs)
+
+Good. Now I have all the context I need. The current source of truth in `models.rs` shows:
+- `HF_REPO: "mistralai/Ministral-3-3B-Instruct-2512-GGUF"`
+- `HF_FILE: "Ministral-3-3B-Instruct-2512-Q4_K_M.gguf"`
+- `MODEL_SIZE_GB: 2.15`
+- Tokenizer files are in `resources/` (not `crates/buddy-llm/tokenizers/ministral-3b/`)
+- `tekken.json` replaces `special_tokens_map.json`
+
+The simplification plan at lines 20-27 shows outdated values:
+- `MODEL_SIZE_GB: f32 = 3.0` (should be `2.15`)
+- `HF_REPO: "bartowski/Ministral-3B-Instruct-GGUF"` (should be `mistralai/Ministral-3-3B-Instruct-2512-GGUF`)
+- `HF_FILE: "Ministral-3B-Instruct-Q4_K_M.gguf"` (should be `Ministral-3-3B-Instruct-2512-Q4_K_M.gguf`)
+
+And lines 31-42 reference old tokenizer paths and `extract_tokenizer()` API that no longer exists.
+
+Let me apply all three changes to the simplification plan.
+
+**Task 1: Fix model constants in Phase 1.1 (lines 20-27)**
+
+-> Edit(replace_all: false, file_path: /Users/william/Repos/buddy-ralph/specs/buddy-llm-simplification-plan.md, old_string: Replaced entire file with single model constants:
+                                                                                  ```rust
+                                                                                         pub const MODEL_ID: &str = "ministral-3b";
+                                        pub const MODEL_NAME: &str = "Ministral 3B Instruct";
+  pub const MODEL_SIZE_GB: f32 = 3.0;
+                                     pub const MODEL_CONTEXT_LENGTH: usize = 256_000;
+                                                                                     pub const HF_REPO: &str = "bartowski/Ministral-3B-Instruct-GGUF";
+                                                           pub const HF_FILE: &str = "Ministral-3B-Instruct-Q4_K_M.gguf";
+                              pub const TOKENIZER_REPO: &str = "mistralai/Ministral-3B-Instruct";
+      ```, new_string: Replaced entire file with single model constants:
+                                                                        ```rust
+                                                                               pub const MODEL_ID: &str = "ministral-3b";
+                              pub const MODEL_NAME: &str = "Ministral 3B Instruct";
+                                                                                   pub const MODEL_SIZE_GB: f32 = 2.15;
+                            pub const MODEL_CONTEXT_LENGTH: usize = 256_000;
+                                                                            pub const HF_REPO: &str = "mistralai/Ministral-3-3B-Instruct-2512-GGUF";
+                                                         pub const HF_FILE: &str = "Ministral-3-3B-Instruct-2512-Q4_K_M.gguf";
+                                   pub const TOKENIZER_REPO: &str = "mistralai/Ministral-3-3B-Instruct-2512-GGUF";
+                       ```)
+
+-> TodoWrite(todos: [{"content":"Fix model constants in Phase 1.1 of buddy-llm-simplification-plan.md","status":"completed","activeForm":"Fixing model constants in Phase 1.1"},{"content":"Fix tokenizer approach in Phase 1.2-1.3 of buddy-llm-simplification-plan.md","status":"in_progress","activeForm":"Fixing tokenizer approach in Phase 1.2-1.3"},{"content":"Add superseded notice to buddy-llm-simplification-plan.md","status":"pending","activeForm":"Adding superseded notice"},{"content":"Update cleanup plan and commit changes","status":"pending","activeForm":"Updating cleanup plan and committing"}])
+
+**Task 2: Fix tokenizer approach in Phase 1.2-1.3 (lines 30-51)**
+
+-> Edit(replace_all: false, file_path: /Users/william/Repos/buddy-ralph/specs/buddy-llm-simplification-plan.md, old_string: #### 1.2 Update tokenizer embedding for Ministral only ✅
+                                                                                          **File**: `crates/buddy-llm/src/tokenizers.rs`
+
+                                             Simplified to single embedded tokenizer with parameterless functions:
+                       - `tokenizer_path()` - returns path to ministral-3b tokenizer
+                                                                                    - `is_tokenizer_extracted()` - checks if extracted
+                                           - `extract_tokenizer()` - extracts embedded tokenizer
+
+     #### 1.3 Ministral 3B tokenizer files ✅
+                                             Tokenizer files already existed at:
+                                                                                - `crates/buddy-llm/tokenizers/ministral-3b/tokenizer.json`
+                                                - `crates/buddy-llm/tokenizers/ministral-3b/tokenizer_config.json`
+                       - `crates/buddy-llm/tokenizers/ministral-3b/special_tokens_map.json`, new_string: #### 1.2 Update tokenizer for Ministral only ✅
+                                                             **File**: `crates/buddy-llm/src/tokenizers.rs`
+
+                Simplified to single bundled tokenizer with parameterless functions:
+                                                                                    - `tokenizer_path()` - returns path to bundled tokenizer in `resources/`
+                                                                 - `is_tokenizer_present()` - checks if tokenizer files exist
+
+                                  #### 1.3 Ministral 3B tokenizer files ✅
+                                                                          Tokenizer files bundled in `resources/`:
+                       - `resources/tokenizer.json`
+                                                   - `resources/tokenizer_config.json`
+                                                                                      - `resources/tekken.json`)
+
+-> TodoWrite(todos: [{"content":"Fix model constants in Phase 1.1 of buddy-llm-simplification-plan.md","status":"completed","activeForm":"Fixing model constants in Phase 1.1"},{"content":"Fix tokenizer approach in Phase 1.2-1.3 of buddy-llm-simplification-plan.md","status":"completed","activeForm":"Fixing tokenizer approach in Phase 1.2-1.3"},{"content":"Add superseded notice to buddy-llm-simplification-plan.md","status":"in_progress","activeForm":"Adding superseded notice"},{"content":"Update cleanup plan and commit changes","status":"pending","activeForm":"Updating cleanup plan and committing"}])
+
+**Task 3: Add superseded notice**
+
+-> Edit(replace_all: false, file_path: /Users/william/Repos/buddy-ralph/specs/buddy-llm-simplification-plan.md, old_string: # buddy-llm Simplification Implementation Plan
+
+                                                                               Simplify buddy-llm to use a single model (Ministral 3B) and remove HTTP server, streaming, and multi-model support., new_string: # buddy-llm Simplification Implementation Plan
+
+                                                                        > **NOTE:** This plan was executed under `mistral.rs`. The inference engine was subsequently migrated to `llama-cpp-2`. See [buddy-llm.md](./buddy-llm.md) for the current architecture.
+
+                                                                          Simplify buddy-llm to use a single model (Ministral 3B) and remove HTTP server, streaming, and multi-model support.)
+
+-> TodoWrite(todos: [{"content":"Fix model constants in Phase 1.1 of buddy-llm-simplification-plan.md","status":"completed","activeForm":"Fixing model constants in Phase 1.1"},{"content":"Fix tokenizer approach in Phase 1.2-1.3 of buddy-llm-simplification-plan.md","status":"completed","activeForm":"Fixing tokenizer approach in Phase 1.2-1.3"},{"content":"Add superseded notice to buddy-llm-simplification-plan.md","status":"completed","activeForm":"Adding superseded notice"},{"content":"Update cleanup plan and commit changes","status":"in_progress","activeForm":"Updating cleanup plan and committing"}])
+
+Now let me update the cleanup plan to mark these three items as done.
+
+-> Edit(replace_all: false, file_path: /Users/william/Repos/buddy-ralph/plans/cleanup/buddy-llm.md, old_string: - [ ] **Fix model constants in Phase 1.1** — lines 23-27 show old HF repo and file names, new_string: - [x] **Fix model constants in Phase 1.1** — lines 23-27 show old HF repo and file names)
+
+-> Edit(replace_all: false, file_path: /Users/william/Repos/buddy-ralph/plans/cleanup/buddy-llm.md, old_string: - [ ] **Fix tokenizer approach in Phase 1.2-1.3** — lines 31-43 reference old extraction API and old crate paths, new_string: - [x] **Fix tokenizer approach in Phase 1.2-1.3** — lines 31-43 reference old extraction API and old crate paths)
+
+-> Edit(replace_all: false, file_path: /Users/william/Repos/buddy-ralph/plans/cleanup/buddy-llm.md, old_string: - [ ] **Add superseded notice** — plan was executed under mistral.rs, architecture has since changed, new_string: - [x] **Add superseded notice** — plan was executed under mistral.rs, architecture has since changed)
+
+Now let me commit the changes.
+
+-> Bash(command: git status, description: Show working tree status)
+
+-> Bash(command: git diff specs/buddy-llm-simplification-plan.md plans/cleanup/buddy-llm.md, description: Show diff of changed files)
+
+-> Bash(command: git log --oneline -5, description: Show recent commits)
+
+The diff looks correct. Let me commit.
+
+-> Bash(command: git add specs/buddy-llm-simplification-plan.md plans/cleanup/buddy-llm.md, description: Stage changed files)
+
+-> Bash(command: git commit -m "$(cat <<'EOF'
+                                             Sync simplification plan spec with current llama-cpp-2 architecture
+
+                     Update model constants (HF repo, file name, size), tokenizer paths
+                                                                                       (resources/ instead of crates/buddy-llm/tokenizers/), and add
+                                                         superseded notice about mistral.rs → llama-cpp-2 migration.
+
+                         Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+                                                                                EOF
+                                                                                   )", description: Commit spec cleanup changes)
+
+-> Bash(command: git status, description: Verify commit succeeded)
+
+-> TodoWrite(todos: [{"content":"Fix model constants in Phase 1.1 of buddy-llm-simplification-plan.md","status":"completed","activeForm":"Fixing model constants in Phase 1.1"},{"content":"Fix tokenizer approach in Phase 1.2-1.3 of buddy-llm-simplification-plan.md","status":"completed","activeForm":"Fixing tokenizer approach in Phase 1.2-1.3"},{"content":"Add superseded notice to buddy-llm-simplification-plan.md","status":"completed","activeForm":"Adding superseded notice"},{"content":"Update cleanup plan and commit changes","status":"completed","activeForm":"Updating cleanup plan and committing"}])
+
+Done. I completed one group of tasks from the cleanup plan — the three items under **specs/buddy-llm-simplification-plan.md**:
+
+1. **Fixed model constants in Phase 1.1** — Updated `MODEL_SIZE_GB` from `3.0` to `2.15`, `HF_REPO` from `bartowski/Ministral-3B-Instruct-GGUF` to `mistralai/Ministral-3-3B-Instruct-2512-GGUF`, `HF_FILE` to `Ministral-3-3B-Instruct-2512-Q4_K_M.gguf`, and `TOKENIZER_REPO` to match.
+
+2. **Fixed tokenizer approach in Phase 1.2-1.3** — Replaced references to `extract_tokenizer()`, `is_tokenizer_extracted()`, and old paths (`crates/buddy-llm/tokenizers/ministral-3b/`) with current bundled approach (`resources/`, `is_tokenizer_present()`, `tekken.json`).
+
+3. **Added superseded notice** — Added blockquote at top noting the plan was executed under `mistral.rs` and the engine was later migrated to `llama-cpp-2`.
+
+Committed as `151d6ba` and marked all three items as `[x]` in the cleanup plan.
+
+
+Iteration 3 complete, continuing...
+New commits detected, pushing...
+Enumerating objects: 13, done.
+Counting objects: 100% (13/13), done.
+Delta compression using up to 10 threads
+Compressing objects: 100% (5/5), done.
+Writing objects: 100% (7/7), 1.06 KiB | 1.06 MiB/s, done.
+Total 7 (delta 4), reused 0 (delta 0), pack-reused 0 (from 0)
+remote: Resolving deltas: 100% (4/4), completed with 4 local objects.
+To github.com:wwlorey/buddy-ralph.git
+   ae550b6..151d6ba  master -> master
+
+========================================
+Iteration 4 of 10
+========================================
+
+
+
+I'll start by studying the required files to understand the context and plan.
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/specs/README.md)
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/plans/cleanup/buddy-llm.md)
+
+Now I can see the cleanup plan. Many tasks are already checked off (`[x]`), but several remain unchecked (`[ ]`). Let me identify the remaining tasks:
+
+1. **specs/resources-bundling-implementation-plan.md** — Add note about subsequent inference engine change
+2. **specs/buddy-llm-test.md** — Fix model size (3.0 GB → 2.15 GB)
+3. **specs/buddy-llm-token-counting.md** — Fix "embedded" to "bundled"
+4. **specs/buddy-transcript-to-case-note-implementation-plan.md** — Fix tokenizer path + Fix model size
+5. **specs/buddy-transcript-to-case-note.md** — Update buddy-llm integration to present tense
+6. **specs/README.md** — Fix tokenizer-embedding description
+
+Let me pick the next task. I'll tackle **specs/resources-bundling-implementation-plan.md — Add note about subsequent inference engine change**.
+
+-> TodoWrite(todos: [{"content":"Add inference engine change note to specs/resources-bundling-implementation-plan.md","status":"in_progress","activeForm":"Adding inference engine change note to resources-bundling-implementation-plan.md"},{"content":"Update the cleanup plan to mark this task complete","status":"pending","activeForm":"Updating the cleanup plan"},{"content":"Commit the changes","status":"pending","activeForm":"Committing the changes"}])
+
+Let me read the relevant files to understand what changes are needed.
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/specs/resources-bundling-implementation-plan.md, offset: 1, limit: 20)
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/specs/resources-bundling-implementation-plan.md, offset: 140, limit: 20)
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/specs/resources-bundling-implementation-plan.md, offset: 260, limit: 20)
+
+Now I have the full picture. The cleanup plan says to add a header note: "NOTE: Executed under `mistral.rs`. Inference engine later changed to `llama-cpp-2`. See [buddy-llm.md](./buddy-llm.md)." The specific references are at lines 148-150 (`GgufModelBuilder`) and lines 271-272 (lessons learned referencing mistral.rs API).
+
+I need to add a note at the top of the file. Let me make the edit.
+
+-> Edit(replace_all: false, file_path: /Users/william/Repos/buddy-ralph/specs/resources-bundling-implementation-plan.md, old_string: # Resources Bundling Implementation Plan
+
+                                                                                  Step-by-step implementation checklist for bundling model and tokenizer files in the `resources/` directory for Tauri app distribution., new_string: # Resources Bundling Implementation Plan
+
+                                                                                        > **NOTE:** Executed under `mistral.rs`. Inference engine later changed to `llama-cpp-2`. See [buddy-llm.md](./buddy-llm.md).
+
+                               Step-by-step implementation checklist for bundling model and tokenizer files in the `resources/` directory for Tauri app distribution.)
+
+Now let me update the cleanup plan to mark this task as complete.
+
+-> TodoWrite(todos: [{"content":"Add inference engine change note to specs/resources-bundling-implementation-plan.md","status":"completed","activeForm":"Adding inference engine change note to resources-bundling-implementation-plan.md"},{"content":"Update the cleanup plan to mark this task complete","status":"in_progress","activeForm":"Updating the cleanup plan"},{"content":"Commit the changes","status":"pending","activeForm":"Committing the changes"}])
+
+-> Edit(replace_all: false, file_path: /Users/william/Repos/buddy-ralph/plans/cleanup/buddy-llm.md, old_string: - [ ] **Add note about subsequent inference engine change** — references `GgufModelBuilder` from mistral.rs, new_string: - [x] **Add note about subsequent inference engine change** — references `GgufModelBuilder` from mistral.rs)
+
+-> TodoWrite(todos: [{"content":"Add inference engine change note to specs/resources-bundling-implementation-plan.md","status":"completed","activeForm":"Adding inference engine change note to resources-bundling-implementation-plan.md"},{"content":"Update the cleanup plan to mark this task complete","status":"completed","activeForm":"Updating the cleanup plan"},{"content":"Commit the changes","status":"in_progress","activeForm":"Committing the changes"}])
+
+Now let me commit the changes.
+
+-> Bash(command: git status, description: Show working tree status)
+
+-> Bash(command: git diff specs/resources-bundling-implementation-plan.md plans/cleanup/buddy-llm.md, description: Show staged and unstaged changes in modified files)
+
+-> Bash(command: git log --oneline -5, description: Show recent commit messages)
+
+The changes look correct. Let me commit just the two relevant files.
+
+-> Bash(command: git add specs/resources-bundling-implementation-plan.md plans/cleanup/buddy-llm.md && git commit -m "$(cat <<'EOF'
+                                        Add mistral.rs-to-llama-cpp-2 note to resources bundling plan
+
+          Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+                                                                 EOF
+                                                                    )", description: Stage and commit the two changed files)
+
+-> Bash(command: git status, description: Verify commit succeeded)
+
+-> TodoWrite(todos: [{"content":"Add inference engine change note to specs/resources-bundling-implementation-plan.md","status":"completed","activeForm":"Adding inference engine change note to resources-bundling-implementation-plan.md"},{"content":"Update the cleanup plan to mark this task complete","status":"completed","activeForm":"Updating the cleanup plan"},{"content":"Commit the changes","status":"completed","activeForm":"Committing the changes"}])
+
+Done. Added a blockquote note at the top of `specs/resources-bundling-implementation-plan.md`:
+
+> **NOTE:** Executed under `mistral.rs`. Inference engine later changed to `llama-cpp-2`. See [buddy-llm.md](./buddy-llm.md).
+
+Updated the cleanup plan to mark that task as `[x]` and committed as `c114e0a`.
+
+**Remaining cleanup tasks:**
+- specs/buddy-llm-test.md — Fix model size (3.0 GB → 2.15 GB)
+- specs/buddy-llm-token-counting.md — Fix "embedded" to "bundled"
+- specs/buddy-transcript-to-case-note-implementation-plan.md — Fix tokenizer path + Fix model size
+- specs/buddy-transcript-to-case-note.md — Update buddy-llm integration to present tense
+- specs/README.md — Fix tokenizer-embedding description
+
+
+Iteration 4 complete, continuing...
+New commits detected, pushing...
+Enumerating objects: 13, done.
+Counting objects: 100% (13/13), done.
+Delta compression using up to 10 threads
+Compressing objects: 100% (5/5), done.
+Writing objects: 100% (7/7), 712 bytes | 712.00 KiB/s, done.
+Total 7 (delta 4), reused 0 (delta 0), pack-reused 0 (from 0)
+remote: Resolving deltas: 100% (4/4), completed with 4 local objects.
+To github.com:wwlorey/buddy-ralph.git
+   151d6ba..c114e0a  master -> master
+
+========================================
+Iteration 5 of 10
+========================================
+
+
+
+I'll start by studying the required files to understand the context and plan.
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/specs/README.md)
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/plans/cleanup/buddy-llm.md)
+
+I've studied both files. The cleanup plan has many items already checked off (`[x]`), but several remain unchecked (`[ ]`). Let me identify the remaining tasks:
+
+1. **specs/buddy-llm-test.md** - Fix model size `3.0 GB` → `2.15 GB` (lines 46, 111)
+2. **specs/buddy-llm-token-counting.md** - Fix "embedded" → "bundled" (line 119)
+3. **specs/buddy-transcript-to-case-note-implementation-plan.md** - Fix tokenizer path (line 50) and model size `~5GB` → `~2.15GB` (line 460)
+4. **specs/buddy-transcript-to-case-note.md** - Update buddy-llm integration to present tense (lines 500-508)
+5. **specs/README.md** - Fix tokenizer-embedding description "Embedded" → "Bundled" (line 65)
+
+I'll pick the first remaining task: **Fix model size in specs/buddy-llm-test.md**.
+
+-> TodoWrite(todos: [{"content":"Fix model size in specs/buddy-llm-test.md (3.0 GB → 2.15 GB)","status":"in_progress","activeForm":"Fixing model size in buddy-llm-test.md"},{"content":"Update cleanup plan to mark task complete","status":"pending","activeForm":"Updating cleanup plan"},{"content":"Commit the changes","status":"pending","activeForm":"Committing changes"}])
+
+Let me first read the spec file and the source of truth to verify the correct values.
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/specs/buddy-llm-test.md, offset: 40, limit: 15)
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/specs/buddy-llm-test.md, offset: 105, limit: 15)
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/crates/buddy-llm/src/models.rs)
+
+Confirmed: `MODEL_SIZE_GB` is `2.15` in the source code. The spec file at lines 45 and 110 both show `3.0 GB` which needs to be updated to `2.15 GB`. Now I'll make the edits.
+
+-> Edit(replace_all: true, file_path: /Users/william/Repos/buddy-ralph/specs/buddy-llm-test.md, old_string: Model: Ministral 3B Instruct (3.0 GB), new_string: Model: Ministral 3B Instruct (2.15 GB))
+
+Both occurrences updated. Now let me mark the cleanup plan task as complete.
+
+-> TodoWrite(todos: [{"content":"Fix model size in specs/buddy-llm-test.md (3.0 GB → 2.15 GB)","status":"completed","activeForm":"Fixing model size in buddy-llm-test.md"},{"content":"Update cleanup plan to mark task complete","status":"in_progress","activeForm":"Updating cleanup plan"},{"content":"Commit the changes","status":"pending","activeForm":"Committing changes"}])
+
+Now update the cleanup plan to mark this task as done.
+
+-> Edit(replace_all: false, file_path: /Users/william/Repos/buddy-ralph/plans/cleanup/buddy-llm.md, old_string: - [ ] **Fix model size** — lines 46, 111 show `3.0 GB`
+                                                                             - **Spec:** [buddy-llm.md#model-ministral-3b](../../specs/buddy-llm.md#model-ministral-3b) — ~2.15 GB
+                                                                                         - **View:** [specs/buddy-llm-test.md:46](../../specs/buddy-llm-test.md), [specs/buddy-llm-test.md:111](../../specs/buddy-llm-test.md)
+                                          - **View:** [crates/buddy-llm/src/models.rs](../../crates/buddy-llm/src/models.rs) — `MODEL_SIZE_GB`
+                                                     - **Change:** Replace `3.0 GB` with `2.15 GB`, new_string: - [x] **Fix model size** — lines 46, 111 show `3.0 GB`
+                                                                             - **Spec:** [buddy-llm.md#model-ministral-3b](../../specs/buddy-llm.md#model-ministral-3b) — ~2.15 GB
+                                                                                         - **View:** [specs/buddy-llm-test.md:46](../../specs/buddy-llm-test.md), [specs/buddy-llm-test.md:111](../../specs/buddy-llm-test.md)
+                                          - **View:** [crates/buddy-llm/src/models.rs](../../crates/buddy-llm/src/models.rs) — `MODEL_SIZE_GB`
+                                                     - **Change:** Replace `3.0 GB` with `2.15 GB`)
+
+-> TodoWrite(todos: [{"content":"Fix model size in specs/buddy-llm-test.md (3.0 GB → 2.15 GB)","status":"completed","activeForm":"Fixing model size in buddy-llm-test.md"},{"content":"Update cleanup plan to mark task complete","status":"completed","activeForm":"Updating cleanup plan"},{"content":"Commit the changes","status":"in_progress","activeForm":"Committing changes"}])
+
+Now let me commit the changes.
+
+-> Bash(command: git status, description: Show working tree status)
+
+-> Bash(command: git diff specs/buddy-llm-test.md plans/cleanup/buddy-llm.md, description: Show staged and unstaged changes)
+
+-> Bash(command: git log --oneline -5, description: Show recent commit messages)
+
+The diff looks correct — only the two intended files changed. Let me commit.
+
+-> Bash(command: git add specs/buddy-llm-test.md plans/cleanup/buddy-llm.md && git commit -m "$(cat <<'EOF'
+                Fix model size in buddy-llm-test spec (3.0 GB → 2.15 GB)
+
+                                                                        Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+                                    EOF
+                                       )", description: Stage and commit the model size fix)
+
+-> Bash(command: git status, description: Verify commit succeeded)
+
+-> TodoWrite(todos: [{"content":"Fix model size in specs/buddy-llm-test.md (3.0 GB → 2.15 GB)","status":"completed","activeForm":"Fixing model size in buddy-llm-test.md"},{"content":"Update cleanup plan to mark task complete","status":"completed","activeForm":"Updating cleanup plan"},{"content":"Commit the changes","status":"completed","activeForm":"Committing changes"}])
+
+Done. Fixed the model size in `specs/buddy-llm-test.md` — replaced `3.0 GB` with `2.15 GB` at both occurrences (lines 45 and 110) to match the source of truth in `crates/buddy-llm/src/models.rs:13` (`MODEL_SIZE_GB: f32 = 2.15`). Updated the cleanup plan and committed as `76fc581`.
+
+5 remaining tasks in the cleanup plan:
+- `specs/buddy-llm-token-counting.md` — "embedded" → "bundled"
+- `specs/buddy-transcript-to-case-note-implementation-plan.md` — fix tokenizer path + model size
+- `specs/buddy-transcript-to-case-note.md` — update to present tense
+- `specs/README.md` — "Embedded" → "Bundled"
+
+
+Iteration 5 complete, continuing...
+New commits detected, pushing...
+Enumerating objects: 13, done.
+Counting objects: 100% (13/13), done.
+Delta compression using up to 10 threads
+Compressing objects: 100% (5/5), done.
+Writing objects: 100% (7/7), 617 bytes | 617.00 KiB/s, done.
+Total 7 (delta 4), reused 0 (delta 0), pack-reused 0 (from 0)
+remote: Resolving deltas: 100% (4/4), completed with 4 local objects.
+To github.com:wwlorey/buddy-ralph.git
+   c114e0a..76fc581  master -> master
+
+========================================
+Iteration 6 of 10
+========================================
+
+
+
+I'll start by studying the required files to understand the context and plan.
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/specs/README.md)
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/plans/cleanup/buddy-llm.md)
+
+I've studied both files. The cleanup plan has most tasks checked off. The remaining unchecked tasks are:
+
+1. `specs/buddy-llm-token-counting.md` - Fix "embedded" to "bundled" (line 119)
+2. `specs/buddy-transcript-to-case-note-implementation-plan.md` - Fix tokenizer path (line 50) and model size (line 460)
+3. `specs/buddy-transcript-to-case-note.md` - Update buddy-llm integration to present tense (lines 500-508)
+4. `specs/README.md` - Fix tokenizer-embedding description (line 65)
+
+Let me pick the next task and implement it. I'll start with the first unchecked item.
+
+-> TodoWrite(todos: [{"content":"Fix \"embedded\" to \"bundled\" in specs/buddy-llm-token-counting.md:119","status":"in_progress","activeForm":"Fixing \"embedded\" to \"bundled\" in buddy-llm-token-counting.md"},{"content":"Update cleanup plan to mark completed task","status":"pending","activeForm":"Updating cleanup plan"},{"content":"Commit the changes","status":"pending","activeForm":"Committing changes"}])
+
+Let me read the file to verify the change needed, and also verify the source of truth.
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/specs/buddy-llm-token-counting.md, offset: 115, limit: 10)
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/crates/buddy-llm/src/inference.rs, offset: 1, limit: 50)
+
+Good. The inference.rs confirms the tokenizer is loaded from the resources directory (bundled), not embedded. Now let me see the full context of the line that needs changing in the spec.
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/specs/buddy-llm-token-counting.md, offset: 119, limit: 15)
+
+Now I have the exact text. Let me make the fix.
+
+-> Edit(replace_all: false, file_path: /Users/william/Repos/buddy-ralph/specs/buddy-llm-token-counting.md, old_string: The tokenizer is loaded from embedded tokenizer files:, new_string: The tokenizer is loaded from bundled tokenizer files in `resources/`:)
+
+Now update the cleanup plan to mark this task as done.
+
+-> TodoWrite(todos: [{"content":"Fix \"embedded\" to \"bundled\" in specs/buddy-llm-token-counting.md:119","status":"completed","activeForm":"Fixing \"embedded\" to \"bundled\" in buddy-llm-token-counting.md"},{"content":"Update cleanup plan to mark completed task","status":"in_progress","activeForm":"Updating cleanup plan"},{"content":"Commit the changes","status":"pending","activeForm":"Committing changes"}])
+
+-> Edit(replace_all: false, file_path: /Users/william/Repos/buddy-ralph/plans/cleanup/buddy-llm.md, old_string: - [ ] **Fix "embedded" to "bundled"** — line 119 says "embedded tokenizer files", new_string: - [x] **Fix "embedded" to "bundled"** — line 119 says "embedded tokenizer files")
+
+-> TodoWrite(todos: [{"content":"Fix \"embedded\" to \"bundled\" in specs/buddy-llm-token-counting.md:119","status":"completed","activeForm":"Fixing \"embedded\" to \"bundled\" in buddy-llm-token-counting.md"},{"content":"Update cleanup plan to mark completed task","status":"completed","activeForm":"Updating cleanup plan"},{"content":"Commit the changes","status":"in_progress","activeForm":"Committing changes"}])
+
+Now let me commit the changes.
+
+-> Bash(command: git status, description: Show working tree status)
+
+-> Bash(command: git diff specs/buddy-llm-token-counting.md plans/cleanup/buddy-llm.md, description: Show staged and unstaged changes)
+
+-> Bash(command: git log --oneline -5, description: Show recent commits)
+
+The diff looks correct. Let me commit only the two relevant files.
+
+-> Bash(command: git add specs/buddy-llm-token-counting.md plans/cleanup/buddy-llm.md && git commit -m "$(cat <<'EOF'
+                          Fix "embedded" to "bundled" in token counting spec
+
+                                                                            Tokenizer files are bundled in resources/, not embedded.
+
+                                         Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+     EOF
+        )", description: Stage and commit the two changed files)
+
+-> Bash(command: git status, description: Verify commit succeeded)
+
+-> TodoWrite(todos: [{"content":"Fix \"embedded\" to \"bundled\" in specs/buddy-llm-token-counting.md:119","status":"completed","activeForm":"Fixing \"embedded\" to \"bundled\" in buddy-llm-token-counting.md"},{"content":"Update cleanup plan to mark completed task","status":"completed","activeForm":"Updating cleanup plan"},{"content":"Commit the changes","status":"completed","activeForm":"Committing changes"}])
+
+Done. Fixed "embedded tokenizer files" to "bundled tokenizer files in `resources/`" in `specs/buddy-llm-token-counting.md:123`, updated the cleanup plan checklist, and committed as `f1898f7`.
+
+The cleanup plan still has 4 remaining unchecked tasks across 3 specs:
+- `specs/buddy-transcript-to-case-note-implementation-plan.md` — fix tokenizer path + fix model size
+- `specs/buddy-transcript-to-case-note.md` — update buddy-llm integration to present tense
+- `specs/README.md` — fix "Embedded" to "Bundled"
+
+
+Iteration 6 complete, continuing...
+New commits detected, pushing...
+Enumerating objects: 13, done.
+Counting objects: 100% (13/13), done.
+Delta compression using up to 10 threads
+Compressing objects: 100% (5/5), done.
+Writing objects: 100% (7/7), 664 bytes | 664.00 KiB/s, done.
+Total 7 (delta 4), reused 0 (delta 0), pack-reused 0 (from 0)
+remote: Resolving deltas: 100% (4/4), completed with 4 local objects.
+To github.com:wwlorey/buddy-ralph.git
+   76fc581..f1898f7  master -> master
+
+========================================
+Iteration 7 of 10
+========================================
+
+
+
+I'll start by studying the required files to understand the current state and plan.
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/specs/README.md)
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/plans/cleanup/buddy-llm.md)
+
+I can see the cleanup plan. Most items are checked off `[x]`, but there are still 4 unchecked items remaining:
+
+1. **specs/buddy-transcript-to-case-note-implementation-plan.md** — Fix tokenizer path (line 50) and fix model size (line 460)
+2. **specs/buddy-transcript-to-case-note.md** — Update buddy-llm integration to present tense (lines 500-508)
+3. **specs/README.md** — Fix tokenizer-embedding description ("Embedded" → "Bundled")
+
+Let me read the files that need changes.
+
+-> TodoWrite(todos: [{"content":"Fix tokenizer path in buddy-transcript-to-case-note-implementation-plan.md (line 50)","status":"pending","activeForm":"Fixing tokenizer path in implementation plan"},{"content":"Fix model size in buddy-transcript-to-case-note-implementation-plan.md (line 460)","status":"pending","activeForm":"Fixing model size in implementation plan"},{"content":"Update buddy-llm integration to present tense in buddy-transcript-to-case-note.md (lines 500-508)","status":"pending","activeForm":"Updating buddy-llm integration text to present tense"},{"content":"Fix tokenizer-embedding description in specs/README.md (line 65)","status":"pending","activeForm":"Fixing tokenizer-embedding description in README"},{"content":"Update cleanup plan to mark completed items","status":"pending","activeForm":"Updating cleanup plan"},{"content":"Commit the changes","status":"pending","activeForm":"Committing changes"}])
+
+I'll choose one best next task. Let me tackle the first unchecked section: **Fix tokenizer path and model size in `specs/buddy-transcript-to-case-note-implementation-plan.md`**. Let me read the relevant lines first.
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/specs/buddy-transcript-to-case-note-implementation-plan.md, offset: 45, limit: 15)
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/specs/buddy-transcript-to-case-note-implementation-plan.md, offset: 455, limit: 15)
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/specs/buddy-transcript-to-case-note.md, offset: 495, limit: 20)
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/specs/README.md, offset: 60, limit: 10)
+
+I also need to verify the source code to confirm the current state. Let me check the real_llm_test.rs to see if it also needs updating.
+
+-> Grep(pattern: requires model download, path: /Users/william/Repos/buddy-ralph/crates/buddy-transcript-to-case-note, output_mode: content)
+
+-> Grep(pattern: count_tokens|validate_message_size|is_context_error, path: /Users/william/Repos/buddy-ralph/crates/buddy-llm/src/inference.rs, output_mode: content)
+
+Good. I can see all the methods exist in the codebase (confirming they're implemented, not future). The real_llm_test.rs already uses `~3GB` not `~5GB`, so that source file was already updated but the spec still says `~5GB`. Now let me also note the cleanup plan says to check the source too — the source already says `~3GB`. The spec should say `~2.15GB` per the model spec.
+
+Now let me implement all four remaining changes. I'll pick the **first unchecked section** as my ONE task: the `buddy-transcript-to-case-note-implementation-plan.md` fixes (tokenizer path and model size).
+
+-> TodoWrite(todos: [{"content":"Fix tokenizer path in buddy-transcript-to-case-note-implementation-plan.md (line 50)","status":"in_progress","activeForm":"Fixing tokenizer path in implementation plan"},{"content":"Fix model size in buddy-transcript-to-case-note-implementation-plan.md (line 460)","status":"pending","activeForm":"Fixing model size in implementation plan"},{"content":"Update buddy-llm integration to present tense in buddy-transcript-to-case-note.md (lines 500-508)","status":"pending","activeForm":"Updating buddy-llm integration text to present tense"},{"content":"Fix tokenizer-embedding description in specs/README.md (line 65)","status":"pending","activeForm":"Fixing tokenizer-embedding description in README"},{"content":"Update cleanup plan to mark completed items","status":"pending","activeForm":"Updating cleanup plan"},{"content":"Commit the changes","status":"pending","activeForm":"Committing changes"}])
+
+Wait — the prompt says "choose ONE best next task from the above plan and implement it." So I should pick just one task group. The next unchecked section in the plan covers `specs/buddy-transcript-to-case-note-implementation-plan.md` (two sub-items). Let me do that section.
+
+-> Edit(replace_all: false, file_path: /Users/william/Repos/buddy-ralph/specs/buddy-transcript-to-case-note-implementation-plan.md, old_string:   - Load from `~/.buddy-llm/tokenizers/{model_id}/tokenizer.json`, new_string:   - Load from `resources/tokenizer.json`)
+
+-> TodoWrite(todos: [{"content":"Fix tokenizer path in buddy-transcript-to-case-note-implementation-plan.md (line 50)","status":"completed","activeForm":"Fixing tokenizer path in implementation plan"},{"content":"Fix model size in buddy-transcript-to-case-note-implementation-plan.md (line 460)","status":"in_progress","activeForm":"Fixing model size in implementation plan"},{"content":"Update buddy-llm integration to present tense in buddy-transcript-to-case-note.md (lines 500-508)","status":"pending","activeForm":"Updating buddy-llm integration text to present tense"},{"content":"Fix tokenizer-embedding description in specs/README.md (line 65)","status":"pending","activeForm":"Fixing tokenizer-embedding description in README"},{"content":"Update cleanup plan to mark completed items","status":"pending","activeForm":"Updating cleanup plan"},{"content":"Commit the changes","status":"pending","activeForm":"Committing changes"}])
+
+-> Edit(replace_all: false, file_path: /Users/william/Repos/buddy-ralph/specs/buddy-transcript-to-case-note-implementation-plan.md, old_string:   - Tests marked with `#[ignore = "requires model download (~5GB)"]`, new_string:   - Tests marked with `#[ignore = "requires model download (~2.15GB)"]`)
+
+-> TodoWrite(todos: [{"content":"Fix tokenizer path in buddy-transcript-to-case-note-implementation-plan.md (line 50)","status":"completed","activeForm":"Fixing tokenizer path in implementation plan"},{"content":"Fix model size in buddy-transcript-to-case-note-implementation-plan.md (line 460)","status":"completed","activeForm":"Fixing model size in implementation plan"},{"content":"Update cleanup plan to mark completed items","status":"in_progress","activeForm":"Updating cleanup plan"},{"content":"Commit the changes","status":"pending","activeForm":"Committing changes"}])
+
+Now update the cleanup plan to mark these two items as done.
+
+-> Edit(replace_all: false, file_path: /Users/william/Repos/buddy-ralph/plans/cleanup/buddy-llm.md, old_string: - [ ] **Fix tokenizer path** — line 50 says `~/.buddy-llm/tokenizers/{model_id}/tokenizer.json`
+                           - **Spec:** [buddy-llm.md#directory-structure](../../specs/buddy-llm.md#directory-structure) — `resources/tokenizer.json`
+                                                           - **View:** [specs/buddy-transcript-to-case-note-implementation-plan.md:50](../../specs/buddy-transcript-to-case-note-implementation-plan.md)
+                    - **View:** [crates/buddy-llm/src/config.rs](../../crates/buddy-llm/src/config.rs) — `tokenizer_dir()`
+                                 - **Change:** Replace with `resources/tokenizer.json`
+
+                                                                                      - [ ] **Fix model size in test annotation** — line 460 says `~5GB`
+                                                               - **Spec:** [buddy-llm.md#model-ministral-3b](../../specs/buddy-llm.md#model-ministral-3b) — ~2.15 GB
+                                                                           - **View:** [specs/buddy-transcript-to-case-note-implementation-plan.md:460](../../specs/buddy-transcript-to-case-note-implementation-plan.md)
+                                     - **View:** [crates/buddy-transcript-to-case-note/tests/real_llm_test.rs](../../crates/buddy-transcript-to-case-note/tests/real_llm_test.rs) — check source too
+                - **Change:** Replace `~5GB` with `~2.15GB`, new_string: - [x] **Fix tokenizer path** — line 50 says `~/.buddy-llm/tokenizers/{model_id}/tokenizer.json`
+                                                                               - **Spec:** [buddy-llm.md#directory-structure](../../specs/buddy-llm.md#directory-structure) — `resources/tokenizer.json`
+                    - **View:** [specs/buddy-transcript-to-case-note-implementation-plan.md:50](../../specs/buddy-transcript-to-case-note-implementation-plan.md)
+                                                                        - **View:** [crates/buddy-llm/src/config.rs](../../crates/buddy-llm/src/config.rs) — `tokenizer_dir()`
+                                                                                     - **Change:** Replace with `resources/tokenizer.json`
+
+                                               - [x] **Fix model size in test annotation** — line 460 says `~5GB`
+                        - **Spec:** [buddy-llm.md#model-ministral-3b](../../specs/buddy-llm.md#model-ministral-3b) — ~2.15 GB
+                                    - **View:** [specs/buddy-transcript-to-case-note-implementation-plan.md:460](../../specs/buddy-transcript-to-case-note-implementation-plan.md)
+                                                                                         - **View:** [crates/buddy-transcript-to-case-note/tests/real_llm_test.rs](../../crates/buddy-transcript-to-case-note/tests/real_llm_test.rs) — check source too
+                                                                    - **Change:** Replace `~5GB` with `~2.15GB`)
+
+-> TodoWrite(todos: [{"content":"Fix tokenizer path in buddy-transcript-to-case-note-implementation-plan.md (line 50)","status":"completed","activeForm":"Fixing tokenizer path in implementation plan"},{"content":"Fix model size in buddy-transcript-to-case-note-implementation-plan.md (line 460)","status":"completed","activeForm":"Fixing model size in implementation plan"},{"content":"Update cleanup plan to mark completed items","status":"completed","activeForm":"Updating cleanup plan"},{"content":"Commit the changes","status":"in_progress","activeForm":"Committing changes"}])
+
+Now let me verify the changes and commit.
+
+-> Bash(command: git diff specs/buddy-transcript-to-case-note-implementation-plan.md plans/cleanup/buddy-llm.md, description: Show diff of changed files)
+
+-> Bash(command: git log --oneline -5, description: Show recent commit messages)
+
+The diff looks correct. Let me commit.
+
+-> Bash(command: git add specs/buddy-transcript-to-case-note-implementation-plan.md plans/cleanup/buddy-llm.md && git commit -m "$(cat <<'EOF'
+                                                   Fix tokenizer path and model size in case note implementation plan
+
+                          Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+                                                                                 EOF
+                                                                                    )", description: Stage and commit the spec changes)
+
+-> Bash(command: git status, description: Verify commit succeeded)
+
+-> TodoWrite(todos: [{"content":"Fix tokenizer path in buddy-transcript-to-case-note-implementation-plan.md (line 50)","status":"completed","activeForm":"Fixing tokenizer path in implementation plan"},{"content":"Fix model size in buddy-transcript-to-case-note-implementation-plan.md (line 460)","status":"completed","activeForm":"Fixing model size in implementation plan"},{"content":"Update cleanup plan to mark completed items","status":"completed","activeForm":"Updating cleanup plan"},{"content":"Commit the changes","status":"completed","activeForm":"Committing changes"}])
+
+Done. Completed one task from the cleanup plan:
+
+**`specs/buddy-transcript-to-case-note-implementation-plan.md`** — two fixes:
+1. **Tokenizer path** (line 50): `~/.buddy-llm/tokenizers/{model_id}/tokenizer.json` → `resources/tokenizer.json`
+2. **Model size** (line 460): `~5GB` → `~2.15GB`
+
+Updated the cleanup plan to mark both items `[x]` and committed as `d0c5400`.
+
+**Remaining unchecked items in the cleanup plan:**
+- `specs/buddy-transcript-to-case-note.md` — update buddy-llm integration to present tense
+- `specs/README.md` — fix "Embedded" → "Bundled"
+
+
+Iteration 7 complete, continuing...
+New commits detected, pushing...
+Enumerating objects: 13, done.
+Counting objects: 100% (13/13), done.
+Delta compression using up to 10 threads
+Compressing objects: 100% (5/5), done.
+Writing objects: 100% (7/7), 631 bytes | 631.00 KiB/s, done.
+Total 7 (delta 4), reused 0 (delta 0), pack-reused 0 (from 0)
+remote: Resolving deltas: 100% (4/4), completed with 4 local objects.
+To github.com:wwlorey/buddy-ralph.git
+   f1898f7..d0c5400  master -> master
+
+========================================
+Iteration 8 of 10
+========================================
+
+
+
+I'll start by reading the specs README and the cleanup plan to understand the current state.
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/specs/README.md)
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/plans/cleanup/buddy-llm.md)
+
+I can see the cleanup plan. Most items are checked off (`[x]`), but there are two remaining unchecked items:
+
+1. **specs/buddy-transcript-to-case-note.md** — Update buddy-llm integration to present tense (lines 500-508)
+2. **specs/README.md** — Fix tokenizer-embedding description (line 65: "Embedded" → "Bundled")
+
+Let me pick one task. I'll take the first unchecked item: updating `specs/buddy-transcript-to-case-note.md` to use present tense for buddy-llm integration.
+
+Let me first read the relevant files to understand what needs to change.
+
+-> TodoWrite(todos: [{"content":"Update buddy-llm integration to present tense in specs/buddy-transcript-to-case-note.md","status":"in_progress","activeForm":"Updating buddy-llm integration to present tense"},{"content":"Update the cleanup plan to mark the task as done","status":"pending","activeForm":"Updating cleanup plan"},{"content":"Commit the changes","status":"pending","activeForm":"Committing changes"}])
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/specs/buddy-transcript-to-case-note.md, offset: 490, limit: 30)
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/crates/buddy-llm/src/inference.rs, limit: 80)
+
+Let me verify the specific methods exist in inference.rs.
+
+-> Grep(pattern: fn count_tokens|fn validate_message_size|fn is_context_error, path: /Users/william/Repos/buddy-ralph/crates/buddy-llm/src/inference.rs, output_mode: content)
+
+All three methods exist. Now I'll update the section from future-tense "requires enhancements" to present-tense "uses the following features."
+
+-> Edit(replace_all: false, file_path: /Users/william/Repos/buddy-ralph/specs/buddy-transcript-to-case-note.md, old_string: ## buddy-llm Integration
+
+                                                         This crate requires enhancements to `buddy-llm`:
+
+              1. **Token counting** - New `count_tokens()` method using `tokenizers` crate
+                                                                                          2. **Message validation** - Enforce 3000 token max per message
+                                                             3. **Context error detection** - `is_context_error()` method for retry logic
+
+                                              See [buddy-llm-token-counting.md](./buddy-llm-token-counting.md) for details., new_string: ## buddy-llm Integration
+
+                                                                      This crate uses the following `buddy-llm` features:
+
+                              1. **Token counting** - `count_tokens()` method using `tokenizers` crate
+           2. **Message validation** - `validate_message_size()` enforces 3000 token max per message
+         3. **Context error detection** - `is_context_error()` method for retry logic
+
+                                                                                     See [buddy-llm-token-counting.md](./buddy-llm-token-counting.md) for details.)
+
+Now let me update the cleanup plan to mark this task as done.
+
+-> TodoWrite(todos: [{"content":"Update buddy-llm integration to present tense in specs/buddy-transcript-to-case-note.md","status":"completed","activeForm":"Updating buddy-llm integration to present tense"},{"content":"Update the cleanup plan to mark the task as done","status":"in_progress","activeForm":"Updating cleanup plan"},{"content":"Commit the changes","status":"pending","activeForm":"Committing changes"}])
+
+-> Edit(replace_all: false, file_path: /Users/william/Repos/buddy-ralph/plans/cleanup/buddy-llm.md, old_string: - [ ] **Update buddy-llm integration to present tense** — lines 500-508 frame token counting as future requirements, new_string: - [x] **Update buddy-llm integration to present tense** — lines 500-508 frame token counting as future requirements)
+
+-> TodoWrite(todos: [{"content":"Update buddy-llm integration to present tense in specs/buddy-transcript-to-case-note.md","status":"completed","activeForm":"Updating buddy-llm integration to present tense"},{"content":"Update the cleanup plan to mark the task as done","status":"completed","activeForm":"Updating cleanup plan"},{"content":"Commit the changes","status":"in_progress","activeForm":"Committing changes"}])
+
+Now let me commit the changes.
+
+-> Bash(command: git status, description: Show working tree status)
+
+-> Bash(command: git diff specs/buddy-transcript-to-case-note.md plans/cleanup/buddy-llm.md, description: Show diff of changed files)
+
+-> Bash(command: git log --oneline -5, description: Show recent commits)
+
+The diff looks correct — only the two files I intended to change. Let me commit.
+
+-> Bash(command: git add specs/buddy-transcript-to-case-note.md plans/cleanup/buddy-llm.md && git commit -m "$(cat <<'EOF'
+                               Update buddy-llm integration section to present tense in case note spec
+
+           Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+                                                                  EOF
+                                                                     )", description: Stage and commit the spec update)
+
+-> Bash(command: git status, description: Verify commit succeeded)
+
+-> TodoWrite(todos: [{"content":"Update buddy-llm integration to present tense in specs/buddy-transcript-to-case-note.md","status":"completed","activeForm":"Updating buddy-llm integration to present tense"},{"content":"Update the cleanup plan to mark the task as done","status":"completed","activeForm":"Updating cleanup plan"},{"content":"Commit the changes","status":"completed","activeForm":"Committing changes"}])
+
+Done. I updated `specs/buddy-transcript-to-case-note.md` lines 500-508:
+
+- Changed "This crate requires enhancements to `buddy-llm`:" → "This crate uses the following `buddy-llm` features:"
+- Changed "New `count_tokens()` method" → "`count_tokens()` method"
+- Changed "Enforce 3000 token max per message" → "`validate_message_size()` enforces 3000 token max per message"
+
+Verified all three methods (`count_tokens`, `validate_message_size`, `is_context_error`) exist in `crates/buddy-llm/src/inference.rs`. Marked the task complete in the cleanup plan and committed as `227bd0c`.
+
+One cleanup task remains in the plan: fixing "Embedded" → "Bundled" in `specs/README.md` line 65.
+
+
+Iteration 8 complete, continuing...
+New commits detected, pushing...
+Enumerating objects: 13, done.
+Counting objects: 100% (13/13), done.
+Delta compression using up to 10 threads
+Compressing objects: 100% (5/5), done.
+Writing objects: 100% (7/7), 705 bytes | 705.00 KiB/s, done.
+Total 7 (delta 4), reused 0 (delta 0), pack-reused 0 (from 0)
+remote: Resolving deltas: 100% (4/4), completed with 4 local objects.
+To github.com:wwlorey/buddy-ralph.git
+   d0c5400..227bd0c  master -> master
+
+========================================
+Iteration 9 of 10
+========================================
+
+
+
+I'll start by studying the required files to understand the context and plan.
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/specs/README.md)
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/plans/cleanup/buddy-llm.md)
+
+I've reviewed both files. The cleanup plan has almost everything checked off (`[x]`). There is only ONE remaining unchecked task:
+
+**specs/README.md** — line 155-158: **Fix tokenizer-embedding description** — line 65 says "Embedded", should say "Bundled"
+
+Let me implement this one remaining task.
+
+-> TodoWrite(todos: [{"content":"Fix tokenizer-embedding description in specs/README.md: 'Embedded' → 'Bundled'","status":"in_progress","activeForm":"Fixing tokenizer-embedding description in specs/README.md"},{"content":"Update cleanup plan to mark task complete","status":"pending","activeForm":"Updating cleanup plan"},{"content":"Commit the changes","status":"pending","activeForm":"Committing changes"}])
+
+-> Read(file_path: /Users/william/Repos/buddy-ralph/specs/README.md, offset: 63, limit: 5)
+
+-> Edit(replace_all: false, file_path: /Users/william/Repos/buddy-ralph/specs/README.md, old_string: | [tokenizer-embedding.md](./tokenizer-embedding.md) | [crates/buddy-llm/src/tokenizers.rs](../crates/buddy-llm/src/tokenizers.rs) | Embedded tokenizer files for offline inference |, new_string: | [tokenizer-embedding.md](./tokenizer-embedding.md) | [crates/buddy-llm/src/tokenizers.rs](../crates/buddy-llm/src/tokenizers.rs) | Bundled tokenizer files for offline inference |)
+
+Now let me mark that task done and update the cleanup plan.
+
+-> TodoWrite(todos: [{"content":"Fix tokenizer-embedding description in specs/README.md: 'Embedded' → 'Bundled'","status":"completed","activeForm":"Fixing tokenizer-embedding description in specs/README.md"},{"content":"Update cleanup plan to mark task complete","status":"in_progress","activeForm":"Updating cleanup plan"},{"content":"Commit the changes","status":"pending","activeForm":"Committing changes"}])
+
+-> Edit(replace_all: false, file_path: /Users/william/Repos/buddy-ralph/plans/cleanup/buddy-llm.md, old_string: - [ ] **Fix tokenizer-embedding description** — line 65 says "Embedded", new_string: - [x] **Fix tokenizer-embedding description** — line 65 says "Embedded")
+
+-> TodoWrite(todos: [{"content":"Fix tokenizer-embedding description in specs/README.md: 'Embedded' → 'Bundled'","status":"completed","activeForm":"Fixing tokenizer-embedding description in specs/README.md"},{"content":"Update cleanup plan to mark task complete","status":"completed","activeForm":"Updating cleanup plan"},{"content":"Commit the changes","status":"in_progress","activeForm":"Committing changes"}])
+
+Now let me commit the changes.
+
+-> Bash(command: git status, description: Show working tree status)
+
+-> Bash(command: git diff specs/README.md plans/cleanup/buddy-llm.md, description: Show staged and unstaged changes)
+
+-> Bash(command: git log --oneline -5, description: Show recent commit messages)
+
+-> Bash(command: git add specs/README.md plans/cleanup/buddy-llm.md && git commit -m "$(cat <<'EOF'
+        Fix "Embedded" to "Bundled" in tokenizer-embedding description in specs README
+
+                                                                                      Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+                                                  EOF
+                                                     )", description: Stage and commit the two changed files)
+
+-> Bash(command: git status, description: Verify commit succeeded)
+
+-> TodoWrite(todos: [{"content":"Fix tokenizer-embedding description in specs/README.md: 'Embedded' → 'Bundled'","status":"completed","activeForm":"Fixing tokenizer-embedding description in specs/README.md"},{"content":"Update cleanup plan to mark task complete","status":"completed","activeForm":"Updating cleanup plan"},{"content":"Commit the changes","status":"completed","activeForm":"Committing changes"}])
+
+That was the last remaining task in the cleanup plan. All items are now checked off.
+
+<promise>COMPLETE</promise>
+
+
+========================================
+Ralph COMPLETE after 9 iterations!
+Finished at: Mon Jan 26 14:31:40 CST 2026
+========================================
