@@ -89,7 +89,7 @@ sgf → ralph [-a] [--loop-id ID] [--template T] [--auto-push BOOL] [--max-itera
 | `2` | Iterations exhausted — may have remaining work | Developer decides: re-launch or stop |
 | `130` | Interrupted (SIGINT/SIGTERM) | Log interruption, clean up |
 
-Claude Code crashes (non-zero exit from a single iteration) and push failures are handled within ralph as warnings — they do not produce distinct exit codes. Ralph logs the failure and continues to the next iteration.
+Claude Code crashes (non-zero exit from a single iteration) and push failures are handled within ralph as warnings — they do not produce distinct exit codes. Ralph logs the failure and continues to the next iteration without cleanup — no dirty-tree reset, no claim release, no recovery steps. The next iteration's agent inherits whatever state exists (uncommitted edits, stale claim) and proceeds via forward correction. Stale claims and dirty working trees accumulate within a ralph run and are cleared by sgf's pre-launch recovery before the next run (see Recovery).
 
 #### Completion Sentinel
 
@@ -352,11 +352,7 @@ specs/
 
 The memento is a table of contents. The agent reads it, follows the references to get detail, and dives into specific files only when needed. Auto-loaded via CLAUDE.md at the start of every iteration.
 
-**Memento lifecycle**:
-- **`sgf init`** generates a skeleton memento: stack type, references to backpressure and an empty spec index, pensa reference. For empty projects this is all that's needed — the references point to files that exist but have no content yet.
-- **`sgf spec`** — the spec agent updates `specs/README.md` (adding/revising rows in the spec index table) after writing spec files. The memento itself doesn't change — it already points to `specs/README.md`.
-- **`sgf build`** — the build agent updates `specs/README.md` if it creates new modules that should appear in the code column. The memento itself doesn't change.
-- There is no standalone `sgf memento` command. The memento is written once by `sgf init` and rarely needs modification after that — the content it references is what evolves.
+**Memento lifecycle**: `sgf init` generates the memento (stack type, references to backpressure, spec index, and pensa). It rarely changes after that — the files it references are what evolve.
 
 **`specs/README.md`** — Agent-maintained spec index, matching the [loom format](https://github.com/ghuntley/loom/blob/trunk/specs/README.md). Categorized tables with `| Spec | Code | Purpose |` columns mapping each spec to its implementation location and a one-line summary. This is the living map of what's been specified and where it lives in code. Agents update this file when adding or revising specs.
 
@@ -393,6 +389,7 @@ sgf issues log                 — interactive session for logging bugs
 sgf issues plan [-a] [iterations] — run bug planning loop (AFK)
 sgf status                     — show project state (active loops, pensa summary)
 sgf logs <loop-id>             — tail a running loop's output
+sgf template build [--stack <type>] — rebuild Docker sandbox template (after updating pn or stack tools)
 ```
 
 ### Deployment Model
@@ -401,7 +398,27 @@ sgf logs <loop-id>             — tail a running loop's output
 
 ### Sandboxing
 
-All sessions run inside Docker sandboxes, including human-in-the-loop stages like `sgf spec` and `sgf issues log`.
+All sessions run inside Docker Desktop sandboxes (`docker sandbox run`), including human-in-the-loop stages like `sgf spec` and `sgf issues log`.
+
+**Docker over native sandbox**: Claude Code's built-in sandbox (`/sandbox`) provides OS-level filesystem and network isolation, but bundles them together — network access requires per-domain approval, which is incompatible with AFK/unattended operation. Docker provides the filesystem isolation we need (protecting the host machine) while leaving network access unrestricted, which is the right tradeoff for an autonomous runner. The template image overhead is worth it.
+
+**How sandboxes work**: Docker sandboxes are microVMs (not containers). The workspace directory syncs bidirectionally between host and VM at the same absolute path — `/Users/you/project` on the host appears at `/Users/you/project` inside the sandbox. This is file synchronization, not volume mounting. Changes the agent makes sync back to the host; changes on the host sync into the VM.
+
+**Template images**: Each sandbox runs from a template image built on `docker/sandbox-templates:claude-code`, which includes Ubuntu, Git, Node.js, Python, Go, and common dev tools. Project-specific templates add stack tooling (e.g., Rust toolchain for `rust-sandbox`, Tauri dependencies for `tauri-sandbox`). Templates are Dockerfiles:
+
+```dockerfile
+FROM docker/sandbox-templates:claude-code
+USER root
+RUN apt-get update && apt-get install -y <stack-specific-tools>
+COPY pn /usr/local/bin/pn
+USER agent
+```
+
+**Pensa in the sandbox**: The `pn` binary is baked into every template image. Since the workspace syncs bidirectionally, `pn` reads and writes `.pensa/db.sqlite` inside the synced workspace — all concurrent sandboxes share the same SQLite file on the host. After updating `pn`, rebuild template images to pick up the new version.
+
+**Credentials**: The sandbox uses Docker Desktop's credential proxy (`--credentials host`), which intercepts outbound API requests and injects authentication headers from the host. API keys never enter the sandbox.
+
+**Agent user**: The agent runs as a non-root `agent` user with `sudo` access inside the sandbox.
 
 ---
 

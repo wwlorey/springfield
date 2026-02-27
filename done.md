@@ -21,6 +21,7 @@
 - [x] **Trim Design Principles section** — Cut 9 of 11 principles that restated content from earlier sections. Kept "Search before assuming" (unique insight, most common failure mode) and "One task, fresh context" (merged two principles into one-liner with rationale). Added reference line pointing to earlier sections for the rest.
 - [x] **Deduplicate "tasks are the plan"** — Schema keeps the authoritative definition. Spec stage replaced with one-line reference + query example. Design Principles already just a reference (from Trim task).
 - [x] **Cut prek YAML block** — Replaced 17-line YAML block with two sentences describing what each hook does and when it fires. All information preserved: pre-commit runs `pn export`, post-merge/checkout/rewrite runs `pn import`.
+- [x] **Condense memento lifecycle** — Replaced 4-bullet block with one sentence. All factual content preserved: what `sgf init` writes (stack type, references to backpressure, spec index, pensa), and the key insight that the memento is stable after init while the referenced files evolve.
 
 ## Concurrency & Failure Modes
 
@@ -28,7 +29,11 @@
 - [x] **Specify SQLite persistence model across Docker sandboxes** — Answered by the consistency model: bind-mount from host. All containers share one db.sqlite. Atomic claims work across concurrent loops.
 - [x] **Add atomic `pn claim-next` command** — Resolved differently: no new command. Following beads' pattern, `pn update --claim` is the atomic operation (`UPDATE ... WHERE status = 'open'`, fails with `already_claimed` if another agent got there first). Agent keeps choice — queries via pensa, picks a task, attempts claim, re-queries on conflict. Standard Loop Iteration stays 7 steps with explicit Query → Choose & Claim separation.
 - [x] **Document recovery procedure** — Recovery is sgf's responsibility, not ralph's. sgf writes PID files to `.sgf/run/<loop-id>.pid` on launch. Before launching ralph, sgf checks all PIDs: if any alive, skip cleanup (concurrent loop is running); if all stale, recover (`git checkout -- .`, `git clean -fd`, `pn doctor --fix`). Added `.sgf/run/` to project structure.
+- [x] **Specify Claude Code crash behavior** — Ralph does no cleanup between iterations. On CC crash (non-zero exit), ralph logs the failure and continues to the next iteration without resetting dirty state or releasing claimed tasks. Forward correction: the next agent inherits whatever state exists. Stale claims and dirty trees accumulate within a ralph run and are cleared by sgf's pre-launch recovery.
+- [x] **Handle dirty working tree at iteration start** — Resolved by crash behavior decision: ralph does not clean up between iterations. Forward correction within a run; sgf pre-launch recovery between runs.
+- [x] **Run `pn doctor --fix` at iteration start** — Resolved by crash behavior decision: ralph does not run doctor between iterations. Stale claims are cleared by sgf pre-launch recovery (`pn doctor --fix`) before the next ralph run.
 
 ## Systems Unification & Operation
 
 - [x] **Clarify pre-commit hook staging** — `pn export` auto-stages: writes SQLite → JSONL then runs `git add .pensa/*.jsonl`. This makes the pre-commit hook self-contained — no shell glue needed in the hook config. Beads sidesteps this problem entirely by using Dolt (which has built-in version control), but Springfield's SQLite + JSONL design requires explicit staging. Updated Storage Model sync description and `pn export` command comment.
+- [x] **Add `sgf stop` command** — Won't fix. Killing the process is sufficient; no dedicated stop command needed.
