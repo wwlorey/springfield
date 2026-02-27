@@ -506,27 +506,11 @@ This replaces the duplication seen in buddy-ralph's `prompts/building/` director
 
 ## Key Design Principles
 
-**Fresh context per iteration**: Each Ralph loop iteration starts with a clean context window. The agent reads the memento and pensa state to orient itself. No accumulated confusion.
-
-**One task per iteration**: The agent picks one unblocked task, implements it fully, applies backpressure, commits, and exits. The loop restarts with fresh context.
-
-**Structured memory over markdown**: Pensa replaces unstructured markdown files for issues and tasks. A single CLI command replaces multi-step file creation. The agent finds this easier and more reliable.
-
-**Tasks are the plan**: There is no separate "implementation plan" entity. The set of open `task` issues linked to a spec via the `spec` field is the implementation plan for that spec. Revising a spec means closing superseded tasks and creating new ones — the plan is always the current state of pensa, not a document that drifts.
-
-**Editable prompts over duplication**: `sgf init` seeds prompt templates into the project. Each project owns and can evolve its prompts. No near-duplicate files across projects — one editable copy per stage, per project.
-
 **Search before assuming**: The agent must search the codebase before deciding something isn't implemented. Without this, agents create duplicate implementations. The build prompt must enforce: "don't assume not implemented — search first." This is the single most common failure mode in Ralph loops.
 
-**Backpressure drives quality**: Build, test, lint, and format commands (defined in `.sgf/backpressure.md`) are applied after every change. Failed validation forces correction before commits.
+**One task, fresh context**: Each iteration picks one unblocked task, implements it fully, commits, and exits. The loop restarts with a clean context window. No accumulated confusion, no multi-task sprawl.
 
-**Thin memento, rich references**: The memento is a table of contents — it contains references to backpressure, the spec index, and pensa, not the content itself. What evolves is the referenced files; the memento is written once by `sgf init` and rarely changes. Matches the loom pattern.
-
-**Scaffolding is protected**: The `.sgf/` directory (prompts, backpressure, config) is developer-owned and agent-readonly, enforced via Claude deny settings. Agents read these files but cannot modify them.
-
-**Decentralized projects**: Each project is self-contained. No global state, no central server, no coordination between projects. Run `sgf` from the project directory.
-
-**Sandboxed execution**: All sessions run in Docker sandboxes — autonomous and human-in-the-loop alike.
+Remaining principles — structured memory, tasks-as-plan, editable prompts, thin memento, protected scaffolding, decentralized projects, sandboxed execution, backpressure — are defined in their respective sections above.
 
 ---
 

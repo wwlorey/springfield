@@ -17,6 +17,7 @@
 
 - [x] **Factor out loop boilerplate** — Defined "Standard Loop Iteration" pattern (7 steps) shared by Build, Test, and Issues Plan. Per-stage deltas in a table. Dropped explicit `pn export` from agent steps — pre-commit hook handles it.
 - [x] **Delete "Resolved Decisions" section** — Kept "Build order" (only unique item) in the section, removed 18 duplicate bullets. Updated downstream todo items that referenced Resolved Decisions.
+- [x] **Trim Design Principles section** — Cut 9 of 11 principles that restated content from earlier sections. Kept "Search before assuming" (unique insight, most common failure mode) and "One task, fresh context" (merged two principles into one-liner with rationale). Added reference line pointing to earlier sections for the rest.
 
 ## Concurrency & Failure Modes
 

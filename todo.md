@@ -6,12 +6,10 @@ Findings from four-agent spec review. Tackle outside this conversation.
 
 ## Extraneous Content (Pruning)
 
-- [ ] **Deduplicate "tasks are the plan"** — stated 3 times (Schema, Spec stage, Design Principles). State once in Schema, reference from Spec stage, remove from Design Principles.
 - [ ] **Deduplicate `.sgf/` protection** — stated 2 times (File Purposes, Design Principles). Keep in File Purposes only.
 - [ ] **Deduplicate bug-to-task lifecycle** — stated in Schema and Issues Plan stage. Keep Schema + workflow, cut the other.
 - [ ] **Cut prek YAML block** — 17 lines of implementation detail. Replace with a two-sentence description of what the hooks do.
 - [ ] **Condense "Why not Dolt?"** — 5 lines justifying a made decision. Condense to one parenthetical.
-- [ ] **Trim Design Principles section** — 80% restates earlier content. Keep "Search before assuming" and 1-2 others that add new insight. Reference earlier sections for the rest.
 - [ ] **Condense memento lifecycle** — 4 bullets to say "doesn't change after init." Replace with one sentence.
 - [ ] **Condense Future Work items 2-3** — Claude Code hooks and TUI entries are over-detailed for aspirational items. One line each.
 
@@ -20,7 +18,6 @@ Findings from four-agent spec review. Tackle outside this conversation.
 ## Systems Unification & Operation
 
 - [ ] **Add `sgf stop` command** — No way to cleanly stop a running loop. Should send SIGTERM to ralph, which completes/aborts current iteration, releases claimed task, and exits.
-- [ ] **Specify sandbox environment** — Document what is bind-mounted into Docker containers, what binaries are available inside (pn, git, build tools), and what operations happen inside vs. outside.
 - [ ] **Clarify pre-commit hook staging** — Does the hook also `git add .pensa/*.jsonl`? If not, exports won't be committed. Remove explicit `pn export` from agent prompts (hook handles it) or document why both are needed.
 - [ ] **Define prompt template variable syntax** — Document which variables exist in which prompts, and have `sgf` validate that required variables are present before launching a loop.
 - [ ] **Specify `sgf status` output** — Show running loops (iteration count, last task), pensa summary (open/in_progress/closed by type), recent activity.
@@ -48,7 +45,6 @@ Findings from four-agent spec review. Tackle outside this conversation.
 
 ## Agent Ergonomics & Developer Experience
 
-- [ ] **Document `--json` output schema** — Specify envelope format (`{"ok": bool, "data": ..., "error": ...}`), that errors with `--json` go to stdout as JSON, and field names for each command's response.
 - [ ] **Add task sizing guidance to spec phase** — "Each task should be completable in a single iteration — roughly one file or one logical change. If >3-4 files, split it." Add a task-splitting protocol for build agents.
 - [ ] **Consider `pn q` removal or redefinition** — Currently redundant with `pn create --json`. Either remove or give it a genuinely different semantic.
 - [ ] **Require task ID in commit messages** — Convention: `[pn-abc123] Implement login validation`. Enables `git log --grep`, iteration tracking, and future rollback tooling.
