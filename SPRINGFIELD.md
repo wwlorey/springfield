@@ -215,6 +215,7 @@ pn show <id> [--short]
 ```
 pn list [--status <s>] [--priority <p>] [-a <assignee>] [-t <issue_type>] [--spec <stem>] [--sort <field>] [-n <limit>]
 pn ready [-n <limit>] [-p <pri>] [-a <assignee>] [-t <issue_type>] [--spec <stem>]  # returns [] when nothing matches
+pn claim-next [-p <pri>] [-t <issue_type>] [--spec <stem>]  # atomic ready + claim; returns claimed issue or null
 pn blocked
 pn search <query>                          # substring match on title + description
 pn count [--by-status] [--by-priority] [--by-issue-type] [--by-assignee]
@@ -375,27 +376,25 @@ All sessions run inside Docker sandboxes, including human-in-the-loop stages lik
 
 **Stage transitions are human-initiated.** The developer decides when to move between stages. Suggested heuristics: run verify when `pn ready --spec <stem>` returns nothing (all tasks for a spec are done); run test-plan after verify passes; run test after test-plan produces test items. These are guidelines, not gates.
 
-**Concurrency model**: Multiple loops (e.g., `sgf build` + `sgf issues plan`) can run concurrently on the same branch. SQLite provides atomic claims (`UPDATE ... WHERE status = 'open'` prevents double-claiming). `pn export` runs at commit time via the pre-commit hook. If `git push` fails due to a concurrent commit, the loop should `git pull --rebase` and retry. Stop build loops before running `sgf spec` to avoid task-supersession race conditions.
+**Concurrency model**: Multiple loops (e.g., `sgf build` + `sgf issues plan`) can run concurrently on the same branch. SQLite provides atomic claims via `pn claim-next` (`SELECT ... WHERE status = 'open' + UPDATE` in a single transaction, preventing double-claiming). `pn export` runs at commit time via the pre-commit hook. If `git push` fails due to a concurrent commit, the loop should `git pull --rebase` and retry. Stop build loops before running `sgf spec` to avoid task-supersession race conditions.
 
 ### Standard Loop Iteration
 
-Build, Test, and Issues Plan stages share a common iteration pattern. Each iteration:
+Build and Test stages share a common iteration pattern. Each iteration:
 
 1. **Orient** — read `memento.md`
-2. **Query** — find the next work item via pensa. If none, write `.ralph-complete` and exit — the loop is finished.
-3. **Claim** — `pn update <id> --claim`
-4. **Work** — stage-specific (see below)
-5. **Log issues** — if problems are discovered: `pn create "description" -t bug`
-6. **Close/release** — close or release the work item
-7. **Commit** — commit all changes (the pre-commit hook runs `pn export` automatically, syncing SQLite to JSONL)
+2. **Claim** — `pn claim-next [filters] --json`. If none, write `.ralph-complete` and exit — the loop is finished.
+3. **Work** — stage-specific (see below)
+4. **Log issues** — if problems are discovered: `pn create "description" -t bug`
+5. **Close/release** — close or release the work item
+6. **Commit** — commit all changes (the pre-commit hook runs `pn export` automatically, syncing SQLite to JSONL)
 
-Each iteration gets fresh context. The pensa database persists state between iterations. The stages differ only in their query, work, and close steps:
+Each iteration gets fresh context. The pensa database persists state between iterations. The stages differ only in their claim filters, work, and close steps:
 
-| Stage | Query | Work | Close |
+| Stage | Claim | Work | Close |
 |-------|-------|------|-------|
-| Build | `pn ready [--spec <stem>] --json` | Implement the task; apply backpressure (build, test, lint per `.sgf/backpressure.md`) | `pn close <id> --reason "..."` |
-| Test | `pn ready -t test [--spec <stem>] --json` | Execute the test | `pn close <id> --reason "..."` |
-| Issues Plan | `pn list -t bug --status open --json` (no linked fix) | Study codebase, create fix task: `pn create -t task "fix: ..." --fixes <bug-id>` | `pn release <id>` (bug stays open) |
+| Build | `pn claim-next [--spec <stem>] --json` | Implement the task; apply backpressure (build, test, lint per `.sgf/backpressure.md`) | `pn close <id> --reason "..."` |
+| Test | `pn claim-next -t test [--spec <stem>] --json` | Execute the test | `pn close <id> --reason "..."` |
 
 ### 1. Spec (`sgf spec`)
 
@@ -462,9 +461,16 @@ One bug per iteration, fresh context each time. The developer describes, the age
 
 ### 7. Issues Plan (`sgf issues plan`)
 
-Follows the standard loop iteration. Runs a Ralph loop using `.sgf/prompts/issues-plan.md`. A separate concurrent process from `sgf build`.
+Runs a Ralph loop using `.sgf/prompts/issues-plan.md`. A separate concurrent process from `sgf build`. Does not follow the standard loop iteration — bugs are problem reports excluded from `pn ready`, so Issues Plan uses its own claim flow:
 
-Unlike build and test, the close step uses `pn release <id>` — the bug stays open as the problem record. The work step creates a fix task (`pn create -t task "fix: ..." --fixes <bug-id>`) that flows through `pn ready` and gets picked up by the build loop. When the build loop closes the fix task, the linked bug is automatically closed with reason `"fixed by pn-xxxx"`.
+1. **Orient** — read `memento.md`
+2. **Find** — `pn list -t bug --status open --json`. If none, write `.ralph-complete` and exit.
+3. **Claim** — `pn update <id> --claim`
+4. **Work** — study codebase, create fix task: `pn create -t task "fix: ..." --fixes <bug-id>`
+5. **Release** — `pn release <id>` (bug stays open as the problem record)
+6. **Commit** — commit all changes
+
+The fix task flows through `pn ready` and gets picked up by the build loop. When the build loop closes the fix task, the linked bug is automatically closed with reason `"fixed by pn-xxxx"`.
 
 **Typical setup**: two terminals running concurrently — `sgf issues plan` producing fix tasks from bugs, `sgf build` consuming them alongside other work items. A third terminal with `sgf issues` open for the developer to log new bugs as they're found.
 
@@ -519,24 +525,6 @@ This replaces the duplication seen in buddy-ralph's `prompts/building/` director
 ## Resolved Decisions
 
 - **Build order**: Pensa first (self-contained, agents need it immediately), then sgf init (scaffolding), then sgf spec/build (prompt assembly + ralph integration).
-- **Ralph migration**: Copy ralph's code from buddy-ralph into this workspace. Clean break, full ownership. Ralph stays as a standalone binary — `sgf` invokes it as a subprocess rather than calling it as a library crate.
-- **ID format**: `pn-` prefix + 8 hex chars from UUIDv7. Not content-based — random component prevents collisions across concurrent agents.
-- **Priority scheme**: Enum `p0`–`p3`. P0 = critical, P3 = low. Four levels — no P4.
-- **Issue classification**: `issue_type` enum column (`bug`, `task`, `test`, `chore`) on the issues table. Not freeform tags — agents get a fixed set of choices. Matches beads' `issue_type` concept. No separate labels feature.
-- **Bug-to-task lifecycle**: Bugs are problem reports, not work items. `sgf issues plan` creates a fix task with `--fixes <bug-id>`. Closing the fix task auto-closes the linked bug. Bugs never appear in `pn ready`.
-- **`-t` flag**: Short flag for `--issue-type` (reuses the former `-t` for tags). Required on `pn create`, filter on `pn list`/`pn ready`.
-- **JSONL structure**: Separate files per entity (`issues.jsonl`, `deps.jsonl`, `comments.jsonl`). Events not exported.
-- **Naming**: `pn export` / `pn import` (directional). No `pn sync` alias. `actor` (not `author`) everywhere.
-- **Report files**: `test-report.md` and `verification-report.md` are overwritten each run and committed to git. Current-state documents, not append logs.
-- **Stage transitions**: Human-initiated, not automated gates.
-- **Concurrency**: Concurrent loops on same branch. Atomic claims via SQLite. Pull-rebase-retry on push conflicts.
-- **Spec revision protocol**: Stop build loops before revising specs. Restart after revision is committed.
-- **sgf init**: Interactive preset selection or `--stack <type>` flag. Presets define backpressure templates and Docker defaults. Scaffolds Claude deny settings for `.sgf/` protection.
-- **Memento model**: Thin reference document pointing to `specs/README.md`, `.sgf/backpressure.md`, and pensa. Not a content-heavy generated file. Written once by `sgf init`, rarely modified after.
-- **Spec index location**: `specs/README.md`, matching loom's format. Agent-maintained `| Spec | Code | Purpose |` tables.
-- **Backpressure location**: `.sgf/backpressure.md`. Generated from stack templates by `sgf init`, developer-editable, agent-readonly.
-- **`.sgf/` protection**: Claude deny settings (`.claude/settings.json`), scaffolded by `sgf init`. Framework-level enforcement, not prompt-level.
-- **SQLite journal mode**: DELETE (default), not WAL. WAL requires shared memory via mmap, which breaks across Docker Desktop's VirtioFS boundary. DELETE mode with `busy_timeout=5000` is sufficient for Springfield's low write frequency. Bind-mounted host directory enables atomic claims across concurrent loops.
 
 ---
 

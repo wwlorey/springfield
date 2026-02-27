@@ -6,10 +6,9 @@ Findings from four-agent spec review. Tackle outside this conversation.
 
 ## Extraneous Content (Pruning)
 
-- [ ] **Delete "Resolved Decisions" section** — 18 of 19 bullets duplicate earlier content. Move "Build order" (only unique item) to a note in the Architecture section.
 - [ ] **Deduplicate "tasks are the plan"** — stated 3 times (Schema, Spec stage, Design Principles). State once in Schema, reference from Spec stage, remove from Design Principles.
-- [ ] **Deduplicate `.sgf/` protection** — stated 3 times (File Purposes, Design Principles, Resolved Decisions). Keep in File Purposes only.
-- [ ] **Deduplicate bug-to-task lifecycle** — stated in Schema, Issues Plan stage, and Resolved Decisions. Keep Schema + workflow, cut Resolved Decisions entry.
+- [ ] **Deduplicate `.sgf/` protection** — stated 2 times (File Purposes, Design Principles). Keep in File Purposes only.
+- [ ] **Deduplicate bug-to-task lifecycle** — stated in Schema and Issues Plan stage. Keep Schema + workflow, cut the other.
 - [ ] **Cut prek YAML block** — 17 lines of implementation detail. Replace with a two-sentence description of what the hooks do.
 - [ ] **Condense "Why not Dolt?"** — 5 lines justifying a made decision. Condense to one parenthetical.
 - [ ] **Trim Design Principles section** — 80% restates earlier content. Keep "Search before assuming" and 1-2 others that add new insight. Reference earlier sections for the rest.
@@ -28,7 +27,6 @@ Findings from four-agent spec review. Tackle outside this conversation.
 - [ ] **Specify `sgf logs` behavior** — What it shows (raw output, NDJSON, pensa mutations), where AFK logs are stored, how long retained.
 - [ ] **Evaluate ralph as library crate** — Currently a subprocess; sgf is its sole consumer. Library crate would give typed errors, shared config, no serialization boundary. Could keep a thin binary for standalone use.
 - [ ] **Add `specs/README.md` conflict prevention** — Have `sgf spec` check for running loops and warn/refuse if any are active, since both spec and build stages can update this file.
-- [ ] **Document recovery procedure** — After a failed iteration: `git checkout .` to discard uncommitted changes, `pn doctor --fix` to release stale claims, restart loop. Consider having ralph do this automatically at iteration start.
 - [ ] **Consider whether build loop should handle trivial bugs inline** — Currently all bugs go through the issues-plan pipeline (3+ iteration boundaries). Trivial self-discovered bugs could be fixed in the same iteration.
 
 ---
@@ -37,7 +35,6 @@ Findings from four-agent spec review. Tackle outside this conversation.
 
 - [ ] **Run `pn doctor --fix` at iteration start** — Ralph should automatically release stale claims before `pn ready`. Costs one query, prevents stuck tasks from crashed iterations.
 - [ ] **Replace 30-min stale threshold with heartbeat** — Fixed timeout is too aggressive (Rust builds can exceed 30min). Ralph should periodically touch `updated_at` on claimed tasks; doctor checks `updated_at` staleness instead of claim time.
-- [ ] **Add atomic `pn claim-next` command** — Combines `pn ready` + `pn update --claim` in a single transaction, eliminating the TOCTOU race window. Returns either a claimed task or "nothing available."
 - [ ] **Handle rebase conflicts** — Specify retry count (e.g., 3). On conflict: `git rebase --abort`, re-export JSONL from SQLite, create fresh commit, retry push. If conflict is in source code, iteration is failed — release task and move on.
 - [ ] **Make `pn export` rebase-aware** — During rebase (detect via `.git/rebase-merge/`), skip export. Post-rebase: run `pn export` once for the final state.
 - [ ] **Address JSONL merge conflicts** — Guaranteed to happen with concurrent loops. Options: (a) custom git merge driver for `*.jsonl`, (b) post-rebase unconditional `pn export` rebuild treating SQLite as sole source of truth, (c) both. Option (b) is simplest.
