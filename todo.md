@@ -18,7 +18,6 @@ Findings from four-agent spec review. Tackle outside this conversation.
 ## Systems Unification & Operation
 
 - [ ] **Add `sgf stop` command** — No way to cleanly stop a running loop. Should send SIGTERM to ralph, which completes/aborts current iteration, releases claimed task, and exits.
-- [ ] **Clarify pre-commit hook staging** — Does the hook also `git add .pensa/*.jsonl`? If not, exports won't be committed. Remove explicit `pn export` from agent prompts (hook handles it) or document why both are needed.
 - [ ] **Define prompt template variable syntax** — Document which variables exist in which prompts, and have `sgf` validate that required variables are present before launching a loop.
 - [ ] **Specify `sgf status` output** — Show running loops (iteration count, last task), pensa summary (open/in_progress/closed by type), recent activity.
 - [ ] **Specify `sgf logs` behavior** — What it shows (raw output, NDJSON, pensa mutations), where AFK logs are stored, how long retained.

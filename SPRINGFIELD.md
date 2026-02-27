@@ -203,7 +203,7 @@ Each issue has: `id`, `title`, `description`, `issue_type`, `status`, `priority`
 
 ### CLI Commands
 
-All commands support `--json` for agent consumption.
+All commands support `--json` for agent consumption (see [JSON Output](#json-output)).
 
 **Global flags**: `--actor <name>` (who is running this command — for audit trail; resolution: `--actor` flag > `PN_ACTOR` env var > `git config user.name` > `$USER`).
 
@@ -259,6 +259,44 @@ pn import                                # JSONL → SQLite (rebuild from commit
 pn doctor [--fix]                        # health checks: stale claims (in_progress >30min), orphaned deps, sync drift. --fix releases stale claims and repairs integrity.
 pn where                                 # show .pensa/ directory path
 ```
+
+### JSON Output
+
+Following beads' pattern: no envelope, direct data to stdout.
+
+**Routing**: Success data → stdout. Errors → stderr. Both as JSON when `--json` is active.
+
+**Exit codes**: `0` success, `1` error. No further granularity.
+
+**Error shape** (stderr):
+```json
+{"error": "issue not found: pn-a1b2c3d4", "code": "not_found"}
+```
+The `code` field is present only when there's a machine-readable error code. Known codes: `not_found`, `already_claimed`, `cycle_detected`, `invalid_status_transition`.
+
+**Null arrays**: Always `[]`, never `null`.
+
+**Per-command output shapes** (stdout):
+
+| Command | Shape |
+|---------|-------|
+| `create`, `update`, `close`, `reopen`, `release` | Single issue object |
+| `q` | `{"id": "pn-a1b2c3d4"}` |
+| `show` | Single issue detail object (issue fields + `deps`, `comments` arrays) |
+| `list`, `ready`, `blocked`, `search` | Array of issue objects |
+| `count` | `{"count": N}` or `{"total": N, "groups": [...]}` when grouped |
+| `status` | Summary object (open/in_progress/closed counts by type) |
+| `history` | Array of event objects |
+| `dep add`, `dep remove` | `{"status": "added"/"removed", "issue_id": "...", "depends_on_id": "..."}` |
+| `dep list` | Array of issue objects |
+| `dep tree` | Array of tree nodes |
+| `dep cycles` | Array of arrays (each inner array is one cycle) |
+| `comment add` | Single comment object |
+| `comment list` | Array of comment objects |
+| `doctor` | Report object (findings array + fixes applied) |
+| `export`, `import` | `{"status": "ok", "issues": N, "deps": N, "comments": N}` |
+
+**Issue object fields** mirror the schema: `id`, `title`, `description`, `issue_type`, `status`, `priority`, `spec`, `fixes`, `assignee`, `created_at`, `updated_at`, `closed_at`, `close_reason`. Absent optional fields are omitted (not `null`).
 
 ### Git Hooks (via prek)
 

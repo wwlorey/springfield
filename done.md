@@ -11,6 +11,7 @@
 ## Agent Ergonomics & Developer Experience
 
 - [x] **Specify backpressure error recovery protocol** — Closed without spec change. The agent is smart enough to handle backpressure failures without a detailed protocol. Over-specifying recovery steps would constrain agent reasoning unnecessarily.
+- [x] **Document `--json` output schema** — Following beads' pattern: no envelope, direct data to stdout, errors to stderr with optional `code` field, exit code 0/1. Added JSON Output subsection to Pensa with per-command output shape table, error codes (`not_found`, `already_claimed`, `cycle_detected`, `invalid_status_transition`), and issue object field list. Skipped `--suggest-next` (doesn't fit one-task-per-iteration model).
 - [x] **Mandate failure comments for inter-iteration learning** — Closed without spec change. The Comments table already states agents use comments to "record observations between fresh-context iterations." Agents are smart enough to use comments without a mandated protocol. Prompt-level tuning can reinforce this if needed.
 
 ## Extraneous Content (Pruning)
