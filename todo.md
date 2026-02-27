@@ -12,7 +12,6 @@ Findings from four-agent spec review. Tackle outside this conversation.
 
 ## Systems Unification & Operation
 
-- [ ] **Specify `sgf status` output** — Show running loops (iteration count, last task), pensa summary (open/in_progress/closed by type), recent activity.
 - [ ] **Specify `sgf logs` behavior** — What it shows (raw output, NDJSON, pensa mutations), where AFK logs are stored, how long retained.
 - [ ] **Evaluate ralph as library crate** — Currently a subprocess; sgf is its sole consumer. Library crate would give typed errors, shared config, no serialization boundary. Could keep a thin binary for standalone use.
 - [ ] **Add `specs/README.md` conflict prevention** — Have `sgf spec` check for running loops and warn/refuse if any are active, since both spec and build stages can update this file.
@@ -22,16 +21,13 @@ Findings from four-agent spec review. Tackle outside this conversation.
 
 ## Concurrency & Failure Modes
 
-- [ ] **Document single-branch concurrency model** — Explicitly state that branch-based workflows (feature branches both modifying pensa) require manual JSONL conflict resolution or a custom merge driver. All concurrent work happens on one branch.
 - [ ] **Enforce spec-revision pause mechanically** — Add a `spec_revision_active` flag to pensa. When set, `pn ready` returns empty with a message. `sgf spec` sets on entry, clears on exit. `pn doctor --fix` clears if stale.
 
 ---
 
 ## Agent Ergonomics & Developer Experience
 
-- [ ] **Add task sizing guidance to spec phase** — "Each task should be completable in a single iteration — roughly one file or one logical change. If >3-4 files, split it." Add a task-splitting protocol for build agents.
 - [ ] **Consider `pn q` removal or redefinition** — Currently redundant with `pn create --json`. Either remove or give it a genuinely different semantic.
-- [ ] **Require task ID in commit messages** — Convention: `[pn-abc123] Implement login validation`. Enables `git log --grep`, iteration tracking, and future rollback tooling.
 - [ ] **Add `sgf pause` / `sgf resume`** — Write a sentinel file between iterations; ralph checks and stops gracefully. Developer can pause without killing mid-commit.
 - [ ] **Consider `sgf context` or `pn ready --verbose`** — Single command that emits next ready task + relevant spec filename + backpressure commands. Collapses the 3-4 orientation reads into one call, saving context window.
 - [ ] **Add `sgf status --watch`** — Refreshing dashboard in a single terminal. Shows running loops, pensa summary, recent task state changes.
