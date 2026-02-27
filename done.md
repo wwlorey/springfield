@@ -23,6 +23,7 @@
 - [x] **Deduplicate "tasks are the plan"** — Schema keeps the authoritative definition. Spec stage replaced with one-line reference + query example. Design Principles already just a reference (from Trim task).
 - [x] **Cut prek YAML block** — Replaced 17-line YAML block with two sentences describing what each hook does and when it fires. All information preserved: pre-commit runs `pn export`, post-merge/checkout/rewrite runs `pn import`.
 - [x] **Condense memento lifecycle** — Replaced 4-bullet block with one sentence. All factual content preserved: what `sgf init` writes (stack type, references to backpressure, spec index, pensa), and the key insight that the memento is stable after init while the referenced files evolve.
+- [x] **Deduplicate bug-to-task lifecycle** — Schema keeps the authoritative definitions: `fixes` field describes auto-close behavior, "Bugs are never ready" states the `pn ready` exclusion rule. Issues Plan stage trimmed to one sentence (release vs close). Two redundant lifecycle re-explanations removed.
 
 ## Concurrency & Failure Modes
 

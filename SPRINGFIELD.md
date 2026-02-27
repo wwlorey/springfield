@@ -201,7 +201,7 @@ Each issue has: `id`, `title`, `description`, `issue_type`, `status`, `priority`
 
 `issue_id`, `depends_on_id` (composite PK). Models blocking relationships. `pn ready` uses this to filter to unblocked issues.
 
-**Bugs are never "ready"**: `pn ready` only returns items with `issue_type` in (`task`, `test`, `chore`) — bugs are excluded entirely. Bugs are problem reports, not work items. The `sgf issues plan` loop converts bugs into tasks (with a `fixes` link), and those tasks flow through `pn ready` like any other work item.
+**Bugs are never "ready"**: `pn ready` only returns items with `issue_type` in (`task`, `test`, `chore`) — bugs are excluded entirely. Bugs are problem reports, not actionable work items.
 
 #### Comments table
 
