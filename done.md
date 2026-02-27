@@ -47,3 +47,4 @@
 ## Concurrency & Failure Modes
 
 - [x] **Replace 30-min stale threshold with heartbeat** — Resolved simpler: dropped the time threshold entirely. sgf's pre-launch recovery already confirms all loops are dead via PID checks before calling `pn doctor --fix`, so every in_progress claim is stale by definition. No heartbeat needed — PID liveness is the authority. Doctor now releases all in_progress claims unconditionally.
+- [x] **Address JSONL merge conflicts** — Not needed. Mutagen file sync means all sandboxes share the same git history on the host — there are no independent push/pull races, so JSONL merge conflicts can't arise. The pensa daemon serializes all database access, and `pn export` produces a consistent snapshot at commit time. The problem this item described was eliminated by the sandbox architecture (Mutagen sync + pensa daemon).
