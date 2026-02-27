@@ -152,7 +152,7 @@ docker sandbox run \
   # or: "<inline text>"  # inline text (no @ prefix)
 ```
 
-Stdout is read line-by-line via `BufRead`, parsed as NDJSON, and formatted for human readability. Lines not starting with `{` are skipped silently (handles Docker/verbose debug output). After the process exits, ralph checks for the `.ralph-complete` sentinel file to determine if the task is complete.
+Stdout is read line-by-line via `BufRead`, parsed as NDJSON, and formatted for human readability. Lines not starting with `{` are skipped silently (handles Docker/verbose debug output). Each output line is prefixed with `\r\x1b[2K` (carriage return + ANSI clear-line) to counteract Docker sandbox spinner/progress writes to `/dev/tty`, which move the cursor to unpredictable columns. This prefix is applied per line (not per block) because text content from Claude contains embedded newlines. After the process exits, ralph checks for the `.ralph-complete` sentinel file to determine if the task is complete.
 
 ## Signal Handling
 
