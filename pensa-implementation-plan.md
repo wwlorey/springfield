@@ -78,40 +78,17 @@ Implement `create_issue`, `get_issue`, `update_issue`.
 
 ---
 
-## Phase 5: DB — Issue Lifecycle
+## Phase 5: DB — Issue Lifecycle ✅
 
 Implement `claim_issue`, `release_issue`, `close_issue` (with `fixes` auto-close), `reopen_issue`, `delete_issue`.
 
-- **Source:** [`specs/pensa.md:158-159`](specs/pensa.md), [`specs/pensa.md:165-173`](specs/pensa.md)
-- `claim_issue(id, actor)`:
-  - Atomic: `UPDATE ... SET status='in_progress', assignee=<actor> WHERE id=<id> AND status='open'` ([`specs/pensa.md:165`](specs/pensa.md))
-  - If 0 rows affected: check if issue exists (→ `NotFound`) or already claimed (→ `AlreadyClaimed` with current holder)
-  - INSERT "claimed" event
-- `release_issue(id)`:
-  - SET status='open', assignee=NULL ([`specs/pensa.md:169`](specs/pensa.md))
-  - INSERT "released" event
-- `close_issue(id, reason, force, actor)`:
-  - Without force: error if already closed (`InvalidStatusTransition`) ([`specs/pensa.md:171`](specs/pensa.md))
-  - With force: close regardless of current status
-  - SET status='closed', closed_at=now(), close_reason=reason
-  - If issue has `fixes` field: auto-close the linked bug with reason `"fixed by <task-id>"` ([`specs/pensa.md:91`](specs/pensa.md), [`specs/pensa.md:171`](specs/pensa.md))
-  - INSERT "closed" event (and "closed" event for auto-closed bug)
-- `reopen_issue(id, reason, actor)`:
-  - SET status='open', closed_at=NULL, close_reason=NULL ([`specs/pensa.md:159`](specs/pensa.md))
-  - INSERT "reopened" event
-- `delete_issue(id, force)`:
-  - Check for dependents (other issues that depend on this one) and comments ([`specs/pensa.md:173`](specs/pensa.md))
-  - If any exist and force=false → `DeleteRequiresForce` error
-  - With force: DELETE cascading deps, comments, events, then the issue itself
-- **Tests:**
-  - `claim_sets_in_progress` — claim sets status=in_progress + assignee
-  - `double_claim_fails` — second claim returns AlreadyClaimed
-  - `release_clears` — release sets status=open, clears assignee
-  - `close_reopen_cycle` — close, verify closed; reopen, verify open
-  - `fixes_auto_close` — create bug, create task with fixes=bug_id, close task → bug is closed with reason
-  - `delete_requires_force` — issue with comments, delete without force → error
-  - `force_delete_cascades` — force delete removes deps, comments, events
-- **Verify:** build + test + clippy + fmt
+- ✅ `claim_issue(id, actor)` — atomic UPDATE with WHERE status='open', returns AlreadyClaimed with holder on conflict
+- ✅ `release_issue(id, actor)` — sets status='open', clears assignee, logs "released" event
+- ✅ `close_issue(id, reason, force, actor)` — with InvalidStatusTransition guard, auto-closes linked bug via `fixes` field
+- ✅ `reopen_issue(id, reason, actor)` — clears closed_at/close_reason, logs "reopened" event
+- ✅ `delete_issue(id, force)` — checks dependents + comments, cascading delete with force
+- ✅ Tests: `claim_sets_in_progress`, `double_claim_fails`, `release_clears`, `close_reopen_cycle`, `fixes_auto_close`, `delete_requires_force`, `force_delete_cascades` (7 new, 16 total)
+- ✅ Verified: build + test (16 pass) + clippy + fmt
 
 ---
 

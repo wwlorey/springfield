@@ -7,7 +7,7 @@ use rusqlite::types::Value;
 
 use crate::error::PensaError;
 use crate::id::generate_id;
-use crate::types::{Comment, CreateIssueParams, Issue, IssueDetail, UpdateFields};
+use crate::types::{Comment, CreateIssueParams, Issue, IssueDetail, Status, UpdateFields};
 
 pub struct Db {
     pub conn: Connection,
@@ -211,6 +211,186 @@ impl Db {
             deps,
             comments,
         })
+    }
+
+    pub fn claim_issue(&self, id: &str, actor: &str) -> Result<Issue, PensaError> {
+        let rows = self
+            .conn
+            .execute(
+                "UPDATE issues SET status = 'in_progress', assignee = ?1, updated_at = ?2 WHERE id = ?3 AND status = 'open'",
+                rusqlite::params![actor, now(), id],
+            )
+            .map_err(|e| PensaError::Internal(format!("failed to claim issue: {e}")))?;
+
+        if rows == 0 {
+            let issue = self.get_issue_only(id)?;
+            return Err(PensaError::AlreadyClaimed {
+                id: id.to_string(),
+                holder: issue.assignee.unwrap_or_default(),
+            });
+        }
+
+        let ts = now();
+        self.conn
+            .execute(
+                "INSERT INTO events (issue_id, event_type, actor, created_at) VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![id, "claimed", actor, ts],
+            )
+            .map_err(|e| PensaError::Internal(format!("failed to log claim event: {e}")))?;
+
+        self.get_issue_only(id)
+    }
+
+    pub fn release_issue(&self, id: &str, actor: &str) -> Result<Issue, PensaError> {
+        self.get_issue_only(id)?;
+
+        let ts = now();
+        self.conn
+            .execute(
+                "UPDATE issues SET status = 'open', assignee = NULL, updated_at = ?1 WHERE id = ?2",
+                rusqlite::params![ts, id],
+            )
+            .map_err(|e| PensaError::Internal(format!("failed to release issue: {e}")))?;
+
+        self.conn
+            .execute(
+                "INSERT INTO events (issue_id, event_type, actor, created_at) VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![id, "released", actor, ts],
+            )
+            .map_err(|e| PensaError::Internal(format!("failed to log release event: {e}")))?;
+
+        self.get_issue_only(id)
+    }
+
+    pub fn close_issue(
+        &self,
+        id: &str,
+        reason: Option<&str>,
+        force: bool,
+        actor: &str,
+    ) -> Result<Issue, PensaError> {
+        let issue = self.get_issue_only(id)?;
+
+        if !force && issue.status == Status::Closed {
+            return Err(PensaError::InvalidStatusTransition {
+                from: "closed".to_string(),
+                to: "closed".to_string(),
+            });
+        }
+
+        let ts = now();
+        self.conn
+            .execute(
+                "UPDATE issues SET status = 'closed', closed_at = ?1, close_reason = ?2, updated_at = ?1 WHERE id = ?3",
+                rusqlite::params![ts, reason, id],
+            )
+            .map_err(|e| PensaError::Internal(format!("failed to close issue: {e}")))?;
+
+        self.conn
+            .execute(
+                "INSERT INTO events (issue_id, event_type, actor, detail, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![id, "closed", actor, reason, ts],
+            )
+            .map_err(|e| PensaError::Internal(format!("failed to log close event: {e}")))?;
+
+        if let Some(fixes_id) = &issue.fixes {
+            let fixes_reason = format!("fixed by {id}");
+            self.conn
+                .execute(
+                    "UPDATE issues SET status = 'closed', closed_at = ?1, close_reason = ?2, updated_at = ?1 WHERE id = ?3",
+                    rusqlite::params![ts, fixes_reason, fixes_id],
+                )
+                .map_err(|e| PensaError::Internal(format!("failed to auto-close linked bug: {e}")))?;
+
+            self.conn
+                .execute(
+                    "INSERT INTO events (issue_id, event_type, actor, detail, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    rusqlite::params![fixes_id, "closed", actor, fixes_reason, ts],
+                )
+                .map_err(|e| PensaError::Internal(format!("failed to log auto-close event: {e}")))?;
+        }
+
+        self.get_issue_only(id)
+    }
+
+    pub fn reopen_issue(
+        &self,
+        id: &str,
+        reason: Option<&str>,
+        actor: &str,
+    ) -> Result<Issue, PensaError> {
+        self.get_issue_only(id)?;
+
+        let ts = now();
+        self.conn
+            .execute(
+                "UPDATE issues SET status = 'open', closed_at = NULL, close_reason = NULL, updated_at = ?1 WHERE id = ?2",
+                rusqlite::params![ts, id],
+            )
+            .map_err(|e| PensaError::Internal(format!("failed to reopen issue: {e}")))?;
+
+        self.conn
+            .execute(
+                "INSERT INTO events (issue_id, event_type, actor, detail, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![id, "reopened", actor, reason, ts],
+            )
+            .map_err(|e| PensaError::Internal(format!("failed to log reopen event: {e}")))?;
+
+        self.get_issue_only(id)
+    }
+
+    pub fn delete_issue(&self, id: &str, force: bool) -> Result<(), PensaError> {
+        self.get_issue_only(id)?;
+
+        if !force {
+            let dependents: i64 = self
+                .conn
+                .query_row(
+                    "SELECT COUNT(*) FROM deps WHERE depends_on_id = ?1",
+                    rusqlite::params![id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| PensaError::Internal(format!("failed to check dependents: {e}")))?;
+
+            let comments: i64 = self
+                .conn
+                .query_row(
+                    "SELECT COUNT(*) FROM comments WHERE issue_id = ?1",
+                    rusqlite::params![id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| PensaError::Internal(format!("failed to check comments: {e}")))?;
+
+            if dependents > 0 || comments > 0 {
+                return Err(PensaError::DeleteRequiresForce(format!(
+                    "issue has {dependents} dependents and {comments} comments"
+                )));
+            }
+        }
+
+        self.conn
+            .execute(
+                "DELETE FROM deps WHERE issue_id = ?1 OR depends_on_id = ?1",
+                rusqlite::params![id],
+            )
+            .map_err(|e| PensaError::Internal(format!("failed to delete deps: {e}")))?;
+        self.conn
+            .execute(
+                "DELETE FROM comments WHERE issue_id = ?1",
+                rusqlite::params![id],
+            )
+            .map_err(|e| PensaError::Internal(format!("failed to delete comments: {e}")))?;
+        self.conn
+            .execute(
+                "DELETE FROM events WHERE issue_id = ?1",
+                rusqlite::params![id],
+            )
+            .map_err(|e| PensaError::Internal(format!("failed to delete events: {e}")))?;
+        self.conn
+            .execute("DELETE FROM issues WHERE id = ?1", rusqlite::params![id])
+            .map_err(|e| PensaError::Internal(format!("failed to delete issue: {e}")))?;
+
+        Ok(())
     }
 
     pub fn update_issue(
@@ -488,5 +668,199 @@ mod tests {
         assert_eq!(events[0].0, "created");
         assert_eq!(events[1].0, "updated");
         assert!(events[1].1.as_ref().unwrap().contains("updated title"));
+    }
+
+    fn create_task(db: &Db, title: &str) -> Issue {
+        db.create_issue(&CreateIssueParams {
+            title: title.into(),
+            issue_type: IssueType::Task,
+            priority: Priority::P2,
+            description: None,
+            spec: None,
+            fixes: None,
+            assignee: None,
+            deps: vec![],
+            actor: "test-agent".into(),
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn claim_sets_in_progress() {
+        let (db, _dir) = open_temp_db();
+        let issue = create_task(&db, "implement auth");
+
+        let claimed = db.claim_issue(&issue.id, "agent-1").unwrap();
+
+        assert_eq!(claimed.status, Status::InProgress);
+        assert_eq!(claimed.assignee.as_deref(), Some("agent-1"));
+    }
+
+    #[test]
+    fn double_claim_fails() {
+        let (db, _dir) = open_temp_db();
+        let issue = create_task(&db, "implement auth");
+
+        db.claim_issue(&issue.id, "agent-1").unwrap();
+        let result = db.claim_issue(&issue.id, "agent-2");
+
+        assert!(matches!(result, Err(PensaError::AlreadyClaimed { .. })));
+        if let Err(PensaError::AlreadyClaimed { holder, .. }) = result {
+            assert_eq!(holder, "agent-1");
+        }
+    }
+
+    #[test]
+    fn release_clears() {
+        let (db, _dir) = open_temp_db();
+        let issue = create_task(&db, "implement auth");
+
+        db.claim_issue(&issue.id, "agent-1").unwrap();
+        let released = db.release_issue(&issue.id, "agent-1").unwrap();
+
+        assert_eq!(released.status, Status::Open);
+        assert!(released.assignee.is_none());
+    }
+
+    #[test]
+    fn close_reopen_cycle() {
+        let (db, _dir) = open_temp_db();
+        let issue = create_task(&db, "implement auth");
+
+        let closed = db
+            .close_issue(&issue.id, Some("done"), false, "agent-1")
+            .unwrap();
+        assert_eq!(closed.status, Status::Closed);
+        assert_eq!(closed.close_reason.as_deref(), Some("done"));
+        assert!(closed.closed_at.is_some());
+
+        let reopened = db
+            .reopen_issue(&issue.id, Some("not done"), "agent-1")
+            .unwrap();
+        assert_eq!(reopened.status, Status::Open);
+        assert!(reopened.closed_at.is_none());
+        assert!(reopened.close_reason.is_none());
+
+        let closed_again = db.close_issue(&issue.id, None, false, "agent-1").unwrap();
+        assert_eq!(closed_again.status, Status::Closed);
+    }
+
+    #[test]
+    fn fixes_auto_close() {
+        let (db, _dir) = open_temp_db();
+
+        let bug = db
+            .create_issue(&CreateIssueParams {
+                title: "login crash".into(),
+                issue_type: IssueType::Bug,
+                priority: Priority::P0,
+                description: None,
+                spec: None,
+                fixes: None,
+                assignee: None,
+                deps: vec![],
+                actor: "test-agent".into(),
+            })
+            .unwrap();
+
+        let task = db
+            .create_issue(&CreateIssueParams {
+                title: "fix login".into(),
+                issue_type: IssueType::Task,
+                priority: Priority::P1,
+                description: None,
+                spec: None,
+                fixes: Some(bug.id.clone()),
+                assignee: None,
+                deps: vec![],
+                actor: "test-agent".into(),
+            })
+            .unwrap();
+
+        db.close_issue(&task.id, Some("implemented"), false, "agent-1")
+            .unwrap();
+
+        let bug_after = db.get_issue_only(&bug.id).unwrap();
+        assert_eq!(bug_after.status, Status::Closed);
+        assert!(
+            bug_after
+                .close_reason
+                .as_ref()
+                .unwrap()
+                .contains(&format!("fixed by {}", task.id))
+        );
+    }
+
+    #[test]
+    fn delete_requires_force() {
+        let (db, _dir) = open_temp_db();
+        let issue = create_task(&db, "implement auth");
+
+        db.conn
+            .execute(
+                "INSERT INTO comments (id, issue_id, actor, text, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params!["pn-comment01", issue.id, "agent", "note", now()],
+            )
+            .unwrap();
+
+        let result = db.delete_issue(&issue.id, false);
+        assert!(matches!(result, Err(PensaError::DeleteRequiresForce(_))));
+    }
+
+    #[test]
+    fn force_delete_cascades() {
+        let (db, _dir) = open_temp_db();
+        let issue_a = create_task(&db, "task A");
+        let issue_b = create_task(&db, "task B");
+
+        db.conn
+            .execute(
+                "INSERT INTO deps (issue_id, depends_on_id) VALUES (?1, ?2)",
+                rusqlite::params![issue_b.id, issue_a.id],
+            )
+            .unwrap();
+        db.conn
+            .execute(
+                "INSERT INTO comments (id, issue_id, actor, text, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params!["pn-comment01", issue_a.id, "agent", "note", now()],
+            )
+            .unwrap();
+
+        db.delete_issue(&issue_a.id, true).unwrap();
+
+        assert!(matches!(
+            db.get_issue_only(&issue_a.id),
+            Err(PensaError::NotFound(_))
+        ));
+
+        let dep_count: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM deps WHERE issue_id = ?1 OR depends_on_id = ?1",
+                rusqlite::params![issue_a.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(dep_count, 0);
+
+        let comment_count: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM comments WHERE issue_id = ?1",
+                rusqlite::params![issue_a.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(comment_count, 0);
+
+        let event_count: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM events WHERE issue_id = ?1",
+                rusqlite::params![issue_a.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(event_count, 0);
     }
 }
