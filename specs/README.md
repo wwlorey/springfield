@@ -1,8 +1,5 @@
 # Springfield Specifications
 
-Design documentation for Springfield, an AI-powered coding agent in Rust.
-
-
 | Spec | Code | Purpose |
 |------|------|---------|
 | [pensa](pensa.md) | `crates/pensa/` | Agent persistent memory — SQLite-backed issue/task tracker with `pn` CLI |

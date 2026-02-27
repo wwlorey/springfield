@@ -236,7 +236,7 @@ specs/
 
 **`.sgf/prompts/`** — Editable prompt templates for each workflow stage. Seeded by `sgf init` from Springfield's built-in templates. Once seeded, the project owns these files — edit them to evolve the prompts. To improve defaults for future projects, update the templates in the Springfield repo.
 
-**`.sgf/` protection** — The entire `.sgf/` directory is protected from agent modification via Claude deny settings. `sgf init` scaffolds these rules. Agents cannot write to prompts, backpressure, or config regardless of prompt instructions.
+**`.sgf/` protection** — The entire `.sgf/` directory is protected from agent modification via Claude deny settings. `sgf init` scaffolds these rules. This is enforced at the framework level — agents cannot write to prompts, backpressure, or config regardless of prompt instructions.
 
 **`specs/`** — Prose specification files (one per topic of concern). Authored during the spec phase, consumed during builds. Indexed in `specs/README.md`.
 
@@ -379,7 +379,7 @@ Build, Test, and Issues Plan stages share a common iteration pattern. Each itera
 4. **Work** — stage-specific implementation
 5. **Log issues** — if problems are discovered: `pn create "description" -t bug`
 6. **Close/release** — close or release the work item
-7. **Commit** — prefix the commit message with `[<task-id>]` (e.g., `[pn-a1b2c3d4] Implement login validation`). The pre-commit hook runs `pn export` automatically.
+7. **Commit** — prefix the commit message with `[<task-id>]` (e.g., `[pn-a1b2c3d4] Implement login validation`). The pre-commit hook runs `pn export` automatically, syncing SQLite to JSONL. The prefix enables `git log --grep` for per-task history.
 
 Each iteration gets fresh context. The pensa database persists state between iterations.
 
@@ -407,6 +407,7 @@ Tasks linked to a spec *are* the implementation plan. Query with `pn list -t tas
 2. Closes tasks that are no longer relevant: `pn close <id> --reason "superseded by revised spec"`
 3. Creates new tasks for the delta: `pn create "..." -t task --spec <stem>`
 4. Updates the spec file in `specs/`
+5. Restart build loops after revision is committed
 
 ### 2. Build (`sgf build <spec>`)
 
@@ -454,7 +455,7 @@ Runs via ralph using `.sgf/prompts/issues.md`. Each iteration handles one bug:
 3. Logs the bug via `pn create -t bug`
 4. The session exits and a fresh one spawns
 
-One bug per iteration, fresh context each time.
+One bug per iteration, fresh context each time. This prevents context from accumulating across unrelated bugs and keeps each interaction focused.
 
 ### 7. Issues Plan (`sgf issues plan`)
 

@@ -12,8 +12,8 @@ Pensa lives at `crates/pensa/` in the Springfield workspace. It produces one bin
 
 Dual-layer storage:
 
-- **`.pensa/db.sqlite`** — the working database, gitignored. Owned by the pensa daemon. Rebuilt from JSONL on clone.
-- **`.pensa/*.jsonl`** — the git-committed exports. Separate files per entity: `issues.jsonl`, `deps.jsonl`, `comments.jsonl`. Events are not exported (derivable from issue history, avoids monotonic file growth). Human-readable, diffs cleanly.
+- **`.pensa/db.sqlite`** — the working database, gitignored. Lives on the host, owned by the pensa daemon. Rebuilt from JSONL on clone.
+- **`.pensa/*.jsonl`** — the git-committed exports. Separate files per entity: `issues.jsonl`, `deps.jsonl`, `comments.jsonl`. Events are not exported (derivable from issue history, avoids monotonic file growth). Human-readable, diffs cleanly. JSONL files are never read at runtime — they capture a snapshot at commit time via `pn export` and are only used to rebuild SQLite on clone or post-merge via `pn import`.
 
 Git sync is automated via prek (git hooks):
 
@@ -24,7 +24,7 @@ Git sync is automated via prek (git hooks):
 
 ## Runtime Architecture
 
-Pensa uses a client/daemon model.
+Pensa uses a client/daemon model. The daemon runs on the host, owns the SQLite database, and handles all reads and writes. The `pn` CLI is a thin client that connects to the daemon over HTTP.
 
 ### Why a daemon?
 
@@ -86,7 +86,7 @@ CREATE TABLE issues (
 - **`test`** — test plan items from the test-plan phase
 - **`chore`** — tech debt, refactoring, dependency updates, CI fixes
 
-**`spec`** (optional) — filename stem of the spec this issue implements (e.g., `auth` for `specs/auth.md`). There is no separate "implementation plan" entity — the living set of tasks linked to a spec *is* the implementation plan for that spec.
+**`spec`** (optional) — filename stem of the spec this issue implements (e.g., `auth` for `specs/auth.md`). Populated for `task` items, typically absent for `bug` and `chore` items. There is no separate "implementation plan" entity — the living set of tasks linked to a spec *is* the implementation plan for that spec.
 
 **`fixes`** (optional) — ID of a bug that this issue resolves. Set on `task` items created by `sgf issues plan`. When a task with a `fixes` link is closed, the linked bug is automatically closed with reason `"fixed by <task-id>"`.
 
@@ -240,6 +240,8 @@ pn import
 pn doctor [--fix]
 pn where
 ```
+
+Since the daemon owns the database, `pn export` and `pn import` are daemon commands — the CLI sends the request, the daemon performs the I/O.
 
 **`pn export`** — dumps SQLite → JSONL files in `.pensa/`, then runs `git add .pensa/*.jsonl` to stage them. Issues, deps, and comments each get their own file.
 

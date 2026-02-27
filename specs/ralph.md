@@ -88,7 +88,7 @@ The default value `prompt.md` is treated specially: if no explicit prompt is pro
 |-------------|---------|---------|-------------|
 | `-a`, `--afk` | — | `false` | Run in AFK mode (non-interactive) |
 | `--loop-id` | — | — | Loop identifier (sgf-generated, included in banner output) |
-| `--template` | `RALPH_TEMPLATE` | `tauri-sandbox:latest` | Docker sandbox template image |
+| `--template` | `RALPH_TEMPLATE` | `ralph-sandbox:latest` | Docker sandbox template image |
 | `--max-iterations` | `RALPH_MAX_ITERATIONS` | `100` | Safety limit for iterations |
 | `--auto-push` | `RALPH_AUTO_PUSH` | `true` | Auto-push after new commits |
 | `--command` | `RALPH_COMMAND` | — | Override: path to executable replacing docker invocation (for testing) |
