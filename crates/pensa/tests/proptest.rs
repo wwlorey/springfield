@@ -36,10 +36,7 @@ fn arb_status() -> impl Strategy<Value = Status> {
 }
 
 fn arb_title() -> impl Strategy<Value = String> {
-    prop_oneof![
-        "[a-zA-Z0-9 _-]{1,80}",
-        "\\PC{1,40}",
-    ]
+    prop_oneof!["[a-zA-Z0-9 _-]{1,80}", "\\PC{1,40}",]
 }
 
 fn arb_opt_string() -> impl Strategy<Value = Option<String>> {
@@ -72,8 +69,12 @@ fn arb_create_params() -> impl Strategy<Value = CreateIssueParams> {
 /// Edges as index pairs into an issue vec. Self-loops filtered out.
 fn arb_edges() -> impl Strategy<Value = (usize, Vec<(usize, usize)>)> {
     (3..10usize).prop_flat_map(|n| {
-        let edges = proptest::collection::vec((0..n, 0..n), 0..n * 2)
-            .prop_map(|edges| edges.into_iter().filter(|(a, b)| a != b).collect::<Vec<_>>());
+        let edges = proptest::collection::vec((0..n, 0..n), 0..n * 2).prop_map(|edges| {
+            edges
+                .into_iter()
+                .filter(|(a, b)| a != b)
+                .collect::<Vec<_>>()
+        });
         (Just(n), edges)
     })
 }

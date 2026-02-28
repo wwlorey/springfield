@@ -10,12 +10,12 @@ The `sgf` crate is the CLI entry point for Springfield — it handles project sc
 
 Install all tools referenced in [`AGENTS.md`](AGENTS.md) and verify the workspace builds.
 
-- [ ] Install Rust toolchain (stable, 1.85+ required for `edition = "2024"` — see [`Cargo.toml:7`](Cargo.toml))
+- [x] Install Rust toolchain (stable, 1.85+ required for `edition = "2024"` — see [`Cargo.toml:7`](Cargo.toml))
 - [ ] Install `cargo-geiger`: `cargo install cargo-geiger` ([`AGENTS.md`](AGENTS.md) "Detect unsafe code usage")
-- [ ] `cargo build --workspace` compiles
-- [ ] `cargo test --workspace` passes
-- [ ] `cargo clippy --workspace -- -D warnings` passes
-- [ ] `cargo fmt --all --check` passes
+- [x] `cargo build --workspace` compiles
+- [x] `cargo test --workspace` passes
+- [x] `cargo clippy --workspace -- -D warnings` passes
+- [x] `cargo fmt --all --check` passes
 
 ---
 
@@ -25,27 +25,27 @@ Create the `crates/sgf/` directory structure, `Cargo.toml`, and full clap CLI sk
 
 **Source**: [`specs/springfield.md:19-31`](specs/springfield.md) (CLI Commands), [`specs/springfield.md:33-39`](specs/springfield.md) (Common Flags)
 
-- [ ] Create `crates/sgf/Cargo.toml` with `name = "sgf"`, `[[bin]] name = "sgf"`, workspace edition/version/license
-- [ ] Add dependencies: `clap` (4, derive+env), `serde` (1, derive), `serde_json` (1), `chrono` (0.4), `signal-hook` (0.4)
-- [ ] Add dev-dependencies: `tempfile` (3), `assert_cmd` (2), `predicates` (3), `portpicker` (0.1)
-- [ ] Create `crates/sgf/src/lib.rs` with module declarations
-- [ ] Create `crates/sgf/src/main.rs` with clap `#[derive(Parser)]` skeleton
-- [ ] Define `init` subcommand — no args ([`specs/springfield.md:43-45`](specs/springfield.md))
-- [ ] Define `spec` subcommand — no args ([`specs/springfield.md:396-414`](specs/springfield.md))
-- [ ] Define `build <spec>` subcommand + common flags `-a`/`--afk`, `--no-push`, `N` ([`specs/springfield.md:416-421`](specs/springfield.md))
-- [ ] Define `verify` subcommand + common flags ([`specs/springfield.md:426-435`](specs/springfield.md))
-- [ ] Define `test-plan` subcommand + common flags ([`specs/springfield.md:437-445`](specs/springfield.md))
-- [ ] Define `test <spec>` subcommand + common flags ([`specs/springfield.md:447-451`](specs/springfield.md))
-- [ ] Define `issues log` subcommand — no flags ([`specs/springfield.md:453-461`](specs/springfield.md))
-- [ ] Define `issues plan` subcommand + common flags ([`specs/springfield.md:463-469`](specs/springfield.md))
-- [ ] Define `status` subcommand — no args, future work placeholder ([`specs/springfield.md:28`](specs/springfield.md))
-- [ ] Define `logs <loop-id>` subcommand — one positional arg ([`specs/springfield.md:329-332`](specs/springfield.md))
-- [ ] Define `template build` subcommand — no args ([`specs/springfield.md:836-845`](specs/springfield.md))
-- [ ] `cargo build -p sgf` compiles
-- [ ] `cargo clippy -p sgf -- -D warnings` passes
-- [ ] `sgf --help` shows all subcommands
-- [ ] `sgf build --help` shows `-a`, `--no-push`, `<spec>`, `[N]`
-- [ ] `cargo test --workspace` still passes (no regressions)
+- [x] Create `crates/sgf/Cargo.toml` with `name = "sgf"`, `[[bin]] name = "sgf"`, workspace edition/version/license
+- [x] Add dependencies: `clap` (4, derive+env), `serde` (1, derive), `serde_json` (1), `chrono` (0.4), `signal-hook` (0.4)
+- [x] Add dev-dependencies: `tempfile` (3), `assert_cmd` (2), `predicates` (3), `portpicker` (0.1)
+- [x] Create `crates/sgf/src/lib.rs` with module declarations
+- [x] Create `crates/sgf/src/main.rs` with clap `#[derive(Parser)]` skeleton
+- [x] Define `init` subcommand — no args ([`specs/springfield.md:43-45`](specs/springfield.md))
+- [x] Define `spec` subcommand — no args ([`specs/springfield.md:396-414`](specs/springfield.md))
+- [x] Define `build <spec>` subcommand + common flags `-a`/`--afk`, `--no-push`, `N` ([`specs/springfield.md:416-421`](specs/springfield.md))
+- [x] Define `verify` subcommand + common flags ([`specs/springfield.md:426-435`](specs/springfield.md))
+- [x] Define `test-plan` subcommand + common flags ([`specs/springfield.md:437-445`](specs/springfield.md))
+- [x] Define `test <spec>` subcommand + common flags ([`specs/springfield.md:447-451`](specs/springfield.md))
+- [x] Define `issues log` subcommand — no flags ([`specs/springfield.md:453-461`](specs/springfield.md))
+- [x] Define `issues plan` subcommand + common flags ([`specs/springfield.md:463-469`](specs/springfield.md))
+- [x] Define `status` subcommand — no args, future work placeholder ([`specs/springfield.md:28`](specs/springfield.md))
+- [x] Define `logs <loop-id>` subcommand — one positional arg ([`specs/springfield.md:329-332`](specs/springfield.md))
+- [x] Define `template build` subcommand — no args ([`specs/springfield.md:836-845`](specs/springfield.md))
+- [x] `cargo build -p sgf` compiles
+- [x] `cargo clippy -p sgf -- -D warnings` passes
+- [x] `sgf --help` shows all subcommands
+- [x] `sgf build --help` shows `-a`, `--no-push`, `<spec>`, `[N]`
+- [x] `cargo test --workspace` still passes (no regressions)
 
 ---
 
