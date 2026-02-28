@@ -30,6 +30,56 @@ The agent's persistent memory system, pensa, is inspired by Steve Yegge's [beads
 - **No persistent structured memory** — agents lose context between sessions and have no reliable way to track work items and issues across loop iterations
 - **No unified monitoring** — no way to observe multiple loops across projects
 
+## Getting Started
+
+### Prerequisites
+
+- [Rust](https://rustup.rs/) (edition 2024)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (for sandboxed agent loops)
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (invoked by ralph inside sandboxes)
+
+### Install
+
+```sh
+cargo install --path crates/pensa         # → pn
+cargo install --path crates/ralph         # → ralph
+cargo install --path crates/springfield   # → sgf
+```
+
+### Scaffold a Project
+
+```sh
+cd your-project
+sgf init
+```
+
+This creates `.sgf/`, `.pensa/`, `specs/`, prompt templates, `MEMENTO.md`, `CLAUDE.md`, and merges entries into `.gitignore`, `.claude/settings.json`, and `.pre-commit-config.yaml`.
+
+The Docker sandbox template (`ralph-sandbox:latest`) is built automatically the first time you run a loop command. To rebuild it manually: `sgf template build`.
+
+### Usage
+
+```sh
+sgf spec                    # generate specs and implementation plan (interactive)
+sgf build <spec>            # run build loop (interactive)
+sgf build <spec> -a         # run build loop in AFK mode (unattended)
+sgf verify                  # verify codebase against specs
+sgf test-plan               # generate test items
+sgf test <spec>             # execute test items
+sgf issues log              # log bugs interactively
+sgf issues plan             # plan fixes from open bugs
+sgf logs <loop-id>          # tail a running loop's output
+```
+
+### Development
+
+```sh
+cargo build --workspace
+cargo test --workspace
+cargo clippy --workspace -- -D warnings
+cargo fmt --all
+```
+
 ## Architecture
 
 ```
