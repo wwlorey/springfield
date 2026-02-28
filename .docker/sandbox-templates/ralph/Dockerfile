@@ -46,6 +46,9 @@ RUN pnpm setup && \
     typescript \
     @tauri-apps/cli
 
+# Install Playwright browsers
+RUN pnpm exec playwright install --with-deps
+
 # Install pensa CLI
 USER root
 COPY pn /usr/local/bin/pn
@@ -58,4 +61,4 @@ USER agent
 WORKDIR /home/agent
 
 # Verify installations
-RUN rustc --version && cargo --version && node --version && pnpm --version && pn --help
+RUN rustc --version && cargo --version && node --version && pnpm --version && pnpm exec playwright --version && pn --help

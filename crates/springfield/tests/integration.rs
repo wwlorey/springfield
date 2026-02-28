@@ -124,7 +124,7 @@ fn init_creates_all_files() {
     sgf_cmd(tmp.path()).arg("init").output().unwrap();
 
     let expected_files = [
-        ".sgf/backpressure.md",
+        ".sgf/BACKPRESSURE.md",
         ".sgf/prompts/spec.md",
         ".sgf/prompts/build.md",
         ".sgf/prompts/verify.md",
@@ -132,9 +132,8 @@ fn init_creates_all_files() {
         ".sgf/prompts/test.md",
         ".sgf/prompts/issues.md",
         ".sgf/prompts/issues-plan.md",
-        ".sgf/pensa.md",
-        "memento.md",
-        "CLAUDE.md",
+        ".sgf/PENSA.md",
+        "MEMENTO.md",
         "specs/README.md",
         ".claude/settings.json",
         ".pre-commit-config.yaml",
@@ -143,6 +142,13 @@ fn init_creates_all_files() {
     for f in expected_files {
         assert!(tmp.path().join(f).is_file(), "file missing: {f}");
     }
+
+    // CLAUDE.md should exist as a symlink
+    let claude_md = tmp.path().join("CLAUDE.md");
+    assert!(
+        claude_md.symlink_metadata().unwrap().file_type().is_symlink(),
+        "CLAUDE.md should be a symlink"
+    );
 }
 
 #[test]
@@ -150,21 +156,21 @@ fn init_file_contents() {
     let tmp = setup_test_dir();
     sgf_cmd(tmp.path()).arg("init").output().unwrap();
 
-    // CLAUDE.md
-    let claude_md = fs::read_to_string(tmp.path().join("CLAUDE.md")).unwrap();
-    assert!(claude_md.contains("Read memento.md and AGENTS.md"));
+    // CLAUDE.md should be a symlink to AGENTS.md
+    let claude_md = tmp.path().join("CLAUDE.md");
+    let target = fs::read_link(&claude_md).unwrap();
+    assert_eq!(target.to_str().unwrap(), "AGENTS.md");
 
-    // memento.md
-    let memento = fs::read_to_string(tmp.path().join("memento.md")).unwrap();
-    assert!(memento.contains("## Stack"));
-    assert!(memento.contains("## References"));
-    assert!(
-        memento.contains(".sgf/pensa.md"),
-        "memento should reference .sgf/pensa.md"
-    );
+    // MEMENTO.md
+    let memento = fs::read_to_string(tmp.path().join("MEMENTO.md")).unwrap();
+    assert!(memento.contains("study `specs/README.md`"));
+    assert!(memento.contains("study `.sgf/BACKPRESSURE.md`"));
+    assert!(memento.contains("study `.sgf/PENSA.md`"));
+    assert!(!memento.contains("## Stack"));
+    assert!(!memento.contains("## References"));
 
-    // .sgf/pensa.md
-    let pensa = fs::read_to_string(tmp.path().join(".sgf/pensa.md")).unwrap();
+    // .sgf/PENSA.md
+    let pensa = fs::read_to_string(tmp.path().join(".sgf/PENSA.md")).unwrap();
     assert!(pensa.contains("pn"), "pensa.md should mention pn");
     assert!(
         pensa.contains("Claim Workflow"),
@@ -324,6 +330,50 @@ fn prompt_assembly_passthrough() {
 
     let assembled = fs::read_to_string(&result).unwrap();
     assert_eq!(assembled, content);
+}
+
+#[test]
+fn prompt_assembly_prepends_memento() {
+    let tmp = TempDir::new().unwrap();
+    fs::create_dir_all(tmp.path().join(".sgf/prompts/.assembled")).unwrap();
+
+    let memento = "study `specs/README.md`\nstudy `.sgf/BACKPRESSURE.md`\nstudy `.sgf/PENSA.md`\n";
+    fs::write(tmp.path().join("MEMENTO.md"), memento).unwrap();
+
+    let template = "Read `specs/README.md`.\n\nVerify the specs.\n";
+    fs::write(tmp.path().join(".sgf/prompts/verify.md"), template).unwrap();
+
+    let vars = std::collections::HashMap::new();
+    let result = springfield::prompt::assemble(tmp.path(), "verify", &vars).unwrap();
+
+    let assembled = fs::read_to_string(&result).unwrap();
+    assert!(
+        assembled.starts_with(memento),
+        "assembled should start with memento content"
+    );
+    assert!(
+        assembled.contains(template),
+        "assembled should contain template content"
+    );
+    assert!(
+        assembled.find(memento).unwrap() < assembled.find(template).unwrap(),
+        "memento should appear before template"
+    );
+}
+
+#[test]
+fn prompt_assembly_without_memento() {
+    let tmp = TempDir::new().unwrap();
+    fs::create_dir_all(tmp.path().join(".sgf/prompts/.assembled")).unwrap();
+    // Do NOT create MEMENTO.md
+    let template = "No variables here, just plain text.";
+    fs::write(tmp.path().join(".sgf/prompts/verify.md"), template).unwrap();
+
+    let vars = std::collections::HashMap::new();
+    let result = springfield::prompt::assemble(tmp.path(), "verify", &vars).unwrap();
+
+    let assembled = fs::read_to_string(&result).unwrap();
+    assert_eq!(assembled, template, "without memento, assembled should equal template");
 }
 
 // ===========================================================================

@@ -1,5 +1,3 @@
-Read `memento.md`.
-
 Have a discussion and interview me about a new bug I want to report.
 
 Information I might provide includes screenshots, logs, and descriptions. Your role is to capture the bug with enough detail for another agent to understand and fix it.

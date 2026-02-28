@@ -1,4 +1,3 @@
-Read `memento.md`.
 Read `specs/README.md`.
 
 If `verification-report.md` exists, read it.

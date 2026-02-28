@@ -1,6 +1,4 @@
-Read `memento.md`.
-
-Follow the claim workflow in `.sgf/pensa.md`. Query: `pn list -t bug --status open --json`
+Follow the claim workflow in `.sgf/PENSA.md`. Query: `pn list -t bug --status open --json`
 
 Study the codebase to understand the bug and design a fix. Use subagents.
 

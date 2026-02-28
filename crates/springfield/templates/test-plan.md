@@ -1,4 +1,3 @@
-Read `memento.md`.
 Read `specs/README.md`.
 
 Study the specs and codebase. Generate a testing plan.

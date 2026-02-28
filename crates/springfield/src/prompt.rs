@@ -12,6 +12,17 @@ pub fn assemble(root: &Path, stage: &str, vars: &HashMap<String, String>) -> io:
         ));
     }
 
+    // Read MEMENTO.md (graceful fallback if missing)
+    let memento_path = root.join("MEMENTO.md");
+    let memento_content = match fs::read_to_string(&memento_path) {
+        Ok(content) => Some(content),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+        Err(e) => {
+            eprintln!("warning: could not read MEMENTO.md: {e}");
+            None
+        }
+    };
+
     let mut content = fs::read_to_string(&template_path)?;
 
     for (key, value) in vars {
@@ -26,11 +37,17 @@ pub fn assemble(root: &Path, stage: &str, vars: &HashMap<String, String>) -> io:
         ));
     }
 
+    // Prepend memento content before template content
+    let final_content = match memento_content {
+        Some(memento) => format!("{memento}\n{content}"),
+        None => content,
+    };
+
     let assembled_dir = root.join(".sgf/prompts/.assembled");
     fs::create_dir_all(&assembled_dir)?;
 
     let output_path = assembled_dir.join(format!("{stage}.md"));
-    fs::write(&output_path, &content)?;
+    fs::write(&output_path, &final_content)?;
 
     Ok(output_path)
 }

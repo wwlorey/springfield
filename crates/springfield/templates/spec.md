@@ -1,5 +1,3 @@
-Read `memento.md`.
-
 Let's have a discussion and you can interview me about what I want to build.
 
 ---

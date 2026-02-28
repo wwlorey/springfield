@@ -2,6 +2,9 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+#[cfg(unix)]
+use std::os::unix::fs as unix_fs;
+
 use serde_json::Value;
 
 const TEMPLATE_BACKPRESSURE: &str = include_str!("../templates/backpressure.md");
@@ -16,23 +19,13 @@ const TEMPLATE_PENSA: &str = include_str!("../templates/pensa.md");
 const TEMPLATE_LOOM_SPECS_README: &str = include_str!("../templates/loom-specs-README.md");
 
 const MEMENTO_CONTENT: &str = "\
-# Memento
-
-## Stack
-
-<!-- Replace with your project's stack (e.g., Rust, TypeScript, Tauri, Go) -->
-
-## References
-
-- Build, test, lint, format commands: `.sgf/backpressure.md`
-- Spec index: `specs/README.md`
-- Issue and task tracking (`pn` CLI): `.sgf/pensa.md`
+study `specs/README.md`
+study `.sgf/BACKPRESSURE.md`
+study `.sgf/PENSA.md`
 ";
 
-const CLAUDE_MD_CONTENT: &str = "Read memento.md and AGENTS.md before starting work.\n";
-
 const SPECS_README_CONTENT: &str = "\
-# Specs
+# Specifications
 
 | Spec | Code | Purpose |
 |------|------|---------|
@@ -55,7 +48,7 @@ struct TemplateFile {
 
 const TEMPLATE_FILES: &[TemplateFile] = &[
     TemplateFile {
-        path: ".sgf/backpressure.md",
+        path: ".sgf/BACKPRESSURE.md",
         content: TEMPLATE_BACKPRESSURE,
     },
     TemplateFile {
@@ -87,7 +80,7 @@ const TEMPLATE_FILES: &[TemplateFile] = &[
         content: TEMPLATE_ISSUES_PLAN,
     },
     TemplateFile {
-        path: ".sgf/pensa.md",
+        path: ".sgf/PENSA.md",
         content: TEMPLATE_PENSA,
     },
     TemplateFile {
@@ -103,12 +96,8 @@ struct SkeletonFile {
 
 const SKELETON_FILES: &[SkeletonFile] = &[
     SkeletonFile {
-        path: "memento.md",
+        path: "MEMENTO.md",
         content: MEMENTO_CONTENT,
-    },
-    SkeletonFile {
-        path: "CLAUDE.md",
-        content: CLAUDE_MD_CONTENT,
     },
     SkeletonFile {
         path: "specs/README.md",
@@ -383,6 +372,13 @@ pub fn run(root: &Path) -> io::Result<()> {
         write_if_missing(&root.join(sf.path), sf.content)?;
     }
 
+    // CLAUDE.md is a symlink to AGENTS.md
+    let claude_md = root.join("CLAUDE.md");
+    if claude_md.symlink_metadata().is_err() {
+        #[cfg(unix)]
+        unix_fs::symlink("AGENTS.md", &claude_md)?;
+    }
+
     merge_gitignore(root)?;
     merge_claude_settings(root)?;
     merge_pre_commit_config(root)?;
@@ -433,12 +429,19 @@ mod tests {
     }
 
     #[test]
-    fn claude_md_content() {
+    fn claude_md_is_symlink() {
         let tmp = TempDir::new().unwrap();
         run(tmp.path()).unwrap();
 
-        let content = fs::read_to_string(tmp.path().join("CLAUDE.md")).unwrap();
-        assert!(content.contains("Read memento.md and AGENTS.md"));
+        let claude_md = tmp.path().join("CLAUDE.md");
+        let meta = claude_md.symlink_metadata().unwrap();
+        assert!(meta.file_type().is_symlink(), "CLAUDE.md should be a symlink");
+        let target = fs::read_link(&claude_md).unwrap();
+        assert_eq!(
+            target.to_str().unwrap(),
+            "AGENTS.md",
+            "CLAUDE.md should point to AGENTS.md"
+        );
     }
 
     #[test]
@@ -446,9 +449,12 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         run(tmp.path()).unwrap();
 
-        let content = fs::read_to_string(tmp.path().join("memento.md")).unwrap();
-        assert!(content.contains("## Stack"));
-        assert!(content.contains("## References"));
+        let content = fs::read_to_string(tmp.path().join("MEMENTO.md")).unwrap();
+        assert!(content.contains("study `specs/README.md`"));
+        assert!(content.contains("study `.sgf/BACKPRESSURE.md`"));
+        assert!(content.contains("study `.sgf/PENSA.md`"));
+        assert!(!content.contains("## Stack"));
+        assert!(!content.contains("## References"));
     }
 
     #[test]
@@ -457,19 +463,18 @@ mod tests {
         run(tmp.path()).unwrap();
 
         let modified = "custom content";
-        fs::write(tmp.path().join("CLAUDE.md"), modified).unwrap();
         fs::write(tmp.path().join(".sgf/prompts/build.md"), modified).unwrap();
 
         run(tmp.path()).unwrap();
 
         assert_eq!(
-            fs::read_to_string(tmp.path().join("CLAUDE.md")).unwrap(),
-            modified
-        );
-        assert_eq!(
             fs::read_to_string(tmp.path().join(".sgf/prompts/build.md")).unwrap(),
             modified
         );
+
+        // CLAUDE.md symlink should not be recreated
+        let claude_md = tmp.path().join("CLAUDE.md");
+        assert!(claude_md.symlink_metadata().unwrap().file_type().is_symlink());
     }
 
     #[test]
