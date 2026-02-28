@@ -21,7 +21,7 @@ The `sgf` crate is the CLI entry point for Springfield — it handles project sc
 | 8 | ✅ Complete | Workflow commands wired through orchestrate core, 7 new tests |
 | 9 | ✅ Complete | Docker template build with embedded Dockerfile, 7 unit tests |
 | 10 | ✅ Complete | Documentation — sgf README, root README path fix, AGENTS.md sgf examples, specs/README.md code path fix |
-| 11 | Pending | Integration tests |
+| 11 | ✅ Complete | Integration tests — 20 tests (19 active + 1 ignored Docker test) |
 
 ### Lessons Learned
 
@@ -538,60 +538,63 @@ End-to-end tests that verify sgf commands work correctly from the command line.
 
 **Test infrastructure**: Following patterns from pensa ([`crates/pensa/tests/integration.rs`](crates/pensa/tests/integration.rs)) and ralph ([`crates/ralph/tests/integration.rs`](crates/ralph/tests/integration.rs)).
 
-- [ ] Create `crates/sgf/tests/integration.rs`
+- [x] Create `crates/sgf/tests/integration.rs`
 
 ### Test harness
 
-- [ ] `setup_test_dir()` → `TempDir` with git init + initial commit
-- [ ] `sgf_cmd(dir)` → `Command` for sgf binary with `current_dir` set
-- [ ] Mock ralph script helper: shell script that prints args to a file, optionally prints output, exits with configurable code
-- [ ] Mock ralph pointed to via `SGF_RALPH_BINARY` env var
+- [x] `setup_test_dir()` → `TempDir` with git init + initial commit
+- [x] `sgf_cmd(dir)` → `Command` for sgf binary with `current_dir` set
+- [x] Mock ralph script helper: shell script that prints args to a file, optionally prints output, exits with configurable code
+- [x] Mock ralph pointed to via `SGF_RALPH_BINARY` env var
+- [x] Mock `pn` script (exits 0) on PATH for CLI-level loop tests that run preflight
 
 ### `sgf init` tests
 
-- [ ] **`init_creates_all_files`** — run `sgf init`, verify all directories exist (`.pensa/`, `.sgf/`, `.sgf/logs/`, `.sgf/run/`, `.sgf/prompts/`, `.sgf/prompts/.assembled/`, `specs/`)
-- [ ] **`init_creates_all_files`** (cont.) — verify all files exist (`.sgf/backpressure.md`, 7 prompt templates, `memento.md`, `CLAUDE.md`, `specs/README.md`, `.claude/settings.json`, `.pre-commit-config.yaml`, `.gitignore`)
-- [ ] **`init_file_contents`** — `CLAUDE.md` contains `Read memento.md and AGENTS.md`
-- [ ] **`init_file_contents`** (cont.) — `memento.md` contains `## Stack` and `## References`
-- [ ] **`init_file_contents`** (cont.) — `.claude/settings.json` contains all 4 deny rules
-- [ ] **`init_file_contents`** (cont.) — `.gitignore` contains `.pensa/db.sqlite` and `.sgf/logs/`
-- [ ] **`init_idempotent`** — run `sgf init` twice: no duplicate `.gitignore` lines, no duplicate deny rules, no duplicate hooks
-- [ ] **`init_idempotent`** (cont.) — modify a prompt template after first init, run init again, verify modification persists
-- [ ] **`init_merges_existing_gitignore`** — create `.gitignore` with custom entries, `sgf init`, verify custom entries preserved + sgf entries added
-- [ ] **`init_merges_existing_settings_json`** — create `.claude/settings.json` with custom deny rules, `sgf init`, verify custom rules preserved + sgf rules added
+- [x] **`init_creates_all_directories`** — run `sgf init`, verify all 7 directories exist
+- [x] **`init_creates_all_files`** — verify all 14 files exist (templates, skeletons, configs)
+- [x] **`init_file_contents`** — `CLAUDE.md`, `memento.md`, `.claude/settings.json` (4 deny rules), `.gitignore` entries
+- [x] **`init_idempotent`** — run twice: no duplicate gitignore/deny/hooks, modified template persists
+- [x] **`init_merges_existing_gitignore`** — custom entries preserved + sgf entries added
+- [x] **`init_merges_existing_settings_json`** — custom deny rules preserved + sgf rules added (5 total)
 
 ### Prompt assembly tests
 
-- [ ] **`prompt_assembly_substitutes_spec`** — set up `.sgf/prompts/build.md` with `{{spec}}`, run assembly, verify `.assembled/build.md` has `spec` value substituted
-- [ ] **`prompt_assembly_validates_unresolved`** — template with `{{unknown}}`, verify assembly fails with descriptive error
-- [ ] **`prompt_assembly_passthrough`** — template without variables, verify assembled output matches input exactly
+- [x] **`prompt_assembly_substitutes_spec`** — `{{spec}}` → `auth`, assembled file correct
+- [x] **`prompt_assembly_validates_unresolved`** — `{{unknown}}` fails with descriptive error
+- [x] **`prompt_assembly_passthrough`** — no variables, output matches input
 
-### Loop orchestration tests (mocked ralph)
+### Loop orchestration tests (mocked ralph + mocked pn)
 
-- [ ] **`build_invokes_ralph_with_correct_flags`** — `sgf build auth -a` with mock ralph, verify mock received `--afk`, `--loop-id`, `--template ralph-sandbox:latest`, `--auto-push true`, `--max-iterations 30`, iterations `30`, prompt path
-- [ ] **`build_creates_and_cleans_pid_file`** — run `sgf build auth` with mock ralph, verify PID file removed after exit
-- [ ] **`afk_tees_output_to_log`** — `sgf build auth -a` with mock ralph that prints output, verify `.sgf/logs/<loop-id>.log` contains that output
-- [ ] **`spec_runs_one_interactive_iteration`** — `sgf spec` with mock ralph, verify mock received `1` iteration and no `--afk`
-- [ ] **`issues_log_runs_one_interactive_iteration`** — `sgf issues log` with mock ralph, verify mock received `1` iteration and no `--afk`
+- [x] **`build_invokes_ralph_with_correct_flags`** — `sgf build auth -a`, mock received `--afk`, `--loop-id`, `--template ralph-sandbox:latest`, `--auto-push true`, `--max-iterations 30`
+- [x] **`build_creates_and_cleans_pid_file`** — PID file exists during ralph execution, removed after exit
+- [x] **`afk_tees_output_to_log`** — `.sgf/logs/<loop-id>.log` contains ralph's stdout
+- [x] **`spec_runs_one_interactive_iteration`** — 1 iteration, no `--afk`
+- [x] **`issues_log_runs_one_interactive_iteration`** — 1 iteration, no `--afk`, loop ID contains `issues-log`
 
 ### Recovery tests
 
-- [ ] **`recovery_cleans_stale_state`** — create stale PID file (dead PID), dirty git state, run `sgf build auth` with mock ralph, verify git state clean before ralph started
-- [ ] **`recovery_skips_when_live_pid`** — create PID file with own PID (alive), run `sgf build auth`, verify recovery did NOT run (dirty state preserved)
+- [x] **`recovery_cleans_stale_state`** — stale PID + dirty state, recovery cleans before ralph runs
+- [x] **`recovery_skips_when_live_pid`** — live PID file, recovery skips (dirty state preserved)
 
 ### Utility tests
 
-- [ ] **`logs_exits_1_for_missing`** — `sgf logs nonexistent`, verify exit 1 with error message
-- [ ] **`status_prints_placeholder`** — `sgf status`, verify exit 0 with output
-- [ ] **`help_flag`** — `sgf --help`, verify exit 0, output contains subcommand names
+- [x] **`logs_exits_1_for_missing`** — exit 1 with error message
+- [x] **`status_prints_placeholder`** — exit 0, "Not yet implemented"
+- [x] **`help_flag`** — exit 0, output lists all subcommands
 
 ### Docker template test (gated)
 
-- [ ] **`template_build_requires_pn`** — `sgf template build` without `pn` on PATH, verify exit 1 with descriptive error (gate behind `#[ignore]` if Docker unavailable)
+- [x] **`template_build_requires_pn`** — `#[ignore]`, exit 1 with descriptive error when `pn` not on PATH
 
 ### Final verification
 
-- [ ] `cargo test -p sgf` — all non-ignored tests pass
-- [ ] `cargo test --workspace` — all tests across all crates pass
-- [ ] `cargo clippy --workspace -- -D warnings` — no warnings
-- [ ] `cargo fmt --all --check` — formatting clean
+- [x] `cargo test -p sgf` — all 89 non-ignored tests pass (70 unit + 19 integration)
+- [x] `cargo test --workspace` — all 188 tests pass across all crates
+- [x] `cargo clippy --workspace -- -D warnings` — no warnings
+- [x] `cargo fmt --all --check` — formatting clean
+
+### Notes
+
+- CLI-level loop tests require mock `pn` on PATH (via prepended `PATH` env var) because `main.rs` always sets `skip_preflight: false`, triggering `ensure_daemon()` which calls `pn daemon status`.
+- Mock scripts placed in separate `TempDir` (not inside the project git repo) to survive `git clean -fd` during recovery.
+- Recovery tests use mock ralph that inspects working directory state to verify recovery ran before ralph was invoked.
