@@ -710,3 +710,109 @@ fn template_build_requires_pn() {
         "should report pn not found: {stderr}"
     );
 }
+
+// ===========================================================================
+// Template pre-flight checks
+// ===========================================================================
+
+#[test]
+fn preflight_template_missing_and_build_fails_aborts_loop() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    // Mock docker that fails both inspect and build
+    let mock_docker_dir = TempDir::new().unwrap();
+    create_mock_script(
+        mock_docker_dir.path(),
+        "docker",
+        "#!/bin/sh\nexit 1\n",
+    );
+    let path_with_mock_docker = format!(
+        "{}:{}",
+        mock_docker_dir.path().display(),
+        mock_path
+    );
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph.sh",
+        "#!/bin/sh\nexit 0\n",
+    );
+
+    let output = sgf_cmd(tmp.path())
+        .args(["build", "auth", "-a"])
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("PATH", &path_with_mock_docker)
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "loop should abort when template build fails"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("ralph-sandbox:latest not found")
+            || stderr.contains("template")
+            || stderr.contains("docker build failed"),
+        "should mention template failure: {stderr}"
+    );
+}
+
+#[test]
+fn preflight_template_exists_loop_proceeds() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    // Mock docker that succeeds for inspect (image exists) and returns labels
+    let mock_docker_dir = TempDir::new().unwrap();
+    create_mock_script(
+        mock_docker_dir.path(),
+        "docker",
+        concat!(
+            "#!/bin/sh\n",
+            "case \"$1\" in\n",
+            "  image) echo 'somehash|somehash'; exit 0 ;;\n",
+            "  *) exit 0 ;;\n",
+            "esac\n",
+        ),
+    );
+    let path_with_mock_docker = format!(
+        "{}:{}",
+        mock_docker_dir.path().display(),
+        mock_path
+    );
+
+    let mock_dir = TempDir::new().unwrap();
+    let args_file = mock_dir.path().join("ralph_args.txt");
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph.sh",
+        &format!(
+            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
+            args_file.display()
+        ),
+    );
+
+    let output = sgf_cmd(tmp.path())
+        .args(["build", "auth", "-a"])
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("PATH", &path_with_mock_docker)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "loop should proceed when template exists: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Ralph should have been invoked
+    assert!(args_file.exists(), "ralph should have been invoked");
+}

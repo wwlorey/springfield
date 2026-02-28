@@ -354,7 +354,15 @@ Before launching ralph, `sgf` scans all PID files in `.sgf/run/`:
 
 ---
 
-## Daemon Lifecycle
+## Pre-launch Lifecycle
+
+Before launching any loop, `sgf` runs three pre-launch checks:
+
+1. **Recovery** — clean up stale state from crashed iterations (see Recovery)
+2. **Daemon** — start the pensa daemon if not already running
+3. **Template** — ensure the Docker sandbox template exists and is current
+
+### Daemon
 
 `sgf` starts the pensa daemon automatically before launching any loop (if not already running):
 
@@ -364,6 +372,20 @@ Before launching ralph, `sgf` scans all PID files in `.sgf/run/`:
 4. Proceed with loop launch
 
 The daemon runs for the duration of the `sgf` session. It stops on SIGTERM or when `sgf` shuts down.
+
+### Template Pre-flight
+
+`sgf` checks the Docker sandbox template before launching any loop:
+
+1. Run `docker image inspect ralph-sandbox:latest` to check if the image exists
+2. If the image does not exist, auto-build it (runs `sgf template build` logic internally). Print a heads-up before building — the first build takes several minutes.
+3. If the image exists, check staleness by comparing Docker image labels against current values:
+   - `pn_hash` — SHA-256 of the `pn` binary on the host
+   - `dockerfile_hash` — SHA-256 of the embedded Dockerfile content
+4. If stale, print a warning with the reason (e.g., "pn binary has changed") and the remediation command (`sgf template build`). Do not block — the existing image still works.
+5. If fresh, proceed silently.
+
+Auto-build failure is a hard error — the loop cannot proceed without a template.
 
 ---
 
@@ -839,10 +861,11 @@ Builds the `ralph-sandbox:latest` Docker image:
 2. Create a temporary build context directory
 3. Write the Dockerfile (embedded in the sgf binary at compile time via `include_str!`)
 4. Copy the `pn` binary into the build context
-5. Run `docker build -t ralph-sandbox:latest .`
-6. Clean up the temporary directory
+5. Compute SHA-256 hashes of the `pn` binary and Dockerfile content
+6. Run `docker build -t ralph-sandbox:latest --label pn_hash=<sha256> --label dockerfile_hash=<sha256> .`
+7. Clean up the temporary directory
 
-After updating the `pn` binary, re-run `sgf template build` to pick up the new version in the sandbox.
+The labels enable pre-flight staleness detection. After updating the `pn` binary or the Dockerfile, `sgf template build` bakes the new hashes into the image. The pre-flight check compares these labels against current values on every loop launch.
 
 ### Sandbox Behavior
 

@@ -11,6 +11,7 @@ use signal_hook::flag;
 use crate::loop_mgmt;
 use crate::prompt;
 use crate::recovery;
+use crate::template;
 
 pub struct LoopConfig {
     pub stage: String,
@@ -86,6 +87,7 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
     if !config.skip_preflight {
         recovery::pre_launch_recovery(root)?;
         recovery::ensure_daemon(root)?;
+        template::ensure_template()?;
     }
 
     loop_mgmt::write_pid_file(root, &loop_id)?;
