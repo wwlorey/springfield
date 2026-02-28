@@ -18,7 +18,7 @@ The `sgf` crate is the CLI entry point for Springfield — it handles project sc
 | 5 | ✅ Complete | Loop ID, PID files, log teeing, `sgf logs` |
 | 6 | ✅ Complete | Pre-launch recovery and daemon lifecycle |
 | 7 | ✅ Complete | Loop orchestration core with 12 unit tests |
-| 8 | Pending | Workflow commands |
+| 8 | ✅ Complete | Workflow commands wired through orchestrate core, 7 new tests |
 | 9 | Pending | Docker template build |
 | 10 | Pending | Documentation |
 | 11 | Pending | Integration tests |
@@ -424,34 +424,41 @@ Wire all workflow commands through the orchestration core.
 
 Each: assemble prompt → `pre_launch_recovery()` → `ensure_daemon()` → launch ralph → handle exit.
 
-- [ ] `sgf build <spec>`: template `build.md`, `{{spec}}` substitution, loop ID `build-<spec>-<ts>`, supports `-a`/`--no-push`/`N` ([`specs/springfield.md:416-421`](specs/springfield.md))
-- [ ] `sgf test <spec>`: template `test.md`, `{{spec}}` substitution, loop ID `test-<spec>-<ts>`, supports `-a`/`--no-push`/`N` ([`specs/springfield.md:447-451`](specs/springfield.md))
-- [ ] `sgf verify`: template `verify.md`, no variables, loop ID `verify-<ts>`, supports `-a`/`--no-push`/`N` ([`specs/springfield.md:426-435`](specs/springfield.md))
-- [ ] `sgf test-plan`: template `test-plan.md`, no variables, loop ID `test-plan-<ts>`, supports `-a`/`--no-push`/`N` ([`specs/springfield.md:437-445`](specs/springfield.md))
-- [ ] `sgf issues plan`: template `issues-plan.md`, no variables, loop ID `issues-plan-<ts>`, supports `-a`/`--no-push`/`N` ([`specs/springfield.md:463-469`](specs/springfield.md))
+- [x] `sgf build <spec>`: template `build.md`, `{{spec}}` substitution, loop ID `build-<spec>-<ts>`, supports `-a`/`--no-push`/`N` ([`specs/springfield.md:416-421`](specs/springfield.md))
+- [x] `sgf test <spec>`: template `test.md`, `{{spec}}` substitution, loop ID `test-<spec>-<ts>`, supports `-a`/`--no-push`/`N` ([`specs/springfield.md:447-451`](specs/springfield.md))
+- [x] `sgf verify`: template `verify.md`, no variables, loop ID `verify-<ts>`, supports `-a`/`--no-push`/`N` ([`specs/springfield.md:426-435`](specs/springfield.md))
+- [x] `sgf test-plan`: template `test-plan.md`, no variables, loop ID `test-plan-<ts>`, supports `-a`/`--no-push`/`N` ([`specs/springfield.md:437-445`](specs/springfield.md))
+- [x] `sgf issues plan`: template `issues-plan.md`, no variables, loop ID `issues-plan-<ts>`, supports `-a`/`--no-push`/`N` ([`specs/springfield.md:463-469`](specs/springfield.md))
 
 ### Interactive stages (1 iteration, no AFK)
 
-- [ ] `sgf spec`: template `spec.md`, no variables, loop ID `spec-<ts>`, hardcoded 1 iteration, interactive mode ([`specs/springfield.md:396-414`](specs/springfield.md))
-- [ ] `sgf issues log`: template `issues.md`, no variables, loop ID `issues-log-<ts>`, hardcoded 1 iteration, interactive mode ([`specs/springfield.md:453-461`](specs/springfield.md))
+- [x] `sgf spec`: template `spec.md`, no variables, loop ID `spec-<ts>`, hardcoded 1 iteration, interactive mode ([`specs/springfield.md:396-414`](specs/springfield.md))
+- [x] `sgf issues log`: template `issues.md`, no variables, loop ID `issues-log-<ts>`, hardcoded 1 iteration, interactive mode ([`specs/springfield.md:453-461`](specs/springfield.md))
 
 ### Utility commands
 
-- [ ] `sgf logs <loop-id>`: run `tail -f .sgf/logs/<loop-id>.log`, exit 1 if missing ([`specs/springfield.md:329-332`](specs/springfield.md))
-- [ ] `sgf status`: print "Not yet implemented", exit 0 ([`specs/springfield.md:28`](specs/springfield.md), [`specs/springfield.md:897`](specs/springfield.md))
+- [x] `sgf logs <loop-id>`: run `tail -f .sgf/logs/<loop-id>.log`, exit 1 if missing ([`specs/springfield.md:329-332`](specs/springfield.md))
+- [x] `sgf status`: print "Not yet implemented", exit 0 ([`specs/springfield.md:28`](specs/springfield.md), [`specs/springfield.md:897`](specs/springfield.md))
 
 ### Verification
 
-- [ ] `sgf build auth` assembles prompt with `{{spec}}` = `auth` and invokes ralph
-- [ ] `sgf verify` assembles prompt without variables and invokes ralph
-- [ ] `sgf spec` invokes ralph with 1 iteration, no `--afk`
-- [ ] `sgf issues log` invokes ralph with 1 iteration, no `--afk`
-- [ ] `sgf build` without `<spec>` arg shows clap error
-- [ ] `sgf test` without `<spec>` arg shows clap error
-- [ ] `sgf logs nonexistent` exits 1
-- [ ] `sgf status` exits 0 with placeholder message
-- [ ] `cargo test -p sgf` passes
-- [ ] `cargo clippy -p sgf -- -D warnings` passes
+- [x] `sgf build auth` assembles prompt with `{{spec}}` = `auth` and invokes ralph
+- [x] `sgf verify` assembles prompt without variables and invokes ralph
+- [x] `sgf spec` invokes ralph with 1 iteration, no `--afk`
+- [x] `sgf issues log` invokes ralph with 1 iteration, no `--afk`
+- [x] `sgf build` without `<spec>` arg shows clap error
+- [x] `sgf test` without `<spec>` arg shows clap error
+- [x] `sgf logs nonexistent` exits 1
+- [x] `sgf status` exits 0 with placeholder message
+- [x] `cargo test -p sgf` passes
+- [x] `cargo clippy -p sgf -- -D warnings` passes
+
+### Notes
+
+- Added `prompt_template: Option<String>` to `LoopConfig` to decouple the loop ID stage name from the prompt template name. Only `sgf issues log` needs this — its loop ID uses `issues-log` but its template is `issues.md`.
+- All workflow commands delegate to a shared `run_loop()` helper in `main.rs` that constructs `LoopConfig` and calls `orchestrate::run()`.
+- Interactive stages (`spec`, `issues log`) hardcode `iterations: 1`, `afk: false`, `no_push: false` — they bypass the `LoopOpts` clap struct entirely.
+- `sgf logs` and `sgf status` were already wired in Phase 5/7; no changes needed.
 
 ---
 

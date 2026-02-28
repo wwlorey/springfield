@@ -22,6 +22,8 @@ pub struct LoopConfig {
     pub ralph_binary: Option<String>,
     /// Skip pre-launch recovery and daemon startup (for testing).
     pub skip_preflight: bool,
+    /// Override prompt template name (defaults to `stage`).
+    pub prompt_template: Option<String>,
 }
 
 fn resolve_ralph_binary(config: &LoopConfig) -> String {
@@ -78,7 +80,8 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
     if let Some(ref spec) = config.spec {
         vars.insert("spec".to_string(), spec.clone());
     }
-    let prompt_path = prompt::assemble(root, &config.stage, &vars)?;
+    let template_stage = config.prompt_template.as_deref().unwrap_or(&config.stage);
+    let prompt_path = prompt::assemble(root, template_stage, &vars)?;
 
     if !config.skip_preflight {
         recovery::pre_launch_recovery(root)?;
@@ -264,6 +267,7 @@ mod tests {
             iterations: 10,
             ralph_binary: None,
             skip_preflight: false,
+            prompt_template: None,
         };
         let args = build_ralph_args(
             &config,
@@ -299,6 +303,7 @@ mod tests {
             iterations: 30,
             ralph_binary: None,
             skip_preflight: false,
+            prompt_template: None,
         };
         let args = build_ralph_args(
             &config,
@@ -322,6 +327,7 @@ mod tests {
             iterations: 1,
             ralph_binary: None,
             skip_preflight: false,
+            prompt_template: None,
         };
         let args = build_ralph_args(&config, "spec-20260226T160000", Path::new("/tmp/spec.md"));
 
@@ -339,6 +345,7 @@ mod tests {
             iterations: 30,
             ralph_binary: None,
             skip_preflight: false,
+            prompt_template: None,
         };
         let args = build_ralph_args(
             &config,
@@ -374,6 +381,7 @@ mod tests {
             iterations: 30,
             ralph_binary: Some("/custom/ralph".to_string()),
             skip_preflight: false,
+            prompt_template: None,
         };
         assert_eq!(resolve_ralph_binary(&config), "/custom/ralph");
     }
@@ -398,6 +406,7 @@ mod tests {
             iterations: 30,
             ralph_binary: Some(mock),
             skip_preflight: true,
+            prompt_template: None,
         };
 
         let exit_code = run(root, &config).unwrap();
@@ -431,6 +440,7 @@ mod tests {
             iterations: 30,
             ralph_binary: Some(mock),
             skip_preflight: true,
+            prompt_template: None,
         };
 
         let exit_code = run(root, &config).unwrap();
@@ -457,6 +467,7 @@ mod tests {
             iterations: 30,
             ralph_binary: Some(mock),
             skip_preflight: true,
+            prompt_template: None,
         };
 
         let exit_code = run(root, &config).unwrap();
@@ -486,6 +497,7 @@ mod tests {
             iterations: 30,
             ralph_binary: Some(mock),
             skip_preflight: true,
+            prompt_template: None,
         };
 
         let exit_code = run(root, &config).unwrap();
@@ -523,6 +535,7 @@ mod tests {
             iterations: 10,
             ralph_binary: Some(mock),
             skip_preflight: true,
+            prompt_template: None,
         };
 
         let exit_code = run(root, &config).unwrap();
@@ -552,6 +565,7 @@ mod tests {
             iterations: 30,
             ralph_binary: Some(mock),
             skip_preflight: true,
+            prompt_template: None,
         };
 
         run(root, &config).unwrap();
@@ -561,5 +575,202 @@ mod tests {
 
         let assembled = fs::read_to_string(root.join(".sgf/prompts/.assembled/build.md")).unwrap();
         assert_eq!(assembled, "Build auth now.");
+    }
+
+    #[test]
+    fn verify_assembles_without_variables() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_project(root, "verify", "Verify all specs against codebase.");
+        setup_git_repo(root);
+
+        let mock = mock_ralph_script(
+            root,
+            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
+        );
+
+        let config = LoopConfig {
+            stage: "verify".to_string(),
+            spec: None,
+            afk: true,
+            no_push: false,
+            iterations: 30,
+            ralph_binary: Some(mock),
+            skip_preflight: true,
+            prompt_template: None,
+        };
+
+        let exit_code = run(root, &config).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let args_content = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
+        assert!(args_content.contains("--loop-id"));
+        assert!(args_content.contains("verify-"));
+        assert!(args_content.contains("-a"));
+
+        let assembled = fs::read_to_string(root.join(".sgf/prompts/.assembled/verify.md")).unwrap();
+        assert_eq!(assembled, "Verify all specs against codebase.");
+    }
+
+    #[test]
+    fn spec_one_iteration_interactive() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_project(root, "spec", "Interview the developer about specs.");
+        setup_git_repo(root);
+
+        let mock = mock_ralph_script(
+            root,
+            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
+        );
+
+        let config = LoopConfig {
+            stage: "spec".to_string(),
+            spec: None,
+            afk: false,
+            no_push: false,
+            iterations: 1,
+            ralph_binary: Some(mock),
+            skip_preflight: true,
+            prompt_template: None,
+        };
+
+        let exit_code = run(root, &config).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let args_content = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
+        assert!(
+            !args_content.starts_with("-a "),
+            "should not have --afk flag"
+        );
+        assert!(args_content.contains(" 1 "));
+    }
+
+    #[test]
+    fn issues_log_uses_issues_template() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_project(root, "issues", "Log a bug interactively.");
+        setup_git_repo(root);
+
+        let mock = mock_ralph_script(
+            root,
+            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
+        );
+
+        let config = LoopConfig {
+            stage: "issues-log".to_string(),
+            spec: None,
+            afk: false,
+            no_push: false,
+            iterations: 1,
+            ralph_binary: Some(mock),
+            skip_preflight: true,
+            prompt_template: Some("issues".to_string()),
+        };
+
+        let exit_code = run(root, &config).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let args_content = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
+        assert!(args_content.contains("issues-log-"));
+        assert!(
+            !args_content.starts_with("-a "),
+            "should not have --afk flag"
+        );
+        assert!(args_content.contains(" 1 "));
+
+        let assembled = fs::read_to_string(root.join(".sgf/prompts/.assembled/issues.md")).unwrap();
+        assert_eq!(assembled, "Log a bug interactively.");
+    }
+
+    #[test]
+    fn test_stage_substitutes_spec() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_project(root, "test", "Test {{spec}} items.");
+        setup_git_repo(root);
+
+        let mock = mock_ralph_script(
+            root,
+            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
+        );
+
+        let config = LoopConfig {
+            stage: "test".to_string(),
+            spec: Some("auth".to_string()),
+            afk: true,
+            no_push: false,
+            iterations: 30,
+            ralph_binary: Some(mock),
+            skip_preflight: true,
+            prompt_template: None,
+        };
+
+        let exit_code = run(root, &config).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let assembled = fs::read_to_string(root.join(".sgf/prompts/.assembled/test.md")).unwrap();
+        assert_eq!(assembled, "Test auth items.");
+    }
+
+    #[test]
+    fn test_plan_no_variables() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_project(root, "test-plan", "Generate a testing plan.");
+        setup_git_repo(root);
+
+        let mock = mock_ralph_script(
+            root,
+            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
+        );
+
+        let config = LoopConfig {
+            stage: "test-plan".to_string(),
+            spec: None,
+            afk: true,
+            no_push: false,
+            iterations: 30,
+            ralph_binary: Some(mock),
+            skip_preflight: true,
+            prompt_template: None,
+        };
+
+        let exit_code = run(root, &config).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let args_content = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
+        assert!(args_content.contains("test-plan-"));
+    }
+
+    #[test]
+    fn issues_plan_no_variables() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_project(root, "issues-plan", "Plan fixes for open bugs.");
+        setup_git_repo(root);
+
+        let mock = mock_ralph_script(
+            root,
+            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
+        );
+
+        let config = LoopConfig {
+            stage: "issues-plan".to_string(),
+            spec: None,
+            afk: true,
+            no_push: false,
+            iterations: 30,
+            ralph_binary: Some(mock),
+            skip_preflight: true,
+            prompt_template: None,
+        };
+
+        let exit_code = run(root, &config).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let args_content = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
+        assert!(args_content.contains("issues-plan-"));
     }
 }

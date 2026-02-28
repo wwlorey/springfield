@@ -102,6 +102,27 @@ enum TemplateSubcommand {
     Build,
 }
 
+fn run_loop(stage: &str, spec: Option<&str>, opts: &LoopOpts, prompt_template: Option<&str>) -> ! {
+    let root = std::env::current_dir().expect("failed to get current directory");
+    let config = sgf::orchestrate::LoopConfig {
+        stage: stage.to_string(),
+        spec: spec.map(|s| s.to_string()),
+        afk: opts.afk,
+        no_push: opts.no_push,
+        iterations: opts.iterations,
+        ralph_binary: None,
+        skip_preflight: false,
+        prompt_template: prompt_template.map(|s| s.to_string()),
+    };
+    match sgf::orchestrate::run(&root, &config) {
+        Ok(code) => std::process::exit(code),
+        Err(e) => {
+            eprintln!("sgf {stage}: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
 
@@ -114,26 +135,36 @@ fn main() {
             }
         }
         Commands::Spec => {
-            eprintln!("sgf spec: not yet implemented");
+            let opts = LoopOpts {
+                afk: false,
+                no_push: false,
+                iterations: 1,
+            };
+            run_loop("spec", None, &opts, None);
         }
-        Commands::Build { .. } => {
-            eprintln!("sgf build: not yet implemented");
+        Commands::Build { spec, opts } => {
+            run_loop("build", Some(&spec), &opts, None);
         }
-        Commands::Verify { .. } => {
-            eprintln!("sgf verify: not yet implemented");
+        Commands::Verify { opts } => {
+            run_loop("verify", None, &opts, None);
         }
-        Commands::TestPlan { .. } => {
-            eprintln!("sgf test-plan: not yet implemented");
+        Commands::TestPlan { opts } => {
+            run_loop("test-plan", None, &opts, None);
         }
-        Commands::Test { .. } => {
-            eprintln!("sgf test: not yet implemented");
+        Commands::Test { spec, opts } => {
+            run_loop("test", Some(&spec), &opts, None);
         }
         Commands::Issues { subcmd } => match subcmd {
             IssuesSubcommand::Log => {
-                eprintln!("sgf issues log: not yet implemented");
+                let opts = LoopOpts {
+                    afk: false,
+                    no_push: false,
+                    iterations: 1,
+                };
+                run_loop("issues-log", None, &opts, Some("issues"));
             }
-            IssuesSubcommand::Plan { .. } => {
-                eprintln!("sgf issues plan: not yet implemented");
+            IssuesSubcommand::Plan { opts } => {
+                run_loop("issues-plan", None, &opts, None);
             }
         },
         Commands::Status => {
