@@ -259,43 +259,26 @@ Create the HTTP client, full clap CLI definition, actor resolution, output forma
 
 ---
 
-## Phase 13: CLI — Query, Dep, Comment & Data Commands
+## Phase 13: CLI — Query, Dep, Comment & Data Commands ✅
 
-Wire all remaining commands through the client.
+All commands were already wired in Phase 12 (client methods, output formatters, and main.rs match arms). Phase 13 verified completeness.
 
-- Query commands: `list`, `ready`, `blocked`, `search`, `count`, `status`, `history`
-- Dep commands: `dep add`, `dep remove`, `dep list`, `dep tree`, `dep cycles`
-- Comment commands: `comment add`, `comment list`
-- Data commands:
-  - `export`: POST to daemon, then run `git add .pensa/*.jsonl` locally ([`specs/pensa.md:246`](specs/pensa.md))
-  - `import`: POST to daemon ([`specs/pensa.md:248`](specs/pensa.md))
-  - `doctor [--fix]`: POST to daemon (with fix query param) ([`specs/pensa.md:250-255`](specs/pensa.md))
-  - `where`: print `.pensa/` path, no daemon request (client-only) ([`specs/pensa.md:257`](specs/pensa.md))
-- Daemon commands (wired in Phase 12 but finalized here if needed):
-  - `pn daemon [--port <port>] [--project-dir <path>]` — start daemon in foreground
-  - `pn daemon status` — check reachability, exit 0/1
-- **Verify:** `cargo build -p pensa && cargo clippy -p pensa -- -D warnings && cargo fmt --all --check && cargo build --workspace`
+- ✅ Query commands: `list`, `ready`, `blocked`, `search`, `count`, `status`, `history`
+- ✅ Dep commands: `dep add`, `dep remove`, `dep list`, `dep tree`, `dep cycles`
+- ✅ Comment commands: `comment add`, `comment list`
+- ✅ Data commands: `export` (with `git add`), `import`, `doctor [--fix]`, `where`
+- ✅ Daemon commands: `pn daemon [--port] [--project-dir]`, `pn daemon status`
+- ✅ Verified: build + test (35 pass) + clippy + fmt
 
 ---
 
-## Phase 14: Documentation
+## Phase 14: Documentation ✅
 
-- Create `crates/pensa/README.md`:
-  - Project overview — what pensa is and why it exists
-  - Architecture summary (client/daemon, SQLite + JSONL)
-  - Quick start: starting the daemon, basic CLI usage
-  - Full command reference (or link to [`specs/pensa.md`](specs/pensa.md))
-  - Environment variables: `PN_DAEMON`, `PN_ACTOR`
-  - Storage layout: `.pensa/db.sqlite`, `.pensa/*.jsonl`
-  - Testing instructions: how to run the integration tests
-- Update root [`README.md`](README.md):
-  - Add pensa to the architecture diagram (`crates/pensa/` line)
-  - Ensure the pensa description is accurate
-- Update [`.gitignore`](.gitignore):
-  - Add `.pensa/db.sqlite` (the working database is gitignored — [`specs/pensa.md:15`](specs/pensa.md))
-- Update [`AGENTS.md`](AGENTS.md):
-  - Add pensa-specific build/test commands: `cargo build -p pensa`, `cargo test -p pensa`
-  - Replace outdated `buddy-<crate>` references with current crate names
+- ✅ Created `crates/pensa/README.md` — project overview, architecture summary (client/daemon, SQLite + JSONL), quick start, command reference (with link to spec), environment variables, storage layout, testing instructions
+- ✅ Root `README.md` already accurate — pensa is in the architecture diagram and description matches implementation
+- ✅ Updated `.gitignore` — added `.pensa/db.sqlite`
+- ✅ Updated `AGENTS.md` — replaced `buddy-<crate>` references with current crate names (`pensa`, `ralph`), added pensa-specific examples
+- ✅ Verified: build + test (35 pensa + 19 ralph unit + 13 ralph integration) + clippy + fmt
 
 ---
 

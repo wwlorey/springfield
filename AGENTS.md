@@ -8,9 +8,9 @@
 ### Backend (Rust)
 
 - **Build all:** `cargo build --workspace`
-- **Build single:** `cargo build -p buddy-<crate>` (e.g., `cargo build -p buddy-llm`)
+- **Build single:** `cargo build -p <crate>` (e.g., `cargo build -p pensa`, `cargo build -p ralph`)
 - **Test all:** `cargo test --workspace`
-- **Test single:** `cargo test -p buddy-<crate> <test_name>` (e.g., `cargo test -p buddy-llm test_agent`)
+- **Test single:** `cargo test -p <crate> <test_name>` (e.g., `cargo test -p pensa create_and_get`)
 - **Lint:** `cargo clippy --workspace -- -D warnings`
 - **Format:** `cargo fmt --all`
 - **Detect unsafe code usage:** `cargo geiger`
