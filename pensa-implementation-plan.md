@@ -282,42 +282,32 @@ All commands were already wired in Phase 12 (client methods, output formatters, 
 
 ---
 
-## Phase 15: Integration Tests — Core Scenarios
+## Phase 15: Integration Tests — Core Scenarios ✅
 
-End-to-end tests that start a real daemon, run `pn` commands against it, and assert on stdout/stderr/exit codes. Following the pattern in [`crates/ralph/tests/integration.rs`](crates/ralph/tests/integration.rs).
+End-to-end tests that start a real daemon, run `pn` commands against it, and assert on stdout/stderr/exit codes.
 
-- **Source:** [`specs/pensa.md:387-402`](specs/pensa.md) — Testing Strategy
-- **Tools required:** No additional tools beyond `cargo test`. Tests use the built `pn` binary via `env!("CARGO_BIN_EXE_pn")` and `std::process::Command` (same pattern as ralph).
-- Create `crates/pensa/tests/integration.rs`:
-  - **Test harness:**
-    - `start_daemon()` → spawn `pn daemon --port <random> --project-dir <tempdir>`, wait for readiness via `pn daemon status`, return port + child handle
-    - `pn_cmd(port)` → build `Command` with `PN_DAEMON=http://localhost:{port}` and `PN_ACTOR=test-agent`
-    - Teardown: kill daemon child process after each test
-  - **Test: CRUD lifecycle** ([`specs/pensa.md:393`](specs/pensa.md)):
-    - `pn create "login crash" -t bug -p p0 --json` → assert exit 0, stdout contains issue with status=open, priority=p0, issue_type=bug
-    - `pn show <id> --json` → assert fields match
-    - `pn update <id> --priority p1 --json` → assert priority changed
-    - `pn close <id> --reason "fixed" --json` → assert status=closed
-    - `pn reopen <id> --json` → assert status=open
-    - `pn close <id> --json` → assert status=closed again
-  - **Test: Claim semantics** ([`specs/pensa.md:394`](specs/pensa.md)):
-    - Create a task → `pn update <id> --claim` with actor=agent-1 → assert success, status=in_progress, assignee=agent-1
-    - `pn update <id> --claim` with actor=agent-2 → assert exit 1, stderr contains `already_claimed`
-    - `pn release <id>` → assert status=open, assignee cleared
-    - `pn update <id> --claim` with actor=agent-2 → assert success
-  - **Test: `fixes` auto-close** ([`specs/pensa.md:397`](specs/pensa.md)):
-    - Create bug → create task with `--fixes <bug-id>` → close the task → `pn show <bug-id> --json` → assert bug is also closed, close_reason contains "fixed by"
-  - **Test: Delete with force:**
-    - Create issue with comments → `pn delete <id>` (no force) → assert exit 1
-    - `pn delete <id> --force` → assert exit 0
-    - `pn show <id>` → assert exit 1, not_found
-  - **Test: Daemon status:**
-    - `pn daemon status` when daemon is running → assert exit 0
-    - `pn daemon status` when daemon is not running → assert exit 1
-  - **Test: `pn where`:**
-    - Assert it prints the `.pensa/` directory path and exits 0
-    - Assert it works without a running daemon (client-only command)
-- **Verify:** `cargo test -p pensa -- --test integration`
+- ✅ Created `crates/pensa/tests/integration.rs` with full test harness
+- ✅ **Test harness:**
+  - `start_daemon()` → spawns daemon on random port (via `portpicker`) with `tempfile::TempDir`, polls `/status` until ready
+  - `DaemonGuard` with `Drop` impl kills daemon child process on teardown
+  - `pn(guard)` → builds `Command` with `PN_DAEMON=http://localhost:{port}` and `PN_ACTOR=test-agent`
+  - Helper functions: `run_json`, `run_ok_json`, `run_fail`, `extract_id`
+- ✅ **Test: CRUD lifecycle** — create → show → update → close → reopen → close
+- ✅ **Test: Claim semantics** — create → claim (agent-1) → double-claim fails (agent-2) → release → claim (agent-2)
+- ✅ **Test: `fixes` auto-close** — create bug → create task with `--fixes` → close task → verify bug auto-closed
+- ✅ **Test: Delete with force** — create with comment → delete fails without force → force delete succeeds → show returns not_found
+- ✅ **Test: Daemon status (reachable)** — `pn daemon status` returns exit 0 when daemon is running
+- ✅ **Test: Daemon status (unreachable)** — `pn daemon status` returns exit 1 when daemon is not running
+- ✅ **Test: `pn where`** — prints `.pensa/` path, exits 0, works without running daemon
+- ✅ Added dev-dependencies: `portpicker`, `reqwest` (blocking), `serde_json`
+- ✅ Verified: build + test (35 unit + 7 integration + 19 ralph unit + 13 ralph integration) + clippy + fmt
+
+### Design decisions
+
+- **`portpicker` for random port** — avoids port conflicts when tests run in parallel. More reliable than manual port range scanning.
+- **`DaemonGuard` with `Drop`** — RAII pattern ensures daemon is killed even on test failure/panic, preventing orphaned processes.
+- **`reqwest::blocking` for readiness polling** — simpler than spawning `pn daemon status` in a loop; directly polls the HTTP endpoint.
+- **`run_json` / `run_ok_json` / `run_fail` helpers** — DRY pattern for the common test flow: run command, parse JSON, assert success/failure.
 
 ---
 
