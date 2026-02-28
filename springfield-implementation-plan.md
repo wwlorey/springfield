@@ -20,7 +20,7 @@ The `sgf` crate is the CLI entry point for Springfield — it handles project sc
 | 7 | ✅ Complete | Loop orchestration core with 12 unit tests |
 | 8 | ✅ Complete | Workflow commands wired through orchestrate core, 7 new tests |
 | 9 | ✅ Complete | Docker template build with embedded Dockerfile, 7 unit tests |
-| 10 | Pending | Documentation |
+| 10 | ✅ Complete | Documentation — sgf README, root README path fix, AGENTS.md sgf examples, specs/README.md code path fix |
 | 11 | Pending | Integration tests |
 
 ### Lessons Learned
@@ -509,26 +509,26 @@ Per [`specs/springfield.md:838-845`](specs/springfield.md):
 
 ## Phase 10: Documentation
 
-- [ ] Create `crates/sgf/README.md`:
-  - [ ] Project overview and purpose
-  - [ ] Architecture summary (scaffolding, prompt assembly, loop orchestration, recovery, daemon lifecycle)
-  - [ ] Quick start / usage examples for each command
-  - [ ] Command reference table (with link to spec for details)
-  - [ ] Relationship to ralph and pensa
-  - [ ] Testing instructions (`cargo test -p sgf`)
-- [ ] Update root [`README.md`](README.md):
-  - [ ] Add sgf to architecture diagram / component listing
-  - [ ] Ensure all three crates (sgf, ralph, pensa) are mentioned
-- [ ] Update [`AGENTS.md`](AGENTS.md):
-  - [ ] Add `cargo build -p sgf` and `cargo test -p sgf` examples
-- [ ] Update [`specs/README.md`](specs/README.md):
-  - [ ] Verify `springfield.md` code path points to `crates/sgf/` (not `crates/springfield/`)
+- [x] Create `crates/sgf/README.md`:
+  - [x] Project overview and purpose
+  - [x] Architecture summary (scaffolding, prompt assembly, loop orchestration, recovery, daemon lifecycle)
+  - [x] Quick start / usage examples for each command
+  - [x] Command reference table (with link to spec for details)
+  - [x] Relationship to ralph and pensa
+  - [x] Testing instructions (`cargo test -p sgf`)
+- [x] Update root [`README.md`](README.md):
+  - [x] Add sgf to architecture diagram / component listing
+  - [x] Ensure all three crates (sgf, ralph, pensa) are mentioned
+- [x] Update [`AGENTS.md`](AGENTS.md):
+  - [x] Add `cargo build -p sgf` and `cargo test -p sgf` examples
+- [x] Update [`specs/README.md`](specs/README.md):
+  - [x] Verify `springfield.md` code path points to `crates/sgf/` (not `crates/springfield/`)
 
 ### Verification
 
-- [ ] All README files reference correct file paths
-- [ ] AGENTS.md build/test examples include sgf
-- [ ] specs/README.md code column is accurate
+- [x] All README files reference correct file paths
+- [x] AGENTS.md build/test examples include sgf
+- [x] specs/README.md code column is accurate
 
 ---
 

@@ -36,7 +36,7 @@ The agent's persistent memory system, pensa, is inspired by Steve Yegge's [beads
 springfield/
 ├── Cargo.toml                 (workspace)
 ├── crates/
-│   ├── springfield/           — CLI binary, entry point, scaffolding, prompt assembly
+│   ├── sgf/                   — CLI binary, entry point, scaffolding, prompt assembly
 │   ├── pensa/                 — agent persistent memory (CLI binary + library)
 │   └── ralph/                 — loop runner (standalone binary)
 ```
