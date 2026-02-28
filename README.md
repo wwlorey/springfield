@@ -41,9 +41,9 @@ The agent's persistent memory system, pensa, is inspired by Steve Yegge's [beads
 ### Install
 
 ```sh
-cargo install --path crates/pensa         # → pn
-cargo install --path crates/ralph         # → ralph
-cargo install --path crates/springfield   # → sgf
+cargo install --path crates/pensa
+cargo install --path crates/ralph
+cargo install --path crates/springfield
 ```
 
 ### Scaffold a Project
