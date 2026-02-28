@@ -169,26 +169,31 @@ Implement the prompt assembly engine that reads templates, substitutes variables
 
 **Source**: [`specs/springfield.md:245-268`](specs/springfield.md) (Prompt Assembly)
 
-- [ ] Create `crates/sgf/src/prompt.rs` module
-- [ ] Wire `pub mod prompt` in `lib.rs`
-- [ ] Implement `pub fn assemble(stage: &str, vars: &HashMap<String, String>) -> Result<PathBuf>`
-- [ ] Read template from `.sgf/prompts/<stage>.md`
-- [ ] Replace all `{{key}}` with corresponding value from `vars`
-- [ ] Validate: regex scan for remaining `{{...}}` tokens, return error listing unresolved names
-- [ ] Create `.sgf/prompts/.assembled/` directory if it doesn't exist
-- [ ] Write assembled prompt to `.sgf/prompts/.assembled/<stage>.md`
-- [ ] Return the path to the assembled file
-- [ ] Error on missing template file with descriptive message
+- [x] Create `crates/sgf/src/prompt.rs` module
+- [x] Wire `pub mod prompt` in `lib.rs`
+- [x] Implement `pub fn assemble(root: &Path, stage: &str, vars: &HashMap<String, String>) -> Result<PathBuf>`
+- [x] Read template from `.sgf/prompts/<stage>.md`
+- [x] Replace all `{{key}}` with corresponding value from `vars`
+- [x] Validate: string scan for remaining `{{...}}` tokens, return error listing unresolved names
+- [x] Create `.sgf/prompts/.assembled/` directory if it doesn't exist
+- [x] Write assembled prompt to `.sgf/prompts/.assembled/<stage>.md`
+- [x] Return the path to the assembled file
+- [x] Error on missing template file with descriptive message
 
 ### Verification
 
-- [ ] Template with `{{spec}}` produces correct substitution (e.g., `pn ready --spec auth --json`)
-- [ ] Template without variables passes through unchanged
-- [ ] Template with unresolved `{{unknown}}` returns error naming the unresolved token
-- [ ] Missing template file returns error with file path
-- [ ] `.assembled/` dir created automatically if absent
-- [ ] `cargo test -p sgf` passes (unit tests for assembly)
-- [ ] `cargo clippy -p sgf -- -D warnings` passes
+- [x] Template with `{{spec}}` produces correct substitution (e.g., `pn ready --spec auth --json`)
+- [x] Template without variables passes through unchanged
+- [x] Template with unresolved `{{unknown}}` returns error naming the unresolved token
+- [x] Missing template file returns error with file path
+- [x] `.assembled/` dir created automatically if absent
+- [x] `cargo test -p sgf` passes (unit tests for assembly)
+- [x] `cargo clippy -p sgf -- -D warnings` passes
+
+### Notes
+
+- Signature takes `root: &Path` as first arg (project root) rather than assuming cwd — consistent with `init::run()` and testable.
+- Used simple string scanning (`find("{{")` / `find("}}"))` instead of regex — no extra dependency needed, the token format is simple enough.
 
 ---
 
