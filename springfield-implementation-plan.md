@@ -292,47 +292,53 @@ Implement automatic pensa daemon startup and pre-launch cleanup of dirty state f
 
 **Source**: [`specs/springfield.md:357-367`](specs/springfield.md) (Daemon Lifecycle), [`specs/springfield.md:335-354`](specs/springfield.md) (Recovery)
 
-- [ ] Create `crates/sgf/src/recovery.rs` module
-- [ ] Wire `pub mod recovery` in `lib.rs`
+- [x] Create `crates/sgf/src/recovery.rs` module
+- [x] Wire `pub mod recovery` in `lib.rs`
 
 ### Daemon lifecycle
 
 Per [`specs/springfield.md:360-366`](specs/springfield.md):
 
-- [ ] Implement `pub fn ensure_daemon(project_dir: &Path) -> Result<()>`
-- [ ] Check daemon reachability: run `pn daemon status`, check exit code 0
-- [ ] If not reachable: spawn `pn daemon --project-dir <project-root>` backgrounded
-- [ ] Poll `pn daemon status` every 100ms, timeout after 5 seconds
-- [ ] Return error if timeout expires
+- [x] Implement `pub fn ensure_daemon(project_dir: &Path) -> Result<()>`
+- [x] Check daemon reachability: run `pn daemon status`, check exit code 0
+- [x] If not reachable: spawn `pn daemon --project-dir <project-root>` backgrounded
+- [x] Poll `pn daemon status` every 100ms, timeout after 5 seconds
+- [x] Return error if timeout expires
 
 ### Pre-launch recovery
 
 Per [`specs/springfield.md:345-354`](specs/springfield.md):
 
-- [ ] Implement `pub fn pre_launch_recovery() -> Result<()>`
-- [ ] Scan all PID files in `.sgf/run/` via `list_pid_files()`
-- [ ] If no PID files exist: skip recovery, return Ok
-- [ ] Check each PID for aliveness via `is_pid_alive()`
-- [ ] If any PID is alive: skip recovery (another loop is running), return Ok
-- [ ] If all PIDs are stale: remove stale PID files
-- [ ] Run `git checkout -- .` to discard tracked file modifications
-- [ ] Run `git clean -fd` to remove untracked files (respects `.gitignore`)
-- [ ] Run `pn doctor --fix` to release stale claims
+- [x] Implement `pub fn pre_launch_recovery(root: &Path) -> Result<()>`
+- [x] Scan all PID files in `.sgf/run/` via `list_pid_files()`
+- [x] If no PID files exist: skip recovery, return Ok
+- [x] Check each PID for aliveness via `is_pid_alive()`
+- [x] If any PID is alive: skip recovery (another loop is running), return Ok
+- [x] If all PIDs are stale: remove stale PID files
+- [x] Run `git checkout -- .` to discard tracked file modifications
+- [x] Run `git clean -fd` to remove untracked files (respects `.gitignore`)
+- [x] Run `pn doctor --fix` to release stale claims
 
 ### Execution order
 
-- [ ] Recovery runs BEFORE daemon startup: `pre_launch_recovery()` → `ensure_daemon()` → launch ralph
+- [x] Recovery runs BEFORE daemon startup: `pre_launch_recovery()` → `ensure_daemon()` → launch ralph
 
 ### Verification
 
-- [ ] `ensure_daemon` starts daemon when not running (requires `pn` on PATH)
-- [ ] `ensure_daemon` skips startup when daemon already running
-- [ ] `ensure_daemon` returns error on timeout
-- [ ] `pre_launch_recovery` skips when no PID files exist
-- [ ] `pre_launch_recovery` skips when a live PID exists
-- [ ] `pre_launch_recovery` cleans up when all PIDs are stale: removes PID files, runs git checkout, git clean, pn doctor
-- [ ] `cargo test -p sgf` passes
-- [ ] `cargo clippy -p sgf -- -D warnings` passes
+- [x] `ensure_daemon` starts daemon when not running (requires `pn` on PATH)
+- [x] `ensure_daemon` skips startup when daemon already running
+- [x] `ensure_daemon` returns error on timeout
+- [x] `pre_launch_recovery` skips when no PID files exist
+- [x] `pre_launch_recovery` skips when a live PID exists
+- [x] `pre_launch_recovery` cleans up when all PIDs are stale: removes PID files, runs git checkout, git clean, pn doctor
+- [x] `cargo test -p sgf` passes
+- [x] `cargo clippy -p sgf -- -D warnings` passes
+
+### Notes
+
+- Recovery warns on `pn doctor --fix` failure rather than returning error — allows recovery to complete even when `pn` is not installed.
+- `ensure_daemon` spawns with null stdio to avoid interfering with sgf's terminal output.
+- `daemon_is_reachable` uses `is_ok_and()` for clean one-liner status check.
 
 ---
 
