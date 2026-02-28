@@ -610,6 +610,30 @@ fn no_loop_id_when_not_provided() {
 }
 
 #[test]
+fn default_template_in_banner() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        stdout.contains("ralph-sandbox:latest"),
+        "startup banner should show default template ralph-sandbox:latest, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn explicit_file_prompt_shows_file_suffix() {
     let dir = setup_test_dir();
     let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");

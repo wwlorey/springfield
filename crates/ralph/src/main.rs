@@ -67,7 +67,7 @@ struct Cli {
     prompt: String,
 
     /// Docker sandbox template image
-    #[arg(long, env = "RALPH_TEMPLATE", default_value = "tauri-sandbox:latest")]
+    #[arg(long, env = "RALPH_TEMPLATE", default_value = "ralph-sandbox:latest")]
     template: String,
 
     /// Safety limit for iterations

@@ -60,7 +60,9 @@ Gap analysis between `specs/ralph.md` (specification) and `crates/ralph/` (imple
 **Current code:** `crates/ralph/src/main.rs:66` — `default_value = "tauri-sandbox:latest"`
 
 **Changes:**
-- [ ] `crates/ralph/src/main.rs:66` — change `default_value = "tauri-sandbox:latest"` to `default_value = "ralph-sandbox:latest"`
+- [x] `crates/ralph/src/main.rs:66` — change `default_value = "tauri-sandbox:latest"` to `default_value = "ralph-sandbox:latest"`
+
+**Status:** Complete. Single-line change to the `#[arg]` default value. All 36 tests pass (19 unit + 17 integration), clippy clean, fmt clean.
 
 ---
 
@@ -134,17 +136,17 @@ Existing tests cover most spec'd cases. The following tests are missing or incor
 
 ### 7e. Add test: correct Docker template default
 
-- [ ] `crates/ralph/tests/integration.rs` — add `default_template_in_banner` test:
+- [x] `crates/ralph/tests/integration.rs` — add `default_template_in_banner` test:
   - Run ralph with default settings
   - Assert stdout banner contains `ralph-sandbox:latest`
 
 ### 7f. Verify all integration tests pass end-to-end
 
-- [ ] Run full test suite: `cargo test -p ralph`
-- [ ] Run full workspace checks:
-  - `cargo build --workspace`
-  - `cargo clippy --workspace -- -D warnings`
-  - `cargo fmt --all -- --check`
+- [x] Run full test suite: `cargo test -p ralph` — 36 tests pass (19 unit + 17 integration)
+- [x] Run full workspace checks:
+  - `cargo build --workspace` — clean
+  - `cargo clippy --workspace -- -D warnings` — clean
+  - `cargo fmt -p ralph -- --check` — clean (note: `crates/sgf/` has pre-existing fmt issues unrelated to this change)
 
 ---
 
