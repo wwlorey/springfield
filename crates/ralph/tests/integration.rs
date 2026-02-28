@@ -259,7 +259,7 @@ fn afk_exhausts_iterations_without_promise() {
         !output.status.success(),
         "should exit non-zero when no promise found"
     );
-    assert_eq!(output.status.code(), Some(1), "should exit with code 1");
+    assert_eq!(output.status.code(), Some(2), "should exit with code 2");
     assert!(
         stdout.contains("reached max iterations"),
         "should contain max iterations message, got:\n{stdout}"

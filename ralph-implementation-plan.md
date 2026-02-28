@@ -26,8 +26,10 @@ Gap analysis between `specs/ralph.md` (specification) and `crates/ralph/` (imple
 **Current code:** `crates/ralph/src/main.rs:175` — uses `std::process::exit(1)` after the loop ends without completion.
 
 **Changes:**
-- [ ] `crates/ralph/src/main.rs:175` — change `std::process::exit(1)` to `std::process::exit(2)`
-- [ ] `crates/ralph/tests/integration.rs:262` — update `afk_exhausts_iterations_without_promise` test: change `assert_eq!(output.status.code(), Some(1), ...)` to `assert_eq!(output.status.code(), Some(2), ...)`
+- [x] `crates/ralph/src/main.rs:175` — change `std::process::exit(1)` to `std::process::exit(2)`
+- [x] `crates/ralph/tests/integration.rs:262` — update `afk_exhausts_iterations_without_promise` test: change `assert_eq!(output.status.code(), Some(1), ...)` to `assert_eq!(output.status.code(), Some(2), ...)`
+
+**Status:** Complete. All 32 tests pass (19 unit + 13 integration), clippy clean, fmt clean.
 
 ---
 

@@ -172,7 +172,7 @@ fn main() {
     println!("========================================");
     println!("Ralph reached max iterations ({})", iterations);
     println!("========================================");
-    std::process::exit(1);
+    std::process::exit(2);
 }
 
 fn print_banner(cli: &Cli, iterations: u32, is_file: bool) {
