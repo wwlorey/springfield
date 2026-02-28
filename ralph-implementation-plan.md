@@ -42,10 +42,12 @@ Gap analysis between `specs/ralph.md` (specification) and `crates/ralph/` (imple
 **Current code:** `crates/ralph/src/main.rs` `Cli` struct (lines 52–80) — no `loop_id` field.
 
 **Changes:**
-- [ ] `crates/ralph/src/main.rs` — add `loop_id: Option<String>` field to the `Cli` struct with `#[arg(long)]`
-- [ ] `crates/ralph/src/main.rs:117` — pass `loop_id` to `print_banner()`
-- [ ] `crates/ralph/src/main.rs:178–227` — update `print_banner()` signature and body to accept and display `loop_id` (e.g., `Loop ID:    build-auth-20260226T143000`)
-- [ ] `crates/ralph/src/main.rs:123–127` — update iteration banner to include loop ID when provided (spec line 327: "Print iteration banner (includes loop ID if provided)")
+- [x] `crates/ralph/src/main.rs` — add `loop_id: Option<String>` field to the `Cli` struct with `#[arg(long)]`
+- [x] `crates/ralph/src/main.rs:117` — pass `loop_id` to `print_banner()`
+- [x] `crates/ralph/src/main.rs:178–227` — update `print_banner()` signature and body to accept and display `loop_id` (e.g., `Loop ID:    build-auth-20260226T143000`)
+- [x] `crates/ralph/src/main.rs:123–127` — update iteration banner to include loop ID when provided (spec line 327: "Print iteration banner (includes loop ID if provided)")
+
+**Status:** Complete. All 35 tests pass (19 unit + 16 integration), clippy clean, fmt clean. Loop ID is displayed in startup banner as `Loop ID:     <id>` and in iteration banner as `Iteration N of M [<id>]`. Both are conditionally shown only when `--loop-id` is provided.
 
 ---
 
@@ -112,7 +114,7 @@ Existing tests cover most spec'd cases. The following tests are missing or incor
 
 > "The startup banner includes mode, prompt source, iteration count, sandbox template, and loop ID (if provided via `--loop-id`)"
 
-- [ ] `crates/ralph/tests/integration.rs` — add `loop_id_in_startup_banner` test:
+- [x] `crates/ralph/tests/integration.rs` — add `loop_id_in_startup_banner` test:
   - Run ralph with `--loop-id build-auth-20260226T143000 --afk --command <mock> 1 prompt.md`
   - Assert stdout contains `build-auth-20260226T143000`
 
@@ -120,13 +122,13 @@ Existing tests cover most spec'd cases. The following tests are missing or incor
 
 **Spec reference:** `specs/ralph.md` line 327
 
-- [ ] `crates/ralph/tests/integration.rs` — add `loop_id_in_iteration_banner` test:
+- [x] `crates/ralph/tests/integration.rs` — add `loop_id_in_iteration_banner` test:
   - Same setup as 7b
   - Assert the iteration banner line includes the loop ID
 
 ### 7d. Add test: loop ID absent when not provided
 
-- [ ] `crates/ralph/tests/integration.rs` — add `no_loop_id_when_not_provided` test:
+- [x] `crates/ralph/tests/integration.rs` — add `no_loop_id_when_not_provided` test:
   - Run ralph WITHOUT `--loop-id`
   - Assert stdout does NOT contain "Loop ID" label
 

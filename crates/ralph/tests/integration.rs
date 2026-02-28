@@ -529,6 +529,87 @@ fn default_prompt_missing() {
 }
 
 #[test]
+fn loop_id_in_startup_banner() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .args([
+            "--afk",
+            "--loop-id",
+            "build-auth-20260226T143000",
+            "--command",
+            mock.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        stdout.contains("Loop ID:     build-auth-20260226T143000"),
+        "startup banner should contain loop ID, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn loop_id_in_iteration_banner() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .args([
+            "--afk",
+            "--loop-id",
+            "build-auth-20260226T143000",
+            "--command",
+            mock.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        stdout.contains("Iteration 1 of 1 [build-auth-20260226T143000]"),
+        "iteration banner should contain loop ID, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn no_loop_id_when_not_provided() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        !stdout.contains("Loop ID"),
+        "should not contain Loop ID label when --loop-id is not provided, got:\n{stdout}"
+    );
+    // Iteration banner should be plain "Iteration N of M" without brackets
+    assert!(
+        stdout.contains("Iteration 1 of 1\n"),
+        "iteration banner should not contain loop ID, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn explicit_file_prompt_shows_file_suffix() {
     let dir = setup_test_dir();
     let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");

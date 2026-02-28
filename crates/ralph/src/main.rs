@@ -54,6 +54,10 @@ struct Cli {
     #[arg(short = 'a', long)]
     afk: bool,
 
+    /// Loop identifier (sgf-generated, included in banner output)
+    #[arg(long)]
+    loop_id: Option<String>,
+
     /// Number of iterations to run
     #[arg(default_value_t = 1)]
     iterations: u32,
@@ -122,7 +126,11 @@ fn main() {
     for i in 1..=iterations {
         println!();
         println!("========================================");
-        println!("Iteration {} of {}", i, iterations);
+        if let Some(ref id) = cli.loop_id {
+            println!("Iteration {} of {} [{}]", i, iterations, id);
+        } else {
+            println!("Iteration {} of {}", i, iterations);
+        }
         println!("========================================");
         println!();
 
@@ -222,6 +230,9 @@ fn print_banner(cli: &Cli, iterations: u32, is_file: bool) {
     }
     println!("Iterations:  {}", iterations);
     println!("Sandbox:     {}", cli.template);
+    if let Some(ref id) = cli.loop_id {
+        println!("Loop ID:     {}", id);
+    }
     println!("========================================");
     println!();
 }
