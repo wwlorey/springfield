@@ -202,3 +202,39 @@ pub struct UpdateFields {
     pub spec: Option<String>,
     pub fixes: Option<String>,
 }
+
+#[derive(Debug, Clone, Default)]
+pub struct ListFilters {
+    pub status: Option<Status>,
+    pub priority: Option<Priority>,
+    pub assignee: Option<String>,
+    pub issue_type: Option<IssueType>,
+    pub spec: Option<String>,
+    pub sort: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CountResult {
+    pub count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupedCountResult {
+    pub total: i64,
+    pub groups: Vec<CountGroup>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CountGroup {
+    pub key: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StatusEntry {
+    pub issue_type: IssueType,
+    pub open: i64,
+    pub in_progress: i64,
+    pub closed: i64,
+}

@@ -92,43 +92,21 @@ Implement `claim_issue`, `release_issue`, `close_issue` (with `fixes` auto-close
 
 ---
 
-## Phase 6: DB — Queries
+## Phase 6: DB — Queries ✅
 
 Implement `list_issues`, `ready_issues`, `blocked_issues`, `search_issues`, `count_issues`, `project_status`, `issue_history`.
 
-- **Source:** [`specs/pensa.md:178-199`](specs/pensa.md)
-- `ListFilters` struct: optional status, priority, assignee, issue_type, spec, sort (`String`), limit (`usize`)
-- `list_issues(filters)`:
-  - Build WHERE clause from non-None filters
-  - Default sort: priority ASC, created_at ASC ([`specs/pensa.md:189`](specs/pensa.md))
-  - Supported sort fields: `priority`, `created_at`, `updated_at`, `status`, `title`
-  - Apply LIMIT if set
-- `ready_issues(filters)`:
-  - WHERE status='open' AND issue_type IN ('task','test','chore') — **bugs excluded** ([`specs/pensa.md:187`](specs/pensa.md))
-  - AND id NOT IN (issues with at least one non-closed dependency)
-  - Sort: priority ASC, created_at ASC
-  - Optional filters: limit, priority, assignee, issue_type, spec
-  - Returns `[]` when nothing matches ([`specs/pensa.md:187`](specs/pensa.md))
-- `blocked_issues()`:
-  - Issues with at least one non-closed dependency ([`specs/pensa.md:192`](specs/pensa.md))
-- `search_issues(query)`:
-  - Case-insensitive LIKE on title + description ([`specs/pensa.md:193`](specs/pensa.md))
-- `count_issues(group_by_fields)`:
-  - No grouping: count of non-closed issues → shape `{"count": N}` ([`specs/pensa.md:195`](specs/pensa.md))
-  - With grouping (by status/priority/issue_type/assignee): grouped counts ([`specs/pensa.md:196`](specs/pensa.md))
-- `project_status()`:
-  - Open/in_progress/closed counts broken down by issue_type ([`specs/pensa.md:197`](specs/pensa.md))
-- `issue_history(id)`:
-  - SELECT from events WHERE issue_id=id ORDER BY created_at DESC ([`specs/pensa.md:199`](specs/pensa.md))
-- **Tests:**
-  - `list_with_filters` — create issues with different statuses/priorities, verify filters work
-  - `ready_excludes_bugs` — create a bug + a task, ready returns only the task
-  - `ready_excludes_blocked` — create A, B, add dep B→A, ready returns A but not B
-  - `blocked_returns_blocked` — same setup, blocked returns B
-  - `search_case_insensitive` — search "LOGIN" matches "login crash"
-  - `count_basic` — count returns correct total
-  - `history_newest_first` — create, update, close → history returns close, update, create
-- **Verify:** build + test + clippy + fmt
+- ✅ `ListFilters` struct: optional status, priority, assignee, issue_type, spec, sort (`String`), limit (`usize`)
+- ✅ New types: `CountResult`, `GroupedCountResult`, `CountGroup`, `StatusEntry`
+- ✅ `list_issues(filters)` — dynamic WHERE + ORDER BY + LIMIT, default sort priority ASC then created_at ASC
+- ✅ `ready_issues(filters)` — WHERE status='open' AND issue_type IN ('task','test','chore') AND no non-closed deps
+- ✅ `blocked_issues()` — DISTINCT join on deps + blocker issues where blocker.status != 'closed'
+- ✅ `search_issues(query)` — case-insensitive LIKE on title + description
+- ✅ `count_issues(group_by_fields)` — returns `{"count": N}` (no grouping) or `{"total": N, "groups": [...]}` (grouped)
+- ✅ `project_status()` — SUM/CASE pivot by issue_type → open/in_progress/closed counts
+- ✅ `issue_history(id)` — SELECT from events ORDER BY created_at DESC, id DESC
+- ✅ Tests: `list_with_filters`, `ready_excludes_bugs`, `ready_excludes_blocked`, `blocked_returns_blocked`, `search_case_insensitive`, `count_basic`, `history_newest_first` (7 new, 23 total)
+- ✅ Verified: build + test (23 pass) + clippy + fmt
 
 ---
 

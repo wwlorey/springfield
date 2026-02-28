@@ -7,7 +7,10 @@ use rusqlite::types::Value;
 
 use crate::error::PensaError;
 use crate::id::generate_id;
-use crate::types::{Comment, CreateIssueParams, Issue, IssueDetail, Status, UpdateFields};
+use crate::types::{
+    Comment, CountGroup, CountResult, CreateIssueParams, Event, GroupedCountResult, Issue,
+    IssueDetail, ListFilters, Status, StatusEntry, UpdateFields,
+};
 
 pub struct Db {
     pub conn: Connection,
@@ -479,6 +482,268 @@ impl Db {
 
         self.get_issue_only(id)
     }
+
+    pub fn list_issues(&self, filters: &ListFilters) -> Result<Vec<Issue>, PensaError> {
+        let mut conditions = Vec::new();
+        let mut values: Vec<Value> = Vec::new();
+
+        if let Some(status) = &filters.status {
+            conditions.push("status = ?");
+            values.push(Value::Text(status.as_str().to_string()));
+        }
+        if let Some(priority) = &filters.priority {
+            conditions.push("priority = ?");
+            values.push(Value::Text(priority.as_str().to_string()));
+        }
+        if let Some(assignee) = &filters.assignee {
+            conditions.push("assignee = ?");
+            values.push(Value::Text(assignee.clone()));
+        }
+        if let Some(issue_type) = &filters.issue_type {
+            conditions.push("issue_type = ?");
+            values.push(Value::Text(issue_type.as_str().to_string()));
+        }
+        if let Some(spec) = &filters.spec {
+            conditions.push("spec = ?");
+            values.push(Value::Text(spec.clone()));
+        }
+
+        let where_clause = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
+        };
+
+        let sort_field = filters.sort.as_deref().unwrap_or("priority");
+        let order_clause = match sort_field {
+            "priority" => "ORDER BY priority ASC, created_at ASC",
+            "created_at" => "ORDER BY created_at ASC",
+            "updated_at" => "ORDER BY updated_at ASC",
+            "status" => "ORDER BY status ASC, created_at ASC",
+            "title" => "ORDER BY title ASC",
+            _ => "ORDER BY priority ASC, created_at ASC",
+        };
+
+        let limit_clause = filters
+            .limit
+            .map(|n| format!("LIMIT {n}"))
+            .unwrap_or_default();
+
+        let sql = format!("SELECT * FROM issues {where_clause} {order_clause} {limit_clause}");
+
+        let mut stmt = self
+            .conn
+            .prepare(&sql)
+            .map_err(|e| PensaError::Internal(format!("failed to prepare list query: {e}")))?;
+        let issues = stmt
+            .query_map(rusqlite::params_from_iter(&values), issue_from_row)
+            .map_err(|e| PensaError::Internal(format!("failed to list issues: {e}")))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| PensaError::Internal(format!("failed to read issues: {e}")))?;
+
+        Ok(issues)
+    }
+
+    pub fn ready_issues(&self, filters: &ListFilters) -> Result<Vec<Issue>, PensaError> {
+        let mut conditions = vec![
+            "status = 'open'".to_string(),
+            "issue_type IN ('task', 'test', 'chore')".to_string(),
+            "id NOT IN (SELECT d.issue_id FROM deps d JOIN issues i ON d.depends_on_id = i.id WHERE i.status != 'closed')".to_string(),
+        ];
+        let mut values: Vec<Value> = Vec::new();
+
+        if let Some(priority) = &filters.priority {
+            conditions.push("priority = ?".to_string());
+            values.push(Value::Text(priority.as_str().to_string()));
+        }
+        if let Some(assignee) = &filters.assignee {
+            conditions.push("assignee = ?".to_string());
+            values.push(Value::Text(assignee.clone()));
+        }
+        if let Some(issue_type) = &filters.issue_type {
+            conditions.push("issue_type = ?".to_string());
+            values.push(Value::Text(issue_type.as_str().to_string()));
+        }
+        if let Some(spec) = &filters.spec {
+            conditions.push("spec = ?".to_string());
+            values.push(Value::Text(spec.clone()));
+        }
+
+        let where_clause = format!("WHERE {}", conditions.join(" AND "));
+        let limit_clause = filters
+            .limit
+            .map(|n| format!("LIMIT {n}"))
+            .unwrap_or_default();
+
+        let sql = format!(
+            "SELECT * FROM issues {where_clause} ORDER BY priority ASC, created_at ASC {limit_clause}"
+        );
+
+        let mut stmt = self
+            .conn
+            .prepare(&sql)
+            .map_err(|e| PensaError::Internal(format!("failed to prepare ready query: {e}")))?;
+        let issues = stmt
+            .query_map(rusqlite::params_from_iter(&values), issue_from_row)
+            .map_err(|e| PensaError::Internal(format!("failed to query ready issues: {e}")))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| PensaError::Internal(format!("failed to read ready issues: {e}")))?;
+
+        Ok(issues)
+    }
+
+    pub fn blocked_issues(&self) -> Result<Vec<Issue>, PensaError> {
+        let sql = "SELECT DISTINCT i.* FROM issues i
+                    JOIN deps d ON d.issue_id = i.id
+                    JOIN issues blocker ON d.depends_on_id = blocker.id
+                    WHERE blocker.status != 'closed'
+                    ORDER BY i.priority ASC, i.created_at ASC";
+
+        let mut stmt = self
+            .conn
+            .prepare(sql)
+            .map_err(|e| PensaError::Internal(format!("failed to prepare blocked query: {e}")))?;
+        let issues = stmt
+            .query_map([], issue_from_row)
+            .map_err(|e| PensaError::Internal(format!("failed to query blocked issues: {e}")))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| PensaError::Internal(format!("failed to read blocked issues: {e}")))?;
+
+        Ok(issues)
+    }
+
+    pub fn search_issues(&self, query: &str) -> Result<Vec<Issue>, PensaError> {
+        let pattern = format!("%{query}%");
+        let sql = "SELECT * FROM issues WHERE title LIKE ?1 OR description LIKE ?1 ORDER BY priority ASC, created_at ASC";
+
+        let mut stmt = self
+            .conn
+            .prepare(sql)
+            .map_err(|e| PensaError::Internal(format!("failed to prepare search query: {e}")))?;
+        let issues = stmt
+            .query_map(rusqlite::params![pattern], issue_from_row)
+            .map_err(|e| PensaError::Internal(format!("failed to search issues: {e}")))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| PensaError::Internal(format!("failed to read search results: {e}")))?;
+
+        Ok(issues)
+    }
+
+    pub fn count_issues(&self, group_by: &[&str]) -> Result<serde_json::Value, PensaError> {
+        if group_by.is_empty() {
+            let count: i64 = self
+                .conn
+                .query_row(
+                    "SELECT COUNT(*) FROM issues WHERE status != 'closed'",
+                    [],
+                    |row| row.get(0),
+                )
+                .map_err(|e| PensaError::Internal(format!("failed to count issues: {e}")))?;
+
+            return Ok(serde_json::to_value(CountResult { count }).unwrap());
+        }
+
+        let valid_fields: &[&str] = &["status", "priority", "issue_type", "assignee"];
+        for field in group_by {
+            if !valid_fields.contains(field) {
+                return Err(PensaError::Internal(format!(
+                    "invalid group_by field: {field}"
+                )));
+            }
+        }
+
+        let group_clause = group_by.join(", ");
+        let sql = format!(
+            "SELECT {group_clause}, COUNT(*) as cnt FROM issues GROUP BY {group_clause} ORDER BY {group_clause}"
+        );
+
+        let mut stmt = self
+            .conn
+            .prepare(&sql)
+            .map_err(|e| PensaError::Internal(format!("failed to prepare count query: {e}")))?;
+
+        let groups = stmt
+            .query_map([], |row| {
+                let mut key_parts = Vec::new();
+                for i in 0..group_by.len() {
+                    let val: String = row.get(i)?;
+                    key_parts.push(val);
+                }
+                let count: i64 = row.get(group_by.len())?;
+                Ok(CountGroup {
+                    key: key_parts.join("/"),
+                    count,
+                })
+            })
+            .map_err(|e| PensaError::Internal(format!("failed to count issues: {e}")))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| PensaError::Internal(format!("failed to read count results: {e}")))?;
+
+        let total: i64 = groups.iter().map(|g| g.count).sum();
+
+        Ok(serde_json::to_value(GroupedCountResult { total, groups }).unwrap())
+    }
+
+    pub fn project_status(&self) -> Result<Vec<StatusEntry>, PensaError> {
+        let sql = "SELECT issue_type,
+                          SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END) as open_count,
+                          SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress_count,
+                          SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END) as closed_count
+                   FROM issues
+                   GROUP BY issue_type
+                   ORDER BY issue_type";
+
+        let mut stmt = self
+            .conn
+            .prepare(sql)
+            .map_err(|e| PensaError::Internal(format!("failed to prepare status query: {e}")))?;
+
+        let entries = stmt
+            .query_map([], |row| {
+                let issue_type_str: String = row.get(0)?;
+                Ok(StatusEntry {
+                    issue_type: issue_type_str.parse().unwrap(),
+                    open: row.get(1)?,
+                    in_progress: row.get(2)?,
+                    closed: row.get(3)?,
+                })
+            })
+            .map_err(|e| PensaError::Internal(format!("failed to query project status: {e}")))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| PensaError::Internal(format!("failed to read project status: {e}")))?;
+
+        Ok(entries)
+    }
+
+    pub fn issue_history(&self, id: &str) -> Result<Vec<Event>, PensaError> {
+        self.get_issue_only(id)?;
+
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, issue_id, event_type, actor, detail, created_at
+                 FROM events WHERE issue_id = ?1 ORDER BY created_at DESC, id DESC",
+            )
+            .map_err(|e| PensaError::Internal(format!("failed to prepare history query: {e}")))?;
+
+        let events = stmt
+            .query_map(rusqlite::params![id], |row| {
+                let created_at_str: String = row.get("created_at")?;
+                Ok(Event {
+                    id: row.get("id")?,
+                    issue_id: row.get("issue_id")?,
+                    event_type: row.get("event_type")?,
+                    actor: row.get("actor")?,
+                    detail: row.get("detail")?,
+                    created_at: parse_dt(&created_at_str),
+                })
+            })
+            .map_err(|e| PensaError::Internal(format!("failed to query history: {e}")))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| PensaError::Internal(format!("failed to read history: {e}")))?;
+
+        Ok(events)
+    }
 }
 
 pub fn now() -> String {
@@ -862,5 +1127,221 @@ mod tests {
             )
             .unwrap();
         assert_eq!(event_count, 0);
+    }
+
+    // --- Phase 6: Query tests ---
+
+    fn create_issue_with(db: &Db, title: &str, issue_type: IssueType, priority: Priority) -> Issue {
+        db.create_issue(&CreateIssueParams {
+            title: title.into(),
+            issue_type,
+            priority,
+            description: None,
+            spec: None,
+            fixes: None,
+            assignee: None,
+            deps: vec![],
+            actor: "test-agent".into(),
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn list_with_filters() {
+        let (db, _dir) = open_temp_db();
+
+        let _t1 = create_issue_with(&db, "task p0", IssueType::Task, Priority::P0);
+        let _t2 = create_issue_with(&db, "task p2", IssueType::Task, Priority::P2);
+        let _b1 = create_issue_with(&db, "bug p1", IssueType::Bug, Priority::P1);
+        let closed = create_task(&db, "closed task");
+        db.close_issue(&closed.id, None, false, "test-agent")
+            .unwrap();
+
+        // No filters — returns all 4
+        let all = db.list_issues(&ListFilters::default()).unwrap();
+        assert_eq!(all.len(), 4);
+        // Default sort: priority ASC — p0 first
+        assert_eq!(all[0].priority, Priority::P0);
+
+        // Filter by status=open
+        let open = db
+            .list_issues(&ListFilters {
+                status: Some(Status::Open),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(open.len(), 3);
+        assert!(open.iter().all(|i| i.status == Status::Open));
+
+        // Filter by issue_type=bug
+        let bugs = db
+            .list_issues(&ListFilters {
+                issue_type: Some(IssueType::Bug),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(bugs.len(), 1);
+        assert_eq!(bugs[0].title, "bug p1");
+
+        // Filter by priority
+        let p0s = db
+            .list_issues(&ListFilters {
+                priority: Some(Priority::P0),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(p0s.len(), 1);
+        assert_eq!(p0s[0].title, "task p0");
+
+        // With limit
+        let limited = db
+            .list_issues(&ListFilters {
+                limit: Some(2),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(limited.len(), 2);
+
+        // Sort by title
+        let by_title = db
+            .list_issues(&ListFilters {
+                sort: Some("title".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(by_title[0].title, "bug p1");
+    }
+
+    #[test]
+    fn ready_excludes_bugs() {
+        let (db, _dir) = open_temp_db();
+
+        create_issue_with(&db, "a bug", IssueType::Bug, Priority::P0);
+        create_issue_with(&db, "a task", IssueType::Task, Priority::P1);
+
+        let ready = db.ready_issues(&ListFilters::default()).unwrap();
+        assert_eq!(ready.len(), 1);
+        assert_eq!(ready[0].title, "a task");
+    }
+
+    #[test]
+    fn ready_excludes_blocked() {
+        let (db, _dir) = open_temp_db();
+
+        let a = create_task(&db, "task A");
+        let b = create_task(&db, "task B");
+
+        // B depends on A
+        db.conn
+            .execute(
+                "INSERT INTO deps (issue_id, depends_on_id) VALUES (?1, ?2)",
+                rusqlite::params![b.id, a.id],
+            )
+            .unwrap();
+
+        let ready = db.ready_issues(&ListFilters::default()).unwrap();
+        let ready_ids: Vec<&str> = ready.iter().map(|i| i.id.as_str()).collect();
+        assert!(ready_ids.contains(&a.id.as_str()));
+        assert!(!ready_ids.contains(&b.id.as_str()));
+    }
+
+    #[test]
+    fn blocked_returns_blocked() {
+        let (db, _dir) = open_temp_db();
+
+        let a = create_task(&db, "task A");
+        let b = create_task(&db, "task B");
+
+        // B depends on A (A is open, so B is blocked)
+        db.conn
+            .execute(
+                "INSERT INTO deps (issue_id, depends_on_id) VALUES (?1, ?2)",
+                rusqlite::params![b.id, a.id],
+            )
+            .unwrap();
+
+        let blocked = db.blocked_issues().unwrap();
+        assert_eq!(blocked.len(), 1);
+        assert_eq!(blocked[0].id, b.id);
+    }
+
+    #[test]
+    fn search_case_insensitive() {
+        let (db, _dir) = open_temp_db();
+
+        db.create_issue(&CreateIssueParams {
+            title: "login crash on Safari".into(),
+            issue_type: IssueType::Bug,
+            priority: Priority::P0,
+            description: Some("user sees blank screen".into()),
+            spec: None,
+            fixes: None,
+            assignee: None,
+            deps: vec![],
+            actor: "test-agent".into(),
+        })
+        .unwrap();
+        create_task(&db, "implement auth");
+
+        // Case-insensitive search on title
+        let results = db.search_issues("LOGIN").unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "login crash on Safari");
+
+        // Search on description
+        let results = db.search_issues("blank screen").unwrap();
+        assert_eq!(results.len(), 1);
+
+        // No match
+        let results = db.search_issues("nonexistent").unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn count_basic() {
+        let (db, _dir) = open_temp_db();
+
+        create_task(&db, "task 1");
+        create_task(&db, "task 2");
+        let closed = create_task(&db, "task 3");
+        db.close_issue(&closed.id, None, false, "test-agent")
+            .unwrap();
+
+        // Count non-closed
+        let result = db.count_issues(&[]).unwrap();
+        assert_eq!(result["count"], 2);
+
+        // Count grouped by status
+        let result = db.count_issues(&["status"]).unwrap();
+        assert_eq!(result["total"], 3);
+        let groups = result["groups"].as_array().unwrap();
+        assert!(!groups.is_empty());
+    }
+
+    #[test]
+    fn history_newest_first() {
+        let (db, _dir) = open_temp_db();
+
+        let issue = create_task(&db, "lifecycle test");
+
+        db.update_issue(
+            &issue.id,
+            &UpdateFields {
+                title: Some("updated title".into()),
+                ..Default::default()
+            },
+            "test-agent",
+        )
+        .unwrap();
+
+        db.close_issue(&issue.id, Some("done"), false, "test-agent")
+            .unwrap();
+
+        let history = db.issue_history(&issue.id).unwrap();
+        assert_eq!(history.len(), 3);
+        // Newest first
+        assert_eq!(history[0].event_type, "closed");
+        assert_eq!(history[1].event_type, "updated");
+        assert_eq!(history[2].event_type, "created");
     }
 }
