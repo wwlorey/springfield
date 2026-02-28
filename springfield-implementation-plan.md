@@ -61,58 +61,58 @@ Implement the core `sgf init` command that creates the full project structure.
 
 **Source**: [`specs/springfield.md:43-184`](specs/springfield.md) (sgf init)
 
-- [ ] Create `crates/sgf/src/init.rs` module
-- [ ] Wire `pub mod init` in `lib.rs`
-- [ ] Wire `sgf init` in `main.rs` to call `init::run()`
+- [x] Create `crates/sgf/src/init.rs` module
+- [x] Wire `pub mod init` in `lib.rs`
+- [x] Wire `sgf init` in `main.rs` to call `init::run()`
 
 ### Template files
 
-- [ ] Create `crates/sgf/templates/` directory for `include_str!` embedding
-- [ ] Create `crates/sgf/templates/backpressure.md` with content from [`specs/springfield.md:662-754`](specs/springfield.md)
-- [ ] Create `crates/sgf/templates/spec.md` with content from [`specs/springfield.md:483-509`](specs/springfield.md)
-- [ ] Create `crates/sgf/templates/build.md` with content from [`specs/springfield.md:513-537`](specs/springfield.md)
-- [ ] Create `crates/sgf/templates/verify.md` with content from [`specs/springfield.md:541-559`](specs/springfield.md)
-- [ ] Create `crates/sgf/templates/test-plan.md` with content from [`specs/springfield.md:563-579`](specs/springfield.md)
-- [ ] Create `crates/sgf/templates/test.md` with content from [`specs/springfield.md:583-607`](specs/springfield.md)
-- [ ] Create `crates/sgf/templates/issues.md` with content from [`specs/springfield.md:611-627`](specs/springfield.md)
-- [ ] Create `crates/sgf/templates/issues-plan.md` with content from [`specs/springfield.md:631-654`](specs/springfield.md)
+- [x] Create `crates/sgf/templates/` directory for `include_str!` embedding
+- [x] Create `crates/sgf/templates/backpressure.md` with content from [`specs/springfield.md:662-754`](specs/springfield.md)
+- [x] Create `crates/sgf/templates/spec.md` with content from [`specs/springfield.md:483-509`](specs/springfield.md)
+- [x] Create `crates/sgf/templates/build.md` with content from [`specs/springfield.md:513-537`](specs/springfield.md)
+- [x] Create `crates/sgf/templates/verify.md` with content from [`specs/springfield.md:541-559`](specs/springfield.md)
+- [x] Create `crates/sgf/templates/test-plan.md` with content from [`specs/springfield.md:563-579`](specs/springfield.md)
+- [x] Create `crates/sgf/templates/test.md` with content from [`specs/springfield.md:583-607`](specs/springfield.md)
+- [x] Create `crates/sgf/templates/issues.md` with content from [`specs/springfield.md:611-627`](specs/springfield.md)
+- [x] Create `crates/sgf/templates/issues-plan.md` with content from [`specs/springfield.md:631-654`](specs/springfield.md)
 
 ### Directory creation
 
 Per [`specs/springfield.md:49-71`](specs/springfield.md):
 
-- [ ] Create `.pensa/` directory
-- [ ] Create `.sgf/` directory
-- [ ] Create `.sgf/logs/` directory
-- [ ] Create `.sgf/run/` directory
-- [ ] Create `.sgf/prompts/` directory
-- [ ] Create `.sgf/prompts/.assembled/` directory
-- [ ] Create `specs/` directory
+- [x] Create `.pensa/` directory
+- [x] Create `.sgf/` directory
+- [x] Create `.sgf/logs/` directory
+- [x] Create `.sgf/run/` directory
+- [x] Create `.sgf/prompts/` directory
+- [x] Create `.sgf/prompts/.assembled/` directory
+- [x] Create `specs/` directory
 
 ### File creation (skip if exists)
 
 Per [`specs/springfield.md:49-71`](specs/springfield.md):
 
-- [ ] Write `.sgf/backpressure.md` (from embedded template)
-- [ ] Write `.sgf/prompts/spec.md` (from embedded template)
-- [ ] Write `.sgf/prompts/build.md` (from embedded template)
-- [ ] Write `.sgf/prompts/verify.md` (from embedded template)
-- [ ] Write `.sgf/prompts/test-plan.md` (from embedded template)
-- [ ] Write `.sgf/prompts/test.md` (from embedded template)
-- [ ] Write `.sgf/prompts/issues.md` (from embedded template)
-- [ ] Write `.sgf/prompts/issues-plan.md` (from embedded template)
-- [ ] Write `memento.md` with skeleton content from [`specs/springfield.md:153-165`](specs/springfield.md)
-- [ ] Write `CLAUDE.md` with `Read memento.md and AGENTS.md before starting work.` ([`specs/springfield.md:169-171`](specs/springfield.md))
-- [ ] Write `specs/README.md` with empty spec index table ([`specs/springfield.md:176-180`](specs/springfield.md))
+- [x] Write `.sgf/backpressure.md` (from embedded template)
+- [x] Write `.sgf/prompts/spec.md` (from embedded template)
+- [x] Write `.sgf/prompts/build.md` (from embedded template)
+- [x] Write `.sgf/prompts/verify.md` (from embedded template)
+- [x] Write `.sgf/prompts/test-plan.md` (from embedded template)
+- [x] Write `.sgf/prompts/test.md` (from embedded template)
+- [x] Write `.sgf/prompts/issues.md` (from embedded template)
+- [x] Write `.sgf/prompts/issues-plan.md` (from embedded template)
+- [x] Write `memento.md` with skeleton content from [`specs/springfield.md:153-165`](specs/springfield.md)
+- [x] Write `CLAUDE.md` with `Read memento.md and AGENTS.md before starting work.` ([`specs/springfield.md:169-171`](specs/springfield.md))
+- [x] Write `specs/README.md` with empty spec index table ([`specs/springfield.md:176-180`](specs/springfield.md))
 
 ### Verification
 
-- [ ] `sgf init` in a temp dir creates all 7 directories
-- [ ] `sgf init` in a temp dir creates all 11 files
-- [ ] File contents match spec exactly (spot-check `CLAUDE.md`, `memento.md`, one prompt template)
-- [ ] Existing files are NOT overwritten on second run
-- [ ] `cargo build -p sgf` compiles
-- [ ] `cargo clippy -p sgf -- -D warnings` passes
+- [x] `sgf init` in a temp dir creates all 7 directories
+- [x] `sgf init` in a temp dir creates all 11 files
+- [x] File contents match spec exactly (spot-check `CLAUDE.md`, `memento.md`, one prompt template)
+- [x] Existing files are NOT overwritten on second run
+- [x] `cargo build -p sgf` compiles
+- [x] `cargo clippy -p sgf -- -D warnings` passes
 
 ---
 

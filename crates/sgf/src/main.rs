@@ -107,7 +107,11 @@ fn main() {
 
     match cli.command {
         Commands::Init => {
-            eprintln!("sgf init: not yet implemented");
+            let root = std::env::current_dir().expect("failed to get current directory");
+            if let Err(e) = sgf::init::run(&root) {
+                eprintln!("sgf init: {e}");
+                std::process::exit(1);
+            }
         }
         Commands::Spec => {
             eprintln!("sgf spec: not yet implemented");
