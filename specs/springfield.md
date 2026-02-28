@@ -702,7 +702,7 @@ The following is the full content of `.sgf/BACKPRESSURE.md` that `sgf init` writ
 ````markdown
 # Backpressure — Building, Testing, Linting, Formatting, Integration Tests, and Code Scanning
 
-After making changes, apply FULL BACKPRESSURE to verify behavior.
+**After making changes, apply FULL BACKPRESSURE to verify behavior as appropriate.**
 
 ---
 
@@ -718,79 +718,54 @@ After making changes, apply FULL BACKPRESSURE to verify behavior.
 
 ### Long Running Tests
 
-Some tests are gated behind `#[ignore]` because they use expensive operations (e.g., production Argon2 params, real LLM inference). These tests validate production behavior but are too slow for routine development.
+Some tests may be gated behind `#[ignore]` because they use expensive operations (e.g., production Argon2 params, real LLM inference). These tests validate production behavior but are too slow for routine development.
 
 - **Run ignored tests:** `cargo test -p <crate> <test_name> -- --ignored`
 - **Run all tests including ignored:** `cargo test --workspace -- --ignored`
 
-### Model-Dependent Tests (Requires Downloaded Models)
-
-Some ignored tests require large models to be present. The model may be auto-downloaded on first build.
-
-```bash
-cargo test -p <crate> -- --ignored --test-threads=1
-```
-
-These tests run LLM inference on CPU and are slow (~2-10 min per test). Use `--test-threads=1` to avoid memory exhaustion from multiple model instances.
-
 ---
 
-## Frontend (Tauri, SvelteKit)
+## Frontend
 
-> Stack: TypeScript, Svelte 5, SvelteKit (static adapter), Vitest, @testing-library/svelte, WebdriverIO
+> Stack: TypeScript, Svelte 5, SvelteKit, Vitest, @testing-library/svelte, Playwright
 >
-> **Working directory:** adjust as needed (all frontend commands run from the frontend directory)
+> **Working directory:** adjust as needed (all frontend commands run from the frontend directory, as applicable)
 
-- **Build frontend:** `pnpm build`
-- **Build Tauri app:** `pnpm tauri build`
-- **Build Tauri app (debug):** `pnpm tauri build --debug`
-- **Unit tests:** `pnpm vitest run`
-- **Unit tests (watch):** `pnpm vitest`
-- **Unit test single file:** `pnpm vitest run <path>` (e.g., `pnpm vitest run src/lib/components/Auth/LoginScreen.test.ts`)
-- **Type check:** `pnpm tsc --noEmit`
-- **Svelte check:** `pnpm svelte-check --tsconfig ./tsconfig.json`
-- **Lint:** `pnpm lint`
-- **Lint fix:** `pnpm lint:fix`
-- **Format:** `pnpm format`
-- **Format check:** `pnpm format:check`
+- **Build:** `pnpm run build`
+- **Unit tests:** `pnpm run vitest run`
+- **Unit tests (watch):** `pnpm run vitest`
+- **Unit test single file:** `pnpm run vitest run <path>` (e.g., `pnpm run vitest run src/lib/components/Auth/LoginScreen.test.ts`)
+- **Type check:** `pnpm run tsc --noEmit`
+- **Svelte check:** `pnpm run svelte-check --tsconfig ./tsconfig.json`
+- **Lint:** `pnpm run lint`
+- **Lint fix:** `pnpm run lint:fix`
+- **Format:** `pnpm run format`
+- **Format check:** `pnpm run format:check`
+- **Full check:** `pnpm run check`
 
-### E2E Tests (Linux Only)
+### Tauri
 
-E2E tests run on **Linux only** using WebKitWebDriver. macOS is not supported for E2E testing (no WebDriver access to WKWebView).
+Delete this section if the project does not use Tauri.
+
+- **Build Tauri app:** `pnpm run tauri build`
+- **Build Tauri app (debug):** `pnpm run tauri build --debug`
+
+### E2E Tests (Playwright)
+
+Delete this section if the project uses Tauri (use the Tauri E2E section below instead).
+
+- **E2E tests:** `pnpm run test:e2e`
+
+### E2E Tests (Tauri, Linux Only)
+
+Delete this section if the project does not use Tauri.
+
+E2E tests run on **Linux only** using WebdriverIO + WebKitWebDriver. macOS is not supported for E2E testing (no WebDriver access to WKWebView).
 
 **Linux prerequisites:**
 ```bash
 sudo apt-get install webkit2gtk-driver libwebkit2gtk-4.1-dev
 ```
-
-**Running E2E tests:**
-- **E2E tests (debug build, default):** `BUDDY_MOCK_AUDIO=1 pnpm wdio run wdio.conf.js`
-- **E2E tests (release build):** `WDIO_RELEASE=1 BUDDY_MOCK_AUDIO=1 pnpm wdio run wdio.conf.js`
-- **E2E single test:** `BUDDY_MOCK_AUDIO=1 pnpm wdio run wdio.conf.js --spec e2e/auth.test.ts`
-
-**Environment variables:**
-- `BUDDY_MOCK_AUDIO=1` - Required for recording tests (uses mock audio file instead of real microphone)
-- `BUDDY_MOCK_LLM=1` - Use canned LLM responses (fast, for CI)
-- `BUDDY_E2E_ISOLATED=1` - Clear app data before test suite (for full isolation)
-- `WDIO_RELEASE=1` - Use release build instead of debug (default is debug for faster iteration)
-
----
-
-## Frontend (SvelteKit, Vite)
-
-> Stack: JavaScript, Svelte, Vitest, Playwright
-
-- **Build:** `pnpm run build`
-- **Unit tests:** `pnpm run test`
-- **Unit tests (watch):** `pnpm run test:watch`
-- **Unit test single file:** `pnpm vitest run <path>` (e.g., `pnpm vitest run src/lib/stores/progress.test.js`)
-- **E2E tests:** `pnpm run test:e2e`
-- **Lint:** `pnpm run lint`
-- **Lint fix:** `pnpm run lint:fix`
-- **Format:** `pnpm run format`
-- **Format check:** `pnpm run format:check`
-- **Validate data:** `pnpm run validate:data`
-- **Full check:** `pnpm run check`
 ````
 
 ---
@@ -897,6 +872,9 @@ RUN pnpm setup && \
     typescript \
     @tauri-apps/cli
 
+# Install Playwright browsers
+RUN pnpm exec playwright install --with-deps
+
 # Install pensa CLI
 USER root
 COPY pn /usr/local/bin/pn
@@ -909,7 +887,7 @@ USER agent
 WORKDIR /home/agent
 
 # Verify installations
-RUN rustc --version && cargo --version && node --version && pnpm --version && pn --help
+RUN rustc --version && cargo --version && node --version && pnpm --version && pnpm exec playwright --version && pn --help
 ```
 
 ### sgf template build
