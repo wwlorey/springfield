@@ -311,46 +311,24 @@ End-to-end tests that start a real daemon, run `pn` commands against it, and ass
 
 ---
 
-## Phase 16: Integration Tests — Advanced Scenarios
+## Phase 16: Integration Tests — Advanced Scenarios ✅
 
-- **Test: Dependencies and ready** ([`specs/pensa.md:395`](specs/pensa.md)):
-  - Create task-A and task-B → `pn dep add B A` (B depends on A)
-  - `pn ready --json` → assert B is absent (blocked), A is present
-  - `pn blocked --json` → assert B is listed
-  - `pn close A` → `pn ready --json` → assert B now appears
-  - `pn dep list B --json` → verify dep structure
-- **Test: Cycle detection** ([`specs/pensa.md:396`](specs/pensa.md)):
-  - Create A, B, C → `pn dep add B A` → `pn dep add C B` → `pn dep add A C` → assert exit 1, stderr contains `cycle_detected`
-  - `pn dep cycles --json` → assert `[]` (the cycle was rejected)
-- **Test: `ready` excludes bugs** ([`specs/pensa.md:398`](specs/pensa.md)):
-  - Create a bug (open) → `pn ready --json` → assert the bug is not in the result
-  - Create a task (open) → `pn ready --json` → assert the task is in the result
-- **Test: Export/import round-trip** ([`specs/pensa.md:399`](specs/pensa.md)):
-  - Create several issues with deps and comments → `pn export` → verify `.pensa/*.jsonl` files exist
-  - Delete `db.sqlite` → `pn import` → `pn list --json` → assert all data intact, matches pre-export state
-  - Verify JSONL files are sorted (issues by created_at, deps by issue_id then depends_on_id, comments by created_at — [`specs/pensa.md:363-371`](specs/pensa.md))
-- **Test: Doctor** ([`specs/pensa.md:400`](specs/pensa.md)):
-  - Create issues → claim them (set in_progress) → `pn doctor --json` → assert stale claims reported
-  - `pn doctor --fix --json` → assert fixes applied
-  - `pn list --status open --json` → assert all previously claimed issues are now open
-- **Test: Concurrent claims** ([`specs/pensa.md:401`](specs/pensa.md)):
-  - Create a task → spawn two `pn update <id> --claim` processes simultaneously → assert exactly one succeeds, one fails with `already_claimed`
-- **Test: Search:**
-  - Create issues with distinct titles → `pn search "login" --json` → assert only matching issues returned
-  - Verify case-insensitive: search for "LOGIN" matches "login crash"
-- **Test: Comments:**
-  - Create issue → `pn comment add <id> "observation" --json` → assert comment returned
-  - `pn comment list <id> --json` → assert array with the comment
-- **Test: History:**
-  - Create issue → update it → close it → `pn history <id> --json` → assert events in newest-first order, covering create/update/close
-- **Test: JSON output shapes** ([`specs/pensa.md:402`](specs/pensa.md)):
-  - For each command, run with `--json` and validate output matches documented shapes ([`specs/pensa.md:290-305`](specs/pensa.md)):
-    - `create` returns single issue object
-    - `list` returns array
-    - `ready` returns array (and `[]` when nothing matches)
-    - `count` returns `{"count": N}` or `{"total": N, "groups": [...]}`
-    - `dep tree` returns flat array of `DepTreeNode` objects
-    - etc.
-- **Test: Human-readable output:**
-  - Run `pn list` (without `--json`) → assert stdout contains formatted text, not JSON
-- **Verify:** `cargo test -p pensa`
+- ✅ **Test: `deps_and_ready`** — create A, B → dep B→A → verify ready excludes B, blocked includes B → close A → B becomes ready → dep list B includes A
+- ✅ **Test: `cycle_detection`** — create A, B, C chain → adding cycle dep fails with `cycle_detected` → `dep cycles` returns `[]`
+- ✅ **Test: `ready_excludes_bugs`** — create bug + task → ready excludes bug, includes task
+- ✅ **Test: `export_import_roundtrip`** — create issues with deps + comments → export → import → verify all data intact (issue count, deps, comments)
+- ✅ **Test: `doctor_detects_and_fixes`** — create + claim tasks → doctor reports stale claims → doctor --fix releases them → verify all open
+- ✅ **Test: `concurrent_claims`** — spawn two simultaneous claim processes → exactly one succeeds, one fails
+- ✅ **Test: `search_issues`** — create issues with distinct titles → search by substring, case-insensitive, partial match
+- ✅ **Test: `comments_add_and_list`** — add multiple comments → list returns them in order with correct fields
+- ✅ **Test: `history_events`** — create/update/close → history returns events newest-first, at least 3 events
+- ✅ **Test: `json_output_shapes`** — comprehensive shape validation for all commands: create, show (deps+comments arrays), list, ready, blocked, search (arrays), count (with/without grouping), status (array), history, comment add/list, dep add/remove/list/tree/cycles, export, import, doctor, update, close, reopen, release
+- ✅ **Test: `human_readable_output`** — run list without --json → output contains title text, is NOT valid JSON
+- ✅ **Test: `dep_tree_structure`** — A→B→C chain → tree down from A includes B+C with depth fields → tree up from C includes B+A
+- ✅ Verified: build + test (35 unit + 19 integration + 19 ralph unit + 13 ralph integration) + clippy + fmt
+
+### Design decisions
+
+- **`project_status` returns an array, not an object** — the daemon's `/status` endpoint returns `Vec<StatusEntry>` (one entry per issue_type), not a summary object. The `json_output_shapes` test was corrected to assert `is_array()`.
+- **`dep_tree_structure` as separate test** — covers tree traversal in both directions (up/down) and validates the `depth` field on tree nodes, which isn't covered by `json_output_shapes`.
+- **`concurrent_claims` uses `spawn` + `wait_with_output`** — spawns both processes before waiting for either, maximizing the chance of true concurrency hitting the daemon's mutex serialization.
