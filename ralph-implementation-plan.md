@@ -78,7 +78,9 @@ Also from `specs/springfield.md` lines 126–129, the `sgf init` gitignore entri
 **Current `.gitignore`:** Contains only `/target` and `.pensa/db.sqlite` — missing both sentinel entries.
 
 **Changes:**
-- [ ] `.gitignore` — add `.ralph-complete` and `.ralph-ding` entries
+- [x] `.gitignore` — add `.ralph-complete` and `.ralph-ding` entries
+
+**Status:** Complete. Added both sentinel file entries to `.gitignore`. All 98 tests pass across workspace, clippy clean, fmt clean.
 
 ---
 
