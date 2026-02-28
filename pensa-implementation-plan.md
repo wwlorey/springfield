@@ -200,25 +200,30 @@ Add all query/read endpoints.
 
 ---
 
-## Phase 11: Daemon — Dep, Comment & Data Endpoints
+## Phase 11: Daemon — Dep, Comment & Data Endpoints ✅
 
 Add dependency, comment, and data management endpoints.
 
-- **Source:** [`specs/pensa.md:341-350`](specs/pensa.md)
-- Dependency endpoints:
-  - `POST /deps` → `add_dep` (body: issue_id, depends_on_id) ([`specs/pensa.md:341`](specs/pensa.md))
-  - `DELETE /deps` → `remove_dep` (query params: issue_id, depends_on_id) ([`specs/pensa.md:342`](specs/pensa.md))
-  - `GET /issues/:id/deps` → `list_deps` ([`specs/pensa.md:343`](specs/pensa.md))
-  - `GET /issues/:id/deps/tree` → `dep_tree` (query param: direction — `up` or `down`, default `down`) ([`specs/pensa.md:344`](specs/pensa.md))
-  - `GET /deps/cycles` → `detect_cycles` ([`specs/pensa.md:345`](specs/pensa.md))
-- Comment endpoints:
-  - `POST /issues/:id/comments` → `add_comment` (body: text; actor from header) ([`specs/pensa.md:346`](specs/pensa.md))
-  - `GET /issues/:id/comments` → `list_comments` ([`specs/pensa.md:347`](specs/pensa.md))
-- Data endpoints:
-  - `POST /export` → `export_jsonl` ([`specs/pensa.md:348`](specs/pensa.md))
-  - `POST /import` → `import_jsonl` ([`specs/pensa.md:349`](specs/pensa.md))
-  - `POST /doctor` → `doctor` (query param: `fix`) ([`specs/pensa.md:350`](specs/pensa.md))
-- **Verify:** build + clippy + fmt
+- ✅ Dependency endpoints:
+  - `POST /deps` → `add_dep` (body: issue_id, depends_on_id, actor) — returns `{"status": "added", "issue_id": "...", "depends_on_id": "..."}`
+  - `DELETE /deps` → `remove_dep` (query params: issue_id, depends_on_id) — returns `{"status": "removed", ...}`
+  - `GET /issues/{id}/deps` → `list_deps` — returns array of issue objects
+  - `GET /issues/{id}/deps/tree` → `dep_tree` (query param: direction, default `down`) — returns array of DepTreeNode
+  - `GET /deps/cycles` → `detect_cycles` — returns array of arrays
+- ✅ Comment endpoints:
+  - `POST /issues/{id}/comments` → `add_comment` (body: text, actor) — returns 201 + comment object
+  - `GET /issues/{id}/comments` → `list_comments` — returns array of comment objects
+- ✅ Data endpoints:
+  - `POST /export` → `export_jsonl` — returns ExportImportResult
+  - `POST /import` → `import_jsonl` — returns ExportImportResult
+  - `POST /doctor` → `doctor` (query param: `fix`) — returns DoctorReport
+- ✅ Verified: build + test (35 pass) + clippy + fmt
+
+### Design decisions
+
+- **Method chaining on `/deps` route** — `post(add_dep).delete(remove_dep)` on a single `.route("/deps", ...)` call, consistent with the Phase 10 pattern for `/issues/{id}`.
+- **`add_comment` returns 201** — mirrors `create_issue` convention; creating a new resource returns `StatusCode::CREATED`.
+- **`remove_dep` uses query params** — the spec maps `DELETE /deps` with query params for `issue_id` and `depends_on_id`, matching the CLI's `pn dep remove <child> <parent>` semantics.
 
 ---
 

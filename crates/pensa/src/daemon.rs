@@ -62,6 +62,17 @@ pub async fn start(port: u16, project_dir: PathBuf) {
         .route("/issues/{id}/reopen", post(reopen_issue))
         .route("/issues/{id}/release", post(release_issue))
         .route("/issues/{id}/history", get(issue_history))
+        .route("/issues/{id}/deps", get(list_deps))
+        .route("/issues/{id}/deps/tree", get(dep_tree))
+        .route(
+            "/issues/{id}/comments",
+            get(list_comments).post(add_comment),
+        )
+        .route("/deps", post(add_dep).delete(remove_dep))
+        .route("/deps/cycles", get(detect_cycles))
+        .route("/export", post(export_jsonl))
+        .route("/import", post(import_jsonl))
+        .route("/doctor", post(doctor))
         .route("/status", get(project_status))
         .with_state(state);
 
@@ -444,4 +455,163 @@ async fn issue_history(
         .map(|e| serde_json::to_value(e).unwrap())
         .collect();
     Ok(Json(values))
+}
+
+// --- Dependency endpoints ---
+
+#[derive(Deserialize)]
+struct AddDepBody {
+    issue_id: String,
+    depends_on_id: String,
+    actor: Option<String>,
+}
+
+async fn add_dep(
+    State(db): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<AddDepBody>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let actor = body
+        .actor
+        .or_else(|| actor_from_headers(&headers))
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let db = db.lock().unwrap();
+    db.add_dep(&body.issue_id, &body.depends_on_id, &actor)?;
+    Ok(Json(serde_json::json!({
+        "status": "added",
+        "issue_id": body.issue_id,
+        "depends_on_id": body.depends_on_id,
+    })))
+}
+
+#[derive(Deserialize)]
+struct RemoveDepQuery {
+    issue_id: String,
+    depends_on_id: String,
+}
+
+async fn remove_dep(
+    State(db): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<RemoveDepQuery>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let actor = actor_from_headers(&headers).unwrap_or_else(|| "unknown".to_string());
+
+    let db = db.lock().unwrap();
+    db.remove_dep(&query.issue_id, &query.depends_on_id, &actor)?;
+    Ok(Json(serde_json::json!({
+        "status": "removed",
+        "issue_id": query.issue_id,
+        "depends_on_id": query.depends_on_id,
+    })))
+}
+
+async fn list_deps(
+    State(db): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<serde_json::Value>>, AppError> {
+    let db = db.lock().unwrap();
+    let deps = db.list_deps(&id)?;
+    let values: Vec<serde_json::Value> = deps
+        .into_iter()
+        .map(|i| serde_json::to_value(i).unwrap())
+        .collect();
+    Ok(Json(values))
+}
+
+#[derive(Deserialize)]
+struct DepTreeQuery {
+    #[serde(default = "default_direction")]
+    direction: String,
+}
+
+fn default_direction() -> String {
+    "down".to_string()
+}
+
+async fn dep_tree(
+    State(db): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<DepTreeQuery>,
+) -> Result<Json<Vec<serde_json::Value>>, AppError> {
+    let db = db.lock().unwrap();
+    let nodes = db.dep_tree(&id, &query.direction)?;
+    let values: Vec<serde_json::Value> = nodes
+        .into_iter()
+        .map(|n| serde_json::to_value(n).unwrap())
+        .collect();
+    Ok(Json(values))
+}
+
+async fn detect_cycles(State(db): State<AppState>) -> Result<Json<Vec<Vec<String>>>, AppError> {
+    let db = db.lock().unwrap();
+    let cycles = db.detect_cycles()?;
+    Ok(Json(cycles))
+}
+
+// --- Comment endpoints ---
+
+#[derive(Deserialize)]
+struct AddCommentBody {
+    text: String,
+    actor: Option<String>,
+}
+
+async fn add_comment(
+    State(db): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<AddCommentBody>,
+) -> Result<impl IntoResponse, AppError> {
+    let actor = body
+        .actor
+        .or_else(|| actor_from_headers(&headers))
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let db = db.lock().unwrap();
+    let comment = db.add_comment(&id, &actor, &body.text)?;
+    Ok((StatusCode::CREATED, Json(comment)))
+}
+
+async fn list_comments(
+    State(db): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<serde_json::Value>>, AppError> {
+    let db = db.lock().unwrap();
+    let comments = db.list_comments(&id)?;
+    let values: Vec<serde_json::Value> = comments
+        .into_iter()
+        .map(|c| serde_json::to_value(c).unwrap())
+        .collect();
+    Ok(Json(values))
+}
+
+// --- Data endpoints ---
+
+async fn export_jsonl(State(db): State<AppState>) -> Result<Json<serde_json::Value>, AppError> {
+    let db = db.lock().unwrap();
+    let result = db.export_jsonl()?;
+    Ok(Json(serde_json::to_value(result).unwrap()))
+}
+
+async fn import_jsonl(State(db): State<AppState>) -> Result<Json<serde_json::Value>, AppError> {
+    let db = db.lock().unwrap();
+    let result = db.import_jsonl()?;
+    Ok(Json(serde_json::to_value(result).unwrap()))
+}
+
+#[derive(Deserialize)]
+struct DoctorQuery {
+    #[serde(default)]
+    fix: bool,
+}
+
+async fn doctor(
+    State(db): State<AppState>,
+    Query(query): Query<DoctorQuery>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let db = db.lock().unwrap();
+    let report = db.doctor(query.fix)?;
+    Ok(Json(serde_json::to_value(report).unwrap()))
 }
