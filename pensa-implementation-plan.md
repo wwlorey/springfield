@@ -176,21 +176,27 @@ Create the axum server with app state, error mapping, startup/shutdown, and all 
 
 ---
 
-## Phase 10: Daemon — Query Endpoints
+## Phase 10: Daemon — Query Endpoints ✅
 
 Add all query/read endpoints.
 
-- **Source:** [`specs/pensa.md:334-340`](specs/pensa.md)
-- Query endpoints:
-  - `GET /issues` → `list_issues` (query params: status, priority, assignee, type, spec, sort, limit) ([`specs/pensa.md:334`](specs/pensa.md))
-  - `GET /issues/ready` → `ready_issues` (query params: limit, priority, assignee, type, spec) ([`specs/pensa.md:335`](specs/pensa.md))
-  - `GET /issues/blocked` → `blocked_issues` ([`specs/pensa.md:336`](specs/pensa.md))
-  - `GET /issues/search` → `search_issues` (query param: `q`) ([`specs/pensa.md:337`](specs/pensa.md))
-  - `GET /issues/count` → `count_issues` (query params: by_status, by_priority, by_issue_type, by_assignee) ([`specs/pensa.md:338`](specs/pensa.md))
-  - `GET /status` → `project_status` ([`specs/pensa.md:339`](specs/pensa.md))
-  - `GET /issues/:id/history` → `issue_history` ([`specs/pensa.md:340`](specs/pensa.md))
-- **Important routing note:** `/issues/ready`, `/issues/blocked`, `/issues/search`, `/issues/count` must be registered before `/issues/:id` to avoid the path parameter capturing literal segment names.
-- **Verify:** build + clippy + fmt
+- ✅ `GET /issues` → `list_issues` (query params: status, priority, assignee, type, spec, sort, limit)
+- ✅ `GET /issues/ready` → `ready_issues` (query params: limit, priority, assignee, type, spec)
+- ✅ `GET /issues/blocked` → `blocked_issues`
+- ✅ `GET /issues/search` → `search_issues` (query param: `q`)
+- ✅ `GET /issues/count` → `count_issues` (query params: by_status, by_priority, by_issue_type, by_assignee)
+- ✅ `GET /status` → `project_status`
+- ✅ `GET /issues/{id}/history` → `issue_history`
+- ✅ Routes registered before `{id}` routes to avoid path parameter capture conflicts
+- ✅ Consolidated `GET /issues/{id}`, `PATCH /issues/{id}`, `DELETE /issues/{id}` into single `.route()` with method chaining
+- ✅ Removed unused `delete` and `patch` routing imports (method chaining handles it)
+- ✅ Verified: build + test (35 pass) + clippy + fmt
+- ✅ Smoke tested: all 7 query endpoints exercised via curl against a live daemon
+
+### Design decisions
+
+- **Method chaining on routes** — `get(get_issue).patch(update_issue).delete(delete_issue)` on a single `.route("/issues/{id}", ...)` call instead of three separate route registrations. This is more idiomatic for axum 0.8.
+- **`#[serde(rename = "type")]` on query params** — The `type` query parameter is a Rust reserved word, so the struct field is `issue_type` with a serde rename.
 
 ---
 

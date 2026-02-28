@@ -4,13 +4,13 @@ use std::sync::{Arc, Mutex};
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get, patch, post};
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 
 use crate::db::Db;
 use crate::error::{ErrorResponse, PensaError};
-use crate::types::{CreateIssueParams, IssueType, Priority, Status, UpdateFields};
+use crate::types::{CreateIssueParams, IssueType, ListFilters, Priority, Status, UpdateFields};
 
 type AppState = Arc<Mutex<Db>>;
 
@@ -49,13 +49,20 @@ pub async fn start(port: u16, project_dir: PathBuf) {
     let state: AppState = Arc::new(Mutex::new(db));
 
     let app = Router::new()
-        .route("/issues", post(create_issue))
-        .route("/issues/{id}", get(get_issue))
-        .route("/issues/{id}", patch(update_issue))
-        .route("/issues/{id}", delete(delete_issue))
+        .route("/issues", get(list_issues).post(create_issue))
+        .route("/issues/ready", get(ready_issues))
+        .route("/issues/blocked", get(blocked_issues))
+        .route("/issues/search", get(search_issues))
+        .route("/issues/count", get(count_issues))
+        .route(
+            "/issues/{id}",
+            get(get_issue).patch(update_issue).delete(delete_issue),
+        )
         .route("/issues/{id}/close", post(close_issue))
         .route("/issues/{id}/reopen", post(reopen_issue))
         .route("/issues/{id}/release", post(release_issue))
+        .route("/issues/{id}/history", get(issue_history))
+        .route("/status", get(project_status))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}"))
@@ -278,4 +285,163 @@ async fn release_issue(
     let db = db.lock().unwrap();
     let issue = db.release_issue(&id, &actor)?;
     Ok(Json(serde_json::to_value(issue).unwrap()))
+}
+
+// --- Query endpoints ---
+
+#[derive(Deserialize)]
+struct ListQuery {
+    status: Option<Status>,
+    priority: Option<Priority>,
+    assignee: Option<String>,
+    #[serde(rename = "type")]
+    issue_type: Option<IssueType>,
+    spec: Option<String>,
+    sort: Option<String>,
+    limit: Option<usize>,
+}
+
+async fn list_issues(
+    State(db): State<AppState>,
+    Query(query): Query<ListQuery>,
+) -> Result<Json<Vec<serde_json::Value>>, AppError> {
+    let filters = ListFilters {
+        status: query.status,
+        priority: query.priority,
+        assignee: query.assignee,
+        issue_type: query.issue_type,
+        spec: query.spec,
+        sort: query.sort,
+        limit: query.limit,
+    };
+
+    let db = db.lock().unwrap();
+    let issues = db.list_issues(&filters)?;
+    let values: Vec<serde_json::Value> = issues
+        .into_iter()
+        .map(|i| serde_json::to_value(i).unwrap())
+        .collect();
+    Ok(Json(values))
+}
+
+#[derive(Deserialize)]
+struct ReadyQuery {
+    priority: Option<Priority>,
+    assignee: Option<String>,
+    #[serde(rename = "type")]
+    issue_type: Option<IssueType>,
+    spec: Option<String>,
+    limit: Option<usize>,
+}
+
+async fn ready_issues(
+    State(db): State<AppState>,
+    Query(query): Query<ReadyQuery>,
+) -> Result<Json<Vec<serde_json::Value>>, AppError> {
+    let filters = ListFilters {
+        priority: query.priority,
+        assignee: query.assignee,
+        issue_type: query.issue_type,
+        spec: query.spec,
+        limit: query.limit,
+        ..Default::default()
+    };
+
+    let db = db.lock().unwrap();
+    let issues = db.ready_issues(&filters)?;
+    let values: Vec<serde_json::Value> = issues
+        .into_iter()
+        .map(|i| serde_json::to_value(i).unwrap())
+        .collect();
+    Ok(Json(values))
+}
+
+async fn blocked_issues(
+    State(db): State<AppState>,
+) -> Result<Json<Vec<serde_json::Value>>, AppError> {
+    let db = db.lock().unwrap();
+    let issues = db.blocked_issues()?;
+    let values: Vec<serde_json::Value> = issues
+        .into_iter()
+        .map(|i| serde_json::to_value(i).unwrap())
+        .collect();
+    Ok(Json(values))
+}
+
+#[derive(Deserialize)]
+struct SearchQuery {
+    q: String,
+}
+
+async fn search_issues(
+    State(db): State<AppState>,
+    Query(query): Query<SearchQuery>,
+) -> Result<Json<Vec<serde_json::Value>>, AppError> {
+    let db = db.lock().unwrap();
+    let issues = db.search_issues(&query.q)?;
+    let values: Vec<serde_json::Value> = issues
+        .into_iter()
+        .map(|i| serde_json::to_value(i).unwrap())
+        .collect();
+    Ok(Json(values))
+}
+
+#[derive(Deserialize)]
+struct CountQuery {
+    #[serde(default)]
+    by_status: bool,
+    #[serde(default)]
+    by_priority: bool,
+    #[serde(default)]
+    by_issue_type: bool,
+    #[serde(default)]
+    by_assignee: bool,
+}
+
+async fn count_issues(
+    State(db): State<AppState>,
+    Query(query): Query<CountQuery>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let mut group_by = Vec::new();
+    if query.by_status {
+        group_by.push("status");
+    }
+    if query.by_priority {
+        group_by.push("priority");
+    }
+    if query.by_issue_type {
+        group_by.push("issue_type");
+    }
+    if query.by_assignee {
+        group_by.push("assignee");
+    }
+
+    let db = db.lock().unwrap();
+    let result = db.count_issues(&group_by)?;
+    Ok(Json(result))
+}
+
+async fn project_status(
+    State(db): State<AppState>,
+) -> Result<Json<Vec<serde_json::Value>>, AppError> {
+    let db = db.lock().unwrap();
+    let entries = db.project_status()?;
+    let values: Vec<serde_json::Value> = entries
+        .into_iter()
+        .map(|e| serde_json::to_value(e).unwrap())
+        .collect();
+    Ok(Json(values))
+}
+
+async fn issue_history(
+    State(db): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<serde_json::Value>>, AppError> {
+    let db = db.lock().unwrap();
+    let events = db.issue_history(&id)?;
+    let values: Vec<serde_json::Value> = events
+        .into_iter()
+        .map(|e| serde_json::to_value(e).unwrap())
+        .collect();
+    Ok(Json(values))
 }
