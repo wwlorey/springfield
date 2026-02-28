@@ -1,11 +1,6 @@
 Read `memento.md`.
 
-Run `pn list -t bug --status open --json`.
-
-If no open bugs are returned, `touch .ralph-complete` and stop.
-
-Otherwise, choose ONE bug and claim it: `pn update <id> --claim`
-If the claim fails (`already_claimed`), re-run `pn list -t bug --status open --json` and pick another.
+Follow the claim workflow in `.sgf/pensa.md`. Query: `pn list -t bug --status open --json`
 
 Study the codebase to understand the bug and design a fix. Use subagents.
 

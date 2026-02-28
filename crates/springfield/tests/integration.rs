@@ -132,6 +132,7 @@ fn init_creates_all_files() {
         ".sgf/prompts/test.md",
         ".sgf/prompts/issues.md",
         ".sgf/prompts/issues-plan.md",
+        ".sgf/pensa.md",
         "memento.md",
         "CLAUDE.md",
         "specs/README.md",
@@ -157,6 +158,18 @@ fn init_file_contents() {
     let memento = fs::read_to_string(tmp.path().join("memento.md")).unwrap();
     assert!(memento.contains("## Stack"));
     assert!(memento.contains("## References"));
+    assert!(
+        memento.contains(".sgf/pensa.md"),
+        "memento should reference .sgf/pensa.md"
+    );
+
+    // .sgf/pensa.md
+    let pensa = fs::read_to_string(tmp.path().join(".sgf/pensa.md")).unwrap();
+    assert!(pensa.contains("pn"), "pensa.md should mention pn");
+    assert!(
+        pensa.contains("Claim Workflow"),
+        "pensa.md should contain claim workflow"
+    );
 
     // .claude/settings.json
     let settings = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();

@@ -12,6 +12,7 @@ const TEMPLATE_TEST_PLAN: &str = include_str!("../templates/test-plan.md");
 const TEMPLATE_TEST: &str = include_str!("../templates/test.md");
 const TEMPLATE_ISSUES: &str = include_str!("../templates/issues.md");
 const TEMPLATE_ISSUES_PLAN: &str = include_str!("../templates/issues-plan.md");
+const TEMPLATE_PENSA: &str = include_str!("../templates/pensa.md");
 const TEMPLATE_LOOM_SPECS_README: &str = include_str!("../templates/loom-specs-README.md");
 
 const MEMENTO_CONTENT: &str = "\
@@ -25,7 +26,7 @@ const MEMENTO_CONTENT: &str = "\
 
 - Build, test, lint, format commands: `.sgf/backpressure.md`
 - Spec index: `specs/README.md`
-- Issue and task tracking: `pn` CLI (pensa)
+- Issue and task tracking (`pn` CLI): `.sgf/pensa.md`
 ";
 
 const CLAUDE_MD_CONTENT: &str = "Read memento.md and AGENTS.md before starting work.\n";
@@ -84,6 +85,10 @@ const TEMPLATE_FILES: &[TemplateFile] = &[
     TemplateFile {
         path: ".sgf/prompts/issues-plan.md",
         content: TEMPLATE_ISSUES_PLAN,
+    },
+    TemplateFile {
+        path: ".sgf/pensa.md",
+        content: TEMPLATE_PENSA,
     },
     TemplateFile {
         path: ".sgf/loom-specs-README.md",
