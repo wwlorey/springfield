@@ -1608,23 +1608,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sgf"
-version = "0.1.0"
-dependencies = [
- "assert_cmd",
- "chrono",
- "clap",
- "libc",
- "portpicker",
- "predicates",
- "serde",
- "serde_json",
- "serde_yaml",
- "signal-hook",
- "tempfile",
-]
-
-[[package]]
 name = "sharded-slab"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1679,6 +1662,23 @@ checksum = "86f4aa3ad99f2088c990dfa82d367e19cb29268ed67c574d10d0a4bfe71f07e0"
 dependencies = [
  "libc",
  "windows-sys 0.60.2",
+]
+
+[[package]]
+name = "springfield"
+version = "0.1.0"
+dependencies = [
+ "assert_cmd",
+ "chrono",
+ "clap",
+ "libc",
+ "portpicker",
+ "predicates",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "signal-hook",
+ "tempfile",
 ]
 
 [[package]]

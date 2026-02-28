@@ -46,15 +46,15 @@ Install all tools referenced in [`AGENTS.md`](AGENTS.md) and verify the workspac
 
 ## Phase 1: Crate Scaffolding & CLI Skeleton
 
-Create the `crates/sgf/` directory structure, `Cargo.toml`, and full clap CLI skeleton with all subcommands defined.
+Create the `crates/springfield/` directory structure, `Cargo.toml`, and full clap CLI skeleton with all subcommands defined.
 
 **Source**: [`specs/springfield.md:19-31`](specs/springfield.md) (CLI Commands), [`specs/springfield.md:33-39`](specs/springfield.md) (Common Flags)
 
-- [x] Create `crates/sgf/Cargo.toml` with `name = "sgf"`, `[[bin]] name = "sgf"`, workspace edition/version/license
+- [x] Create `crates/springfield/Cargo.toml` with `name = "sgf"`, `[[bin]] name = "sgf"`, workspace edition/version/license
 - [x] Add dependencies: `clap` (4, derive+env), `serde` (1, derive), `serde_json` (1), `chrono` (0.4), `signal-hook` (0.4)
 - [x] Add dev-dependencies: `tempfile` (3), `assert_cmd` (2), `predicates` (3), `portpicker` (0.1)
-- [x] Create `crates/sgf/src/lib.rs` with module declarations
-- [x] Create `crates/sgf/src/main.rs` with clap `#[derive(Parser)]` skeleton
+- [x] Create `crates/springfield/src/lib.rs` with module declarations
+- [x] Create `crates/springfield/src/main.rs` with clap `#[derive(Parser)]` skeleton
 - [x] Define `init` subcommand — no args ([`specs/springfield.md:43-45`](specs/springfield.md))
 - [x] Define `spec` subcommand — no args ([`specs/springfield.md:396-414`](specs/springfield.md))
 - [x] Define `build <spec>` subcommand + common flags `-a`/`--afk`, `--no-push`, `N` ([`specs/springfield.md:416-421`](specs/springfield.md))
@@ -66,8 +66,8 @@ Create the `crates/sgf/` directory structure, `Cargo.toml`, and full clap CLI sk
 - [x] Define `status` subcommand — no args, future work placeholder ([`specs/springfield.md:28`](specs/springfield.md))
 - [x] Define `logs <loop-id>` subcommand — one positional arg ([`specs/springfield.md:329-332`](specs/springfield.md))
 - [x] Define `template build` subcommand — no args ([`specs/springfield.md:836-845`](specs/springfield.md))
-- [x] `cargo build -p sgf` compiles
-- [x] `cargo clippy -p sgf -- -D warnings` passes
+- [x] `cargo build -p springfield` compiles
+- [x] `cargo clippy -p springfield -- -D warnings` passes
 - [x] `sgf --help` shows all subcommands
 - [x] `sgf build --help` shows `-a`, `--no-push`, `<spec>`, `[N]`
 - [x] `cargo test --workspace` still passes (no regressions)
@@ -86,21 +86,21 @@ Implement the core `sgf init` command that creates the full project structure.
 
 **Source**: [`specs/springfield.md:43-184`](specs/springfield.md) (sgf init)
 
-- [x] Create `crates/sgf/src/init.rs` module
+- [x] Create `crates/springfield/src/init.rs` module
 - [x] Wire `pub mod init` in `lib.rs`
 - [x] Wire `sgf init` in `main.rs` to call `init::run()`
 
 ### Template files
 
-- [x] Create `crates/sgf/templates/` directory for `include_str!` embedding
-- [x] Create `crates/sgf/templates/backpressure.md` with content from [`specs/springfield.md:662-754`](specs/springfield.md)
-- [x] Create `crates/sgf/templates/spec.md` with content from [`specs/springfield.md:483-509`](specs/springfield.md)
-- [x] Create `crates/sgf/templates/build.md` with content from [`specs/springfield.md:513-537`](specs/springfield.md)
-- [x] Create `crates/sgf/templates/verify.md` with content from [`specs/springfield.md:541-559`](specs/springfield.md)
-- [x] Create `crates/sgf/templates/test-plan.md` with content from [`specs/springfield.md:563-579`](specs/springfield.md)
-- [x] Create `crates/sgf/templates/test.md` with content from [`specs/springfield.md:583-607`](specs/springfield.md)
-- [x] Create `crates/sgf/templates/issues.md` with content from [`specs/springfield.md:611-627`](specs/springfield.md)
-- [x] Create `crates/sgf/templates/issues-plan.md` with content from [`specs/springfield.md:631-654`](specs/springfield.md)
+- [x] Create `crates/springfield/templates/` directory for `include_str!` embedding
+- [x] Create `crates/springfield/templates/backpressure.md` with content from [`specs/springfield.md:662-754`](specs/springfield.md)
+- [x] Create `crates/springfield/templates/spec.md` with content from [`specs/springfield.md:483-509`](specs/springfield.md)
+- [x] Create `crates/springfield/templates/build.md` with content from [`specs/springfield.md:513-537`](specs/springfield.md)
+- [x] Create `crates/springfield/templates/verify.md` with content from [`specs/springfield.md:541-559`](specs/springfield.md)
+- [x] Create `crates/springfield/templates/test-plan.md` with content from [`specs/springfield.md:563-579`](specs/springfield.md)
+- [x] Create `crates/springfield/templates/test.md` with content from [`specs/springfield.md:583-607`](specs/springfield.md)
+- [x] Create `crates/springfield/templates/issues.md` with content from [`specs/springfield.md:611-627`](specs/springfield.md)
+- [x] Create `crates/springfield/templates/issues-plan.md` with content from [`specs/springfield.md:631-654`](specs/springfield.md)
 
 ### Directory creation
 
@@ -136,8 +136,8 @@ Per [`specs/springfield.md:49-71`](specs/springfield.md):
 - [x] `sgf init` in a temp dir creates all 11 files
 - [x] File contents match spec exactly (spot-check `CLAUDE.md`, `memento.md`, one prompt template)
 - [x] Existing files are NOT overwritten on second run
-- [x] `cargo build -p sgf` compiles
-- [x] `cargo clippy -p sgf -- -D warnings` passes
+- [x] `cargo build -p springfield` compiles
+- [x] `cargo clippy -p springfield -- -D warnings` passes
 
 ---
 
@@ -194,7 +194,7 @@ Implement the prompt assembly engine that reads templates, substitutes variables
 
 **Source**: [`specs/springfield.md:245-268`](specs/springfield.md) (Prompt Assembly)
 
-- [x] Create `crates/sgf/src/prompt.rs` module
+- [x] Create `crates/springfield/src/prompt.rs` module
 - [x] Wire `pub mod prompt` in `lib.rs`
 - [x] Implement `pub fn assemble(root: &Path, stage: &str, vars: &HashMap<String, String>) -> Result<PathBuf>`
 - [x] Read template from `.sgf/prompts/<stage>.md`
@@ -212,8 +212,8 @@ Implement the prompt assembly engine that reads templates, substitutes variables
 - [x] Template with unresolved `{{unknown}}` returns error naming the unresolved token
 - [x] Missing template file returns error with file path
 - [x] `.assembled/` dir created automatically if absent
-- [x] `cargo test -p sgf` passes (unit tests for assembly)
-- [x] `cargo clippy -p sgf -- -D warnings` passes
+- [x] `cargo test -p springfield` passes (unit tests for assembly)
+- [x] `cargo clippy -p springfield -- -D warnings` passes
 
 ### Notes
 
@@ -228,7 +228,7 @@ Implement loop ID generation, PID file management, and log teeing.
 
 **Source**: [`specs/springfield.md:310-332`](specs/springfield.md) (Loop ID, Logging)
 
-- [x] Create `crates/sgf/src/loop_mgmt.rs` module
+- [x] Create `crates/springfield/src/loop_mgmt.rs` module
 - [x] Wire `pub mod loop_mgmt` in `lib.rs`
 
 ### Loop ID generation
@@ -274,8 +274,8 @@ Per [`specs/springfield.md:329-332`](specs/springfield.md):
 - [x] PID file removed on cleanup
 - [x] `is_pid_alive` returns true for own PID, false for dead PID
 - [x] `sgf logs` exits 1 for nonexistent log file
-- [x] `cargo test -p sgf` passes
-- [x] `cargo clippy -p sgf -- -D warnings` passes
+- [x] `cargo test -p springfield` passes
+- [x] `cargo clippy -p springfield -- -D warnings` passes
 
 ### Notes
 
@@ -292,7 +292,7 @@ Implement automatic pensa daemon startup and pre-launch cleanup of dirty state f
 
 **Source**: [`specs/springfield.md:357-367`](specs/springfield.md) (Daemon Lifecycle), [`specs/springfield.md:335-354`](specs/springfield.md) (Recovery)
 
-- [x] Create `crates/sgf/src/recovery.rs` module
+- [x] Create `crates/springfield/src/recovery.rs` module
 - [x] Wire `pub mod recovery` in `lib.rs`
 
 ### Daemon lifecycle
@@ -331,8 +331,8 @@ Per [`specs/springfield.md:345-354`](specs/springfield.md):
 - [x] `pre_launch_recovery` skips when no PID files exist
 - [x] `pre_launch_recovery` skips when a live PID exists
 - [x] `pre_launch_recovery` cleans up when all PIDs are stale: removes PID files, runs git checkout, git clean, pn doctor
-- [x] `cargo test -p sgf` passes
-- [x] `cargo clippy -p sgf -- -D warnings` passes
+- [x] `cargo test -p springfield` passes
+- [x] `cargo clippy -p springfield -- -D warnings` passes
 
 ### Notes
 
@@ -348,7 +348,7 @@ Implement the core loop orchestration that launches ralph with the correct flags
 
 **Source**: [`specs/springfield.md:270-302`](specs/springfield.md) (sgf-to-ralph Contract)
 
-- [x] Create `crates/sgf/src/orchestrate.rs` module
+- [x] Create `crates/springfield/src/orchestrate.rs` module
 - [x] Wire `pub mod orchestrate` in `lib.rs`
 
 ### Ralph binary resolution
@@ -401,8 +401,8 @@ Per [`specs/springfield.md:293-302`](specs/springfield.md):
 - [x] PID file removed after ralph exits
 - [x] AFK mode creates log file with ralph's output
 - [x] `SGF_RALPH_BINARY` env var overrides ralph binary path
-- [x] `cargo test -p sgf` passes
-- [x] `cargo clippy -p sgf -- -D warnings` passes
+- [x] `cargo test -p springfield` passes
+- [x] `cargo clippy -p springfield -- -D warnings` passes
 
 ### Notes
 
@@ -450,8 +450,8 @@ Each: assemble prompt → `pre_launch_recovery()` → `ensure_daemon()` → laun
 - [x] `sgf test` without `<spec>` arg shows clap error
 - [x] `sgf logs nonexistent` exits 1
 - [x] `sgf status` exits 0 with placeholder message
-- [x] `cargo test -p sgf` passes
-- [x] `cargo clippy -p sgf -- -D warnings` passes
+- [x] `cargo test -p springfield` passes
+- [x] `cargo clippy -p springfield -- -D warnings` passes
 
 ### Notes
 
@@ -477,7 +477,7 @@ Implement `sgf template build` to build the `ralph-sandbox:latest` Docker image.
 
 Per [`specs/springfield.md:838-845`](specs/springfield.md):
 
-- [x] Create `crates/sgf/src/template.rs` module
+- [x] Create `crates/springfield/src/template.rs` module
 - [x] Wire `pub mod template` in `lib.rs`
 - [x] Wire `sgf template build` in `main.rs`
 - [x] Locate `pn` binary via `which pn` (or `Command::new("which").arg("pn")`)
@@ -494,8 +494,8 @@ Per [`specs/springfield.md:838-845`](specs/springfield.md):
 - [x] `sgf template build` with `pn` not on PATH: exits 1 with "pn not found" message
 - [x] `sgf template build` with `pn` on PATH and Docker available: exits 0, image built
 - [x] `docker image inspect ralph-sandbox:latest` succeeds after build
-- [x] `cargo build -p sgf` compiles (include_str! resolves)
-- [x] `cargo clippy -p sgf -- -D warnings` passes
+- [x] `cargo build -p springfield` compiles (include_str! resolves)
+- [x] `cargo clippy -p springfield -- -D warnings` passes
 
 **Note**: Docker-dependent tests should be gated behind `#[ignore]`.
 
@@ -509,20 +509,20 @@ Per [`specs/springfield.md:838-845`](specs/springfield.md):
 
 ## Phase 10: Documentation
 
-- [x] Create `crates/sgf/README.md`:
+- [x] Create `crates/springfield/README.md`:
   - [x] Project overview and purpose
   - [x] Architecture summary (scaffolding, prompt assembly, loop orchestration, recovery, daemon lifecycle)
   - [x] Quick start / usage examples for each command
   - [x] Command reference table (with link to spec for details)
   - [x] Relationship to ralph and pensa
-  - [x] Testing instructions (`cargo test -p sgf`)
+  - [x] Testing instructions (`cargo test -p springfield`)
 - [x] Update root [`README.md`](README.md):
   - [x] Add sgf to architecture diagram / component listing
   - [x] Ensure all three crates (sgf, ralph, pensa) are mentioned
 - [x] Update [`AGENTS.md`](AGENTS.md):
-  - [x] Add `cargo build -p sgf` and `cargo test -p sgf` examples
+  - [x] Add `cargo build -p springfield` and `cargo test -p springfield` examples
 - [x] Update [`specs/README.md`](specs/README.md):
-  - [x] Verify `springfield.md` code path points to `crates/sgf/` (not `crates/springfield/`)
+  - [x] Verify `springfield.md` code path points to `crates/springfield/` (not `crates/springfield/`)
 
 ### Verification
 
@@ -538,7 +538,7 @@ End-to-end tests that verify sgf commands work correctly from the command line.
 
 **Test infrastructure**: Following patterns from pensa ([`crates/pensa/tests/integration.rs`](crates/pensa/tests/integration.rs)) and ralph ([`crates/ralph/tests/integration.rs`](crates/ralph/tests/integration.rs)).
 
-- [x] Create `crates/sgf/tests/integration.rs`
+- [x] Create `crates/springfield/tests/integration.rs`
 
 ### Test harness
 
@@ -588,7 +588,7 @@ End-to-end tests that verify sgf commands work correctly from the command line.
 
 ### Final verification
 
-- [x] `cargo test -p sgf` — all 89 non-ignored tests pass (70 unit + 19 integration)
+- [x] `cargo test -p springfield` — all 89 non-ignored tests pass (70 unit + 19 integration)
 - [x] `cargo test --workspace` — all 188 tests pass across all crates
 - [x] `cargo clippy --workspace -- -D warnings` — no warnings
 - [x] `cargo fmt --all --check` — formatting clean

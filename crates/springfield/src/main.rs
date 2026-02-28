@@ -104,7 +104,7 @@ enum TemplateSubcommand {
 
 fn run_loop(stage: &str, spec: Option<&str>, opts: &LoopOpts, prompt_template: Option<&str>) -> ! {
     let root = std::env::current_dir().expect("failed to get current directory");
-    let config = sgf::orchestrate::LoopConfig {
+    let config = springfield::orchestrate::LoopConfig {
         stage: stage.to_string(),
         spec: spec.map(|s| s.to_string()),
         afk: opts.afk,
@@ -114,7 +114,7 @@ fn run_loop(stage: &str, spec: Option<&str>, opts: &LoopOpts, prompt_template: O
         skip_preflight: false,
         prompt_template: prompt_template.map(|s| s.to_string()),
     };
-    match sgf::orchestrate::run(&root, &config) {
+    match springfield::orchestrate::run(&root, &config) {
         Ok(code) => std::process::exit(code),
         Err(e) => {
             eprintln!("sgf {stage}: {e}");
@@ -129,7 +129,7 @@ fn main() {
     match cli.command {
         Commands::Init => {
             let root = std::env::current_dir().expect("failed to get current directory");
-            if let Err(e) = sgf::init::run(&root) {
+            if let Err(e) = springfield::init::run(&root) {
                 eprintln!("sgf init: {e}");
                 std::process::exit(1);
             }
@@ -172,14 +172,14 @@ fn main() {
         }
         Commands::Logs { loop_id } => {
             let root = std::env::current_dir().expect("failed to get current directory");
-            if let Err(e) = sgf::loop_mgmt::run_logs(&root, &loop_id) {
+            if let Err(e) = springfield::loop_mgmt::run_logs(&root, &loop_id) {
                 eprintln!("sgf logs: {e}");
                 std::process::exit(1);
             }
         }
         Commands::Template { subcmd } => match subcmd {
             TemplateSubcommand::Build => {
-                if let Err(e) = sgf::template::build_template() {
+                if let Err(e) = springfield::template::build_template() {
                     eprintln!("sgf template build: {e}");
                     std::process::exit(1);
                 }

@@ -271,7 +271,7 @@ fn prompt_assembly_substitutes_spec() {
     .unwrap();
 
     let vars = std::collections::HashMap::from([("spec".to_string(), "auth".to_string())]);
-    let result = sgf::prompt::assemble(tmp.path(), "build", &vars).unwrap();
+    let result = springfield::prompt::assemble(tmp.path(), "build", &vars).unwrap();
 
     let assembled = fs::read_to_string(&result).unwrap();
     assert_eq!(assembled, "Build auth now.");
@@ -289,7 +289,7 @@ fn prompt_assembly_validates_unresolved() {
     .unwrap();
 
     let vars = std::collections::HashMap::from([("spec".to_string(), "auth".to_string())]);
-    let result = sgf::prompt::assemble(tmp.path(), "build", &vars);
+    let result = springfield::prompt::assemble(tmp.path(), "build", &vars);
 
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
@@ -307,7 +307,7 @@ fn prompt_assembly_passthrough() {
     fs::write(tmp.path().join(".sgf/prompts/verify.md"), content).unwrap();
 
     let vars = std::collections::HashMap::new();
-    let result = sgf::prompt::assemble(tmp.path(), "verify", &vars).unwrap();
+    let result = springfield::prompt::assemble(tmp.path(), "verify", &vars).unwrap();
 
     let assembled = fs::read_to_string(&result).unwrap();
     assert_eq!(assembled, content);
@@ -694,7 +694,7 @@ fn help_flag() {
 // ===========================================================================
 
 #[test]
-#[ignore] // Requires Docker; run explicitly with `cargo test -p sgf -- --ignored`
+#[ignore] // Requires Docker; run explicitly with `cargo test -p springfield -- --ignored`
 fn template_build_requires_pn() {
     // Run with empty PATH so pn is not found
     let output = Command::new(sgf_bin())

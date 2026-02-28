@@ -1,4 +1,4 @@
-# sgf
+# springfield
 
 CLI entry point for [Springfield](../../README.md). All developer interaction goes through this binary. It handles project scaffolding, prompt assembly, loop orchestration, recovery, and daemon lifecycle. Delegates iteration execution to [ralph](../ralph/) and persistent memory to [pensa](../pensa/).
 
@@ -29,7 +29,7 @@ sgf template build                     — rebuild Docker sandbox template
 ## Architecture
 
 ```
-crates/sgf/
+crates/springfield/
 ├── src/
 │   ├── main.rs          — clap CLI skeleton, command dispatch
 │   ├── lib.rs           — module declarations
@@ -57,10 +57,10 @@ crates/sgf/
 
 ```sh
 # Build
-cargo build -p sgf
+cargo build -p springfield
 
 # Run tests
-cargo test -p sgf
+cargo test -p springfield
 
 # Scaffold a new project
 sgf init

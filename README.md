@@ -36,12 +36,12 @@ The agent's persistent memory system, pensa, is inspired by Steve Yegge's [beads
 springfield/
 ├── Cargo.toml                 (workspace)
 ├── crates/
-│   ├── sgf/                   — CLI binary, entry point, scaffolding, prompt assembly
+│   ├── springfield/           — CLI binary (`sgf`), entry point, scaffolding, prompt assembly
 │   ├── pensa/                 — agent persistent memory (CLI binary + library)
 │   └── ralph/                 — loop runner (standalone binary)
 ```
 
-**`sgf`** — The CLI entry point. All developer interaction goes through this binary. It delegates to the other crates internally. Also responsible for project scaffolding.
+**`springfield`** (binary: `sgf`) — The CLI entry point. All developer interaction goes through this binary. It delegates to the other crates internally. Also responsible for project scaffolding.
 
 **`pensa`** (Latin: "tasks", singular: pensum) — A Rust CLI that serves as the agent's persistent structured memory. Replaces markdown-based issue logging and implementation plan tracking. Inspired by [beads](https://github.com/steveyegge/beads) but built in Rust with tighter integration into the Springfield workflow. Stores issues with typed classification, dependencies, priorities, ownership, and status tracking. Uses SQLite locally with JSONL export for git portability. Why not [Dolt](https://github.com/dolthub/dolt)? SQLite + JSONL is simpler: SQLite is tiny, JSONL travels with git (no DoltHub remote needed), and `rusqlite` is mature. Dolt's strengths (table-level merges, branching) matter more in multi-user scenarios.
 
