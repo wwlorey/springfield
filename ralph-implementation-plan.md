@@ -91,7 +91,7 @@ Also from `specs/springfield.md` lines 126–129, the `sgf init` gitignore entri
 The spec describes ralph as a standalone tool with a full CLI interface. A `README.md` should exist for the crate explaining:
 
 **Changes:**
-- [ ] Create `crates/ralph/README.md` covering:
+- [x] Create `crates/ralph/README.md` covering:
   - Purpose: iterative Claude Code runner via Docker sandbox
   - CLI usage synopsis and examples (drawn from spec lines 107–116)
   - Modes: interactive (default) vs AFK (`--afk`)
@@ -99,6 +99,8 @@ The spec describes ralph as a standalone tool with a full CLI interface. A `READ
   - NDJSON formatting overview (spec lines 236–301)
   - Testing: how to run tests (`cargo test -p ralph`)
   - Relationship to `sgf` (invoked by `sgf build`, `sgf test`, etc.)
+
+**Status:** Complete. README covers all spec'd sections: purpose, CLI synopsis with arguments/flags/options/examples, modes (interactive + AFK), exit codes, NDJSON formatting table, testing commands, and sgf relationship. All 105 workspace tests pass, clippy clean, fmt clean.
 
 ---
 
@@ -110,7 +112,7 @@ Existing tests cover most spec'd cases. The following tests are missing or incor
 
 ### 7a. Fix existing test for exit code 2
 
-- [ ] `crates/ralph/tests/integration.rs` — `afk_exhausts_iterations_without_promise` (addressed in Phase 2, listed here for completeness)
+- [x] `crates/ralph/tests/integration.rs` — `afk_exhausts_iterations_without_promise` (addressed in Phase 2, listed here for completeness)
 
 ### 7b. Add test: loop ID displayed in startup banner
 
