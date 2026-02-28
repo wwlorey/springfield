@@ -238,3 +238,25 @@ pub struct StatusEntry {
     pub in_progress: i64,
     pub closed: i64,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportImportResult {
+    pub status: String,
+    pub issues: usize,
+    pub deps: usize,
+    pub comments: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DoctorFinding {
+    pub check: String,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub issue_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DoctorReport {
+    pub findings: Vec<DoctorFinding>,
+    pub fixes_applied: Vec<String>,
+}

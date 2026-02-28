@@ -8,8 +8,9 @@ use rusqlite::types::Value;
 use crate::error::PensaError;
 use crate::id::generate_id;
 use crate::types::{
-    Comment, CountGroup, CountResult, CreateIssueParams, DepTreeNode, Event, GroupedCountResult,
-    Issue, IssueDetail, ListFilters, Status, StatusEntry, UpdateFields,
+    Comment, CountGroup, CountResult, CreateIssueParams, Dep, DepTreeNode, DoctorFinding,
+    DoctorReport, Event, ExportImportResult, GroupedCountResult, Issue, IssueDetail, ListFilters,
+    Status, StatusEntry, UpdateFields,
 };
 
 pub struct Db {
@@ -74,9 +75,21 @@ impl Db {
 
         Self::run_migrations(&conn)?;
 
-        // TODO: Phase 8 — auto-import from JSONL if tables are empty but JSONL files exist
+        let db = Db {
+            conn,
+            pensa_dir: pensa_dir.clone(),
+        };
 
-        Ok(Db { conn, pensa_dir })
+        let issue_count: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM issues", [], |row| row.get(0))
+            .map_err(|e| PensaError::Internal(format!("failed to count issues: {e}")))?;
+
+        if issue_count == 0 && pensa_dir.join("issues.jsonl").exists() {
+            db.import_jsonl()?;
+        }
+
+        Ok(db)
     }
 
     fn run_migrations(conn: &Connection) -> Result<(), PensaError> {
@@ -939,6 +952,57 @@ impl Db {
         Ok(false)
     }
 
+    pub fn add_comment(
+        &self,
+        issue_id: &str,
+        actor: &str,
+        text: &str,
+    ) -> Result<Comment, PensaError> {
+        self.get_issue_only(issue_id)?;
+
+        let id = generate_id();
+        let ts = now();
+
+        self.conn
+            .execute(
+                "INSERT INTO comments (id, issue_id, actor, text, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![id, issue_id, actor, text, ts],
+            )
+            .map_err(|e| PensaError::Internal(format!("failed to add comment: {e}")))?;
+
+        self.conn
+            .execute(
+                "INSERT INTO events (issue_id, event_type, actor, detail, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![issue_id, "commented", actor, text, ts],
+            )
+            .map_err(|e| PensaError::Internal(format!("failed to log comment event: {e}")))?;
+
+        Ok(Comment {
+            id,
+            issue_id: issue_id.to_string(),
+            actor: actor.to_string(),
+            text: text.to_string(),
+            created_at: parse_dt(&ts),
+        })
+    }
+
+    pub fn list_comments(&self, issue_id: &str) -> Result<Vec<Comment>, PensaError> {
+        self.get_issue_only(issue_id)?;
+
+        let mut stmt = self
+            .conn
+            .prepare("SELECT * FROM comments WHERE issue_id = ?1 ORDER BY created_at")
+            .map_err(|e| PensaError::Internal(format!("failed to prepare comments query: {e}")))?;
+
+        let comments = stmt
+            .query_map(rusqlite::params![issue_id], comment_from_row)
+            .map_err(|e| PensaError::Internal(format!("failed to query comments: {e}")))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| PensaError::Internal(format!("failed to read comments: {e}")))?;
+
+        Ok(comments)
+    }
+
     pub fn issue_history(&self, id: &str) -> Result<Vec<Event>, PensaError> {
         self.get_issue_only(id)?;
 
@@ -967,6 +1031,295 @@ impl Db {
             .map_err(|e| PensaError::Internal(format!("failed to read history: {e}")))?;
 
         Ok(events)
+    }
+
+    pub fn export_jsonl(&self) -> Result<ExportImportResult, PensaError> {
+        let issues = self.list_issues(&ListFilters::default())?;
+        let sorted_issues = {
+            let mut v = issues;
+            v.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+            v
+        };
+
+        let mut deps: Vec<Dep> = {
+            let mut stmt = self
+                .conn
+                .prepare(
+                    "SELECT issue_id, depends_on_id FROM deps ORDER BY issue_id, depends_on_id",
+                )
+                .map_err(|e| {
+                    PensaError::Internal(format!("failed to query deps for export: {e}"))
+                })?;
+            stmt.query_map([], |row| {
+                Ok(Dep {
+                    issue_id: row.get(0)?,
+                    depends_on_id: row.get(1)?,
+                })
+            })
+            .map_err(|e| PensaError::Internal(format!("failed to read deps for export: {e}")))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| PensaError::Internal(format!("failed to collect deps for export: {e}")))?
+        };
+        deps.sort_by(|a, b| {
+            a.issue_id
+                .cmp(&b.issue_id)
+                .then(a.depends_on_id.cmp(&b.depends_on_id))
+        });
+
+        let mut comments: Vec<Comment> = {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT * FROM comments ORDER BY created_at")
+                .map_err(|e| {
+                    PensaError::Internal(format!("failed to query comments for export: {e}"))
+                })?;
+            stmt.query_map([], comment_from_row)
+                .map_err(|e| {
+                    PensaError::Internal(format!("failed to read comments for export: {e}"))
+                })?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| {
+                    PensaError::Internal(format!("failed to collect comments for export: {e}"))
+                })?
+        };
+        comments.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+
+        let issues_path = self.pensa_dir.join("issues.jsonl");
+        let deps_path = self.pensa_dir.join("deps.jsonl");
+        let comments_path = self.pensa_dir.join("comments.jsonl");
+
+        let mut issues_content = String::new();
+        for issue in &sorted_issues {
+            issues_content.push_str(&serde_json::to_string(issue).unwrap());
+            issues_content.push('\n');
+        }
+        fs::write(&issues_path, &issues_content)
+            .map_err(|e| PensaError::Internal(format!("failed to write issues.jsonl: {e}")))?;
+
+        let mut deps_content = String::new();
+        for dep in &deps {
+            deps_content.push_str(&serde_json::to_string(dep).unwrap());
+            deps_content.push('\n');
+        }
+        fs::write(&deps_path, &deps_content)
+            .map_err(|e| PensaError::Internal(format!("failed to write deps.jsonl: {e}")))?;
+
+        let mut comments_content = String::new();
+        for comment in &comments {
+            comments_content.push_str(&serde_json::to_string(comment).unwrap());
+            comments_content.push('\n');
+        }
+        fs::write(&comments_path, &comments_content)
+            .map_err(|e| PensaError::Internal(format!("failed to write comments.jsonl: {e}")))?;
+
+        Ok(ExportImportResult {
+            status: "ok".to_string(),
+            issues: sorted_issues.len(),
+            deps: deps.len(),
+            comments: comments.len(),
+        })
+    }
+
+    pub fn import_jsonl(&self) -> Result<ExportImportResult, PensaError> {
+        let issues_path = self.pensa_dir.join("issues.jsonl");
+        let deps_path = self.pensa_dir.join("deps.jsonl");
+        let comments_path = self.pensa_dir.join("comments.jsonl");
+
+        self.conn
+            .execute_batch(
+                "DELETE FROM events;
+                 DELETE FROM comments;
+                 DELETE FROM deps;
+                 DELETE FROM issues;",
+            )
+            .map_err(|e| PensaError::Internal(format!("failed to clear tables for import: {e}")))?;
+
+        let mut issue_count = 0;
+        if issues_path.exists() {
+            let content = fs::read_to_string(&issues_path)
+                .map_err(|e| PensaError::Internal(format!("failed to read issues.jsonl: {e}")))?;
+            for line in content.lines() {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                let issue: Issue = serde_json::from_str(line)
+                    .map_err(|e| PensaError::Internal(format!("failed to parse issue: {e}")))?;
+                self.conn
+                    .execute(
+                        "INSERT INTO issues (id, title, description, issue_type, status, priority, spec, fixes, assignee, created_at, updated_at, closed_at, close_reason)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                        rusqlite::params![
+                            issue.id,
+                            issue.title,
+                            issue.description,
+                            issue.issue_type.as_str(),
+                            issue.status.as_str(),
+                            issue.priority.as_str(),
+                            issue.spec,
+                            issue.fixes,
+                            issue.assignee,
+                            issue.created_at.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+                            issue.updated_at.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+                            issue.closed_at.map(|dt| dt.format("%Y-%m-%dT%H:%M:%SZ").to_string()),
+                            issue.close_reason,
+                        ],
+                    )
+                    .map_err(|e| PensaError::Internal(format!("failed to import issue: {e}")))?;
+                issue_count += 1;
+            }
+        }
+
+        let mut dep_count = 0;
+        if deps_path.exists() {
+            let content = fs::read_to_string(&deps_path)
+                .map_err(|e| PensaError::Internal(format!("failed to read deps.jsonl: {e}")))?;
+            for line in content.lines() {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                let dep: Dep = serde_json::from_str(line)
+                    .map_err(|e| PensaError::Internal(format!("failed to parse dep: {e}")))?;
+                self.conn
+                    .execute(
+                        "INSERT INTO deps (issue_id, depends_on_id) VALUES (?1, ?2)",
+                        rusqlite::params![dep.issue_id, dep.depends_on_id],
+                    )
+                    .map_err(|e| PensaError::Internal(format!("failed to import dep: {e}")))?;
+                dep_count += 1;
+            }
+        }
+
+        let mut comment_count = 0;
+        if comments_path.exists() {
+            let content = fs::read_to_string(&comments_path)
+                .map_err(|e| PensaError::Internal(format!("failed to read comments.jsonl: {e}")))?;
+            for line in content.lines() {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                let comment: Comment = serde_json::from_str(line)
+                    .map_err(|e| PensaError::Internal(format!("failed to parse comment: {e}")))?;
+                self.conn
+                    .execute(
+                        "INSERT INTO comments (id, issue_id, actor, text, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                        rusqlite::params![
+                            comment.id,
+                            comment.issue_id,
+                            comment.actor,
+                            comment.text,
+                            comment.created_at.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+                        ],
+                    )
+                    .map_err(|e| PensaError::Internal(format!("failed to import comment: {e}")))?;
+                comment_count += 1;
+            }
+        }
+
+        Ok(ExportImportResult {
+            status: "ok".to_string(),
+            issues: issue_count,
+            deps: dep_count,
+            comments: comment_count,
+        })
+    }
+
+    pub fn doctor(&self, fix: bool) -> Result<DoctorReport, PensaError> {
+        let mut findings = Vec::new();
+        let mut fixes_applied = Vec::new();
+
+        // Check 1: Stale claims — in_progress issues
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, title, assignee FROM issues WHERE status = 'in_progress'")
+            .map_err(|e| PensaError::Internal(format!("failed to check stale claims: {e}")))?;
+
+        let stale_claims: Vec<(String, String, Option<String>)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .map_err(|e| PensaError::Internal(format!("failed to query stale claims: {e}")))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| PensaError::Internal(format!("failed to read stale claims: {e}")))?;
+
+        for (id, title, assignee) in &stale_claims {
+            findings.push(DoctorFinding {
+                check: "stale_claim".to_string(),
+                message: format!(
+                    "issue \"{title}\" is in_progress (claimed by {})",
+                    assignee.as_deref().unwrap_or("unknown")
+                ),
+                issue_id: Some(id.clone()),
+            });
+        }
+
+        if fix && !stale_claims.is_empty() {
+            let ts = now();
+            self.conn
+                .execute(
+                    "UPDATE issues SET status = 'open', assignee = NULL, updated_at = ?1 WHERE status = 'in_progress'",
+                    rusqlite::params![ts],
+                )
+                .map_err(|e| PensaError::Internal(format!("failed to fix stale claims: {e}")))?;
+            fixes_applied.push(format!("released {} stale claims", stale_claims.len()));
+        }
+
+        // Check 2: Orphaned deps
+        let orphaned_deps: Vec<(String, String)> = {
+            let mut stmt = self
+                .conn
+                .prepare(
+                    "SELECT d.issue_id, d.depends_on_id FROM deps d
+                     WHERE d.issue_id NOT IN (SELECT id FROM issues)
+                        OR d.depends_on_id NOT IN (SELECT id FROM issues)",
+                )
+                .map_err(|e| PensaError::Internal(format!("failed to check orphaned deps: {e}")))?;
+            stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .map_err(|e| PensaError::Internal(format!("failed to query orphaned deps: {e}")))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| PensaError::Internal(format!("failed to read orphaned deps: {e}")))?
+        };
+
+        for (issue_id, depends_on_id) in &orphaned_deps {
+            findings.push(DoctorFinding {
+                check: "orphaned_dep".to_string(),
+                message: format!("dep {issue_id} -> {depends_on_id} references non-existent issue"),
+                issue_id: None,
+            });
+        }
+
+        if fix && !orphaned_deps.is_empty() {
+            self.conn
+                .execute(
+                    "DELETE FROM deps WHERE issue_id NOT IN (SELECT id FROM issues)
+                        OR depends_on_id NOT IN (SELECT id FROM issues)",
+                    [],
+                )
+                .map_err(|e| PensaError::Internal(format!("failed to fix orphaned deps: {e}")))?;
+            fixes_applied.push(format!("removed {} orphaned deps", orphaned_deps.len()));
+        }
+
+        // Check 3: JSONL/SQLite drift
+        let issues_path = self.pensa_dir.join("issues.jsonl");
+        if issues_path.exists() {
+            let content = fs::read_to_string(&issues_path).unwrap_or_default();
+            let jsonl_count = content.lines().filter(|l| !l.trim().is_empty()).count();
+            let db_count: i64 = self
+                .conn
+                .query_row("SELECT COUNT(*) FROM issues", [], |row| row.get(0))
+                .map_err(|e| PensaError::Internal(format!("failed to count issues: {e}")))?;
+            if jsonl_count as i64 != db_count {
+                findings.push(DoctorFinding {
+                    check: "jsonl_drift".to_string(),
+                    message: format!(
+                        "issues.jsonl has {jsonl_count} entries but DB has {db_count}"
+                    ),
+                    issue_id: None,
+                });
+            }
+        }
+
+        Ok(DoctorReport {
+            findings,
+            fixes_applied,
+        })
     }
 }
 
@@ -1665,5 +2018,193 @@ mod tests {
 
         let cycles = db.detect_cycles().unwrap();
         assert!(cycles.is_empty());
+    }
+
+    // Phase 8 tests
+
+    #[test]
+    fn add_and_list_comments() {
+        let (db, _dir) = open_temp_db();
+        let issue = create_task(&db, "test issue");
+
+        let comment = db.add_comment(&issue.id, "alice", "looks good").unwrap();
+        assert!(comment.id.starts_with("pn-"));
+        assert_eq!(comment.issue_id, issue.id);
+        assert_eq!(comment.actor, "alice");
+        assert_eq!(comment.text, "looks good");
+
+        let comments = db.list_comments(&issue.id).unwrap();
+        assert_eq!(comments.len(), 1);
+        assert_eq!(comments[0].text, "looks good");
+
+        // Verify "commented" event was logged
+        let events = db.issue_history(&issue.id).unwrap();
+        assert!(events.iter().any(|e| e.event_type == "commented"));
+    }
+
+    #[test]
+    fn export_import_roundtrip() {
+        let (db, _dir) = open_temp_db();
+
+        let a = create_task(&db, "task A");
+        let b = db
+            .create_issue(&CreateIssueParams {
+                title: "task B".into(),
+                issue_type: IssueType::Task,
+                priority: Priority::P1,
+                description: Some("desc B".into()),
+                spec: Some("auth".into()),
+                fixes: None,
+                assignee: Some("bob".into()),
+                deps: vec![],
+                actor: "test-agent".into(),
+            })
+            .unwrap();
+
+        db.add_dep(&b.id, &a.id, "test-agent").unwrap();
+        db.add_comment(&a.id, "alice", "observation 1").unwrap();
+
+        let export_result = db.export_jsonl().unwrap();
+        assert_eq!(export_result.status, "ok");
+        assert_eq!(export_result.issues, 2);
+        assert_eq!(export_result.deps, 1);
+        assert_eq!(export_result.comments, 1);
+
+        // Import clears and reimports
+        let import_result = db.import_jsonl().unwrap();
+        assert_eq!(import_result.status, "ok");
+        assert_eq!(import_result.issues, 2);
+        assert_eq!(import_result.deps, 1);
+        assert_eq!(import_result.comments, 1);
+
+        // Verify data is intact
+        let issues = db.list_issues(&ListFilters::default()).unwrap();
+        assert_eq!(issues.len(), 2);
+
+        let issue_b = db.get_issue_only(&b.id).unwrap();
+        assert_eq!(issue_b.title, "task B");
+        assert_eq!(issue_b.priority, Priority::P1);
+        assert_eq!(issue_b.description.as_deref(), Some("desc B"));
+        assert_eq!(issue_b.spec.as_deref(), Some("auth"));
+        assert_eq!(issue_b.assignee.as_deref(), Some("bob"));
+
+        let deps = db.list_deps(&b.id).unwrap();
+        assert_eq!(deps.len(), 1);
+        assert_eq!(deps[0].id, a.id);
+
+        let comments = db.list_comments(&a.id).unwrap();
+        assert_eq!(comments.len(), 1);
+        assert_eq!(comments[0].text, "observation 1");
+    }
+
+    #[test]
+    fn jsonl_sorted() {
+        let (db, _dir) = open_temp_db();
+
+        // Create issues in reverse order with slight delay
+        let c = create_task(&db, "task C");
+        let b = create_task(&db, "task B");
+        let a = create_task(&db, "task A");
+
+        db.add_dep(&b.id, &a.id, "test-agent").unwrap();
+        db.add_dep(&c.id, &a.id, "test-agent").unwrap();
+        db.add_comment(&a.id, "alice", "first").unwrap();
+        db.add_comment(&b.id, "bob", "second").unwrap();
+
+        db.export_jsonl().unwrap();
+
+        // Read and verify sorting
+        let issues_content = fs::read_to_string(db.pensa_dir.join("issues.jsonl")).unwrap();
+        let issue_lines: Vec<Issue> = issues_content
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        for w in issue_lines.windows(2) {
+            assert!(w[0].created_at <= w[1].created_at);
+        }
+
+        let deps_content = fs::read_to_string(db.pensa_dir.join("deps.jsonl")).unwrap();
+        let dep_lines: Vec<crate::types::Dep> = deps_content
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        for w in dep_lines.windows(2) {
+            assert!(
+                (w[0].issue_id.as_str(), w[0].depends_on_id.as_str())
+                    <= (w[1].issue_id.as_str(), w[1].depends_on_id.as_str())
+            );
+        }
+
+        let comments_content = fs::read_to_string(db.pensa_dir.join("comments.jsonl")).unwrap();
+        let comment_lines: Vec<Comment> = comments_content
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        for w in comment_lines.windows(2) {
+            assert!(w[0].created_at <= w[1].created_at);
+        }
+    }
+
+    #[test]
+    fn auto_import_on_open() {
+        let dir = TempDir::new().unwrap();
+
+        // First, create data and export
+        {
+            let db = Db::open(dir.path()).unwrap();
+            create_task(&db, "task A");
+            create_task(&db, "task B");
+            db.export_jsonl().unwrap();
+        }
+
+        // Delete the DB file
+        fs::remove_file(dir.path().join(".pensa/db.sqlite")).unwrap();
+
+        // Re-open — should auto-import from JSONL
+        let db = Db::open(dir.path()).unwrap();
+        let issues = db.list_issues(&ListFilters::default()).unwrap();
+        assert_eq!(issues.len(), 2);
+    }
+
+    #[test]
+    fn doctor_detects_stale() {
+        let (db, _dir) = open_temp_db();
+        let a = create_task(&db, "task A");
+        let b = create_task(&db, "task B");
+
+        db.claim_issue(&a.id, "agent-1").unwrap();
+        db.claim_issue(&b.id, "agent-2").unwrap();
+
+        let report = db.doctor(false).unwrap();
+        assert_eq!(report.findings.len(), 2);
+        assert!(report.findings.iter().all(|f| f.check == "stale_claim"));
+        assert!(report.fixes_applied.is_empty());
+    }
+
+    #[test]
+    fn doctor_fix_releases() {
+        let (db, _dir) = open_temp_db();
+        let a = create_task(&db, "task A");
+        let b = create_task(&db, "task B");
+
+        db.claim_issue(&a.id, "agent-1").unwrap();
+        db.claim_issue(&b.id, "agent-2").unwrap();
+
+        let report = db.doctor(true).unwrap();
+        assert_eq!(report.findings.len(), 2);
+        assert_eq!(report.fixes_applied.len(), 1);
+        assert!(report.fixes_applied[0].contains("2 stale claims"));
+
+        // Verify all issues are now open
+        let issue_a = db.get_issue_only(&a.id).unwrap();
+        assert_eq!(issue_a.status, Status::Open);
+        assert!(issue_a.assignee.is_none());
+
+        let issue_b = db.get_issue_only(&b.id).unwrap();
+        assert_eq!(issue_b.status, Status::Open);
+        assert!(issue_b.assignee.is_none());
     }
 }

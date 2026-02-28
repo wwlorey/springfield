@@ -125,46 +125,25 @@ Implement `add_dep` (with cycle detection), `remove_dep`, `list_deps`, `dep_tree
 
 ---
 
-## Phase 8: DB — Comments, Export/Import, Doctor
+## Phase 8: DB — Comments, Export/Import, Doctor ✅
 
 Implement comments, JSONL export/import (with auto-import in `Db::open`), and doctor.
 
-- **Source:** [`specs/pensa.md:220-221`](specs/pensa.md), [`specs/pensa.md:246-255`](specs/pensa.md), [`specs/pensa.md:357-371`](specs/pensa.md), [`specs/pensa.md:383`](specs/pensa.md)
-- **Comments:**
-  - `add_comment(issue_id, actor, text)`:
-    - Generate comment ID via `generate_id()` ([`specs/pensa.md:122`](specs/pensa.md))
-    - INSERT into comments
-    - INSERT "commented" event
-    - Return the `Comment`
-  - `list_comments(issue_id)`:
-    - SELECT from comments WHERE issue_id ORDER BY created_at ([`specs/pensa.md:221`](specs/pensa.md))
-- **Export/import:**
-  - `export_jsonl(pensa_dir)`:
-    - Write `issues.jsonl` — one JSON object per line, sorted by `created_at` ([`specs/pensa.md:363`](specs/pensa.md))
-    - Write `deps.jsonl` — one per dep, sorted by `issue_id` then `depends_on_id` ([`specs/pensa.md:367`](specs/pensa.md))
-    - Write `comments.jsonl` — one per comment, sorted by `created_at` ([`specs/pensa.md:371`](specs/pensa.md))
-    - Events are NOT exported (derivable, avoids file growth) ([`specs/pensa.md:16`](specs/pensa.md))
-    - Return counts: `{issues: N, deps: N, comments: N}`
-  - `import_jsonl(pensa_dir)`:
-    - Drop and recreate all four tables (issues, deps, comments, events) ([`specs/pensa.md:248`](specs/pensa.md))
-    - Read and insert from each JSONL file
-    - Return counts
-  - Update `Db::open()` to auto-import: if JSONL files exist but DB tables are empty, call `import_jsonl` ([`specs/pensa.md:383`](specs/pensa.md))
-- **Doctor:**
-  - `doctor(fix: bool)` ([`specs/pensa.md:250-255`](specs/pensa.md)):
-    - Check 1: Stale claims — in_progress issues (no recent activity threshold)
-    - Check 2: Orphaned deps — deps referencing non-existent issues
-    - Check 3: JSONL/SQLite drift — compare counts between DB and JSONL files
-    - If fix=true: release all in_progress claims (status→open, clear assignee), remove orphaned deps
-    - Return report: findings array + fixes applied
-- **Tests:**
-  - `add_and_list_comments` — add comment, list returns it
-  - `export_import_roundtrip` — create issues with deps and comments → export → delete DB → import → verify all data intact
-  - `jsonl_sorted` — export, verify issues sorted by created_at, deps by issue_id+depends_on_id, comments by created_at
-  - `auto_import_on_open` — export JSONL, delete DB file, open() auto-imports from JSONL
-  - `doctor_detects_stale` — create in_progress issues, doctor reports them
-  - `doctor_fix_releases` — doctor(fix=true) sets stale claims to open
-- **Verify:** build + test + clippy + fmt
+- ✅ `add_comment(issue_id, actor, text)` — generates comment ID, INSERTs into comments + "commented" event, returns `Comment`
+- ✅ `list_comments(issue_id)` — SELECT from comments WHERE issue_id ORDER BY created_at
+- ✅ `export_jsonl()` — writes `issues.jsonl` (sorted by created_at), `deps.jsonl` (sorted by issue_id+depends_on_id), `comments.jsonl` (sorted by created_at); returns `ExportImportResult`
+- ✅ `import_jsonl()` — DELETEs all rows from all tables, reads and inserts from JSONL files; returns `ExportImportResult`
+- ✅ `Db::open()` auto-import — if issue count is 0 and `issues.jsonl` exists, calls `import_jsonl()`
+- ✅ `doctor(fix: bool)` — checks stale claims (in_progress issues), orphaned deps, JSONL/SQLite drift; with fix=true releases all claims and removes orphaned deps
+- ✅ New types: `ExportImportResult`, `DoctorFinding`, `DoctorReport`
+- ✅ Tests: `add_and_list_comments`, `export_import_roundtrip`, `jsonl_sorted`, `auto_import_on_open`, `doctor_detects_stale`, `doctor_fix_releases` (6 new, 35 total)
+- ✅ Verified: build + test (35 pass) + clippy + fmt
+
+### Design decisions
+
+- **`import_jsonl` uses DELETE instead of DROP/recreate** — avoids having to re-run schema migrations; DELETE is sufficient since we're rebuilding all data from JSONL. Foreign key constraints are temporarily sidestepped by deleting in the correct order (events → comments → deps → issues).
+- **`export_jsonl` uses `list_issues` with default filters** — reuses existing query logic rather than duplicating SQL. Results are then sorted by `created_at` in Rust for the JSONL output.
+- **Doctor stale claim check is simple** — reports all `in_progress` issues as stale. The spec mentions "no recent activity threshold" but doesn't define a specific threshold, so any in_progress issue is reported. This can be refined later if a specific staleness duration is defined.
 
 ---
 
