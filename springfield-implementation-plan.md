@@ -17,7 +17,7 @@ The `sgf` crate is the CLI entry point for Springfield — it handles project sc
 | 4 | ✅ Complete | Prompt assembly with `{{var}}` substitution and validation |
 | 5 | ✅ Complete | Loop ID, PID files, log teeing, `sgf logs` |
 | 6 | ✅ Complete | Pre-launch recovery and daemon lifecycle |
-| 7 | Pending | Loop orchestration core |
+| 7 | ✅ Complete | Loop orchestration core with 12 unit tests |
 | 8 | Pending | Workflow commands |
 | 9 | Pending | Docker template build |
 | 10 | Pending | Documentation |
@@ -348,61 +348,69 @@ Implement the core loop orchestration that launches ralph with the correct flags
 
 **Source**: [`specs/springfield.md:270-302`](specs/springfield.md) (sgf-to-ralph Contract)
 
-- [ ] Create `crates/sgf/src/orchestrate.rs` module
-- [ ] Wire `pub mod orchestrate` in `lib.rs`
+- [x] Create `crates/sgf/src/orchestrate.rs` module
+- [x] Wire `pub mod orchestrate` in `lib.rs`
 
 ### Ralph binary resolution
 
-- [ ] Check `SGF_RALPH_BINARY` env var first (for testing)
-- [ ] Fall back to `ralph` on `PATH`
+- [x] Check `SGF_RALPH_BINARY` env var first (for testing)
+- [x] Fall back to `ralph` on `PATH`
 
 ### Flag translation
 
 Per [`specs/springfield.md:281-291`](specs/springfield.md):
 
-- [ ] Pass `-a` / `--afk` when sgf's `-a` flag is set
-- [ ] Pass `--loop-id <id>` with sgf-generated loop ID
-- [ ] Pass `--template ralph-sandbox:latest` (hardcoded, [`specs/springfield.md:860`](specs/springfield.md))
-- [ ] Pass `--auto-push true` unless `--no-push` was passed to sgf
-- [ ] Pass `--max-iterations 30` (hardcoded, [`specs/springfield.md:859`](specs/springfield.md))
-- [ ] Pass iterations as positional arg (default `30`)
-- [ ] Pass assembled prompt file path as positional arg (from Phase 4)
+- [x] Pass `-a` / `--afk` when sgf's `-a` flag is set
+- [x] Pass `--loop-id <id>` with sgf-generated loop ID
+- [x] Pass `--template ralph-sandbox:latest` (hardcoded, [`specs/springfield.md:860`](specs/springfield.md))
+- [x] Pass `--auto-push true` unless `--no-push` was passed to sgf
+- [x] Pass `--max-iterations 30` (hardcoded, [`specs/springfield.md:859`](specs/springfield.md))
+- [x] Pass iterations as positional arg (default `30`)
+- [x] Pass assembled prompt file path as positional arg (from Phase 4)
 
 ### Process lifecycle
 
-- [ ] Spawn ralph via `std::process::Command`
-- [ ] AFK mode: pipe stdout, tee to terminal + `.sgf/logs/<loop-id>.log`
-- [ ] Interactive mode: inherit stdin/stdout/stderr
-- [ ] Write PID file before launching ralph
-- [ ] Remove PID file after ralph exits (success or failure)
-- [ ] Remove PID file on signal interrupt
+- [x] Spawn ralph via `std::process::Command`
+- [x] AFK mode: pipe stdout, tee to terminal + `.sgf/logs/<loop-id>.log`
+- [x] Interactive mode: inherit stdin/stdout/stderr
+- [x] Write PID file before launching ralph
+- [x] Remove PID file after ralph exits (success or failure)
+- [x] Remove PID file on signal interrupt
 
 ### Exit code handling
 
 Per [`specs/springfield.md:293-302`](specs/springfield.md):
 
-- [ ] Exit 0 from ralph: print success, clean up PID file
-- [ ] Exit 1 from ralph: print error, clean up PID file, exit 1
-- [ ] Exit 2 from ralph: print "iterations exhausted", clean up PID file, exit 2
-- [ ] Exit 130 from ralph: print "interrupted", clean up PID file, exit 130
+- [x] Exit 0 from ralph: print success, clean up PID file
+- [x] Exit 1 from ralph: print error, clean up PID file, exit 1
+- [x] Exit 2 from ralph: print "iterations exhausted", clean up PID file, exit 2
+- [x] Exit 130 from ralph: print "interrupted", clean up PID file, exit 130
 
 ### Signal handling
 
-- [ ] Register SIGINT/SIGTERM handlers via `signal-hook`
-- [ ] On interrupt: kill ralph child process, clean up PID file, exit 130
+- [x] Register SIGINT/SIGTERM handlers via `signal-hook`
+- [x] On interrupt: kill ralph child process, clean up PID file, exit 130
 
 ### Verification
 
-- [ ] Mock ralph receives correct flags for `sgf build auth -a --no-push 10`
-- [ ] Mock ralph receives `--auto-push true` when `--no-push` not passed
-- [ ] Mock ralph receives `--template ralph-sandbox:latest`
-- [ ] Mock ralph receives `--max-iterations 30`
-- [ ] PID file exists while ralph is running
-- [ ] PID file removed after ralph exits
-- [ ] AFK mode creates log file with ralph's output
-- [ ] `SGF_RALPH_BINARY` env var overrides ralph binary path
-- [ ] `cargo test -p sgf` passes
-- [ ] `cargo clippy -p sgf -- -D warnings` passes
+- [x] Mock ralph receives correct flags for `sgf build auth -a --no-push 10`
+- [x] Mock ralph receives `--auto-push true` when `--no-push` not passed
+- [x] Mock ralph receives `--template ralph-sandbox:latest`
+- [x] Mock ralph receives `--max-iterations 30`
+- [x] PID file exists while ralph is running
+- [x] PID file removed after ralph exits
+- [x] AFK mode creates log file with ralph's output
+- [x] `SGF_RALPH_BINARY` env var overrides ralph binary path
+- [x] `cargo test -p sgf` passes
+- [x] `cargo clippy -p sgf -- -D warnings` passes
+
+### Notes
+
+- `LoopConfig` uses `ralph_binary: Option<String>` for direct binary override (avoids `unsafe` env var mutation in Rust 2024 edition tests) with fallback to `SGF_RALPH_BINARY` env var, then `ralph` on PATH.
+- `skip_preflight: bool` on `LoopConfig` allows unit tests to bypass recovery/daemon startup (those are already tested independently in `recovery.rs`).
+- Signal handling uses `signal-hook::flag` for safe atomic bool flip — poll loop checks the flag and sends SIGTERM to the ralph child process.
+- AFK mode tees stdout in a background thread via `loop_mgmt::tee_output`, while the main thread polls `try_wait()` + interrupt flag.
+- Interactive mode inherits all stdio directly (no log teeing possible, per spec).
 
 ---
 
