@@ -6,6 +6,31 @@ The `sgf` crate is the CLI entry point for Springfield — it handles project sc
 
 ---
 
+## Progress
+
+| Phase | Status | Notes |
+|-------|--------|-------|
+| 0 | ✅ Complete | Workspace builds, tests, lint, format all pass |
+| 1 | ✅ Complete | Full CLI skeleton with all subcommands |
+| 2 | ✅ Complete | `sgf init` directory/file scaffolding with 26 unit tests |
+| 3 | ✅ Complete | Config merging (.gitignore, settings.json, pre-commit) |
+| 4 | ✅ Complete | Prompt assembly with `{{var}}` substitution and validation |
+| 5 | ✅ Complete | Loop ID, PID files, log teeing, `sgf logs` |
+| 6 | ✅ Complete | Pre-launch recovery and daemon lifecycle |
+| 7 | Pending | Loop orchestration core |
+| 8 | Pending | Workflow commands |
+| 9 | Pending | Docker template build |
+| 10 | Pending | Documentation |
+| 11 | Pending | Integration tests |
+
+### Lessons Learned
+
+- **Test ordering matters for git-based tests**: PID files and other untracked artifacts must be created AFTER `git init` + `git add .` + `git commit` to avoid being accidentally tracked. Otherwise `git checkout -- .` restores them during recovery tests.
+- **Pre-existing formatting issues**: The pensa proptest file had formatting issues that needed `cargo fmt` before clean checks. Always run `cargo fmt --all` early.
+- **Module wiring**: Phase 5 (`loop_mgmt.rs`) existed on disk but wasn't declared in `lib.rs` — the `libc` dependency was also missing from `Cargo.toml`. Files must be wired into the module tree and all deps declared.
+
+---
+
 ## Phase 0: Toolchain & Environment Setup
 
 Install all tools referenced in [`AGENTS.md`](AGENTS.md) and verify the workspace builds.
@@ -203,54 +228,61 @@ Implement loop ID generation, PID file management, and log teeing.
 
 **Source**: [`specs/springfield.md:310-332`](specs/springfield.md) (Loop ID, Logging)
 
-- [ ] Create `crates/sgf/src/loop_mgmt.rs` module
-- [ ] Wire `pub mod loop_mgmt` in `lib.rs`
+- [x] Create `crates/sgf/src/loop_mgmt.rs` module
+- [x] Wire `pub mod loop_mgmt` in `lib.rs`
 
 ### Loop ID generation
 
 Per [`specs/springfield.md:312-318`](specs/springfield.md):
 
-- [ ] Implement `pub fn generate_loop_id(stage: &str, spec: Option<&str>) -> String`
-- [ ] Format: `<stage>-<spec>-<YYYYMMDDTHHmmss>` when spec provided
-- [ ] Format: `<stage>-<YYYYMMDDTHHmmss>` when no spec
-- [ ] Verify: `build` + `auth` → `build-auth-20260226T143000` pattern
-- [ ] Verify: `verify` + no spec → `verify-20260226T150000` pattern
-- [ ] Verify: `issues-plan` + no spec → `issues-plan-20260226T160000` pattern
+- [x] Implement `pub fn generate_loop_id(stage: &str, spec: Option<&str>) -> String`
+- [x] Format: `<stage>-<spec>-<YYYYMMDDTHHmmss>` when spec provided
+- [x] Format: `<stage>-<YYYYMMDDTHHmmss>` when no spec
+- [x] Verify: `build` + `auth` → `build-auth-20260226T143000` pattern
+- [x] Verify: `verify` + no spec → `verify-20260226T150000` pattern
+- [x] Verify: `issues-plan` + no spec → `issues-plan-20260226T160000` pattern
 
 ### PID files
 
 Per [`specs/springfield.md:339-341`](specs/springfield.md):
 
-- [ ] Implement `pub fn write_pid_file(loop_id: &str) -> Result<PathBuf>` — writes `std::process::id()` to `.sgf/run/<loop-id>.pid`
-- [ ] Implement `pub fn remove_pid_file(loop_id: &str)` — removes `.sgf/run/<loop-id>.pid`
-- [ ] Implement `pub fn list_pid_files() -> Vec<(String, u32)>` — reads all `.pid` files in `.sgf/run/`, returns `(loop_id, pid)` pairs
-- [ ] Implement `pub fn is_pid_alive(pid: u32) -> bool` — check via `kill -0`
+- [x] Implement `pub fn write_pid_file(root: &Path, loop_id: &str) -> Result<PathBuf>` — writes `std::process::id()` to `.sgf/run/<loop-id>.pid`
+- [x] Implement `pub fn remove_pid_file(root: &Path, loop_id: &str)` — removes `.sgf/run/<loop-id>.pid`
+- [x] Implement `pub fn list_pid_files(root: &Path) -> Vec<(String, u32)>` — reads all `.pid` files in `.sgf/run/`, returns `(loop_id, pid)` pairs
+- [x] Implement `pub fn is_pid_alive(pid: u32) -> bool` — check via `kill -0`
 
 ### Log teeing
 
 Per [`specs/springfield.md:325-328`](specs/springfield.md):
 
-- [ ] Implement log file creation at `.sgf/logs/<loop-id>.log`
-- [ ] In AFK mode: read ralph stdout line-by-line, write each line to both terminal stdout and log file
-- [ ] In interactive mode: inherit stdio (no log teeing possible)
+- [x] Implement log file creation at `.sgf/logs/<loop-id>.log`
+- [x] In AFK mode: read ralph stdout line-by-line, write each line to both terminal stdout and log file
+- [x] In interactive mode: inherit stdio (no log teeing possible)
 
 ### `sgf logs` command
 
 Per [`specs/springfield.md:329-332`](specs/springfield.md):
 
-- [ ] Wire `sgf logs <loop-id>` in `main.rs`
-- [ ] Run `tail -f .sgf/logs/<loop-id>.log` via `std::process::Command`
-- [ ] Exit 1 with error message if log file does not exist
+- [x] Wire `sgf logs <loop-id>` in `main.rs`
+- [x] Run `tail -f .sgf/logs/<loop-id>.log` via `std::process::Command`
+- [x] Exit 1 with error message if log file does not exist
 
 ### Verification
 
-- [ ] Loop ID format correct for each stage variant
-- [ ] PID file written contains current process ID
-- [ ] PID file removed on cleanup
-- [ ] `is_pid_alive` returns true for own PID, false for dead PID
-- [ ] `sgf logs` exits 1 for nonexistent log file
-- [ ] `cargo test -p sgf` passes
-- [ ] `cargo clippy -p sgf -- -D warnings` passes
+- [x] Loop ID format correct for each stage variant
+- [x] PID file written contains current process ID
+- [x] PID file removed on cleanup
+- [x] `is_pid_alive` returns true for own PID, false for dead PID
+- [x] `sgf logs` exits 1 for nonexistent log file
+- [x] `cargo test -p sgf` passes
+- [x] `cargo clippy -p sgf -- -D warnings` passes
+
+### Notes
+
+- All functions take `root: &Path` (project root) rather than assuming cwd — consistent with `init::run()` and `prompt::assemble()`, and testable with `TempDir`.
+- Used `libc::kill(pid, 0)` for `is_pid_alive` — standard Unix process existence check, added `libc` dependency.
+- `tee_output` takes a generic `io::Read` for testability — tests pass byte slices, production will pass ralph's piped stdout.
+- `list_pid_files` uses chained `let` guards (Rust edition 2024 `let` chains) to collapse nested `if let` per clippy preference.
 
 ---
 

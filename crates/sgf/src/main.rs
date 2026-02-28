@@ -140,12 +140,11 @@ fn main() {
             println!("Not yet implemented");
         }
         Commands::Logs { loop_id } => {
-            let log_path = format!(".sgf/logs/{loop_id}.log");
-            if !std::path::Path::new(&log_path).exists() {
-                eprintln!("error: log file not found: {log_path}");
+            let root = std::env::current_dir().expect("failed to get current directory");
+            if let Err(e) = sgf::loop_mgmt::run_logs(&root, &loop_id) {
+                eprintln!("sgf logs: {e}");
                 std::process::exit(1);
             }
-            eprintln!("sgf logs: not yet implemented");
         }
         Commands::Template { subcmd } => match subcmd {
             TemplateSubcommand::Build => {

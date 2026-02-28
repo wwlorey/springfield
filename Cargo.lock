@@ -1614,6 +1614,7 @@ dependencies = [
  "assert_cmd",
  "chrono",
  "clap",
+ "libc",
  "portpicker",
  "predicates",
  "serde",
