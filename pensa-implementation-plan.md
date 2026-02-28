@@ -227,39 +227,35 @@ Add dependency, comment, and data management endpoints.
 
 ---
 
-## Phase 12: CLI — Client, Clap & Issue Commands
+## Phase 12: CLI — Client, Clap & Issue Commands ✅
 
 Create the HTTP client, full clap CLI definition, actor resolution, output formatting, and wire all issue commands.
 
-- **Source:** [`specs/pensa.md:44-48`](specs/pensa.md) — CLI client; [`specs/pensa.md:145-257`](specs/pensa.md) — CLI Commands; [`specs/pensa.md:262-315`](specs/pensa.md) — Output
-- Create `crates/pensa/src/client.rs`:
-  - `Client` struct wrapping `reqwest::blocking::Client` + `daemon_url: String`
-  - `Client::new()`: discover daemon URL from `PN_DAEMON` env var, default `http://localhost:7533` ([`specs/pensa.md:46`](specs/pensa.md))
-  - If daemon is unreachable, fail with clear error + exit 1 ([`specs/pensa.md:47`](specs/pensa.md))
-  - One method per CLI command, translating args → HTTP request → parse response or error
-- Create `crates/pensa/src/output.rs`:
-  - `OutputMode` enum: `Json`, `Human`
-  - Print functions for each output shape: single issue, issue list, error, dep status, comment, event list, count, status report, doctor report, export/import result
-  - Human-readable: compact, scannable, `git log --oneline` density ([`specs/pensa.md:313-315`](specs/pensa.md))
-  - JSON: direct data to stdout, errors to stderr ([`specs/pensa.md:262-270`](specs/pensa.md))
-  - Null arrays always `[]`, never `null` ([`specs/pensa.md:285-286`](specs/pensa.md))
-  - Exit codes: 0 success, 1 error ([`specs/pensa.md:273-275`](specs/pensa.md))
-- Update `crates/pensa/src/main.rs`:
-  - Full clap derive CLI with all subcommands ([`specs/pensa.md:145-257`](specs/pensa.md)):
-    - Global flags: `--actor <name>`, `--json` ([`specs/pensa.md:147`](specs/pensa.md), [`specs/pensa.md:151`](specs/pensa.md))
-    - Issue subcommands: `create`, `update`, `close`, `reopen`, `release`, `delete`, `show`
-    - Query subcommands: `list`, `ready`, `blocked`, `search`, `count`, `status`, `history`
-    - Dep subcommands: `dep add`, `dep remove`, `dep list`, `dep tree`, `dep cycles`
-    - Comment subcommands: `comment add`, `comment list`
-    - Data subcommands: `export`, `import`, `doctor`
-    - Other: `daemon` (start / status), `where`
-  - Actor resolution order: `--actor` flag → `PN_ACTOR` env var → `git config user.name` → `$USER` ([`specs/pensa.md:151`](specs/pensa.md))
-  - `pn daemon` starts the daemon directly (not via HTTP) ([`specs/pensa.md:227-233`](specs/pensa.md))
-  - `pn daemon status` checks reachability, prints info, exits 0/1 ([`specs/pensa.md:233`](specs/pensa.md))
-  - `pn where` prints `.pensa/` path, no daemon request ([`specs/pensa.md:257`](specs/pensa.md), [`specs/pensa.md:351`](specs/pensa.md))
-- Wire issue commands through client: `create`, `show`, `update`, `delete`, `close`, `reopen`, `release`
-- Wire modules: add `pub mod client`, `pub mod output` to `lib.rs`
-- **Verify:** build + clippy + fmt
+- ✅ `crates/pensa/src/client.rs` — `Client` struct wrapping `reqwest::blocking::Client` + `base_url: String`
+  - `Client::new()`: discovers daemon URL from `PN_DAEMON` env var, default `http://localhost:7533`
+  - `check_reachable()`: GET `/status` to verify daemon is up
+  - `parse_error()`: maps daemon error responses back to `PensaError` variants
+  - One method per CLI command (27 methods total), translating args → HTTP request → parse response or error
+- ✅ `crates/pensa/src/output.rs` — `OutputMode` enum (`Json`, `Human`) + print functions
+  - Print functions for every output shape: issue, issue_detail, issue_list, events, dep_status, dep_tree, cycles, comment, comment_list, count, status, doctor, export_import, deleted, error
+  - JSON mode: pretty-printed to stdout, errors as JSON to stderr
+  - Human mode: compact, scannable one-liner format
+- ✅ `crates/pensa/src/main.rs` — full clap derive CLI with all subcommands
+  - Global flags: `--actor <name>` (with `PN_ACTOR` env), `--json`
+  - All subcommands wired: create, show, update, close, reopen, release, delete, list, ready, blocked, search, count, status, history, dep (add/remove/list/tree/cycles), comment (add/list), export, import, doctor, daemon (start/status), where
+  - Actor resolution: `--actor` flag → `PN_ACTOR` env → `git config user.name` → `$USER`
+  - `pn daemon status` checks reachability via client
+  - `pn where` prints `.pensa/` path (client-only, no daemon)
+  - `pn export` runs `git add .pensa/*.jsonl` after daemon export
+- ✅ Wired `pub mod client`, `pub mod output` in `lib.rs`
+- ✅ Added `Deserialize` to `ErrorResponse` for client-side error parsing
+- ✅ Verified: build + test (35 pass) + clippy + fmt
+
+### Design decisions
+
+- **Client methods return `serde_json::Value`** — the client is a thin HTTP wrapper; it doesn't deserialize into typed structs. This keeps the client simple and avoids duplicating type definitions. The output module formats directly from `Value`.
+- **`create_issue` takes `&CreateIssueParams`** — reuses the existing params struct from `types.rs` to satisfy clippy's max-args lint (same pattern as `db.rs`).
+- **`parse_error` maps daemon JSON errors back to `PensaError`** — preserves error codes like `not_found`, `already_claimed`, `cycle_detected` so the CLI can format them correctly and exit with code 1.
 
 ---
 
