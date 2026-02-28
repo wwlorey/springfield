@@ -126,40 +126,40 @@ Implement the merge logic for `.gitignore`, `.claude/settings.json`, and `.pre-c
 
 Per [`specs/springfield.md:118-149`](specs/springfield.md):
 
-- [ ] Create `.gitignore` from scratch when it doesn't exist with all entries
-- [ ] Append missing entries to existing `.gitignore` without duplicating existing lines
-- [ ] Include all entries: `.pensa/db.sqlite`, `.sgf/logs/`, `.sgf/run/`, `.sgf/prompts/.assembled/`, `.ralph-complete`, `.ralph-ding`, `/target`, `node_modules/`, `.svelte-kit/`, `.env`, `.env.local`, `.env.*.local`, `.DS_Store`
-- [ ] Include `# Springfield` section header when creating from scratch
+- [x] Create `.gitignore` from scratch when it doesn't exist with all entries
+- [x] Append missing entries to existing `.gitignore` without duplicating existing lines
+- [x] Include all entries: `.pensa/db.sqlite`, `.sgf/logs/`, `.sgf/run/`, `.sgf/prompts/.assembled/`, `.ralph-complete`, `.ralph-ding`, `/target`, `node_modules/`, `.svelte-kit/`, `.env`, `.env.local`, `.env.*.local`, `.DS_Store`
+- [x] Include `# Springfield` section header when creating from scratch
 
 ### `.claude/settings.json` (deny rules merge)
 
 Per [`specs/springfield.md:75-90`](specs/springfield.md):
 
-- [ ] Create `.claude/` directory if it doesn't exist
-- [ ] Create `.claude/settings.json` from scratch with all 4 deny rules when it doesn't exist
-- [ ] Parse existing `.claude/settings.json` and merge deny rules without duplicating or removing existing rules
-- [ ] Deny rules: `Edit .sgf/**`, `Write .sgf/**`, `Bash rm .sgf/**`, `Bash mv .sgf/**`
+- [x] Create `.claude/` directory if it doesn't exist
+- [x] Create `.claude/settings.json` from scratch with all 4 deny rules when it doesn't exist
+- [x] Parse existing `.claude/settings.json` and merge deny rules without duplicating or removing existing rules
+- [x] Deny rules: `Edit .sgf/**`, `Write .sgf/**`, `Bash rm .sgf/**`, `Bash mv .sgf/**`
 
 ### `.pre-commit-config.yaml` (hook append)
 
 Per [`specs/springfield.md:94-114`](specs/springfield.md):
 
-- [ ] Add `serde_yaml` dependency to `Cargo.toml`
-- [ ] Create `.pre-commit-config.yaml` from scratch with full YAML content when it doesn't exist
-- [ ] Append pensa hooks to existing file without duplicating (check for hook IDs `pensa-export`, `pensa-import`)
-- [ ] `pensa-export` hook: pre-commit stage, `pn export`, `always_run: true`
-- [ ] `pensa-import` hook: post-merge/post-checkout/post-rewrite stages, `pn import`, `always_run: true`
+- [x] Add `serde_yaml` dependency to `Cargo.toml`
+- [x] Create `.pre-commit-config.yaml` from scratch with full YAML content when it doesn't exist
+- [x] Append pensa hooks to existing file without duplicating (check for hook IDs `pensa-export`, `pensa-import`)
+- [x] `pensa-export` hook: pre-commit stage, `pn export`, `always_run: true`
+- [x] `pensa-import` hook: post-merge/post-checkout/post-rewrite stages, `pn import`, `always_run: true`
 
 ### Verification
 
-- [ ] `.gitignore` created from scratch contains all entries
-- [ ] `.gitignore` with existing custom entries: custom preserved, sgf entries added, no duplicates
-- [ ] `.gitignore` idempotent: running twice produces identical file
-- [ ] `.claude/settings.json` created from scratch contains all 4 deny rules
-- [ ] `.claude/settings.json` with existing custom deny rules: custom preserved, sgf rules added, no duplicates
-- [ ] `.pre-commit-config.yaml` created from scratch contains both hooks
-- [ ] `.pre-commit-config.yaml` with existing hooks: existing preserved, pensa hooks added, no duplicates
-- [ ] Full `sgf init` run twice produces identical results across all config files
+- [x] `.gitignore` created from scratch contains all entries
+- [x] `.gitignore` with existing custom entries: custom preserved, sgf entries added, no duplicates
+- [x] `.gitignore` idempotent: running twice produces identical file
+- [x] `.claude/settings.json` created from scratch contains all 4 deny rules
+- [x] `.claude/settings.json` with existing custom deny rules: custom preserved, sgf rules added, no duplicates
+- [x] `.pre-commit-config.yaml` created from scratch contains both hooks
+- [x] `.pre-commit-config.yaml` with existing hooks: existing preserved, pensa hooks added, no duplicates
+- [x] Full `sgf init` run twice produces identical results across all config files
 
 ---
 
