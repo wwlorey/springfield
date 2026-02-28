@@ -1,3 +1,4 @@
+pub mod daemon;
 pub mod db;
 pub mod error;
 pub mod id;

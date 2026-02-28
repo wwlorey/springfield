@@ -32,6 +32,7 @@ enum DaemonSubcommand {
 }
 
 fn main() {
+    tracing_subscriber::fmt::init();
     let cli = Cli::parse();
 
     match cli.command {
@@ -45,11 +46,9 @@ fn main() {
                 std::process::exit(1);
             }
             None => {
-                eprintln!("starting daemon on port {port}");
                 let dir = project_dir.unwrap_or_else(|| std::env::current_dir().unwrap());
-                eprintln!("project dir: {}", dir.display());
-                eprintln!("daemon: not yet implemented");
-                std::process::exit(1);
+                let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
+                rt.block_on(pensa::daemon::start(port, dir));
             }
         },
         Commands::Where => {

@@ -147,40 +147,32 @@ Implement comments, JSONL export/import (with auto-import in `Db::open`), and do
 
 ---
 
-## Phase 9: Daemon — Skeleton & Issue Endpoints
+## Phase 9: Daemon — Skeleton & Issue Endpoints ✅
 
 Create the axum server with app state, error mapping, startup/shutdown, and all issue endpoints.
 
-- **Source:** [`specs/pensa.md:33-53`](specs/pensa.md) — Runtime Architecture; [`specs/pensa.md:319-354`](specs/pensa.md) — HTTP API; [`specs/pensa.md:278-282`](specs/pensa.md) — Errors
-- Create `crates/pensa/src/daemon.rs`:
-  - App state: `Arc<Mutex<Db>>` (all mutation serialized — [`specs/pensa.md:38`](specs/pensa.md))
-  - `pub async fn start(port: u16, project_dir: PathBuf)`:
-    - Open DB via `Db::open(project_dir)` ([`specs/pensa.md:41`](specs/pensa.md))
-    - Build axum Router with all routes
-    - Bind to `0.0.0.0:{port}` (default 7533 — [`specs/pensa.md:35`](specs/pensa.md))
-    - Install SIGTERM/SIGINT handler for graceful shutdown via `tokio::signal` ([`specs/pensa.md:40`](specs/pensa.md))
-    - Run in foreground ([`specs/pensa.md:39`](specs/pensa.md))
-  - Error mapping — `PensaError` → HTTP response:
-    - `NotFound` → 404
-    - `AlreadyClaimed` → 409 Conflict
-    - `CycleDetected` → 409 Conflict
-    - `InvalidStatusTransition` → 409 Conflict
-    - `DeleteRequiresForce` → 409 Conflict
-    - `Internal` → 500
-    - Response body: `ErrorResponse` JSON ([`specs/pensa.md:278-282`](specs/pensa.md))
-  - Actor: read from `X-Pensa-Actor` header or JSON body `actor` field
-  - All endpoints accept and return JSON ([`specs/pensa.md:353`](specs/pensa.md))
-  - Issue endpoints ([`specs/pensa.md:325-332`](specs/pensa.md)):
-    - `POST /issues` → `create_issue` (body: title, issue_type, priority, description, spec, fixes, assignee, deps)
-    - `GET /issues/:id` → `get_issue`
-    - `PATCH /issues/:id` → `update_issue` (body: optional fields including claim/unclaim flags)
-    - `DELETE /issues/:id` → `delete_issue` (query param: `force`)
-    - `POST /issues/:id/close` → `close_issue` (body: reason, force)
-    - `POST /issues/:id/reopen` → `reopen_issue` (body: reason)
-    - `POST /issues/:id/release` → `release_issue`
-- Wire module: add `pub mod daemon` to `lib.rs`
-- **Verify:** `cargo build -p pensa && cargo clippy -p pensa -- -D warnings && cargo fmt --all --check`
-- Note: no unit tests — daemon is tested via integration tests in Phases 15-16
+- ✅ `crates/pensa/src/daemon.rs` created with full axum server
+- ✅ App state: `Arc<Mutex<Db>>` (all mutation serialized)
+- ✅ `pub async fn start(port: u16, project_dir: PathBuf)` — opens DB, builds router, binds to `0.0.0.0:{port}`
+- ✅ Graceful shutdown via `tokio::signal` (SIGTERM + SIGINT)
+- ✅ `AppError` type wrapping `PensaError` → HTTP status mapping: NotFound→404, AlreadyClaimed/CycleDetected/InvalidStatusTransition/DeleteRequiresForce→409, Internal→500
+- ✅ Actor resolution: `X-Pensa-Actor` header or JSON body `actor` field, fallback to `"unknown"`
+- ✅ Issue endpoints:
+  - `POST /issues` → `create_issue` (body: title, issue_type, priority, description, spec, fixes, assignee, deps)
+  - `GET /issues/{id}` → `get_issue` (returns IssueDetail with deps + comments)
+  - `PATCH /issues/{id}` → `update_issue` (supports claim/unclaim flags + field updates)
+  - `DELETE /issues/{id}?force=bool` → `delete_issue`
+  - `POST /issues/{id}/close` → `close_issue` (body: reason, force)
+  - `POST /issues/{id}/reopen` → `reopen_issue` (body: reason)
+  - `POST /issues/{id}/release` → `release_issue`
+- ✅ Wired `pub mod daemon` in `lib.rs`
+- ✅ Updated `main.rs` — `pn daemon` now starts the real axum server via `tokio::runtime::Runtime`
+- ✅ Verified: build + test (35 pass) + clippy + fmt
+- ✅ Smoke tested: all 7 issue endpoints exercised via curl against a live daemon
+
+### Lessons learned
+
+- **Axum 0.8 uses `{id}` path syntax** (not `:id`) — the route parameter syntax changed from earlier versions.
 
 ---
 
