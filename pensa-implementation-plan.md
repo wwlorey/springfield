@@ -110,39 +110,18 @@ Implement `list_issues`, `ready_issues`, `blocked_issues`, `search_issues`, `cou
 
 ---
 
-## Phase 7: DB — Dependencies
+## Phase 7: DB — Dependencies ✅
 
 Implement `add_dep` (with cycle detection), `remove_dep`, `list_deps`, `dep_tree`, `detect_cycles`.
 
-- **Source:** [`specs/pensa.md:201-215`](specs/pensa.md), [`specs/pensa.md:300`](specs/pensa.md)
-- `add_dep(child_id, parent_id, actor)`:
-  - Validate both issues exist (→ `NotFound`) ([`specs/pensa.md:211`](specs/pensa.md))
-  - Call `has_cycle(child_id, parent_id)` — if true → `CycleDetected`
-  - INSERT into deps
-  - INSERT "dep_added" event on child
-- `remove_dep(child_id, parent_id, actor)`:
-  - DELETE from deps ([`specs/pensa.md:205`](specs/pensa.md))
-  - INSERT "dep_removed" event
-- `list_deps(id)`:
-  - Return issue objects that this issue depends on ([`specs/pensa.md:206`](specs/pensa.md))
-- `dep_tree(id, direction)`:
-  - Recursive CTE traversal ([`specs/pensa.md:207`](specs/pensa.md))
-  - direction=down (default): what does this issue block? Follow deps WHERE depends_on_id=id
-  - direction=up: what blocks this issue? Follow deps WHERE issue_id=id
-  - Return flat array of `DepTreeNode` (id, title, status, priority, issue_type, depth) ([`specs/pensa.md:300`](specs/pensa.md))
-- `detect_cycles()`:
-  - Full graph scan for cycles ([`specs/pensa.md:215`](specs/pensa.md))
-  - Should return `[]` in a healthy database (since `add_dep` prevents cycles)
-- Private `has_cycle(child_id, parent_id)`:
-  - **Note from previous attempt:** BFS from `parent_id` checking if `child_id` is reachable. If adding `child → parent`, we check whether `parent` can already reach `child` via existing deps. If so, the new edge would create a cycle.
-- **Tests:**
-  - `add_and_list_deps` — add dep, list returns the dependency
-  - `cycle_detection_rejects` — A→B→C→A is rejected with CycleDetected
-  - `dep_tree_down` — A blocks B blocks C, tree(A, down) returns B and C with depths
-  - `dep_tree_up` — same setup, tree(C, up) returns B and A
-  - `remove_dep` — add then remove, list returns empty
-  - `detect_cycles_empty` — after rejected cycle, detect_cycles returns []
-- **Verify:** build + test + clippy + fmt
+- ✅ `add_dep(child_id, parent_id, actor)` — validates both issues exist, calls `has_cycle`, INSERTs dep + "dep_added" event
+- ✅ `remove_dep(child_id, parent_id, actor)` — DELETE from deps, returns NotFound if no such dep, logs "dep_removed" event
+- ✅ `list_deps(id)` — returns issue objects that this issue depends on (via JOIN)
+- ✅ `dep_tree(id, direction)` — recursive CTE traversal, direction=down (what this blocks) or up (what blocks this), returns flat `DepTreeNode` array
+- ✅ `detect_cycles()` — full DFS graph scan, returns empty in healthy DB
+- ✅ Private `has_cycle(child_id, parent_id)` — BFS from `parent_id`, checks if `child_id` is reachable
+- ✅ Tests: `add_and_list_deps`, `cycle_detection_rejects`, `dep_tree_down`, `dep_tree_up`, `remove_dep_works`, `detect_cycles_empty` (6 new, 29 total)
+- ✅ Verified: build + test (29 pass) + clippy + fmt
 
 ---
 

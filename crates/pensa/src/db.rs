@@ -8,8 +8,8 @@ use rusqlite::types::Value;
 use crate::error::PensaError;
 use crate::id::generate_id;
 use crate::types::{
-    Comment, CountGroup, CountResult, CreateIssueParams, Event, GroupedCountResult, Issue,
-    IssueDetail, ListFilters, Status, StatusEntry, UpdateFields,
+    Comment, CountGroup, CountResult, CreateIssueParams, DepTreeNode, Event, GroupedCountResult,
+    Issue, IssueDetail, ListFilters, Status, StatusEntry, UpdateFields,
 };
 
 pub struct Db {
@@ -715,6 +715,230 @@ impl Db {
         Ok(entries)
     }
 
+    pub fn add_dep(&self, child_id: &str, parent_id: &str, actor: &str) -> Result<(), PensaError> {
+        self.get_issue_only(child_id)?;
+        self.get_issue_only(parent_id)?;
+
+        if self.has_cycle(child_id, parent_id)? {
+            return Err(PensaError::CycleDetected);
+        }
+
+        self.conn
+            .execute(
+                "INSERT INTO deps (issue_id, depends_on_id) VALUES (?1, ?2)",
+                rusqlite::params![child_id, parent_id],
+            )
+            .map_err(|e| PensaError::Internal(format!("failed to add dep: {e}")))?;
+
+        let ts = now();
+        self.conn
+            .execute(
+                "INSERT INTO events (issue_id, event_type, actor, detail, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![child_id, "dep_added", actor, format!("depends on {parent_id}"), ts],
+            )
+            .map_err(|e| PensaError::Internal(format!("failed to log dep_added event: {e}")))?;
+
+        Ok(())
+    }
+
+    pub fn remove_dep(
+        &self,
+        child_id: &str,
+        parent_id: &str,
+        actor: &str,
+    ) -> Result<(), PensaError> {
+        let rows = self
+            .conn
+            .execute(
+                "DELETE FROM deps WHERE issue_id = ?1 AND depends_on_id = ?2",
+                rusqlite::params![child_id, parent_id],
+            )
+            .map_err(|e| PensaError::Internal(format!("failed to remove dep: {e}")))?;
+
+        if rows == 0 {
+            return Err(PensaError::NotFound(format!(
+                "dep {child_id} -> {parent_id}"
+            )));
+        }
+
+        let ts = now();
+        self.conn
+            .execute(
+                "INSERT INTO events (issue_id, event_type, actor, detail, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![child_id, "dep_removed", actor, format!("no longer depends on {parent_id}"), ts],
+            )
+            .map_err(|e| PensaError::Internal(format!("failed to log dep_removed event: {e}")))?;
+
+        Ok(())
+    }
+
+    pub fn list_deps(&self, id: &str) -> Result<Vec<Issue>, PensaError> {
+        self.get_issue_only(id)?;
+
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT i.* FROM issues i
+                 JOIN deps d ON d.depends_on_id = i.id
+                 WHERE d.issue_id = ?1",
+            )
+            .map_err(|e| PensaError::Internal(format!("failed to prepare deps query: {e}")))?;
+
+        let deps = stmt
+            .query_map(rusqlite::params![id], issue_from_row)
+            .map_err(|e| PensaError::Internal(format!("failed to query deps: {e}")))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| PensaError::Internal(format!("failed to read deps: {e}")))?;
+
+        Ok(deps)
+    }
+
+    pub fn dep_tree(&self, id: &str, direction: &str) -> Result<Vec<DepTreeNode>, PensaError> {
+        self.get_issue_only(id)?;
+
+        let sql = if direction == "up" {
+            // What blocks this issue? Follow deps WHERE issue_id=id upward
+            "WITH RECURSIVE tree(id, depth) AS (
+                SELECT depends_on_id, 1 FROM deps WHERE issue_id = ?1
+                UNION ALL
+                SELECT d.depends_on_id, t.depth + 1
+                FROM deps d JOIN tree t ON d.issue_id = t.id
+            )
+            SELECT i.id, i.title, i.status, i.priority, i.issue_type, t.depth
+            FROM tree t JOIN issues i ON t.id = i.id
+            ORDER BY t.depth ASC"
+        } else {
+            // What does this issue block? Follow deps WHERE depends_on_id=id downward
+            "WITH RECURSIVE tree(id, depth) AS (
+                SELECT issue_id, 1 FROM deps WHERE depends_on_id = ?1
+                UNION ALL
+                SELECT d.issue_id, t.depth + 1
+                FROM deps d JOIN tree t ON d.depends_on_id = t.id
+            )
+            SELECT i.id, i.title, i.status, i.priority, i.issue_type, t.depth
+            FROM tree t JOIN issues i ON t.id = i.id
+            ORDER BY t.depth ASC"
+        };
+
+        let mut stmt = self
+            .conn
+            .prepare(sql)
+            .map_err(|e| PensaError::Internal(format!("failed to prepare dep_tree query: {e}")))?;
+
+        let nodes = stmt
+            .query_map(rusqlite::params![id], |row| {
+                let status_str: String = row.get("status")?;
+                let priority_str: String = row.get("priority")?;
+                let issue_type_str: String = row.get("issue_type")?;
+                Ok(DepTreeNode {
+                    id: row.get("id")?,
+                    title: row.get("title")?,
+                    status: status_str.parse().unwrap(),
+                    priority: priority_str.parse().unwrap(),
+                    issue_type: issue_type_str.parse().unwrap(),
+                    depth: row.get("depth")?,
+                })
+            })
+            .map_err(|e| PensaError::Internal(format!("failed to query dep_tree: {e}")))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| PensaError::Internal(format!("failed to read dep_tree: {e}")))?;
+
+        Ok(nodes)
+    }
+
+    pub fn detect_cycles(&self) -> Result<Vec<Vec<String>>, PensaError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT DISTINCT issue_id FROM deps")
+            .map_err(|e| PensaError::Internal(format!("failed to prepare cycles query: {e}")))?;
+
+        let all_ids: Vec<String> = stmt
+            .query_map([], |row| row.get(0))
+            .map_err(|e| PensaError::Internal(format!("failed to query for cycles: {e}")))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| PensaError::Internal(format!("failed to read cycle ids: {e}")))?;
+
+        let mut cycles = Vec::new();
+        let mut visited_global = std::collections::HashSet::new();
+
+        for start_id in &all_ids {
+            if visited_global.contains(start_id) {
+                continue;
+            }
+
+            let mut stack = vec![(start_id.clone(), vec![start_id.clone()])];
+            let mut visited_local = std::collections::HashSet::new();
+
+            while let Some((current, path)) = stack.pop() {
+                if !visited_local.insert(current.clone()) {
+                    continue;
+                }
+
+                let mut dep_stmt = self
+                    .conn
+                    .prepare("SELECT depends_on_id FROM deps WHERE issue_id = ?1")
+                    .map_err(|e| {
+                        PensaError::Internal(format!("failed to prepare dep lookup: {e}"))
+                    })?;
+
+                let parents: Vec<String> = dep_stmt
+                    .query_map(rusqlite::params![current], |row| row.get(0))
+                    .map_err(|e| PensaError::Internal(format!("failed to query deps: {e}")))?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| PensaError::Internal(format!("failed to read deps: {e}")))?;
+
+                for parent in parents {
+                    if parent == *start_id && path.len() > 1 {
+                        let mut cycle = path.clone();
+                        cycle.push(parent);
+                        cycles.push(cycle);
+                    } else if !visited_local.contains(&parent) {
+                        let mut new_path = path.clone();
+                        new_path.push(parent.clone());
+                        stack.push((parent, new_path));
+                    }
+                }
+            }
+
+            visited_global.extend(visited_local);
+        }
+
+        Ok(cycles)
+    }
+
+    fn has_cycle(&self, child_id: &str, parent_id: &str) -> Result<bool, PensaError> {
+        // BFS from parent_id: if we can reach child_id, adding child->parent creates a cycle
+        let mut queue = std::collections::VecDeque::new();
+        let mut visited = std::collections::HashSet::new();
+        queue.push_back(parent_id.to_string());
+        visited.insert(parent_id.to_string());
+
+        while let Some(current) = queue.pop_front() {
+            if current == child_id {
+                return Ok(true);
+            }
+
+            let mut stmt = self
+                .conn
+                .prepare("SELECT depends_on_id FROM deps WHERE issue_id = ?1")
+                .map_err(|e| PensaError::Internal(format!("failed to check cycle: {e}")))?;
+
+            let parents: Vec<String> = stmt
+                .query_map(rusqlite::params![current], |row| row.get(0))
+                .map_err(|e| PensaError::Internal(format!("failed to query cycle check: {e}")))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| PensaError::Internal(format!("failed to read cycle check: {e}")))?;
+
+            for p in parents {
+                if visited.insert(p.clone()) {
+                    queue.push_back(p);
+                }
+            }
+        }
+
+        Ok(false)
+    }
+
     pub fn issue_history(&self, id: &str) -> Result<Vec<Event>, PensaError> {
         self.get_issue_only(id)?;
 
@@ -1343,5 +1567,103 @@ mod tests {
         assert_eq!(history[0].event_type, "closed");
         assert_eq!(history[1].event_type, "updated");
         assert_eq!(history[2].event_type, "created");
+    }
+
+    // --- Phase 7: Dependency tests ---
+
+    #[test]
+    fn add_and_list_deps() {
+        let (db, _dir) = open_temp_db();
+        let a = create_task(&db, "task A");
+        let b = create_task(&db, "task B");
+
+        db.add_dep(&b.id, &a.id, "test-agent").unwrap();
+
+        let deps = db.list_deps(&b.id).unwrap();
+        assert_eq!(deps.len(), 1);
+        assert_eq!(deps[0].id, a.id);
+    }
+
+    #[test]
+    fn cycle_detection_rejects() {
+        let (db, _dir) = open_temp_db();
+        let a = create_task(&db, "task A");
+        let b = create_task(&db, "task B");
+        let c = create_task(&db, "task C");
+
+        db.add_dep(&b.id, &a.id, "test-agent").unwrap(); // B depends on A
+        db.add_dep(&c.id, &b.id, "test-agent").unwrap(); // C depends on B
+
+        // A depends on C would create A->C->B->A cycle
+        let result = db.add_dep(&a.id, &c.id, "test-agent");
+        assert!(matches!(result, Err(PensaError::CycleDetected)));
+    }
+
+    #[test]
+    fn dep_tree_down() {
+        let (db, _dir) = open_temp_db();
+        let a = create_task(&db, "task A");
+        let b = create_task(&db, "task B");
+        let c = create_task(&db, "task C");
+
+        db.add_dep(&b.id, &a.id, "test-agent").unwrap(); // B depends on A
+        db.add_dep(&c.id, &b.id, "test-agent").unwrap(); // C depends on B
+
+        // A blocks B blocks C — tree(A, down) returns B at depth 1 and C at depth 2
+        let tree = db.dep_tree(&a.id, "down").unwrap();
+        assert_eq!(tree.len(), 2);
+        assert_eq!(tree[0].id, b.id);
+        assert_eq!(tree[0].depth, 1);
+        assert_eq!(tree[1].id, c.id);
+        assert_eq!(tree[1].depth, 2);
+    }
+
+    #[test]
+    fn dep_tree_up() {
+        let (db, _dir) = open_temp_db();
+        let a = create_task(&db, "task A");
+        let b = create_task(&db, "task B");
+        let c = create_task(&db, "task C");
+
+        db.add_dep(&b.id, &a.id, "test-agent").unwrap(); // B depends on A
+        db.add_dep(&c.id, &b.id, "test-agent").unwrap(); // C depends on B
+
+        // tree(C, up) returns B at depth 1 and A at depth 2
+        let tree = db.dep_tree(&c.id, "up").unwrap();
+        assert_eq!(tree.len(), 2);
+        assert_eq!(tree[0].id, b.id);
+        assert_eq!(tree[0].depth, 1);
+        assert_eq!(tree[1].id, a.id);
+        assert_eq!(tree[1].depth, 2);
+    }
+
+    #[test]
+    fn remove_dep_works() {
+        let (db, _dir) = open_temp_db();
+        let a = create_task(&db, "task A");
+        let b = create_task(&db, "task B");
+
+        db.add_dep(&b.id, &a.id, "test-agent").unwrap();
+        assert_eq!(db.list_deps(&b.id).unwrap().len(), 1);
+
+        db.remove_dep(&b.id, &a.id, "test-agent").unwrap();
+        assert!(db.list_deps(&b.id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn detect_cycles_empty() {
+        let (db, _dir) = open_temp_db();
+        let a = create_task(&db, "task A");
+        let b = create_task(&db, "task B");
+        let c = create_task(&db, "task C");
+
+        db.add_dep(&b.id, &a.id, "test-agent").unwrap();
+        db.add_dep(&c.id, &b.id, "test-agent").unwrap();
+
+        // The cycle A->C was rejected, so detect_cycles should return empty
+        let _ = db.add_dep(&a.id, &c.id, "test-agent");
+
+        let cycles = db.detect_cycles().unwrap();
+        assert!(cycles.is_empty());
     }
 }
