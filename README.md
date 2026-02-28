@@ -1,4 +1,4 @@
-# Springfield
+# Springfield (`sgf`)
 
 A suite of Rust tools for orchestrating AI-driven software development using iterative agent (Ralph) loops. The CLI entry point is `sgf`.
 
