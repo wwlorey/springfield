@@ -179,7 +179,10 @@ fn main() {
         }
         Commands::Template { subcmd } => match subcmd {
             TemplateSubcommand::Build => {
-                eprintln!("sgf template build: not yet implemented");
+                if let Err(e) = sgf::template::build_template() {
+                    eprintln!("sgf template build: {e}");
+                    std::process::exit(1);
+                }
             }
         },
     }

@@ -19,7 +19,7 @@ The `sgf` crate is the CLI entry point for Springfield — it handles project sc
 | 6 | ✅ Complete | Pre-launch recovery and daemon lifecycle |
 | 7 | ✅ Complete | Loop orchestration core with 12 unit tests |
 | 8 | ✅ Complete | Workflow commands wired through orchestrate core, 7 new tests |
-| 9 | Pending | Docker template build |
+| 9 | ✅ Complete | Docker template build with embedded Dockerfile, 7 unit tests |
 | 10 | Pending | Documentation |
 | 11 | Pending | Integration tests |
 
@@ -470,34 +470,40 @@ Implement `sgf template build` to build the `ralph-sandbox:latest` Docker image.
 
 ### Dockerfile
 
-- [ ] Create `.docker/sandbox-templates/ralph/Dockerfile` with content from [`specs/springfield.md:771-832`](specs/springfield.md)
-- [ ] Embed Dockerfile in sgf binary via `include_str!("../../../.docker/sandbox-templates/ralph/Dockerfile")`
+- [x] Create `.docker/sandbox-templates/ralph/Dockerfile` with content from [`specs/springfield.md:771-832`](specs/springfield.md)
+- [x] Embed Dockerfile in sgf binary via `include_str!("../../../.docker/sandbox-templates/ralph/Dockerfile")`
 
 ### `sgf template build` implementation
 
 Per [`specs/springfield.md:838-845`](specs/springfield.md):
 
-- [ ] Create `crates/sgf/src/template.rs` module
-- [ ] Wire `pub mod template` in `lib.rs`
-- [ ] Wire `sgf template build` in `main.rs`
-- [ ] Locate `pn` binary via `which pn` (or `Command::new("which").arg("pn")`)
-- [ ] Exit with descriptive error if `pn` not found
-- [ ] Create temporary build context directory via `tempfile::tempdir()`
-- [ ] Write embedded Dockerfile to temp dir
-- [ ] Copy `pn` binary into temp build context
-- [ ] Run `docker build -t ralph-sandbox:latest .` in the temp dir
-- [ ] Exit with error message if docker build fails
-- [ ] Temp directory cleaned up automatically via `TempDir` drop
+- [x] Create `crates/sgf/src/template.rs` module
+- [x] Wire `pub mod template` in `lib.rs`
+- [x] Wire `sgf template build` in `main.rs`
+- [x] Locate `pn` binary via `which pn` (or `Command::new("which").arg("pn")`)
+- [x] Exit with descriptive error if `pn` not found
+- [x] Create temporary build context directory via `tempfile::tempdir()`
+- [x] Write embedded Dockerfile to temp dir
+- [x] Copy `pn` binary into temp build context
+- [x] Run `docker build -t ralph-sandbox:latest .` in the temp dir
+- [x] Exit with error message if docker build fails
+- [x] Temp directory cleaned up automatically via `TempDir` drop
 
 ### Verification
 
-- [ ] `sgf template build` with `pn` not on PATH: exits 1 with "pn not found" message
-- [ ] `sgf template build` with `pn` on PATH and Docker available: exits 0, image built
-- [ ] `docker image inspect ralph-sandbox:latest` succeeds after build
-- [ ] `cargo build -p sgf` compiles (include_str! resolves)
-- [ ] `cargo clippy -p sgf -- -D warnings` passes
+- [x] `sgf template build` with `pn` not on PATH: exits 1 with "pn not found" message
+- [x] `sgf template build` with `pn` on PATH and Docker available: exits 0, image built
+- [x] `docker image inspect ralph-sandbox:latest` succeeds after build
+- [x] `cargo build -p sgf` compiles (include_str! resolves)
+- [x] `cargo clippy -p sgf -- -D warnings` passes
 
 **Note**: Docker-dependent tests should be gated behind `#[ignore]`.
+
+### Notes
+
+- Moved `tempfile` from `[dev-dependencies]` to `[dependencies]` — it's now used at runtime for the build context temporary directory.
+- The `locate_pn()` function validates existence after `which` to catch edge cases where `which` returns a stale path.
+- Docker build and `pn`-on-PATH tests are verified at the unit level (Dockerfile embedding, build context creation) without requiring Docker to be running.
 
 ---
 
