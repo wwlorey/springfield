@@ -15,6 +15,23 @@ RUN apt-get update && apt-get install -y \
     wget \
     file \
     libxdo-dev \
+    # Playwright browser dependencies (--with-deps fails on this Ubuntu version)
+    libnss3 \
+    libnspr4 \
+    libatk1.0-0t64 \
+    libatk-bridge2.0-0t64 \
+    libcups2t64 \
+    libdrm2 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libpango-1.0-0 \
+    libcairo2 \
+    libasound2t64 \
+    libxshmfence1 \
+    libglib2.0-0t64 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Rust
@@ -44,15 +61,18 @@ ENV SHELL="/bin/bash"
 RUN pnpm setup && \
     pnpm add -g \
     typescript \
-    @tauri-apps/cli
+    @tauri-apps/cli \
+    playwright
 
 # Install Playwright browsers
-RUN pnpm exec playwright install --with-deps
-
-# Install pensa CLI
 USER root
-COPY pn /usr/local/bin/pn
-RUN chmod +x /usr/local/bin/pn
+RUN npx playwright install
+USER agent
+
+# Install pensa CLI from source
+USER agent
+COPY --chown=agent:agent pensa-src /tmp/pensa-src
+RUN . "$CARGO_HOME/env" && cargo install --path /tmp/pensa-src && rm -rf /tmp/pensa-src
 
 # Ensure agent owns their home directory
 RUN chown -R agent:agent /home/agent
@@ -61,4 +81,4 @@ USER agent
 WORKDIR /home/agent
 
 # Verify installations
-RUN rustc --version && cargo --version && node --version && pnpm --version && pnpm exec playwright --version && pn --help
+RUN rustc --version && cargo --version && node --version && pnpm --version && npx playwright --version && pn --help

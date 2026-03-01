@@ -1,5 +1,5 @@
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use sha2::{Digest, Sha256};
@@ -15,14 +15,70 @@ fn dockerfile_hash() -> String {
     sha256_hex(DOCKERFILE.as_bytes())
 }
 
-fn pn_hash(path: &str) -> Result<String, String> {
-    let data =
-        std::fs::read(path).map_err(|e| format!("failed to read pn binary at {path}: {e}"))?;
-    Ok(sha256_hex(&data))
+fn pensa_src_hash(pensa_dir: &Path) -> Result<String, String> {
+    let mut hasher = Sha256::new();
+    let cargo_toml = pensa_dir.join("Cargo.toml");
+    hasher.update(
+        std::fs::read(&cargo_toml)
+            .map_err(|e| format!("failed to read {}: {e}", cargo_toml.display()))?,
+    );
+    let mut src_files: Vec<PathBuf> = std::fs::read_dir(pensa_dir.join("src"))
+        .map_err(|e| format!("failed to read pensa src dir: {e}"))?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .collect();
+    src_files.sort();
+    for path in src_files {
+        hasher.update(
+            std::fs::read(&path)
+                .map_err(|e| format!("failed to read {}: {e}", path.display()))?,
+        );
+    }
+    Ok(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
+}
+
+fn locate_pensa_crate() -> Result<PathBuf, String> {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let pensa_dir = manifest_dir.parent().unwrap().join("pensa");
+    if !pensa_dir.join("Cargo.toml").exists() {
+        return Err(format!(
+            "pensa crate not found at {}",
+            pensa_dir.display()
+        ));
+    }
+    Ok(pensa_dir)
+}
+
+fn copy_pensa_source(pensa_dir: &Path, dest: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(dest)
+        .map_err(|e| format!("failed to create pensa-src dir: {e}"))?;
+
+    let cargo_toml = std::fs::read_to_string(pensa_dir.join("Cargo.toml"))
+        .map_err(|e| format!("failed to read pensa Cargo.toml: {e}"))?;
+    let standalone = cargo_toml
+        .replace("version.workspace = true", "version = \"0.1.0\"")
+        .replace("edition.workspace = true", "edition = \"2024\"")
+        .replace("license.workspace = true", "license = \"MIT\"");
+    std::fs::write(dest.join("Cargo.toml"), standalone)
+        .map_err(|e| format!("failed to write standalone Cargo.toml: {e}"))?;
+
+    let src_dest = dest.join("src");
+    std::fs::create_dir_all(&src_dest)
+        .map_err(|e| format!("failed to create pensa-src/src dir: {e}"))?;
+    for entry in std::fs::read_dir(pensa_dir.join("src"))
+        .map_err(|e| format!("failed to read pensa src dir: {e}"))?
+    {
+        let entry = entry.map_err(|e| format!("failed to read dir entry: {e}"))?;
+        let path = entry.path();
+        if path.extension().is_some_and(|ext| ext == "rs") {
+            std::fs::copy(&path, src_dest.join(path.file_name().unwrap()))
+                .map_err(|e| format!("failed to copy {}: {e}", path.display()))?;
+        }
+    }
+    Ok(())
 }
 
 pub fn build_template() -> Result<(), String> {
-    let pn_path = locate_pn()?;
+    let pensa_dir = locate_pensa_crate()?;
 
     let tmp = tempfile::tempdir()
         .map_err(|e| format!("failed to create temporary build context: {e}"))?;
@@ -31,10 +87,9 @@ pub fn build_template() -> Result<(), String> {
     std::fs::write(ctx.join("Dockerfile"), DOCKERFILE)
         .map_err(|e| format!("failed to write Dockerfile: {e}"))?;
 
-    std::fs::copy(&pn_path, ctx.join("pn"))
-        .map_err(|e| format!("failed to copy pn binary: {e}"))?;
+    copy_pensa_source(&pensa_dir, &ctx.join("pensa-src"))?;
 
-    let pn_h = pn_hash(&pn_path)?;
+    let pn_h = pensa_src_hash(&pensa_dir)?;
     let df_h = dockerfile_hash();
 
     let status = Command::new("docker")
@@ -116,13 +171,12 @@ fn check_staleness(img_pn_hash: Option<String>, img_df_hash: Option<String>) {
         reasons.push("Dockerfile has changed");
     }
 
-    if let Ok(pn_path) = locate_pn()
-        && let Ok(current_pn) = pn_hash(&pn_path)
+    if let Ok(pensa_dir) = locate_pensa_crate()
+        && let Ok(current_pn) = pensa_src_hash(&pensa_dir)
         && img_pn_hash.as_deref() != Some(&current_pn)
     {
-        reasons.push("pn binary has changed");
+        reasons.push("pensa source has changed");
     }
-    // If pn can't be located during staleness check, skip silently
 
     if !reasons.is_empty() {
         eprintln!(
@@ -150,30 +204,6 @@ pub fn ensure_template() -> io::Result<()> {
     Ok(())
 }
 
-fn locate_pn() -> Result<String, String> {
-    let output = Command::new("which")
-        .arg("pn")
-        .output()
-        .map_err(|e| format!("failed to run `which pn`: {e}"))?;
-
-    if !output.status.success() {
-        return Err(
-            "pn not found on PATH — install pensa first (`cargo install --path crates/pensa`)"
-                .to_string(),
-        );
-    }
-
-    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if path.is_empty() {
-        return Err("pn not found on PATH".to_string());
-    }
-
-    if !Path::new(&path).exists() {
-        return Err(format!("pn binary at {path} does not exist"));
-    }
-
-    Ok(path)
-}
 
 #[cfg(test)]
 mod tests {
@@ -204,26 +234,47 @@ mod tests {
     }
 
     #[test]
-    fn pn_hash_missing_file() {
-        let result = pn_hash("/nonexistent/path/to/pn");
+    fn pensa_src_hash_missing_dir() {
+        let result = pensa_src_hash(Path::new("/nonexistent/path"));
         assert!(result.is_err());
     }
 
     #[test]
-    fn pn_hash_works_on_temp_file() {
-        let tmp = tempfile::NamedTempFile::new().unwrap();
-        std::fs::write(tmp.path(), b"fake-pn-binary").unwrap();
-        let result = pn_hash(tmp.path().to_str().unwrap());
+    fn pensa_src_hash_deterministic() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(tmp.path().join("Cargo.toml"), b"[package]").unwrap();
+        std::fs::write(src.join("main.rs"), b"fn main() {}").unwrap();
+        let h1 = pensa_src_hash(tmp.path()).unwrap();
+        let h2 = pensa_src_hash(tmp.path()).unwrap();
+        assert_eq!(h1, h2);
+        assert_eq!(h1.len(), 64);
+    }
+
+    #[test]
+    fn locate_pensa_crate_finds_crate() {
+        let result = locate_pensa_crate();
         assert!(result.is_ok());
-        let hash = result.unwrap();
-        assert_eq!(hash.len(), 64);
-        assert_eq!(hash, sha256_hex(b"fake-pn-binary"));
+        assert!(result.unwrap().join("Cargo.toml").exists());
+    }
+
+    #[test]
+    fn copy_pensa_source_inlines_workspace_fields() {
+        let pensa_dir = locate_pensa_crate().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let dest = tmp.path().join("pensa-src");
+        copy_pensa_source(&pensa_dir, &dest).unwrap();
+        let cargo = std::fs::read_to_string(dest.join("Cargo.toml")).unwrap();
+        assert!(!cargo.contains("workspace"));
+        assert!(cargo.contains("version = \"0.1.0\""));
+        assert!(dest.join("src").join("main.rs").exists());
     }
 
     #[test]
     fn dockerfile_is_embedded() {
         assert!(DOCKERFILE.contains("FROM docker/sandbox-templates:claude-code"));
-        assert!(DOCKERFILE.contains("COPY pn /usr/local/bin/pn"));
+        assert!(DOCKERFILE.contains("COPY pensa-src"));
         assert!(DOCKERFILE.contains("rustc --version"));
     }
 
@@ -262,16 +313,15 @@ mod tests {
     }
 
     #[test]
-    fn build_context_includes_pn_copy() {
+    fn build_context_includes_pensa_source() {
+        let pensa_dir = locate_pensa_crate().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let ctx = tmp.path();
 
-        // Create a fake pn binary to copy
-        let fake_pn = ctx.join("pn_src");
-        std::fs::write(&fake_pn, b"fake-pn-binary").unwrap();
+        std::fs::write(ctx.join("Dockerfile"), DOCKERFILE).unwrap();
+        copy_pensa_source(&pensa_dir, &ctx.join("pensa-src")).unwrap();
 
-        std::fs::copy(&fake_pn, ctx.join("pn")).unwrap();
-        let content = std::fs::read(ctx.join("pn")).unwrap();
-        assert_eq!(content, b"fake-pn-binary");
+        assert!(ctx.join("pensa-src").join("Cargo.toml").exists());
+        assert!(ctx.join("pensa-src").join("src").join("main.rs").exists());
     }
 }

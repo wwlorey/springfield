@@ -380,9 +380,9 @@ The daemon runs for the duration of the `sgf` session. It stops on SIGTERM or wh
 1. Run `docker image inspect ralph-sandbox:latest` to check if the image exists
 2. If the image does not exist, auto-build it (runs `sgf template build` logic internally). Print a heads-up before building — the first build takes several minutes.
 3. If the image exists, check staleness by comparing Docker image labels against current values:
-   - `pn_hash` — SHA-256 of the `pn` binary on the host
+   - `pn_hash` — SHA-256 of the pensa crate source (Cargo.toml + src/*.rs)
    - `dockerfile_hash` — SHA-256 of the embedded Dockerfile content
-4. If stale, print a warning with the reason (e.g., "pn binary has changed") and the remediation command (`sgf template build`). Do not block — the existing image still works.
+4. If stale, print a warning with the reason (e.g., "pensa source has changed") and the remediation command (`sgf template build`). Do not block — the existing image still works.
 5. If fresh, proceed silently.
 
 Auto-build failure is a hard error — the loop cannot proceed without a template.
@@ -841,6 +841,23 @@ RUN apt-get update && apt-get install -y \
     wget \
     file \
     libxdo-dev \
+    # Playwright browser dependencies (--with-deps fails on this Ubuntu version)
+    libnss3 \
+    libnspr4 \
+    libatk1.0-0t64 \
+    libatk-bridge2.0-0t64 \
+    libcups2t64 \
+    libdrm2 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libpango-1.0-0 \
+    libcairo2 \
+    libasound2t64 \
+    libxshmfence1 \
+    libglib2.0-0t64 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Rust
@@ -870,15 +887,18 @@ ENV SHELL="/bin/bash"
 RUN pnpm setup && \
     pnpm add -g \
     typescript \
-    @tauri-apps/cli
+    @tauri-apps/cli \
+    playwright
 
 # Install Playwright browsers
-RUN pnpm exec playwright install --with-deps
-
-# Install pensa CLI
 USER root
-COPY pn /usr/local/bin/pn
-RUN chmod +x /usr/local/bin/pn
+RUN npx playwright install
+USER agent
+
+# Install pensa CLI from source
+USER agent
+COPY --chown=agent:agent pensa-src /tmp/pensa-src
+RUN . "$CARGO_HOME/env" && cargo install --path /tmp/pensa-src && rm -rf /tmp/pensa-src
 
 # Ensure agent owns their home directory
 RUN chown -R agent:agent /home/agent
@@ -887,22 +907,24 @@ USER agent
 WORKDIR /home/agent
 
 # Verify installations
-RUN rustc --version && cargo --version && node --version && pnpm --version && pnpm exec playwright --version && pn --help
+RUN rustc --version && cargo --version && node --version && pnpm --version && npx playwright --version && pn --help
 ```
 
 ### sgf template build
 
 Builds the `ralph-sandbox:latest` Docker image:
 
-1. Locate the `pn` binary (via `which pn`)
+1. Locate the pensa crate source (at `crates/pensa/` relative to the springfield workspace, resolved via `CARGO_MANIFEST_DIR`)
 2. Create a temporary build context directory
 3. Write the Dockerfile (embedded in the sgf binary at compile time via `include_str!`)
-4. Copy the `pn` binary into the build context
-5. Compute SHA-256 hashes of the `pn` binary and Dockerfile content
+4. Copy the pensa crate source into the build context as `pensa-src/`, inlining workspace `Cargo.toml` fields (`version`, `edition`, `license`) so it builds standalone
+5. Compute SHA-256 hashes of the pensa source (Cargo.toml + all `src/*.rs` files, sorted) and Dockerfile content
 6. Run `docker build -t ralph-sandbox:latest --label pn_hash=<sha256> --label dockerfile_hash=<sha256> .`
 7. Clean up the temporary directory
 
-The labels enable pre-flight staleness detection. After updating the `pn` binary or the Dockerfile, `sgf template build` bakes the new hashes into the image. The pre-flight check compares these labels against current values on every loop launch.
+The `pn` binary is compiled from source inside the Docker container via `cargo install --path`, ensuring the binary matches the container's architecture (no cross-compilation required on the host).
+
+The labels enable pre-flight staleness detection. After updating pensa source or the Dockerfile, `sgf template build` bakes the new hashes into the image. The pre-flight check compares these labels against current values on every loop launch.
 
 ### Sandbox Behavior
 

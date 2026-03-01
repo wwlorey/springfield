@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "deny": [
+      "Edit .sgf/**",
+      "Write .sgf/**",
+      "Bash rm .sgf/**",
+      "Bash mv .sgf/**"
+    ]
+  }
+}

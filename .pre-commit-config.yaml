@@ -1,0 +1,15 @@
+repos:
+  - repo: local
+    hooks:
+      - id: pensa-export
+        name: pensa export
+        entry: pn export
+        language: system
+        always_run: true
+        stages: [pre-commit]
+      - id: pensa-import
+        name: pensa import
+        entry: pn import
+        language: system
+        always_run: true
+        stages: [post-merge, post-checkout, post-rewrite]
