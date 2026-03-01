@@ -2,6 +2,31 @@
 
 Gaps between `specs/springfield.md` and `crates/springfield/` — organized by area of concern, with spec citations and source code references.
 
+## Progress
+
+| # | Area | Status |
+|---|------|--------|
+| 1 | Scaffold Filenames: Uppercase Convention | ✅ Complete |
+| 2 | MEMENTO.md Content | ✅ Complete |
+| 3 | CLAUDE.md as Symlink | ✅ Complete |
+| 4 | specs/README.md Heading | ✅ Complete |
+| 5 | Prompt Assembly: MEMENTO.md Prepend | ✅ Complete |
+| 6 | Prompt Templates: Remove Redundant `Read memento.md` | ✅ Complete |
+| 7 | Prompt Templates: Uppercase References | ✅ Complete |
+| 8 | Backpressure Template Content | ✅ Complete |
+| 9 | Dockerfile: Add Playwright | ✅ Complete |
+| 10 | Gitignore: CLAUDE.md Entry | ✅ No changes needed |
+| 11 | init.rs: GITIGNORE_ENTRIES | ✅ No changes needed |
+| 12 | Pre-commit Config | ✅ No changes needed |
+| 13 | Claude Deny Settings | ✅ No changes needed |
+| — | Integration Tests (1–3) | ✅ Covered by `init_creates_all_files` + `init_file_contents` |
+| — | Integration Test 4 | ✅ `init_specs_readme_heading` |
+| — | Integration Tests (5–6) | ✅ `prompt_assembly_prepends_memento` + `prompt_assembly_without_memento` |
+| — | Integration Test 7 | ✅ `templates_no_read_memento_directive` |
+| — | Integration Test 8 | ✅ `templates_reference_uppercase_filenames` |
+| — | Integration Test 9 | ✅ Covered by `init_idempotent` (verifies content unchanged + no duplicate config entries) |
+| — | Integration Test 10 | ✅ `end_to_end_build_loop_with_memento_injection` |
+
 ---
 
 ## 1. Scaffold Filenames: Uppercase Convention

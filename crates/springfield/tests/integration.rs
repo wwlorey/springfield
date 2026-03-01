@@ -146,7 +146,11 @@ fn init_creates_all_files() {
     // CLAUDE.md should exist as a symlink
     let claude_md = tmp.path().join("CLAUDE.md");
     assert!(
-        claude_md.symlink_metadata().unwrap().file_type().is_symlink(),
+        claude_md
+            .symlink_metadata()
+            .unwrap()
+            .file_type()
+            .is_symlink(),
         "CLAUDE.md should be a symlink"
     );
 }
@@ -373,7 +377,10 @@ fn prompt_assembly_without_memento() {
     let result = springfield::prompt::assemble(tmp.path(), "verify", &vars).unwrap();
 
     let assembled = fs::read_to_string(&result).unwrap();
-    assert_eq!(assembled, template, "without memento, assembled should equal template");
+    assert_eq!(
+        assembled, template,
+        "without memento, assembled should equal template"
+    );
 }
 
 // ===========================================================================
@@ -787,23 +794,11 @@ fn preflight_template_missing_and_build_fails_aborts_loop() {
 
     // Mock docker that fails both inspect and build
     let mock_docker_dir = TempDir::new().unwrap();
-    create_mock_script(
-        mock_docker_dir.path(),
-        "docker",
-        "#!/bin/sh\nexit 1\n",
-    );
-    let path_with_mock_docker = format!(
-        "{}:{}",
-        mock_docker_dir.path().display(),
-        mock_path
-    );
+    create_mock_script(mock_docker_dir.path(), "docker", "#!/bin/sh\nexit 1\n");
+    let path_with_mock_docker = format!("{}:{}", mock_docker_dir.path().display(), mock_path);
 
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_mock_script(
-        mock_dir.path(),
-        "mock_ralph.sh",
-        "#!/bin/sh\nexit 0\n",
-    );
+    let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 0\n");
 
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
@@ -846,11 +841,7 @@ fn preflight_template_exists_loop_proceeds() {
             "esac\n",
         ),
     );
-    let path_with_mock_docker = format!(
-        "{}:{}",
-        mock_docker_dir.path().display(),
-        mock_path
-    );
+    let path_with_mock_docker = format!("{}:{}", mock_docker_dir.path().display(), mock_path);
 
     let mock_dir = TempDir::new().unwrap();
     let args_file = mock_dir.path().join("ralph_args.txt");
@@ -878,4 +869,173 @@ fn preflight_template_exists_loop_proceeds() {
 
     // Ralph should have been invoked
     assert!(args_file.exists(), "ralph should have been invoked");
+}
+
+// ===========================================================================
+// Spec-parity integration tests (implementation plan)
+// ===========================================================================
+
+#[test]
+fn init_specs_readme_heading() {
+    let tmp = setup_test_dir();
+    sgf_cmd(tmp.path()).arg("init").output().unwrap();
+
+    let content = fs::read_to_string(tmp.path().join("specs/README.md")).unwrap();
+    assert!(
+        content.starts_with("# Specifications"),
+        "specs/README.md should start with '# Specifications', got: {}",
+        content.lines().next().unwrap_or("")
+    );
+    assert!(
+        !content.starts_with("# Specs\n"),
+        "specs/README.md should NOT use '# Specs'"
+    );
+}
+
+#[test]
+fn templates_no_read_memento_directive() {
+    let tmp = setup_test_dir();
+    sgf_cmd(tmp.path()).arg("init").output().unwrap();
+
+    let templates = [
+        ".sgf/prompts/spec.md",
+        ".sgf/prompts/build.md",
+        ".sgf/prompts/verify.md",
+        ".sgf/prompts/test-plan.md",
+        ".sgf/prompts/test.md",
+        ".sgf/prompts/issues.md",
+        ".sgf/prompts/issues-plan.md",
+    ];
+
+    for tmpl in templates {
+        let content = fs::read_to_string(tmp.path().join(tmpl)).unwrap();
+        assert!(
+            !content.contains("Read `memento.md`"),
+            "{tmpl} should NOT contain 'Read `memento.md`' (sgf handles injection)"
+        );
+    }
+}
+
+#[test]
+fn templates_reference_uppercase_filenames() {
+    let tmp = setup_test_dir();
+    sgf_cmd(tmp.path()).arg("init").output().unwrap();
+
+    // build.md should reference uppercase .sgf/PENSA.md and .sgf/BACKPRESSURE.md
+    let build = fs::read_to_string(tmp.path().join(".sgf/prompts/build.md")).unwrap();
+    assert!(
+        build.contains(".sgf/PENSA.md"),
+        "build.md should reference .sgf/PENSA.md (uppercase)"
+    );
+    assert!(
+        !build.contains(".sgf/pensa.md"),
+        "build.md should NOT reference .sgf/pensa.md (lowercase)"
+    );
+    assert!(
+        build.contains(".sgf/BACKPRESSURE.md"),
+        "build.md should reference .sgf/BACKPRESSURE.md (uppercase)"
+    );
+    assert!(
+        !build.contains(".sgf/backpressure.md"),
+        "build.md should NOT reference .sgf/backpressure.md (lowercase)"
+    );
+
+    // test.md should reference uppercase
+    let test = fs::read_to_string(tmp.path().join(".sgf/prompts/test.md")).unwrap();
+    assert!(
+        test.contains(".sgf/PENSA.md"),
+        "test.md should reference .sgf/PENSA.md"
+    );
+    assert!(
+        test.contains(".sgf/BACKPRESSURE.md"),
+        "test.md should reference .sgf/BACKPRESSURE.md"
+    );
+
+    // issues-plan.md should reference uppercase PENSA.md
+    let issues_plan = fs::read_to_string(tmp.path().join(".sgf/prompts/issues-plan.md")).unwrap();
+    assert!(
+        issues_plan.contains(".sgf/PENSA.md"),
+        "issues-plan.md should reference .sgf/PENSA.md"
+    );
+}
+
+#[test]
+fn end_to_end_build_loop_with_memento_injection() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    // Mock docker that succeeds for inspect (image exists)
+    let mock_docker_dir = TempDir::new().unwrap();
+    create_mock_script(
+        mock_docker_dir.path(),
+        "docker",
+        concat!(
+            "#!/bin/sh\n",
+            "case \"$1\" in\n",
+            "  image) echo 'somehash|somehash'; exit 0 ;;\n",
+            "  *) exit 0 ;;\n",
+            "esac\n",
+        ),
+    );
+    let path_with_mock_docker = format!("{}:{}", mock_docker_dir.path().display(), mock_path);
+
+    // Mock ralph that just exits 0
+    let mock_dir = TempDir::new().unwrap();
+    let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 0\n");
+
+    let output = sgf_cmd(tmp.path())
+        .args(["build", "auth", "-a"])
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("PATH", &path_with_mock_docker)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "sgf build failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Check the assembled prompt
+    let assembled =
+        fs::read_to_string(tmp.path().join(".sgf/prompts/.assembled/build.md")).unwrap();
+
+    // Should start with MEMENTO.md content (study directives)
+    assert!(
+        assembled.starts_with("study `specs/README.md`"),
+        "assembled prompt should start with memento content, got: {}",
+        assembled.lines().next().unwrap_or("")
+    );
+    assert!(
+        assembled.contains("study `.sgf/BACKPRESSURE.md`"),
+        "assembled prompt should contain BACKPRESSURE study directive"
+    );
+    assert!(
+        assembled.contains("study `.sgf/PENSA.md`"),
+        "assembled prompt should contain PENSA study directive"
+    );
+
+    // Should contain the build template content with {{spec}} replaced
+    assert!(
+        assembled.contains("--spec auth"),
+        "assembled prompt should have {{spec}} replaced with 'auth'"
+    );
+
+    // Should NOT contain Read `memento.md` directive
+    assert!(
+        !assembled.contains("Read `memento.md`"),
+        "assembled prompt should NOT contain 'Read `memento.md`'"
+    );
+
+    // Should reference uppercase filenames
+    assert!(
+        assembled.contains(".sgf/PENSA.md"),
+        "assembled prompt should reference .sgf/PENSA.md (uppercase)"
+    );
+    assert!(
+        assembled.contains(".sgf/BACKPRESSURE.md"),
+        "assembled prompt should reference .sgf/BACKPRESSURE.md (uppercase)"
+    );
 }

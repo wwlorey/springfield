@@ -435,7 +435,10 @@ mod tests {
 
         let claude_md = tmp.path().join("CLAUDE.md");
         let meta = claude_md.symlink_metadata().unwrap();
-        assert!(meta.file_type().is_symlink(), "CLAUDE.md should be a symlink");
+        assert!(
+            meta.file_type().is_symlink(),
+            "CLAUDE.md should be a symlink"
+        );
         let target = fs::read_link(&claude_md).unwrap();
         assert_eq!(
             target.to_str().unwrap(),
@@ -474,7 +477,13 @@ mod tests {
 
         // CLAUDE.md symlink should not be recreated
         let claude_md = tmp.path().join("CLAUDE.md");
-        assert!(claude_md.symlink_metadata().unwrap().file_type().is_symlink());
+        assert!(
+            claude_md
+                .symlink_metadata()
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
     }
 
     #[test]
