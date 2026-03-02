@@ -96,7 +96,7 @@ struct SkeletonFile {
 
 const SKELETON_FILES: &[SkeletonFile] = &[
     SkeletonFile {
-        path: "MEMENTO.md",
+        path: ".sgf/MEMENTO.md",
         content: MEMENTO_CONTENT,
     },
     SkeletonFile {
@@ -452,7 +452,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         run(tmp.path()).unwrap();
 
-        let content = fs::read_to_string(tmp.path().join("MEMENTO.md")).unwrap();
+        let content = fs::read_to_string(tmp.path().join(".sgf/MEMENTO.md")).unwrap();
         assert!(content.contains("study `specs/README.md`"));
         assert!(content.contains("study `.sgf/BACKPRESSURE.md`"));
         assert!(content.contains("study `.sgf/PENSA.md`"));

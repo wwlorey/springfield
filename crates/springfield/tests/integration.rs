@@ -133,7 +133,7 @@ fn init_creates_all_files() {
         ".sgf/prompts/issues.md",
         ".sgf/prompts/issues-plan.md",
         ".sgf/PENSA.md",
-        "MEMENTO.md",
+        ".sgf/MEMENTO.md",
         "specs/README.md",
         ".claude/settings.json",
         ".pre-commit-config.yaml",
@@ -165,8 +165,8 @@ fn init_file_contents() {
     let target = fs::read_link(&claude_md).unwrap();
     assert_eq!(target.to_str().unwrap(), "AGENTS.md");
 
-    // MEMENTO.md
-    let memento = fs::read_to_string(tmp.path().join("MEMENTO.md")).unwrap();
+    // .sgf/MEMENTO.md
+    let memento = fs::read_to_string(tmp.path().join(".sgf/MEMENTO.md")).unwrap();
     assert!(memento.contains("study `specs/README.md`"));
     assert!(memento.contains("study `.sgf/BACKPRESSURE.md`"));
     assert!(memento.contains("study `.sgf/PENSA.md`"));
@@ -342,7 +342,7 @@ fn prompt_assembly_prepends_memento() {
     fs::create_dir_all(tmp.path().join(".sgf/prompts/.assembled")).unwrap();
 
     let memento = "study `specs/README.md`\nstudy `.sgf/BACKPRESSURE.md`\nstudy `.sgf/PENSA.md`\n";
-    fs::write(tmp.path().join("MEMENTO.md"), memento).unwrap();
+    fs::write(tmp.path().join(".sgf/MEMENTO.md"), memento).unwrap();
 
     let template = "Read `specs/README.md`.\n\nVerify the specs.\n";
     fs::write(tmp.path().join(".sgf/prompts/verify.md"), template).unwrap();
@@ -369,7 +369,7 @@ fn prompt_assembly_prepends_memento() {
 fn prompt_assembly_without_memento() {
     let tmp = TempDir::new().unwrap();
     fs::create_dir_all(tmp.path().join(".sgf/prompts/.assembled")).unwrap();
-    // Do NOT create MEMENTO.md
+    // Do NOT create .sgf/MEMENTO.md
     let template = "No variables here, just plain text.";
     fs::write(tmp.path().join(".sgf/prompts/verify.md"), template).unwrap();
 
@@ -1014,7 +1014,7 @@ fn end_to_end_build_loop_with_memento_injection() {
     let assembled =
         fs::read_to_string(tmp.path().join(".sgf/prompts/.assembled/build.md")).unwrap();
 
-    // Should start with MEMENTO.md content (study directives)
+    // Should start with .sgf/MEMENTO.md content (study directives)
     assert!(
         assembled.starts_with("study `specs/README.md`"),
         "assembled prompt should start with memento content, got: {}",

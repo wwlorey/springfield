@@ -12,13 +12,13 @@ pub fn assemble(root: &Path, stage: &str, vars: &HashMap<String, String>) -> io:
         ));
     }
 
-    // Read MEMENTO.md (graceful fallback if missing)
-    let memento_path = root.join("MEMENTO.md");
+    // Read .sgf/MEMENTO.md (graceful fallback if missing)
+    let memento_path = root.join(".sgf/MEMENTO.md");
     let memento_content = match fs::read_to_string(&memento_path) {
         Ok(content) => Some(content),
         Err(e) if e.kind() == io::ErrorKind::NotFound => None,
         Err(e) => {
-            eprintln!("warning: could not read MEMENTO.md: {e}");
+            eprintln!("warning: could not read .sgf/MEMENTO.md: {e}");
             None
         }
     };
