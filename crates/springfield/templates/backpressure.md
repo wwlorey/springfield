@@ -1,8 +1,6 @@
 # Backpressure — Building, Testing, Linting, Formatting, Integration Tests, and Code Scanning
 
-**After making changes, apply FULL BACKPRESSURE to verify behavior as appropriate.**
-
----
+This document defines backpressure for a variety of project types. Be sure to align your understanding of backpressure to the project type with which you're currently working.
 
 ## Backend (Rust)
 
@@ -16,18 +14,16 @@
 
 ### Long Running Tests
 
-Some tests may be gated behind `#[ignore]` because they use expensive operations (e.g., production Argon2 params, real LLM inference). These tests validate production behavior but are too slow for routine development.
+Some tests may be gated behind `#[ignore]` because they use expensive operations. These tests validate production behavior but are too slow for routine development.
 
 - **Run ignored tests:** `cargo test -p <crate> <test_name> -- --ignored`
 - **Run all tests including ignored:** `cargo test --workspace -- --ignored`
-
----
 
 ## Frontend
 
 > Stack: TypeScript, Svelte 5, SvelteKit, Vitest, @testing-library/svelte, Playwright
 >
-> **Working directory:** adjust as needed (all frontend commands run from the frontend directory, as applicable)
+> **Working directory:** adjust as needed (some projects may have frontend commands run from the frontend directory)
 
 - **Build:** `pnpm run build`
 - **Unit tests:** `pnpm run vitest run`
@@ -41,26 +37,15 @@ Some tests may be gated behind `#[ignore]` because they use expensive operations
 - **Format check:** `pnpm run format:check`
 - **Full check:** `pnpm run check`
 
-### Tauri
-
-Delete this section if the project does not use Tauri.
-
-- **Build Tauri app:** `pnpm run tauri build`
-- **Build Tauri app (debug):** `pnpm run tauri build --debug`
-
 ### E2E Tests (Playwright)
-
-Delete this section if the project uses Tauri (use the Tauri E2E section below instead).
 
 - **E2E tests:** `pnpm run test:e2e`
 
 ### E2E Tests (Tauri, Linux Only)
 
-Delete this section if the project does not use Tauri.
-
 E2E tests run on **Linux only** using WebdriverIO + WebKitWebDriver. macOS is not supported for E2E testing (no WebDriver access to WKWebView).
 
-**Linux prerequisites:**
-```bash
-sudo apt-get install webkit2gtk-driver libwebkit2gtk-4.1-dev
-```
+## Tauri
+
+- **Build Tauri app:** `pnpm run tauri build`
+- **Build Tauri app (debug):** `pnpm run tauri build --debug`

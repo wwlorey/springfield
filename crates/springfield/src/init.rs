@@ -22,8 +22,8 @@ const TEMPLATE_LOOM_SPECS_README: &str = include_str!("../templates/loom-specs-R
 
 const MEMENTO_CONTENT: &str = "\
 study `@specs/README.md`
-study `@.sgf/BACKPRESSURE.md`
 study `@.sgf/PENSA.md`
+study `@.sgf/BACKPRESSURE.md`
 ";
 
 const SPECS_README_CONTENT: &str = "\

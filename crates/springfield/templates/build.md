@@ -1,12 +1,21 @@
-Follow the claim workflow in `@.sgf/PENSA.md`. Query: `pn ready --spec {{spec}} --json`
+Follow the `pn` claim workflow to choose one best next task to implement.
 
-Implement the task. Use subagents.
+If there are (1) no tasks OR (2) no tasks **that can be implemented**, touch .ralph-complete` and end.
+
+Implement that task. Use subagents.
+
+NOTE:
+- Make sure if you change any build flags, etc., to work on Linux that you make the DEFAULT run on Mac (for instance: building with Metal enabled).
+- When implementing, build a tiny, end-to-end slice of the feature first, test and validate it, then expand out from there (cf. tracer bullets).
+- If **newly authored**, routine tests are **unreasonably slow**, consider using **fast params (or mock params, whichever is best, as long as our testing is solid)** and gate the slow production-param tests behind `#[ignore]` (See AGENTS.md).
+- If you come across build, lint, etc. errors that you did not cause, log them using `pn`.
 
 IMPORTANT:
-- **Search before assuming.** Do NOT assume something isn't implemented — search the codebase first. This is the most common failure mode.
+- **Assume NOT implemented.** Many specs describe planned features that may not yet exist in the codebase.
 - **Use specs as guidance.** When implementing a feature, follow the design patterns, types, and architecture defined in the relevant spec.
 - **Do not implement placeholder code.** We want full, real implementations.
-- **Author property based tests, unit tests, and/or integration tests.** (Whichever is best.)
-- When implementing, build a tiny, end-to-end slice of the feature first, test and validate it, then expand out from there (tracer bullets).
-- **After making changes, apply FULL BACKPRESSURE (see `@.sgf/BACKPRESSURE.md`) to verify behavior.**
-- If you come across build, lint, etc. errors that you did not cause, log them: `pn create "description" -t bug`
+- **Author PROPERTY BASED TESTS and/or UNIT TESTS** (whichever is best).
+- **After making changes to the files apply FULL BACKPRESSURE to verify behavior.**
+- When the ONE task is done:
+  * Close the `pn` work.
+  * Commit your changes.
