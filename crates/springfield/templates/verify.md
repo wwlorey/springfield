@@ -1,8 +1,8 @@
-Read `specs/README.md`.
+Read `@specs/README.md`.
 
-If `verification-report.md` exists, read it.
+If `@verification-report.md` exists, read it.
 
-If **ALL** specs listed in `specs/README.md` have been verified in the report (whether they match or are missing), `touch .ralph-complete` and stop.
+If **ALL** specs listed in `@specs/README.md` have been verified in the report (whether they match or are missing), `touch .ralph-complete` and stop.
 
 Otherwise, choose ONE unverified spec and investigate (a) whether it is actually implemented in the codebase and (b) how well it matches the spec.
 

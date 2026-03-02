@@ -19,9 +19,9 @@ const TEMPLATE_PENSA: &str = include_str!("../templates/pensa.md");
 const TEMPLATE_LOOM_SPECS_README: &str = include_str!("../templates/loom-specs-README.md");
 
 const MEMENTO_CONTENT: &str = "\
-study `specs/README.md`
-study `.sgf/BACKPRESSURE.md`
-study `.sgf/PENSA.md`
+study `@specs/README.md`
+study `@.sgf/BACKPRESSURE.md`
+study `@.sgf/PENSA.md`
 ";
 
 const SPECS_README_CONTENT: &str = "\
@@ -453,9 +453,9 @@ mod tests {
         run(tmp.path()).unwrap();
 
         let content = fs::read_to_string(tmp.path().join(".sgf/MEMENTO.md")).unwrap();
-        assert!(content.contains("study `specs/README.md`"));
-        assert!(content.contains("study `.sgf/BACKPRESSURE.md`"));
-        assert!(content.contains("study `.sgf/PENSA.md`"));
+        assert!(content.contains("study `@specs/README.md`"));
+        assert!(content.contains("study `@.sgf/BACKPRESSURE.md`"));
+        assert!(content.contains("study `@.sgf/PENSA.md`"));
         assert!(!content.contains("## Stack"));
         assert!(!content.contains("## References"));
     }

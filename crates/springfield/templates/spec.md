@@ -6,7 +6,7 @@ After the discussion, produce the following deliverables:
 
 1. Write spec files to `specs/`
 2. Update `specs/README.md` with new entries in this format: `| Spec | Code | Purpose |`
-   Read `.sgf/loom-specs-README.md` for the reference format.
+   Read `@.sgf/loom-specs-README.md` for the reference format.
 3. Create implementation plan items via pensa:
    `pn create -t task --spec <stem> "task title" [-p <priority>] [--dep <id>]`
    Set dependencies between tasks where order matters.
