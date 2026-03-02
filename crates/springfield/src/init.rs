@@ -430,7 +430,7 @@ fn confirm_overwrite(files: &[&str]) -> io::Result<bool> {
     Ok(answer == "y" || answer == "yes")
 }
 
-fn write_all_files(root: &Path) -> io::Result<()> {
+fn write_force_files(root: &Path) -> io::Result<()> {
     for tf in TEMPLATE_FILES {
         let path = root.join(tf.path);
         if let Some(parent) = path.parent() {
@@ -439,6 +439,10 @@ fn write_all_files(root: &Path) -> io::Result<()> {
         fs::write(&path, tf.content)?;
     }
     for sf in SKELETON_FILES {
+        if sf.path == "specs/README.md" {
+            write_if_missing(&root.join(sf.path), sf.content)?;
+            continue;
+        }
         let path = root.join(sf.path);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
@@ -455,7 +459,12 @@ pub fn run(root: &Path, force: bool) -> io::Result<()> {
         let all_paths: Vec<&str> = TEMPLATE_FILES
             .iter()
             .map(|tf| tf.path)
-            .chain(SKELETON_FILES.iter().map(|sf| sf.path))
+            .chain(
+                SKELETON_FILES
+                    .iter()
+                    .filter(|sf| sf.path != "specs/README.md")
+                    .map(|sf| sf.path),
+            )
             .collect();
         let existing: Vec<&str> = all_paths
             .iter()
@@ -476,7 +485,7 @@ pub fn run(root: &Path, force: bool) -> io::Result<()> {
             }
         }
 
-        write_all_files(root)?;
+        write_force_files(root)?;
     } else {
         for tf in TEMPLATE_FILES {
             write_if_missing(&root.join(tf.path), tf.content)?;
@@ -867,14 +876,19 @@ repos:
             .unwrap();
     }
 
-    /// Non-interactive force init: git safety check + write all files, no prompt.
+    /// Non-interactive force init: git safety check + write files, no prompt.
     fn force_init(root: &Path) -> io::Result<()> {
         create_directories(root)?;
 
         let all_paths: Vec<&str> = TEMPLATE_FILES
             .iter()
             .map(|tf| tf.path)
-            .chain(SKELETON_FILES.iter().map(|sf| sf.path))
+            .chain(
+                SKELETON_FILES
+                    .iter()
+                    .filter(|sf| sf.path != "specs/README.md")
+                    .map(|sf| sf.path),
+            )
             .collect();
         let existing: Vec<&str> = all_paths
             .iter()
@@ -892,7 +906,7 @@ repos:
             }
         }
 
-        write_all_files(root)
+        write_force_files(root)
     }
 
     #[test]
@@ -912,6 +926,26 @@ repos:
         assert_eq!(
             content, TEMPLATE_BUILD,
             "force should restore template content"
+        );
+    }
+
+    #[test]
+    fn force_does_not_overwrite_specs_readme() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+        run(tmp.path(), false).unwrap();
+
+        let readme_path = tmp.path().join("specs/README.md");
+        let custom = "# My Specs\n\nCustom content\n";
+        fs::write(&readme_path, custom).unwrap();
+        git_add_commit(tmp.path(), "customize specs readme");
+
+        force_init(tmp.path()).unwrap();
+
+        let content = fs::read_to_string(&readme_path).unwrap();
+        assert_eq!(
+            content, custom,
+            "force should not overwrite specs/README.md"
         );
     }
 

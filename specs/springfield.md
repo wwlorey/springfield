@@ -177,7 +177,7 @@ study `.sgf/PENSA.md`
 
 ### --force
 
-`sgf init --force` overwrites all template and skeleton files with built-in defaults. Use this to pick up upstream template changes after updating the `sgf` binary.
+`sgf init --force` overwrites all template and skeleton files with built-in defaults, **except `specs/README.md`** which is never overwritten. Use this to pick up upstream template changes after updating the `sgf` binary.
 
 Safety checks:
 - Fails if any target file has uncommitted changes or is untracked by git.
