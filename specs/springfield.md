@@ -273,7 +273,7 @@ The `.assembled/` directory is gitignored. Assembled prompts persist for debuggi
 ### Invocation
 
 ```
-sgf → ralph [-a] [--loop-id ID] [--template T] [--auto-push BOOL] [--max-iterations N] ITERATIONS PROMPT
+sgf → ralph [-a] [--no-sandbox] [--loop-id ID] [--template T] [--auto-push BOOL] [--max-iterations N] ITERATIONS PROMPT
 ```
 
 `sgf` translates its own flags and hardcoded defaults into ralph CLI flags. Ralph does not read config files — all configuration arrives via flags.
@@ -283,12 +283,25 @@ sgf → ralph [-a] [--loop-id ID] [--template T] [--auto-push BOOL] [--max-itera
 | Flag | Type | Source | Description |
 |------|------|--------|-------------|
 | `-a` / `--afk` | bool | sgf command (e.g., `sgf build -a`) | AFK mode |
+| `--no-sandbox` | bool | stage-determined (see below) | Run Claude on host, not in Docker |
 | `--loop-id` | string | sgf-generated | Unique loop identifier |
-| `--template` | string | hardcoded: `ralph-sandbox:latest` | Docker sandbox template |
+| `--template` | string | hardcoded: `ralph-sandbox:latest` | Docker sandbox template (ignored when `--no-sandbox`) |
 | `--auto-push` | bool | `true` unless `--no-push` passed to sgf | Auto-push after commits |
 | `--max-iterations` | u32 | hardcoded: `30` | Safety limit |
 | `ITERATIONS` | u32 | positional arg or default `30` | Number of iterations |
 | `PROMPT` | path | `.sgf/prompts/.assembled/<stage>.md` | Assembled prompt file |
+
+### Sandbox Policy by Stage
+
+| Stage | `--no-sandbox` | Reason |
+|-------|----------------|--------|
+| `spec` | yes | Interactive interview; agent needs host filesystem access (files outside repo) |
+| `build` | no | Autonomous execution; sandbox provides isolation |
+| `verify` | no | Autonomous execution |
+| `test-plan` | no | Autonomous execution |
+| `test` | no | Autonomous execution |
+| `issues log` | yes | Interactive interview; same rationale as spec |
+| `issues plan` | no | Autonomous execution |
 
 ### Exit Codes
 
@@ -356,11 +369,20 @@ Before launching ralph, `sgf` scans all PID files in `.sgf/run/`:
 
 ## Pre-launch Lifecycle
 
-Before launching any loop, `sgf` runs three pre-launch checks:
+Before launching any loop, `sgf` runs pre-launch checks. The checks vary by stage:
+
+**Sandboxed stages** (build, verify, test-plan, test, issues plan):
 
 1. **Recovery** — clean up stale state from crashed iterations (see Recovery)
 2. **Daemon** — start the pensa daemon if not already running
 3. **Template** — ensure the Docker sandbox template exists and is current
+
+**Host-direct stages** (spec, issues log):
+
+1. **Recovery** — clean up stale state from crashed iterations (see Recovery)
+2. **Daemon** — start the pensa daemon if not already running
+
+Template pre-flight is skipped for host-direct stages — no Docker image is needed.
 
 ### Daemon
 
@@ -417,7 +439,7 @@ Each iteration gets fresh context. The pensa database persists state between ite
 
 ### 1. Spec (`sgf spec`)
 
-Opens an interactive Claude Code session with the spec prompt. Runs via ralph with 1 iteration in interactive mode (no AFK, no sentinel detection needed). The developer provides an outline of what to build, the agent interviews them to fill in gaps, and then generates deliverables:
+Opens an interactive Claude Code session with the spec prompt. Runs via ralph with 1 iteration in interactive mode and `--no-sandbox` (host-direct, no Docker). The developer provides an outline of what to build, the agent interviews them to fill in gaps, and then generates deliverables:
 
 1. Write spec files to `specs/`
 2. Update `specs/README.md` with new index entries (loom-style `| Spec | Code | Purpose |` rows)
@@ -474,7 +496,7 @@ After all test items are closed, a final iteration generates `test-report.md` �
 
 ### 6. Issues Log (`sgf issues log`)
 
-Runs via ralph with 1 iteration in interactive mode using `.sgf/prompts/issues.md`. Each session handles one bug:
+Runs via ralph with 1 iteration in interactive mode and `--no-sandbox` (host-direct, no Docker) using `.sgf/prompts/issues.md`. Each session handles one bug:
 
 1. The developer describes a bug they've observed
 2. The agent interviews them to capture details — steps to reproduce, expected vs actual behavior, relevant context
@@ -966,7 +988,7 @@ The labels enable pre-flight staleness detection. After updating pensa source or
 
 **Decentralized projects**: Springfield is project-aware — it reads `.sgf/` from the current working directory. No global registry. Each project is self-contained.
 
-**Sandboxed execution**: All loops run inside Docker sandboxes for filesystem isolation with unrestricted network access. Credentials are injected via proxy, never entering the sandbox.
+**Sandboxed by default**: Autonomous loops (build, verify, test-plan, test, issues plan) run inside Docker sandboxes for filesystem isolation. Interactive stages (spec, issues log) run host-direct (`--no-sandbox`) so the agent can access files outside the repo. Host-direct mode never uses `--dangerously-skip-permissions` — without sandbox isolation, Claude's normal permission prompts are the safety boundary.
 
 ---
 

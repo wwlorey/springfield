@@ -102,7 +102,13 @@ enum TemplateSubcommand {
     Build,
 }
 
-fn run_loop(stage: &str, spec: Option<&str>, opts: &LoopOpts, prompt_template: Option<&str>) -> ! {
+fn run_loop(
+    stage: &str,
+    spec: Option<&str>,
+    opts: &LoopOpts,
+    prompt_template: Option<&str>,
+    no_sandbox: bool,
+) -> ! {
     let root = std::env::current_dir().expect("failed to get current directory");
     let config = springfield::orchestrate::LoopConfig {
         stage: stage.to_string(),
@@ -110,6 +116,7 @@ fn run_loop(stage: &str, spec: Option<&str>, opts: &LoopOpts, prompt_template: O
         afk: opts.afk,
         no_push: opts.no_push,
         iterations: opts.iterations,
+        no_sandbox,
         ralph_binary: None,
         skip_preflight: false,
         prompt_template: prompt_template.map(|s| s.to_string()),
@@ -140,19 +147,19 @@ fn main() {
                 no_push: false,
                 iterations: 1,
             };
-            run_loop("spec", None, &opts, None);
+            run_loop("spec", None, &opts, None, true);
         }
         Commands::Build { spec, opts } => {
-            run_loop("build", Some(&spec), &opts, None);
+            run_loop("build", Some(&spec), &opts, None, false);
         }
         Commands::Verify { opts } => {
-            run_loop("verify", None, &opts, None);
+            run_loop("verify", None, &opts, None, false);
         }
         Commands::TestPlan { opts } => {
-            run_loop("test-plan", None, &opts, None);
+            run_loop("test-plan", None, &opts, None, false);
         }
         Commands::Test { spec, opts } => {
-            run_loop("test", Some(&spec), &opts, None);
+            run_loop("test", Some(&spec), &opts, None, false);
         }
         Commands::Issues { subcmd } => match subcmd {
             IssuesSubcommand::Log => {
@@ -161,10 +168,10 @@ fn main() {
                     no_push: false,
                     iterations: 1,
                 };
-                run_loop("issues-log", None, &opts, Some("issues"));
+                run_loop("issues-log", None, &opts, Some("issues"), true);
             }
             IssuesSubcommand::Plan { opts } => {
-                run_loop("issues-plan", None, &opts, None);
+                run_loop("issues-plan", None, &opts, None, false);
             }
         },
         Commands::Status => {

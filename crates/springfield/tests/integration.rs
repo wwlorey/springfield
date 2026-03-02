@@ -434,6 +434,10 @@ fn build_invokes_ralph_with_correct_flags() {
         args.contains("--max-iterations 30"),
         "missing --max-iterations"
     );
+    assert!(
+        !args.contains("--no-sandbox"),
+        "build should NOT pass --no-sandbox"
+    );
 }
 
 #[test]
@@ -547,9 +551,13 @@ fn spec_runs_one_interactive_iteration() {
     );
 
     let args = fs::read_to_string(&args_file).unwrap();
-    // Should have 1 iteration, no --afk
+    // Should have 1 iteration, no --afk, with --no-sandbox
     assert!(args.contains(" 1 "), "should have 1 iteration");
     assert!(!args.starts_with("-a "), "should not have --afk flag");
+    assert!(
+        args.contains("--no-sandbox"),
+        "spec should pass --no-sandbox"
+    );
 }
 
 #[test]
@@ -585,6 +593,10 @@ fn issues_log_runs_one_interactive_iteration() {
     let args = fs::read_to_string(&args_file).unwrap();
     assert!(args.contains(" 1 "), "should have 1 iteration");
     assert!(!args.starts_with("-a "), "should not have --afk flag");
+    assert!(
+        args.contains("--no-sandbox"),
+        "issues log should pass --no-sandbox"
+    );
     assert!(
         args.contains("issues-log-"),
         "loop ID should contain issues-log"

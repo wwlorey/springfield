@@ -19,6 +19,8 @@ pub struct LoopConfig {
     pub afk: bool,
     pub no_push: bool,
     pub iterations: u32,
+    /// Run Claude on host instead of Docker sandbox.
+    pub no_sandbox: bool,
     /// Override ralph binary path (defaults to `SGF_RALPH_BINARY` env, then `ralph`).
     pub ralph_binary: Option<String>,
     /// Skip pre-launch recovery and daemon startup (for testing).
@@ -39,6 +41,10 @@ fn build_ralph_args(config: &LoopConfig, loop_id: &str, prompt_path: &Path) -> V
 
     if config.afk {
         args.push("-a".to_string());
+    }
+
+    if config.no_sandbox {
+        args.push("--no-sandbox".to_string());
     }
 
     args.push("--loop-id".to_string());
@@ -87,7 +93,9 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
     if !config.skip_preflight {
         recovery::pre_launch_recovery(root)?;
         recovery::ensure_daemon(root)?;
-        template::ensure_template()?;
+        if !config.no_sandbox {
+            template::ensure_template()?;
+        }
     }
 
     loop_mgmt::write_pid_file(root, &loop_id)?;
@@ -267,6 +275,7 @@ mod tests {
             afk: true,
             no_push: true,
             iterations: 10,
+            no_sandbox: false,
             ralph_binary: None,
             skip_preflight: false,
             prompt_template: None,
@@ -303,6 +312,7 @@ mod tests {
             afk: false,
             no_push: false,
             iterations: 30,
+            no_sandbox: false,
             ralph_binary: None,
             skip_preflight: false,
             prompt_template: None,
@@ -327,6 +337,7 @@ mod tests {
             afk: false,
             no_push: false,
             iterations: 1,
+            no_sandbox: true,
             ralph_binary: None,
             skip_preflight: false,
             prompt_template: None,
@@ -334,6 +345,7 @@ mod tests {
         let args = build_ralph_args(&config, "spec-20260226T160000", Path::new("/tmp/spec.md"));
 
         assert!(!args.contains(&"-a".to_string()));
+        assert!(args.contains(&"--no-sandbox".to_string()));
         assert!(args.contains(&"1".to_string()));
     }
 
@@ -345,6 +357,7 @@ mod tests {
             afk: false,
             no_push: false,
             iterations: 30,
+            no_sandbox: false,
             ralph_binary: None,
             skip_preflight: false,
             prompt_template: None,
@@ -381,6 +394,7 @@ mod tests {
             afk: false,
             no_push: false,
             iterations: 30,
+            no_sandbox: false,
             ralph_binary: Some("/custom/ralph".to_string()),
             skip_preflight: false,
             prompt_template: None,
@@ -406,6 +420,7 @@ mod tests {
             afk: true,
             no_push: false,
             iterations: 30,
+            no_sandbox: false,
             ralph_binary: Some(mock),
             skip_preflight: true,
             prompt_template: None,
@@ -440,6 +455,7 @@ mod tests {
             afk: true,
             no_push: false,
             iterations: 30,
+            no_sandbox: false,
             ralph_binary: Some(mock),
             skip_preflight: true,
             prompt_template: None,
@@ -467,6 +483,7 @@ mod tests {
             afk: true,
             no_push: false,
             iterations: 30,
+            no_sandbox: false,
             ralph_binary: Some(mock),
             skip_preflight: true,
             prompt_template: None,
@@ -497,6 +514,7 @@ mod tests {
             afk: true,
             no_push: false,
             iterations: 30,
+            no_sandbox: false,
             ralph_binary: Some(mock),
             skip_preflight: true,
             prompt_template: None,
@@ -535,6 +553,7 @@ mod tests {
             afk: true,
             no_push: true,
             iterations: 10,
+            no_sandbox: false,
             ralph_binary: Some(mock),
             skip_preflight: true,
             prompt_template: None,
@@ -565,6 +584,7 @@ mod tests {
             afk: true,
             no_push: false,
             iterations: 30,
+            no_sandbox: false,
             ralph_binary: Some(mock),
             skip_preflight: true,
             prompt_template: None,
@@ -597,6 +617,7 @@ mod tests {
             afk: true,
             no_push: false,
             iterations: 30,
+            no_sandbox: false,
             ralph_binary: Some(mock),
             skip_preflight: true,
             prompt_template: None,
@@ -632,6 +653,7 @@ mod tests {
             afk: false,
             no_push: false,
             iterations: 1,
+            no_sandbox: true,
             ralph_binary: Some(mock),
             skip_preflight: true,
             prompt_template: None,
@@ -645,6 +667,7 @@ mod tests {
             !args_content.starts_with("-a "),
             "should not have --afk flag"
         );
+        assert!(args_content.contains("--no-sandbox"));
         assert!(args_content.contains(" 1 "));
     }
 
@@ -666,6 +689,7 @@ mod tests {
             afk: false,
             no_push: false,
             iterations: 1,
+            no_sandbox: true,
             ralph_binary: Some(mock),
             skip_preflight: true,
             prompt_template: Some("issues".to_string()),
@@ -680,6 +704,7 @@ mod tests {
             !args_content.starts_with("-a "),
             "should not have --afk flag"
         );
+        assert!(args_content.contains("--no-sandbox"));
         assert!(args_content.contains(" 1 "));
 
         let assembled = fs::read_to_string(root.join(".sgf/prompts/.assembled/issues.md")).unwrap();
@@ -704,6 +729,7 @@ mod tests {
             afk: true,
             no_push: false,
             iterations: 30,
+            no_sandbox: false,
             ralph_binary: Some(mock),
             skip_preflight: true,
             prompt_template: None,
@@ -734,6 +760,7 @@ mod tests {
             afk: true,
             no_push: false,
             iterations: 30,
+            no_sandbox: false,
             ralph_binary: Some(mock),
             skip_preflight: true,
             prompt_template: None,
@@ -764,6 +791,7 @@ mod tests {
             afk: true,
             no_push: false,
             iterations: 30,
+            no_sandbox: false,
             ralph_binary: Some(mock),
             skip_preflight: true,
             prompt_template: None,

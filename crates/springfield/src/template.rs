@@ -29,28 +29,27 @@ fn pensa_src_hash(pensa_dir: &Path) -> Result<String, String> {
     src_files.sort();
     for path in src_files {
         hasher.update(
-            std::fs::read(&path)
-                .map_err(|e| format!("failed to read {}: {e}", path.display()))?,
+            std::fs::read(&path).map_err(|e| format!("failed to read {}: {e}", path.display()))?,
         );
     }
-    Ok(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect())
 }
 
 fn locate_pensa_crate() -> Result<PathBuf, String> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let pensa_dir = manifest_dir.parent().unwrap().join("pensa");
     if !pensa_dir.join("Cargo.toml").exists() {
-        return Err(format!(
-            "pensa crate not found at {}",
-            pensa_dir.display()
-        ));
+        return Err(format!("pensa crate not found at {}", pensa_dir.display()));
     }
     Ok(pensa_dir)
 }
 
 fn copy_pensa_source(pensa_dir: &Path, dest: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(dest)
-        .map_err(|e| format!("failed to create pensa-src dir: {e}"))?;
+    std::fs::create_dir_all(dest).map_err(|e| format!("failed to create pensa-src dir: {e}"))?;
 
     let cargo_toml = std::fs::read_to_string(pensa_dir.join("Cargo.toml"))
         .map_err(|e| format!("failed to read pensa Cargo.toml: {e}"))?;
@@ -203,7 +202,6 @@ pub fn ensure_template() -> io::Result<()> {
     }
     Ok(())
 }
-
 
 #[cfg(test)]
 mod tests {

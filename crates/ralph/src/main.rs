@@ -54,6 +54,10 @@ struct Cli {
     #[arg(short = 'a', long)]
     afk: bool,
 
+    /// Run Claude directly on the host instead of in a Docker sandbox
+    #[arg(long)]
+    no_sandbox: bool,
+
     /// Loop identifier (sgf-generated, included in banner output)
     #[arg(long)]
     loop_id: Option<String>,
@@ -229,7 +233,11 @@ fn print_banner(cli: &Cli, iterations: u32, is_file: bool) {
         println!("Prompt:      {} (text)", display);
     }
     println!("Iterations:  {}", iterations);
-    println!("Sandbox:     {}", cli.template);
+    if cli.no_sandbox {
+        println!("Sandbox:     Host");
+    } else {
+        println!("Sandbox:     {}", cli.template);
+    }
     if let Some(ref id) = cli.loop_id {
         println!("Loop ID:     {}", id);
     }
@@ -262,6 +270,13 @@ fn run_interactive(cli: &Cli, is_file: bool) {
 
     let result = if let Some(ref cmd) = cli.command {
         Command::new(cmd)
+            .stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .status()
+    } else if cli.no_sandbox {
+        Command::new("claude")
+            .args(["--verbose", &prompt_arg])
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
@@ -338,6 +353,22 @@ fn run_afk(cli: &Cli, is_file: bool, interrupted: &Arc<AtomicBool>) {
                 .pre_exec(setsid_hook)
                 .spawn()
         }
+    } else if cli.no_sandbox {
+        unsafe {
+            Command::new("claude")
+                .args([
+                    "--verbose",
+                    "--print",
+                    "--output-format",
+                    "stream-json",
+                    &prompt_arg,
+                ])
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::inherit())
+                .pre_exec(setsid_hook)
+                .spawn()
+        }
     } else {
         let (master, slave_stdio) = create_pty_stdin();
         _pty_master = Some(master);
@@ -355,6 +386,7 @@ fn run_afk(cli: &Cli, is_file: bool, interrupted: &Arc<AtomicBool>) {
                     "--print",
                     "--output-format",
                     "stream-json",
+                    "--dangerously-skip-permissions",
                     &prompt_arg,
                 ])
                 .stdin(slave_stdio)
