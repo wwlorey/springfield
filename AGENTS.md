@@ -3,6 +3,14 @@
 - Rust workspace with crates under crates/.
 - Specs and implementation plans under specs/.
 
+## Installing
+
+```
+cargo install --path crates/pensa
+cargo install --path crates/ralph
+cargo install --path crates/springfield
+```
+
 ## Code Style
 
 - **Async:** Tokio runtime. Use `async-trait` for async trait methods.
