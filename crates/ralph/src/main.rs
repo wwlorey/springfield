@@ -275,7 +275,7 @@ fn run_interactive(cli: &Cli, is_file: bool) {
             .stderr(Stdio::inherit())
             .status()
     } else if cli.no_sandbox {
-        Command::new("claude")
+        Command::new("claude-wrapper")
             .args(["--verbose", &prompt_arg])
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
@@ -355,7 +355,7 @@ fn run_afk(cli: &Cli, is_file: bool, interrupted: &Arc<AtomicBool>) {
         }
     } else if cli.no_sandbox {
         unsafe {
-            Command::new("claude")
+            Command::new("claude-wrapper")
                 .args([
                     "--verbose",
                     "--print",

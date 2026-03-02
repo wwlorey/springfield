@@ -139,13 +139,13 @@ docker sandbox run \
 **Host-direct (`--no-sandbox`):**
 
 ```
-claude \
+claude-wrapper \
   --verbose \
   @<PROMPT_FILE>       # file prompt (@ prefix)
   # or: "<inline text>"  # inline text (no @ prefix)
 ```
 
-When `--no-sandbox` is set, `--dangerously-skip-permissions` is never passed. The developer interacts with Claude's normal permission prompts. This is intentional — without sandbox isolation, permission checks are the safety boundary.
+When `--no-sandbox` is set, `--dangerously-skip-permissions` is never passed. The developer interacts with Claude's normal permission prompts. This is intentional — without sandbox isolation, permission checks are the safety boundary. Host-direct mode uses `claude-wrapper` instead of `claude` directly; the wrapper is not needed inside Docker sandboxes.
 
 No output processing in either variant. The user interacts with Claude directly. After each iteration, ralph checks for the `.ralph-complete` sentinel file to detect task completion.
 
@@ -173,7 +173,7 @@ docker sandbox run \
 **Host-direct (`--no-sandbox`):**
 
 ```
-claude \
+claude-wrapper \
   --verbose \
   --print \
   --output-format stream-json \
@@ -195,7 +195,7 @@ In sandboxed AFK mode, two defenses keep Ctrl+C working:
 
 2. **`setsid()` in `pre_exec`**: Creates a new session, detaching docker from ralph's session. Without this, docker could call `tcsetpgrp()` on the inherited stderr fd (which points to ralph's terminal) to become the foreground process group, stealing SIGINT delivery. With `setsid`, docker is in a different session and `tcsetpgrp()` on ralph's terminal fails.
 
-In host-direct AFK mode (`--no-sandbox`), neither defense is needed — there is no Docker process to interfere with terminal settings. The `claude` process is spawned with `setsid()` only (no PTY) and `Stdio::null()` for stdin.
+In host-direct AFK mode (`--no-sandbox`), neither defense is needed — there is no Docker process to interfere with terminal settings. The `claude-wrapper` process is spawned with `setsid()` only (no PTY) and `Stdio::null()` for stdin.
 
 Stdout is read on a dedicated thread that sends lines through an `mpsc` channel. The main thread uses `recv_timeout` (100ms) to poll the channel, checking the interrupt flag between receives. When interrupted:
 

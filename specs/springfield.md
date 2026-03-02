@@ -988,7 +988,7 @@ The labels enable pre-flight staleness detection. After updating pensa source or
 
 **Decentralized projects**: Springfield is project-aware — it reads `.sgf/` from the current working directory. No global registry. Each project is self-contained.
 
-**Sandboxed by default**: Autonomous loops (build, verify, test-plan, test, issues plan) run inside Docker sandboxes for filesystem isolation. Interactive stages (spec, issues log) run host-direct (`--no-sandbox`) so the agent can access files outside the repo. Host-direct mode never uses `--dangerously-skip-permissions` — without sandbox isolation, Claude's normal permission prompts are the safety boundary.
+**Sandboxed by default**: Autonomous loops (build, verify, test-plan, test, issues plan) run inside Docker sandboxes for filesystem isolation. Interactive stages (spec, issues log) run host-direct (`--no-sandbox`) so the agent can access files outside the repo. Host-direct mode uses `claude-wrapper` instead of invoking `claude` directly, and never uses `--dangerously-skip-permissions` — without sandbox isolation, Claude's normal permission prompts are the safety boundary.
 
 ---
 
