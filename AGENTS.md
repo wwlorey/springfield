@@ -3,24 +3,9 @@
 - Rust workspace with crates under crates/.
 - Specs and implementation plans under specs/.
 
-## Backpressure (**Building, Testing, Linting, Formatting, Integration Tests, and Code Scanning**)
-
-### Backend (Rust)
-
-- **Build all:** `cargo build --workspace`
-- **Build single:** `cargo build -p <crate>` (e.g., `cargo build -p pensa`, `cargo build -p ralph`, `cargo build -p springfield`)
-- **Test all:** `cargo test --workspace`
-- **Test single:** `cargo test -p <crate> <test_name>` (e.g., `cargo test -p pensa create_and_get`, `cargo test -p springfield init_creates`)
-- **Lint:** `cargo clippy --workspace -- -D warnings`
-- **Format:** `cargo fmt --all`
-- **Detect unsafe code usage:** `cargo geiger`
-
-
 ## Code Style
 
 - **Async:** Tokio runtime. Use `async-trait` for async trait methods.
 - **No comments** unless code is complex and requires context for future developers.
 - **Logging:** Use structured logging (`tracing`). Never log secrets directly.
 - **Instrumentation:** Use `#[instrument(skip(self, secrets, large_args), fields(id = %id))]`. Always skip secrets.
-
-

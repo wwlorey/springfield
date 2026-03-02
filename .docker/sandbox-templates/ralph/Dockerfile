@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     pkg-config \
     libwebkit2gtk-4.1-dev \
+    webkit2gtk-driver \
     libgtk-3-dev \
     libayatana-appindicator3-dev \
     librsvg2-dev \
@@ -45,8 +46,8 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
     && rustup default stable \
     && rustup component add rustfmt clippy
 
-# Install Tauri CLI
-RUN . "$CARGO_HOME/env" && cargo install tauri-cli
+# Install Tauri CLI and cargo-geiger (unsafe code auditing)
+RUN . "$CARGO_HOME/env" && cargo install tauri-cli cargo-geiger
 
 # Enable pnpm
 USER root
@@ -81,4 +82,4 @@ USER agent
 WORKDIR /home/agent
 
 # Verify installations
-RUN rustc --version && cargo --version && node --version && pnpm --version && npx playwright --version && pn --help
+RUN rustc --version && cargo --version && cargo geiger --version && node --version && pnpm --version && npx playwright --version && pn --help

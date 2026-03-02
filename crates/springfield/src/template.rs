@@ -25,6 +25,7 @@ fn pensa_src_hash(pensa_dir: &Path) -> Result<String, String> {
     let mut src_files: Vec<PathBuf> = std::fs::read_dir(pensa_dir.join("src"))
         .map_err(|e| format!("failed to read pensa src dir: {e}"))?
         .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|ext| ext == "rs"))
         .collect();
     src_files.sort();
     for path in src_files {
@@ -272,7 +273,7 @@ mod tests {
     #[test]
     fn dockerfile_is_embedded() {
         assert!(DOCKERFILE.contains("FROM docker/sandbox-templates:claude-code"));
-        assert!(DOCKERFILE.contains("COPY pensa-src"));
+        assert!(DOCKERFILE.contains("COPY --chown=agent:agent pensa-src"));
         assert!(DOCKERFILE.contains("rustc --version"));
     }
 
