@@ -37,6 +37,7 @@ The agent's persistent memory system, pensa, is inspired by Steve Yegge's [beads
 - [Rust](https://rustup.rs/) (edition 2024)
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (for sandboxed agent loops)
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (invoked by ralph inside sandboxes)
+- [prek](https://github.com/j178/prek) (git hook manager — runs `pn export`/`pn import` hooks)
 
 ### Install
 
@@ -54,6 +55,12 @@ sgf init
 ```
 
 This creates `.sgf/`, `.pensa/`, `specs/`, prompt templates, `MEMENTO.md`, `CLAUDE.md`, and merges entries into `.gitignore`, `.claude/settings.json`, and `.pre-commit-config.yaml`.
+
+Then install the git hooks:
+
+```sh
+prek install
+```
 
 The Docker sandbox template (`ralph-sandbox:latest`) is built automatically the first time you run a loop command. To rebuild it manually: `sgf template build`.
 

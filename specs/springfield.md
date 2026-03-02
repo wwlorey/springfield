@@ -93,6 +93,8 @@ If `.claude/settings.json` already exists, `sgf init` merges deny rules into the
 
 ### Prek hooks
 
+[prek](https://github.com/j178/prek) is a Rust-based git hook manager that reads `.pre-commit-config.yaml`. It replaces the Python-based [pre-commit](https://pre-commit.com/) — same config format, no Python dependency. After `sgf init` generates the config, run `prek install` to wire the hooks into `.git/hooks/`.
+
 `sgf init` creates `.pre-commit-config.yaml`:
 
 ```yaml
@@ -153,9 +155,9 @@ All entries are always added regardless of what exists in the directory. If an e
 ### .sgf/MEMENTO.md
 
 ```markdown
-study `specs/README.md`
-study `.sgf/BACKPRESSURE.md`
-study `.sgf/PENSA.md`
+study `@specs/README.md`
+study `@.sgf/PENSA.md`
+study `@.sgf/BACKPRESSURE.md`
 ```
 
 ### CLAUDE.md
@@ -541,40 +543,45 @@ Let's have a discussion and you can interview me about what I want to build.
 
 After the discussion, produce the following deliverables:
 
-1. Write spec files to `specs/`
-2. Update `specs/README.md` with new entries in this format: `| Spec | Code | Purpose |`
-   Read `.sgf/loom-specs-README.md` for the reference format.
-3. Create implementation plan items via pensa:
-   `pn create -t task --spec <stem> "task title" [-p <priority>] [--dep <id>]`
-   Set dependencies between tasks where order matters.
+1. Write/update spec files (`specs/*.md`).
+2. Update `specs/README.md` with any new entries in this format: `| Spec | Code | Purpose |`.
+   (Study `@.sgf/loom-specs-README.md` for the reference format.)
+3. Use `pn` to create implementation items which cite (1) the specification with lookups for the source code and (2) documentation that needs to be viewed/changed/added.
 
-The implementation plan should BEGIN with:
-1. Any project-specific tooling setup needed
-
-And the implementation plan should END with:
-1. Documentation tasks (README.md, etc. as appropriate)
-2. Integration test tasks that verify the feature works end-to-end
+The implementation plan should END with:
+1. Outstanding documentation tasks (README.md, etc. as appropriate).
+2. Integration test tasks that verify the feature works end-to-end.
 
 IMPORTANT:
 - **The spec should be designed so that the result can be end-to-end tested from the command line.** If more tools are required to achieve this, make that known.
+- Implementation items should be scoped to atomic changes—the smallest self-contained modifications to the codebase that can be implemented and tested independently.
 - **Commit the changes when finished.**
 ```
 
 ### build.md
 
 ```markdown
-Follow the claim workflow in `.sgf/PENSA.md`. Query: `pn ready --spec {{spec}} --json`
+Follow the `pn` claim workflow to choose one best next task to implement.
 
-Implement the task. Use subagents.
+If there are (1) no tasks OR (2) no tasks **that can be implemented**, touch .ralph-complete` and end.
+
+Implement that task. Use subagents.
+
+NOTE:
+- Make sure if you change any build flags, etc., to work on Linux that you make the DEFAULT run on Mac (for instance: building with Metal enabled).
+- When implementing, build a tiny, end-to-end slice of the feature first, test and validate it, then expand out from there (cf. tracer bullets).
+- If **newly authored**, routine tests are **unreasonably slow**, consider using **fast params (or mock params, whichever is best, as long as our testing is solid)** and gate the slow production-param tests behind `#[ignore]` (See AGENTS.md).
+- If you come across build, lint, etc. errors that you did not cause, log them using `pn`.
 
 IMPORTANT:
-- **Search before assuming.** Do NOT assume something isn't implemented — search the codebase first. This is the most common failure mode.
+- **Assume NOT implemented.** Many specs describe planned features that may not yet exist in the codebase.
 - **Use specs as guidance.** When implementing a feature, follow the design patterns, types, and architecture defined in the relevant spec.
 - **Do not implement placeholder code.** We want full, real implementations.
-- **Author property based tests, unit tests, and/or integration tests.** (Whichever is best.)
-- When implementing, build a tiny, end-to-end slice of the feature first, test and validate it, then expand out from there (tracer bullets).
-- **After making changes, apply FULL BACKPRESSURE (see `.sgf/BACKPRESSURE.md`) to verify behavior.**
-- If you come across build, lint, etc. errors that you did not cause, log them: `pn create "description" -t bug`
+- **Author PROPERTY BASED TESTS and/or UNIT TESTS** (whichever is best).
+- **After making changes to the files apply FULL BACKPRESSURE to verify behavior.**
+- When the ONE task is done:
+  * Close the `pn` work.
+  * Commit your changes.
 ```
 
 ### verify.md
@@ -690,7 +697,6 @@ The following is the full content of `.sgf/PENSA.md` that `sgf init` writes. It 
 ## Rules
 
 - Always pass `--json` when reading data.
-- One task per iteration. Claim → work → close → commit.
 
 ## Core Commands
 
@@ -710,17 +716,16 @@ The following is the full content of `.sgf/PENSA.md` that `sgf init` writes. It 
 ## Claim Workflow
 
 1. Query for work (e.g., `pn ready --spec auth --json`).
-2. If nothing returned → `touch .ralph-complete` and stop.
-3. Pick ONE item and claim: `pn update <id> --claim`.
-4. If claim fails (`already_claimed`) → re-query and pick another.
+2. Pick ONE item and claim: `pn update <id> --claim`.
+3. If claim fails (`already_claimed`) → re-query and pick another.
 
 ## Logging Bugs
 
-When you discover issues you didn't cause: `pn create "<description>" -t bug`
+`pn create "<description>" -t bug`
 
 ## Closing Work
 
-1. Comment with lessons learned: `pn comment add <id> "<insights>"` (only if useful to future agents)
+1. Comment with (1) crucial lessons learned and/or (2) notable design/testing decisions made (if any; only if useful to future agents): `pn comment add <id> "<insights>"`
 2. Close: `pn close <id> --reason "<what was done>"`
 3. Commit with `[<task-id>]` prefix (e.g., `[pn-a1b2c3d4] Implement login validation`)
 ```
@@ -734,9 +739,7 @@ The following is the full content of `.sgf/BACKPRESSURE.md` that `sgf init` writ
 ````markdown
 # Backpressure — Building, Testing, Linting, Formatting, Integration Tests, and Code Scanning
 
-**After making changes, apply FULL BACKPRESSURE to verify behavior as appropriate.**
-
----
+This document defines backpressure for a variety of project types. Be sure to align your understanding of backpressure to the project type with which you're currently working.
 
 ## Backend (Rust)
 
@@ -750,18 +753,16 @@ The following is the full content of `.sgf/BACKPRESSURE.md` that `sgf init` writ
 
 ### Long Running Tests
 
-Some tests may be gated behind `#[ignore]` because they use expensive operations (e.g., production Argon2 params, real LLM inference). These tests validate production behavior but are too slow for routine development.
+Some tests may be gated behind `#[ignore]` because they use expensive operations. These tests validate production behavior but are too slow for routine development.
 
 - **Run ignored tests:** `cargo test -p <crate> <test_name> -- --ignored`
 - **Run all tests including ignored:** `cargo test --workspace -- --ignored`
-
----
 
 ## Frontend
 
 > Stack: TypeScript, Svelte 5, SvelteKit, Vitest, @testing-library/svelte, Playwright
 >
-> **Working directory:** adjust as needed (all frontend commands run from the frontend directory, as applicable)
+> **Working directory:** adjust as needed (some projects may have frontend commands run from the frontend directory)
 
 - **Build:** `pnpm run build`
 - **Unit tests:** `pnpm run vitest run`
@@ -775,29 +776,18 @@ Some tests may be gated behind `#[ignore]` because they use expensive operations
 - **Format check:** `pnpm run format:check`
 - **Full check:** `pnpm run check`
 
-### Tauri
-
-Delete this section if the project does not use Tauri.
-
-- **Build Tauri app:** `pnpm run tauri build`
-- **Build Tauri app (debug):** `pnpm run tauri build --debug`
-
 ### E2E Tests (Playwright)
-
-Delete this section if the project uses Tauri (use the Tauri E2E section below instead).
 
 - **E2E tests:** `pnpm run test:e2e`
 
 ### E2E Tests (Tauri, Linux Only)
 
-Delete this section if the project does not use Tauri.
-
 E2E tests run on **Linux only** using WebdriverIO + WebKitWebDriver. macOS is not supported for E2E testing (no WebDriver access to WKWebView).
 
-**Linux prerequisites:**
-```bash
-sudo apt-get install webkit2gtk-driver libwebkit2gtk-4.1-dev
-```
+## Tauri
+
+- **Build Tauri app:** `pnpm run tauri build`
+- **Build Tauri app (debug):** `pnpm run tauri build --debug`
 ````
 
 ---
@@ -865,6 +855,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     pkg-config \
     libwebkit2gtk-4.1-dev \
+    webkit2gtk-driver \
     libgtk-3-dev \
     libayatana-appindicator3-dev \
     librsvg2-dev \
@@ -903,8 +894,8 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
     && rustup default stable \
     && rustup component add rustfmt clippy
 
-# Install Tauri CLI
-RUN . "$CARGO_HOME/env" && cargo install tauri-cli
+# Install Tauri CLI and cargo-geiger (unsafe code auditing)
+RUN . "$CARGO_HOME/env" && cargo install tauri-cli cargo-geiger
 
 # Enable pnpm
 USER root
@@ -939,7 +930,7 @@ USER agent
 WORKDIR /home/agent
 
 # Verify installations
-RUN rustc --version && cargo --version && node --version && pnpm --version && npx playwright --version && pn --help
+RUN rustc --version && cargo --version && cargo geiger --version && node --version && pnpm --version && npx playwright --version && pn --help
 ```
 
 ### sgf template build
