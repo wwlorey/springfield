@@ -345,6 +345,21 @@ fn merge_pre_commit_config(root: &Path) -> io::Result<()> {
     fs::write(&path, output)
 }
 
+fn install_prek_hooks(root: &Path) -> io::Result<()> {
+    let output = Command::new("prek")
+        .arg("install")
+        .current_dir(root)
+        .output()?;
+
+    if !output.status.success() {
+        return Err(io::Error::other(format!(
+            "prek install failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    Ok(())
+}
+
 fn create_directories(root: &Path) -> io::Result<()> {
     for dir in DIRECTORIES {
         let path = root.join(dir);
@@ -505,6 +520,7 @@ pub fn run(root: &Path, force: bool) -> io::Result<()> {
     merge_gitignore(root)?;
     merge_claude_settings(root)?;
     merge_pre_commit_config(root)?;
+    install_prek_hooks(root)?;
 
     println!("sgf init: project scaffolded successfully");
     Ok(())
@@ -515,9 +531,41 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    fn git_init(path: &Path) {
+        Command::new("git")
+            .args(["init"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+    }
+
+    fn git_add_commit(path: &Path, msg: &str) {
+        Command::new("git")
+            .args(["add", "-A"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", msg, "--no-gpg-sign", "--no-verify"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+    }
+
     #[test]
     fn creates_all_directories() {
         let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
         run(tmp.path(), false).unwrap();
 
         for dir in DIRECTORIES {
@@ -528,6 +576,7 @@ mod tests {
     #[test]
     fn creates_all_template_files() {
         let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
         run(tmp.path(), false).unwrap();
 
         for tf in TEMPLATE_FILES {
@@ -541,6 +590,7 @@ mod tests {
     #[test]
     fn creates_all_skeleton_files() {
         let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
         run(tmp.path(), false).unwrap();
 
         for sf in SKELETON_FILES {
@@ -554,6 +604,7 @@ mod tests {
     #[test]
     fn claude_md_is_symlink() {
         let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
         run(tmp.path(), false).unwrap();
 
         let claude_md = tmp.path().join("CLAUDE.md");
@@ -573,6 +624,7 @@ mod tests {
     #[test]
     fn memento_content() {
         let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
         run(tmp.path(), false).unwrap();
 
         let content = fs::read_to_string(tmp.path().join(".sgf/MEMENTO.md")).unwrap();
@@ -586,6 +638,7 @@ mod tests {
     #[test]
     fn does_not_overwrite_existing_files() {
         let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
         run(tmp.path(), false).unwrap();
 
         let modified = "custom content";
@@ -612,6 +665,7 @@ mod tests {
     #[test]
     fn idempotent_run() {
         let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
         run(tmp.path(), false).unwrap();
 
         let first_run: Vec<(String, String)> = TEMPLATE_FILES
@@ -638,11 +692,24 @@ mod tests {
         }
     }
 
+    #[test]
+    fn prek_hooks_installed() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+        run(tmp.path(), false).unwrap();
+
+        assert!(
+            tmp.path().join(".git/hooks/pre-commit").exists(),
+            "pre-commit hook not installed"
+        );
+    }
+
     // --- .gitignore tests ---
 
     #[test]
     fn gitignore_created_from_scratch() {
         let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
         run(tmp.path(), false).unwrap();
 
         let content = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
@@ -658,6 +725,7 @@ mod tests {
     #[test]
     fn gitignore_merges_with_existing() {
         let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
         fs::write(tmp.path().join(".gitignore"), "# Custom\nmy-secret.key\n").unwrap();
 
         run(tmp.path(), false).unwrap();
@@ -675,6 +743,7 @@ mod tests {
     #[test]
     fn gitignore_no_duplicates_on_rerun() {
         let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
         run(tmp.path(), false).unwrap();
         let first = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
 
@@ -687,6 +756,7 @@ mod tests {
     #[test]
     fn gitignore_partial_existing_entries() {
         let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
         fs::write(tmp.path().join(".gitignore"), "/target\n.DS_Store\n").unwrap();
 
         run(tmp.path(), false).unwrap();
@@ -707,6 +777,7 @@ mod tests {
     #[test]
     fn settings_json_created_from_scratch() {
         let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
         run(tmp.path(), false).unwrap();
 
         let content = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
@@ -725,6 +796,7 @@ mod tests {
     #[test]
     fn settings_json_merges_with_existing() {
         let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
         fs::create_dir_all(tmp.path().join(".claude")).unwrap();
         fs::write(
             tmp.path().join(".claude/settings.json"),
@@ -754,6 +826,7 @@ mod tests {
     #[test]
     fn settings_json_no_duplicates_on_rerun() {
         let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
         run(tmp.path(), false).unwrap();
 
         run(tmp.path(), false).unwrap();
@@ -769,6 +842,7 @@ mod tests {
     #[test]
     fn pre_commit_created_from_scratch() {
         let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
         run(tmp.path(), false).unwrap();
 
         let content = fs::read_to_string(tmp.path().join(".pre-commit-config.yaml")).unwrap();
@@ -781,6 +855,7 @@ mod tests {
     #[test]
     fn pre_commit_merges_with_existing() {
         let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
         let existing = "\
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -804,6 +879,7 @@ repos:
     #[test]
     fn pre_commit_no_duplicates_on_rerun() {
         let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
         run(tmp.path(), false).unwrap();
         let first = fs::read_to_string(tmp.path().join(".pre-commit-config.yaml")).unwrap();
         let first_export_count = first.matches("pensa-export").count();
@@ -823,6 +899,7 @@ repos:
     #[test]
     fn full_init_idempotent_with_config_files() {
         let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
         run(tmp.path(), false).unwrap();
 
         let gitignore1 = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
@@ -844,37 +921,6 @@ repos:
     }
 
     // --- --force tests ---
-
-    fn git_init(path: &Path) {
-        Command::new("git")
-            .args(["init"])
-            .current_dir(path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["config", "user.email", "test@test.com"])
-            .current_dir(path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["config", "user.name", "Test"])
-            .current_dir(path)
-            .output()
-            .unwrap();
-    }
-
-    fn git_add_commit(path: &Path, msg: &str) {
-        Command::new("git")
-            .args(["add", "-A"])
-            .current_dir(path)
-            .output()
-            .unwrap();
-        Command::new("git")
-            .args(["commit", "-m", msg, "--no-gpg-sign"])
-            .current_dir(path)
-            .output()
-            .unwrap();
-    }
 
     /// Non-interactive force init: git safety check + write files, no prompt.
     fn force_init(root: &Path) -> io::Result<()> {

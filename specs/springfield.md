@@ -93,7 +93,7 @@ If `.claude/settings.json` already exists, `sgf init` merges deny rules into the
 
 ### Prek hooks
 
-[prek](https://github.com/j178/prek) is a Rust-based git hook manager that reads `.pre-commit-config.yaml`. It replaces the Python-based [pre-commit](https://pre-commit.com/) — same config format, no Python dependency. After `sgf init` generates the config, run `prek install` to wire the hooks into `.git/hooks/`.
+[prek](https://github.com/j178/prek) is a Rust-based git hook manager that reads `.pre-commit-config.yaml`. It replaces the Python-based [pre-commit](https://pre-commit.com/) — same config format, no Python dependency. `sgf init` generates the config and runs `prek install` to wire the hooks into `.git/hooks/`.
 
 `sgf init` creates `.pre-commit-config.yaml`:
 
@@ -175,7 +175,7 @@ study `@.sgf/BACKPRESSURE.md`
 
 ### Idempotence
 
-`sgf init` is safe to re-run. It skips files that already exist (prompts, .sgf/MEMENTO.md, CLAUDE.md, specs/README.md) and only merges additive content (deny rules, git hooks, gitignore entries). It never overwrites existing content.
+`sgf init` is safe to re-run. It skips files that already exist (prompts, .sgf/MEMENTO.md, CLAUDE.md, specs/README.md) and only merges additive content (deny rules, git hooks, gitignore entries). It never overwrites existing content. `prek install` is always run to ensure hooks are wired into `.git/hooks/`.
 
 ### --force
 
@@ -538,6 +538,8 @@ Each workflow stage has a corresponding prompt template in `.sgf/prompts/`. Thes
 
 ```markdown
 Let's have a discussion and you can interview me about what I want to build.
+
+Read the spec(s) that are involved in these changes as I mention them (if applicable).
 
 ---
 
