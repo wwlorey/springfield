@@ -587,8 +587,6 @@ IMPORTANT:
 ### verify.md
 
 ```markdown
-Read `specs/README.md`.
-
 If `verification-report.md` exists, read it.
 
 If **ALL** specs listed in `specs/README.md` have been verified in the report (whether they match or are missing), `touch .ralph-complete` and stop.
@@ -609,8 +607,6 @@ When the ONE spec has been verified, **commit the changes.**
 ### test-plan.md
 
 ```markdown
-Read `specs/README.md`.
-
 Study the specs and codebase. Generate a testing plan.
 
 For each test, create a pensa item:
