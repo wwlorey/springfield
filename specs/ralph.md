@@ -127,7 +127,6 @@ Spawns Claude with full terminal passthrough (stdin/stdout/stderr inherited).
 
 ```
 docker sandbox run \
-  --credentials host \
   --template <TEMPLATE> \
   claude \
   --verbose \
@@ -159,7 +158,6 @@ Spawns Claude with piped stdout, stderr inherited.
 
 ```
 docker sandbox run \
-  --credentials host \
   --template <TEMPLATE> \
   claude \
   --verbose \

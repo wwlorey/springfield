@@ -286,8 +286,6 @@ fn run_interactive(cli: &Cli, is_file: bool) {
             .args([
                 "sandbox",
                 "run",
-                "--credentials",
-                "host",
                 "--template",
                 &cli.template,
                 "claude",
@@ -377,8 +375,6 @@ fn run_afk(cli: &Cli, is_file: bool, interrupted: &Arc<AtomicBool>) {
                 .args([
                     "sandbox",
                     "run",
-                    "--credentials",
-                    "host",
                     "--template",
                     &cli.template,
                     "claude",
