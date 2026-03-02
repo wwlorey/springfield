@@ -1,6 +1,8 @@
+use std::collections::HashSet;
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::path::Path;
+use std::process::Command;
 
 #[cfg(unix)]
 use std::os::unix::fs as unix_fs;
@@ -361,15 +363,127 @@ fn write_if_missing(path: &Path, content: &str) -> io::Result<()> {
     fs::write(path, content)
 }
 
-pub fn run(root: &Path) -> io::Result<()> {
-    create_directories(root)?;
+fn check_git_clean(root: &Path, paths: &[&str]) -> io::Result<Vec<String>> {
+    let mut problems = Vec::new();
 
-    for tf in TEMPLATE_FILES {
-        write_if_missing(&root.join(tf.path), tf.content)?;
+    let output = Command::new("git")
+        .args(["ls-files", "--"])
+        .args(paths)
+        .current_dir(root)
+        .output()?;
+    if !output.status.success() {
+        return Err(io::Error::other(format!(
+            "git ls-files failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )));
+    }
+    let tracked_output = String::from_utf8_lossy(&output.stdout).to_string();
+    let tracked: HashSet<&str> = tracked_output.lines().collect();
+
+    for p in paths {
+        if !tracked.contains(*p) {
+            problems.push(format!("{p} (untracked)"));
+        }
     }
 
+    let output = Command::new("git")
+        .args(["status", "--porcelain", "--"])
+        .args(paths)
+        .current_dir(root)
+        .output()?;
+    if !output.status.success() {
+        return Err(io::Error::other(format!(
+            "git status failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )));
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    for line in stdout.lines() {
+        if line.is_empty() {
+            continue;
+        }
+        let path = line
+            .get(3..)
+            .unwrap_or("")
+            .split(" -> ")
+            .next()
+            .unwrap_or("");
+        if tracked.contains(path) {
+            problems.push(format!("{path} (uncommitted changes)"));
+        }
+    }
+
+    Ok(problems)
+}
+
+fn confirm_overwrite(files: &[&str]) -> io::Result<bool> {
+    eprintln!("The following files will be overwritten:");
+    for f in files {
+        eprintln!("  {f}");
+    }
+    eprint!("Overwrite {} files? [y/N] ", files.len());
+    io::stderr().flush()?;
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    let answer = input.trim().to_lowercase();
+    Ok(answer == "y" || answer == "yes")
+}
+
+fn write_all_files(root: &Path) -> io::Result<()> {
+    for tf in TEMPLATE_FILES {
+        let path = root.join(tf.path);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&path, tf.content)?;
+    }
     for sf in SKELETON_FILES {
-        write_if_missing(&root.join(sf.path), sf.content)?;
+        let path = root.join(sf.path);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&path, sf.content)?;
+    }
+    Ok(())
+}
+
+pub fn run(root: &Path, force: bool) -> io::Result<()> {
+    create_directories(root)?;
+
+    if force {
+        let all_paths: Vec<&str> = TEMPLATE_FILES
+            .iter()
+            .map(|tf| tf.path)
+            .chain(SKELETON_FILES.iter().map(|sf| sf.path))
+            .collect();
+        let existing: Vec<&str> = all_paths
+            .iter()
+            .filter(|p| root.join(p).exists())
+            .copied()
+            .collect();
+
+        if !existing.is_empty() {
+            let problems = check_git_clean(root, &existing)?;
+            if !problems.is_empty() {
+                let list = problems.join("\n  ");
+                return Err(io::Error::other(format!(
+                    "cannot --force: the following files have issues:\n  {list}"
+                )));
+            }
+            if !confirm_overwrite(&existing)? {
+                return Err(io::Error::other("aborted"));
+            }
+        }
+
+        write_all_files(root)?;
+    } else {
+        for tf in TEMPLATE_FILES {
+            write_if_missing(&root.join(tf.path), tf.content)?;
+        }
+        for sf in SKELETON_FILES {
+            write_if_missing(&root.join(sf.path), sf.content)?;
+        }
     }
 
     // CLAUDE.md is a symlink to AGENTS.md
@@ -395,7 +509,7 @@ mod tests {
     #[test]
     fn creates_all_directories() {
         let tmp = TempDir::new().unwrap();
-        run(tmp.path()).unwrap();
+        run(tmp.path(), false).unwrap();
 
         for dir in DIRECTORIES {
             assert!(tmp.path().join(dir).is_dir(), "directory missing: {dir}");
@@ -405,7 +519,7 @@ mod tests {
     #[test]
     fn creates_all_template_files() {
         let tmp = TempDir::new().unwrap();
-        run(tmp.path()).unwrap();
+        run(tmp.path(), false).unwrap();
 
         for tf in TEMPLATE_FILES {
             let path = tmp.path().join(tf.path);
@@ -418,7 +532,7 @@ mod tests {
     #[test]
     fn creates_all_skeleton_files() {
         let tmp = TempDir::new().unwrap();
-        run(tmp.path()).unwrap();
+        run(tmp.path(), false).unwrap();
 
         for sf in SKELETON_FILES {
             let path = tmp.path().join(sf.path);
@@ -431,7 +545,7 @@ mod tests {
     #[test]
     fn claude_md_is_symlink() {
         let tmp = TempDir::new().unwrap();
-        run(tmp.path()).unwrap();
+        run(tmp.path(), false).unwrap();
 
         let claude_md = tmp.path().join("CLAUDE.md");
         let meta = claude_md.symlink_metadata().unwrap();
@@ -450,7 +564,7 @@ mod tests {
     #[test]
     fn memento_content() {
         let tmp = TempDir::new().unwrap();
-        run(tmp.path()).unwrap();
+        run(tmp.path(), false).unwrap();
 
         let content = fs::read_to_string(tmp.path().join(".sgf/MEMENTO.md")).unwrap();
         assert!(content.contains("study `@specs/README.md`"));
@@ -463,12 +577,12 @@ mod tests {
     #[test]
     fn does_not_overwrite_existing_files() {
         let tmp = TempDir::new().unwrap();
-        run(tmp.path()).unwrap();
+        run(tmp.path(), false).unwrap();
 
         let modified = "custom content";
         fs::write(tmp.path().join(".sgf/prompts/build.md"), modified).unwrap();
 
-        run(tmp.path()).unwrap();
+        run(tmp.path(), false).unwrap();
 
         assert_eq!(
             fs::read_to_string(tmp.path().join(".sgf/prompts/build.md")).unwrap(),
@@ -489,7 +603,7 @@ mod tests {
     #[test]
     fn idempotent_run() {
         let tmp = TempDir::new().unwrap();
-        run(tmp.path()).unwrap();
+        run(tmp.path(), false).unwrap();
 
         let first_run: Vec<(String, String)> = TEMPLATE_FILES
             .iter()
@@ -507,7 +621,7 @@ mod tests {
             }))
             .collect();
 
-        run(tmp.path()).unwrap();
+        run(tmp.path(), false).unwrap();
 
         for (path, content) in &first_run {
             let after = fs::read_to_string(tmp.path().join(path)).unwrap();
@@ -520,7 +634,7 @@ mod tests {
     #[test]
     fn gitignore_created_from_scratch() {
         let tmp = TempDir::new().unwrap();
-        run(tmp.path()).unwrap();
+        run(tmp.path(), false).unwrap();
 
         let content = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
         for entry in GITIGNORE_ENTRIES {
@@ -537,7 +651,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         fs::write(tmp.path().join(".gitignore"), "# Custom\nmy-secret.key\n").unwrap();
 
-        run(tmp.path()).unwrap();
+        run(tmp.path(), false).unwrap();
 
         let content = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
         assert!(content.contains("my-secret.key"), "custom entry lost");
@@ -552,10 +666,10 @@ mod tests {
     #[test]
     fn gitignore_no_duplicates_on_rerun() {
         let tmp = TempDir::new().unwrap();
-        run(tmp.path()).unwrap();
+        run(tmp.path(), false).unwrap();
         let first = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
 
-        run(tmp.path()).unwrap();
+        run(tmp.path(), false).unwrap();
         let second = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
 
         assert_eq!(first, second, ".gitignore changed on second run");
@@ -566,7 +680,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         fs::write(tmp.path().join(".gitignore"), "/target\n.DS_Store\n").unwrap();
 
-        run(tmp.path()).unwrap();
+        run(tmp.path(), false).unwrap();
 
         let content = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
         let target_count = content.lines().filter(|l| l.trim() == "/target").count();
@@ -584,7 +698,7 @@ mod tests {
     #[test]
     fn settings_json_created_from_scratch() {
         let tmp = TempDir::new().unwrap();
-        run(tmp.path()).unwrap();
+        run(tmp.path(), false).unwrap();
 
         let content = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
         let doc: Value = serde_json::from_str(&content).unwrap();
@@ -609,7 +723,7 @@ mod tests {
         )
         .unwrap();
 
-        run(tmp.path()).unwrap();
+        run(tmp.path(), false).unwrap();
 
         let content = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
         let doc: Value = serde_json::from_str(&content).unwrap();
@@ -631,9 +745,9 @@ mod tests {
     #[test]
     fn settings_json_no_duplicates_on_rerun() {
         let tmp = TempDir::new().unwrap();
-        run(tmp.path()).unwrap();
+        run(tmp.path(), false).unwrap();
 
-        run(tmp.path()).unwrap();
+        run(tmp.path(), false).unwrap();
 
         let content = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
         let doc: Value = serde_json::from_str(&content).unwrap();
@@ -646,7 +760,7 @@ mod tests {
     #[test]
     fn pre_commit_created_from_scratch() {
         let tmp = TempDir::new().unwrap();
-        run(tmp.path()).unwrap();
+        run(tmp.path(), false).unwrap();
 
         let content = fs::read_to_string(tmp.path().join(".pre-commit-config.yaml")).unwrap();
         assert!(content.contains("pensa-export"));
@@ -667,7 +781,7 @@ repos:
 ";
         fs::write(tmp.path().join(".pre-commit-config.yaml"), existing).unwrap();
 
-        run(tmp.path()).unwrap();
+        run(tmp.path(), false).unwrap();
 
         let content = fs::read_to_string(tmp.path().join(".pre-commit-config.yaml")).unwrap();
         assert!(
@@ -681,11 +795,11 @@ repos:
     #[test]
     fn pre_commit_no_duplicates_on_rerun() {
         let tmp = TempDir::new().unwrap();
-        run(tmp.path()).unwrap();
+        run(tmp.path(), false).unwrap();
         let first = fs::read_to_string(tmp.path().join(".pre-commit-config.yaml")).unwrap();
         let first_export_count = first.matches("pensa-export").count();
 
-        run(tmp.path()).unwrap();
+        run(tmp.path(), false).unwrap();
         let second = fs::read_to_string(tmp.path().join(".pre-commit-config.yaml")).unwrap();
         let second_export_count = second.matches("pensa-export").count();
 
@@ -700,13 +814,13 @@ repos:
     #[test]
     fn full_init_idempotent_with_config_files() {
         let tmp = TempDir::new().unwrap();
-        run(tmp.path()).unwrap();
+        run(tmp.path(), false).unwrap();
 
         let gitignore1 = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
         let settings1 = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
         let precommit1 = fs::read_to_string(tmp.path().join(".pre-commit-config.yaml")).unwrap();
 
-        run(tmp.path()).unwrap();
+        run(tmp.path(), false).unwrap();
 
         let gitignore2 = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
         let settings2 = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
@@ -718,5 +832,142 @@ repos:
             precommit1, precommit2,
             ".pre-commit-config.yaml changed on second run"
         );
+    }
+
+    // --- --force tests ---
+
+    fn git_init(path: &Path) {
+        Command::new("git")
+            .args(["init"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+    }
+
+    fn git_add_commit(path: &Path, msg: &str) {
+        Command::new("git")
+            .args(["add", "-A"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", msg, "--no-gpg-sign"])
+            .current_dir(path)
+            .output()
+            .unwrap();
+    }
+
+    /// Non-interactive force init: git safety check + write all files, no prompt.
+    fn force_init(root: &Path) -> io::Result<()> {
+        create_directories(root)?;
+
+        let all_paths: Vec<&str> = TEMPLATE_FILES
+            .iter()
+            .map(|tf| tf.path)
+            .chain(SKELETON_FILES.iter().map(|sf| sf.path))
+            .collect();
+        let existing: Vec<&str> = all_paths
+            .iter()
+            .filter(|p| root.join(p).exists())
+            .copied()
+            .collect();
+
+        if !existing.is_empty() {
+            let problems = check_git_clean(root, &existing)?;
+            if !problems.is_empty() {
+                let list = problems.join("\n  ");
+                return Err(io::Error::other(format!(
+                    "cannot --force: the following files have issues:\n  {list}"
+                )));
+            }
+        }
+
+        write_all_files(root)
+    }
+
+    #[test]
+    fn force_overwrites_existing_files() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+        run(tmp.path(), false).unwrap();
+        git_add_commit(tmp.path(), "init");
+
+        let build_path = tmp.path().join(".sgf/prompts/build.md");
+        fs::write(&build_path, "custom content").unwrap();
+        git_add_commit(tmp.path(), "modify build.md");
+
+        force_init(tmp.path()).unwrap();
+
+        let content = fs::read_to_string(&build_path).unwrap();
+        assert_eq!(
+            content, TEMPLATE_BUILD,
+            "force should restore template content"
+        );
+    }
+
+    #[test]
+    fn force_fails_on_uncommitted_changes() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+        run(tmp.path(), false).unwrap();
+        git_add_commit(tmp.path(), "init");
+
+        fs::write(tmp.path().join(".sgf/prompts/build.md"), "dirty").unwrap();
+
+        let err = force_init(tmp.path()).unwrap_err();
+        assert!(
+            err.to_string().contains("uncommitted changes"),
+            "expected uncommitted changes error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn force_fails_on_untracked_file() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+
+        create_directories(tmp.path()).unwrap();
+        fs::write(
+            tmp.path().join(".sgf/prompts/build.md"),
+            "untracked content",
+        )
+        .unwrap();
+
+        let err = force_init(tmp.path()).unwrap_err();
+        assert!(
+            err.to_string().contains("untracked"),
+            "expected untracked error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn force_writes_missing_files_normally() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+
+        force_init(tmp.path()).unwrap();
+
+        for tf in TEMPLATE_FILES {
+            let path = tmp.path().join(tf.path);
+            assert!(path.is_file(), "template file missing: {}", tf.path);
+            let content = fs::read_to_string(&path).unwrap();
+            assert_eq!(content, tf.content, "content mismatch: {}", tf.path);
+        }
+        for sf in SKELETON_FILES {
+            let path = tmp.path().join(sf.path);
+            assert!(path.is_file(), "skeleton file missing: {}", sf.path);
+            let content = fs::read_to_string(&path).unwrap();
+            assert_eq!(content, sf.content, "content mismatch: {}", sf.path);
+        }
     }
 }

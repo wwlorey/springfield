@@ -11,7 +11,10 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Scaffold a new project
-    Init,
+    Init {
+        #[arg(long)]
+        force: bool,
+    },
 
     /// Generate specs and implementation plan (interactive)
     Spec,
@@ -134,9 +137,9 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Init => {
+        Commands::Init { force } => {
             let root = std::env::current_dir().expect("failed to get current directory");
-            if let Err(e) = springfield::init::run(&root) {
+            if let Err(e) = springfield::init::run(&root, force) {
                 eprintln!("sgf init: {e}");
                 std::process::exit(1);
             }

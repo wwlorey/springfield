@@ -42,7 +42,7 @@ sgf template build                     — rebuild Docker sandbox template
 
 ## sgf init
 
-Scaffolds a new project. Takes no arguments.
+Scaffolds a new project. Accepts `--force` to overwrite template and skeleton files with built-in defaults.
 
 ### What it creates
 
@@ -174,6 +174,16 @@ study `.sgf/PENSA.md`
 ### Idempotence
 
 `sgf init` is safe to re-run. It skips files that already exist (prompts, .sgf/MEMENTO.md, CLAUDE.md, specs/README.md) and only merges additive content (deny rules, git hooks, gitignore entries). It never overwrites existing content.
+
+### --force
+
+`sgf init --force` overwrites all template and skeleton files with built-in defaults. Use this to pick up upstream template changes after updating the `sgf` binary.
+
+Safety checks:
+- Fails if any target file has uncommitted changes or is untracked by git.
+- Lists files to be overwritten and requires `y` confirmation before proceeding.
+
+Config merges (`.gitignore`, `.claude/settings.json`, `.pre-commit-config.yaml`) are unaffected by `--force` — they always use additive merge logic.
 
 ---
 
