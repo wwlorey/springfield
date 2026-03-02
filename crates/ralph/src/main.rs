@@ -75,7 +75,7 @@ struct Cli {
     max_iterations: u32,
 
     /// Auto-push after new commits
-    #[arg(long, env = "RALPH_AUTO_PUSH", default_value = "true", value_parser = parse_bool)]
+    #[arg(long, env = "RALPH_AUTO_PUSH", default_value = "true", value_parser = parse_bool, num_args = 1)]
     auto_push: bool,
 
     /// Override: path to executable replacing docker invocation (for testing)
