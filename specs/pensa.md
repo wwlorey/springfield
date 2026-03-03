@@ -88,7 +88,7 @@ CREATE TABLE issues (
 
 **`spec`** (optional) — filename stem of the spec this issue implements (e.g., `auth` for `specs/auth.md`). Populated for `task` items, typically absent for `bug` and `chore` items. There is no separate "implementation plan" entity — the living set of tasks linked to a spec *is* the implementation plan for that spec.
 
-**`fixes`** (optional) — ID of a bug that this issue resolves. Set on `task` items created by `sgf issues plan`. When a task with a `fixes` link is closed, the linked bug is automatically closed with reason `"fixed by <task-id>"`.
+**`fixes`** (optional) — ID of a bug that this issue resolves. Multiple issues can share the same `fixes` target (multi-fix). When a task with a `fixes` link is closed, the linked bug is auto-closed **only if all** issues with `fixes` pointing to that bug are now closed. The auto-close reason is `"fixed"`. If other fix tasks remain open or in-progress, the bug stays open.
 
 **`priority`** — `p0` (critical), `p1` (high), `p2` (normal, default), `p3` (low). Smaller number = more urgent.
 
@@ -184,7 +184,15 @@ pn status
 pn history <id>
 ```
 
-**`pn ready`** returns open, unblocked issues sorted by priority then creation time. It only returns items with `issue_type` in (`task`, `test`, `chore`) — bugs are excluded entirely. Bugs are problem reports, not actionable work items. Returns `[]` when nothing matches.
+**`pn ready`** returns open, unblocked issues sorted by priority then creation time. Returns `[]` when nothing matches.
+
+Bugs are included, but only **unplanned** bugs — those with zero non-closed `fixes` children. A bug is "planned" when at least one open or in-progress issue has `fixes` pointing to it. Once all fix tasks for a bug are closed, the bug auto-closes (see `fixes` auto-close below). If the bug is reopened, it reappears in `pn ready` because it has no open fix children.
+
+The filter logic:
+- Tasks, tests, chores: always eligible (subject to open/unblocked filters)
+- Bugs with no fix tasks: eligible (unplanned — needs planning)
+- Bugs with all fix tasks closed: ineligible (bug was auto-closed, so not open)
+- Bugs with any open/in-progress fix task: excluded (already planned, work underway)
 
 **`pn list`** default sort is by priority (ascending) then created_at (ascending). The `--sort` flag accepts: `priority`, `created_at`, `updated_at`, `status`, `title`.
 
@@ -394,8 +402,11 @@ Key scenarios:
 - **Claim semantics**: create → claim → second claim fails with `already_claimed` → release → claim succeeds
 - **Dependencies**: add dep → verify `ready` excludes blocked item → close blocker → verify item now appears in `ready`
 - **Cycle detection**: add deps forming a cycle → verify `cycle_detected` error
-- **`fixes` auto-close**: create bug → create task with `--fixes` → close task → verify bug is also closed
-- **`ready` excludes bugs**: create bug → verify `pn ready` does not include it
+- **`fixes` single-fix auto-close**: create bug → create one fix task with `--fixes` → close task → verify bug is also closed
+- **`fixes` multi-fix all-or-nothing**: create bug → create two fix tasks with `--fixes` → close first → verify bug still open → close second → verify bug auto-closed
+- **`ready` includes unplanned bugs**: create bug → verify `pn ready` includes it
+- **`ready` excludes planned bugs**: create bug → create fix task with `--fixes` → verify bug no longer in `pn ready`
+- **`ready` type filter still excludes bugs**: create bug → `pn ready -t task` → verify bug excluded
 - **Export/import round-trip**: create issues with deps and comments → export → delete db → import → verify all data intact
 - **Doctor**: create in_progress issues → `doctor --fix` → verify all released to open
 - **Concurrent claims**: two rapid claim attempts on the same issue → exactly one succeeds

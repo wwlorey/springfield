@@ -10,7 +10,7 @@ CLI entry point for Springfield. All developer interaction goes through this bin
 - **Loop orchestration**: Launch ralph with the correct flags, manage PID files, tee logs
 - **Recovery**: Pre-launch cleanup of dirty state from crashed iterations
 - **Daemon lifecycle**: Start the pensa daemon before launching loops
-- **Workflow commands**: `spec`, `build`, `verify`, `test-plan`, `test`, `issues log`, `issues plan`
+- **Workflow commands**: `spec`, `build`, `verify`, `test-plan`, `test`, `issues log`
 
 ---
 
@@ -24,7 +24,6 @@ sgf verify [-a] [--no-push] [N]        — run verification loop
 sgf test-plan [-a] [--no-push] [N]     — run test plan generation loop
 sgf test <spec> [-a] [--no-push] [N]   — run test execution loop
 sgf issues log                         — interactive session for logging bugs
-sgf issues plan [-a] [--no-push] [N]   — run bug planning loop
 sgf status                             — show project state (future work)
 sgf logs <loop-id>                     — tail a running loop's output
 sgf template build                     — rebuild Docker sandbox template
@@ -62,7 +61,6 @@ Scaffolds a new project. Accepts `--force` to overwrite template and skeleton fi
     ├── test-plan.md
     ├── test.md
     ├── issues.md
-    ├── issues-plan.md
     └── .assembled/                    (empty, gitignored)
 .claude/settings.json                  (deny rules for .sgf/**)
 .pre-commit-config.yaml                (prek hooks for pensa sync)
@@ -215,7 +213,6 @@ After `sgf init` and ongoing development, a project contains:
     ├── test-plan.md
     ├── test.md
     ├── issues.md
-    ├── issues-plan.md
     └── .assembled/            (gitignored — assembled prompts for debugging)
         └── <stage>.md
 .pre-commit-config.yaml        (prek hooks for pensa sync)
@@ -313,7 +310,6 @@ sgf → ralph [-a] [--no-sandbox] [--loop-id ID] [--template T] [--auto-push BOO
 | `test-plan` | no | Autonomous execution |
 | `test` | no | Autonomous execution |
 | `issues log` | yes | Interactive interview; same rationale as spec |
-| `issues plan` | no | Autonomous execution |
 
 ### Exit Codes
 
@@ -383,7 +379,7 @@ Before launching ralph, `sgf` scans all PID files in `.sgf/run/`:
 
 Before launching any loop, `sgf` runs pre-launch checks. The checks vary by stage:
 
-**Sandboxed stages** (build, verify, test-plan, test, issues plan):
+**Sandboxed stages** (build, verify, test-plan, test):
 
 1. **Recovery** — clean up stale state from crashed iterations (see Recovery)
 2. **Daemon** — start the pensa daemon if not already running
@@ -427,7 +423,7 @@ Auto-build failure is a hard error — the loop cannot proceed without a templat
 
 **Stage transitions are human-initiated.** The developer decides when to move between stages. Suggested heuristics: run verify when `pn ready --spec <stem>` returns nothing (all tasks for a spec are done); run test-plan after verify passes; run test after test-plan produces test items. These are guidelines, not gates.
 
-**Concurrency model**: Multiple loops (e.g., `sgf build` + `sgf issues plan`) can run concurrently on the same branch. The pensa daemon serializes all database access, providing atomic claims via `pn update --claim` (fails with `already_claimed` if another agent got there first). `pn export` runs at commit time via the pre-commit hook. Concurrent sandboxes share the same git history via Mutagen file sync — push conflicts don't arise because each sandbox sees the other's commits within seconds. **Stop build loops before running `sgf spec`** to avoid task-supersession race conditions.
+**Concurrency model**: Multiple loops (e.g., multiple `sgf build` instances) can run concurrently on the same branch. The pensa daemon serializes all database access, providing atomic claims via `pn update --claim` (fails with `already_claimed` if another agent got there first). `pn export` runs at commit time via the pre-commit hook. Concurrent sandboxes share the same git history via Mutagen file sync — push conflicts don't arise because each sandbox sees the other's commits within seconds. **Stop build loops before running `sgf spec`** to avoid task-supersession race conditions.
 
 ### Standard Loop Iteration
 
@@ -445,9 +441,20 @@ Each iteration gets fresh context. The pensa database persists state between ite
 
 | Stage | Query | Work | Close |
 |-------|-------|------|-------|
-| Build | `pn ready --spec <stem> --json` | Implement the task; apply backpressure | `pn close <id> --reason "..."` |
+| Build | `pn ready --spec <stem> --json` | Implement the task (or plan the bug — see below); apply backpressure | `pn close <id> --reason "..."` (tasks) / `pn release <id>` (bugs) |
 | Test | `pn ready -t test --spec <stem> --json` | Execute the test | `pn close <id> --reason "..."` |
-| Issues Plan | `pn list -t bug --status open --json` | Study codebase, create fix task with `--fixes` | `pn release <id>` (bug stays open) |
+
+#### Bug Planning in the Build Loop
+
+`pn ready` now includes unplanned bugs (see pensa spec). When the build loop claims an item and it is a bug, the iteration becomes a **planning** iteration:
+
+1. Study the codebase to understand the bug
+2. Create fix task(s): `pn create -t task "fix: <description>" --fixes <bug-id> [--spec <stem>] [-p <priority>] [--dep <id>]`
+3. Comment lessons learned on the bug: `pn comment add <bug-id> "..."`
+4. Release the bug: `pn release <bug-id>` (the bug drops out of `pn ready` — it now has fix children)
+5. Commit with `[<bug-id>]` prefix
+
+The fix tasks appear in subsequent `pn ready` calls and are implemented as normal tasks. When all fix tasks for a bug are closed, pensa auto-closes the bug.
 
 ### 1. Spec (`sgf spec`)
 
@@ -516,15 +523,7 @@ Runs via ralph with 1 iteration in interactive mode and `--no-sandbox` (host-dir
 
 One bug per session. The developer runs `sgf issues log` again for additional bugs — fresh context each time prevents accumulation across unrelated issues.
 
-### 7. Issues Plan (`sgf issues plan`)
-
-Follows the standard loop iteration. Runs via ralph using `.sgf/prompts/issues-plan.md`. A separate concurrent process from `sgf build`.
-
-Unlike build and test, the close step uses `pn release <id>` — the bug stays open while the fix task (created with `--fixes`) flows through `pn ready` into the build loop.
-
-**Typical setup**: two terminals — `sgf issues plan` producing fix tasks from bugs, `sgf build` consuming them alongside other work items. A third terminal with `sgf issues log` for the developer to report new bugs.
-
-### 8. Inline Issue Logging
+### 7. Inline Issue Logging
 
 Issues are also logged by agents during any stage via `pn create`. The build loop logs bugs it discovers during implementation. The verify loop logs spec gaps. The test loop logs test failures. `sgf issues log` is for developer-reported bugs; inline logging is for agent-discovered bugs.
 
@@ -567,7 +566,14 @@ Follow the `pn` claim workflow to choose one best next issue to implement.
 
 Touch .ralph-complete` and end if there are no more issues.
 
-Implement that task. Use subagents.
+If the claimed item is a **bug** (`issue_type == "bug"`):
+1. Study the codebase to understand the bug. Use subagents.
+2. Create fix task(s): `pn create -t task "fix: <description>" --fixes <bug-id> [--spec <stem>] [-p <priority>] [--dep <id>]`
+3. Comment lessons learned on the bug: `pn comment add <bug-id> "..."`
+4. Release the bug: `pn release <bug-id>`
+5. Commit with `[<bug-id>]` prefix.
+
+Otherwise, implement the task. Use subagents.
 
 NOTE:
 - Make sure if you change any build flags, etc., to work on Linux that you make the DEFAULT run on Mac (for instance: building with Metal enabled).
@@ -582,7 +588,7 @@ IMPORTANT:
 - **Author PROPERTY BASED TESTS and/or UNIT TESTS** (whichever is best).
 - **After making changes to the files apply FULL BACKPRESSURE to verify behavior.**
 - When the ONE task is done:
-  * Close the `pn` work.
+  * Close the `pn` work (tasks) or release it (bugs).
   * Commit your changes.
 ```
 
@@ -661,26 +667,6 @@ When you have enough detail, log the bug:
 **Commit the changes.**
 ```
 
-### issues-plan.md
-
-```markdown
-Follow the claim workflow in `.sgf/PENSA.md`. Query: `pn list -t bug --status open --json`
-
-Study the codebase to understand the bug and design a fix. Use subagents.
-
-Create a fix task:
-`pn create -t task "fix: <description>" --fixes <bug-id> [--spec <stem>] [-p <priority>] [--dep <id>]`
-
-IMPORTANT:
-- **Use specs as guidance.** When designing a fix, follow the design patterns, types, and architecture defined in the relevant spec.
-- **Plan for property based tests, unit tests, and/or integration tests.** (Whichever is best.)
-- When the ONE bug has been planned:
-  * Add lessons learned and design decisions as a comment on the bug: `pn comment add <id> "..."`
-  * Release the bug (it stays open — the fix task flows into the build loop): `pn release <id>`
-  * Log as new bugs any other issues you've discovered: `pn create "description" -t bug`
-  * **Commit the changes**, prefixing the message with `[<bug-id>]`.
-```
-
 ---
 
 ## Pensa Template
@@ -721,6 +707,14 @@ The following is the full content of `.sgf/PENSA.md` that `sgf init` writes. It 
 ## Logging Bugs
 
 `pn create "<description>" -t bug`
+
+## Bug Planning (when `pn ready` returns a bug)
+
+1. Claim the bug: `pn update <id> --claim`
+2. Study the codebase, create fix task(s): `pn create -t task "fix: ..." --fixes <bug-id> [--spec <stem>]`
+3. Comment lessons learned: `pn comment add <bug-id> "..."`
+4. Release the bug: `pn release <bug-id>`
+5. Commit with `[<bug-id>]` prefix
 
 ## Closing Work
 
