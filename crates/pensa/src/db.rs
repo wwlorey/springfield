@@ -91,13 +91,10 @@ impl Db {
 
         let old_db = pensa_dir.join("db.sqlite");
         let new_db = data_dir.join("db.sqlite");
-        if old_db.exists() && !new_db.exists() {
-            if fs::rename(&old_db, &new_db).is_err() {
-                fs::copy(&old_db, &new_db).map_err(|e| {
-                    PensaError::Internal(format!("failed to migrate db.sqlite: {e}"))
-                })?;
-                let _ = fs::remove_file(&old_db);
-            }
+        if old_db.exists() && !new_db.exists() && fs::rename(&old_db, &new_db).is_err() {
+            fs::copy(&old_db, &new_db)
+                .map_err(|e| PensaError::Internal(format!("failed to migrate db.sqlite: {e}")))?;
+            let _ = fs::remove_file(&old_db);
         }
 
         let conn = Connection::open(&new_db)
@@ -346,20 +343,30 @@ impl Db {
             .map_err(|e| PensaError::Internal(format!("failed to log close event: {e}")))?;
 
         if let Some(fixes_id) = &issue.fixes {
-            let fixes_reason = format!("fixed by {id}");
-            self.conn
-                .execute(
-                    "UPDATE issues SET status = 'closed', closed_at = ?1, close_reason = ?2, updated_at = ?1 WHERE id = ?3",
-                    rusqlite::params![ts, fixes_reason, fixes_id],
+            let remaining: i64 = self
+                .conn
+                .query_row(
+                    "SELECT COUNT(*) FROM issues WHERE fixes = ?1 AND status != 'closed' AND id != ?2",
+                    rusqlite::params![fixes_id, id],
+                    |row| row.get(0),
                 )
-                .map_err(|e| PensaError::Internal(format!("failed to auto-close linked bug: {e}")))?;
+                .map_err(|e| PensaError::Internal(format!("failed to check remaining fix tasks: {e}")))?;
 
-            self.conn
-                .execute(
-                    "INSERT INTO events (issue_id, event_type, actor, detail, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-                    rusqlite::params![fixes_id, "closed", actor, fixes_reason, ts],
-                )
-                .map_err(|e| PensaError::Internal(format!("failed to log auto-close event: {e}")))?;
+            if remaining == 0 {
+                self.conn
+                    .execute(
+                        "UPDATE issues SET status = 'closed', closed_at = ?1, close_reason = 'fixed', updated_at = ?1 WHERE id = ?2",
+                        rusqlite::params![ts, fixes_id],
+                    )
+                    .map_err(|e| PensaError::Internal(format!("failed to auto-close linked bug: {e}")))?;
+
+                self.conn
+                    .execute(
+                        "INSERT INTO events (issue_id, event_type, actor, detail, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                        rusqlite::params![fixes_id, "closed", actor, "fixed", ts],
+                    )
+                    .map_err(|e| PensaError::Internal(format!("failed to log auto-close event: {e}")))?;
+            }
         }
 
         self.get_issue_only(id)
@@ -1662,13 +1669,7 @@ mod tests {
 
         let bug_after = db.get_issue_only(&bug.id).unwrap();
         assert_eq!(bug_after.status, Status::Closed);
-        assert!(
-            bug_after
-                .close_reason
-                .as_ref()
-                .unwrap()
-                .contains(&format!("fixed by {}", task.id))
-        );
+        assert_eq!(bug_after.close_reason.as_deref(), Some("fixed"));
     }
 
     #[test]

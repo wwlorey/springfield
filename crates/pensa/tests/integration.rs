@@ -196,11 +196,69 @@ fn fixes_auto_close() {
     // Close the task
     let _closed_task = run_ok_json(pn(&daemon).args(["close", &task_id, "--force"]));
 
-    // Bug should be auto-closed
+    // Bug should be auto-closed with reason "fixed"
     let bug_after = run_ok_json(pn(&daemon).args(["show", &bug_id]));
     assert_eq!(
         bug_after["status"], "closed",
         "bug should be auto-closed when fixing task is closed"
+    );
+    assert_eq!(
+        bug_after["close_reason"], "fixed",
+        "auto-closed bug should have close_reason 'fixed'"
+    );
+}
+
+#[test]
+fn fixes_multi_fix_all_or_nothing() {
+    let daemon = start_daemon();
+
+    // Create a bug
+    let bug = run_ok_json(pn(&daemon).args(["create", "multi-fix bug", "-t", "bug", "-p", "p0"]));
+    let bug_id = extract_id(&bug);
+
+    // Create two fix tasks
+    let task1 = run_ok_json(pn(&daemon).args([
+        "create",
+        "fix part 1",
+        "-t",
+        "task",
+        "-p",
+        "p1",
+        "--fixes",
+        &bug_id,
+    ]));
+    let task1_id = extract_id(&task1);
+
+    let task2 = run_ok_json(pn(&daemon).args([
+        "create",
+        "fix part 2",
+        "-t",
+        "task",
+        "-p",
+        "p1",
+        "--fixes",
+        &bug_id,
+    ]));
+    let task2_id = extract_id(&task2);
+
+    // Close first fix task — bug should remain open
+    run_ok_json(pn(&daemon).args(["close", &task1_id, "--force"]));
+    let bug_after_first = run_ok_json(pn(&daemon).args(["show", &bug_id]));
+    assert_eq!(
+        bug_after_first["status"], "open",
+        "bug should stay open when only one of two fix tasks is closed"
+    );
+
+    // Close second fix task — bug should now auto-close
+    run_ok_json(pn(&daemon).args(["close", &task2_id, "--force"]));
+    let bug_after_second = run_ok_json(pn(&daemon).args(["show", &bug_id]));
+    assert_eq!(
+        bug_after_second["status"], "closed",
+        "bug should auto-close when all fix tasks are closed"
+    );
+    assert_eq!(
+        bug_after_second["close_reason"], "fixed",
+        "auto-closed bug should have close_reason 'fixed'"
     );
 }
 
