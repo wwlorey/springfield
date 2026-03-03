@@ -33,9 +33,7 @@ fn data_dir(project_dir: &Path) -> PathBuf {
     canonical.to_string_lossy().hash(&mut hasher);
     let hash = format!("{:016x}", hasher.finish());
     let home = std::env::var("HOME").expect("HOME not set");
-    PathBuf::from(home)
-        .join(".local/share/pensa")
-        .join(hash)
+    PathBuf::from(home).join(".local/share/pensa").join(hash)
 }
 
 fn parse_dt(s: &str) -> DateTime<Utc> {
@@ -598,7 +596,7 @@ impl Db {
     pub fn ready_issues(&self, filters: &ListFilters) -> Result<Vec<Issue>, PensaError> {
         let mut conditions = vec![
             "status = 'open'".to_string(),
-            "issue_type IN ('task', 'test', 'chore')".to_string(),
+            "(issue_type != 'bug' OR id NOT IN (SELECT fixes FROM issues WHERE fixes IS NOT NULL AND status != 'closed'))".to_string(),
             "id NOT IN (SELECT d.issue_id FROM deps d JOIN issues i ON d.depends_on_id = i.id WHERE i.status != 'closed')".to_string(),
         ];
         let mut values: Vec<Value> = Vec::new();
@@ -1830,15 +1828,37 @@ mod tests {
     }
 
     #[test]
-    fn ready_excludes_bugs() {
+    fn ready_includes_unplanned_bugs() {
         let (db, _dir) = open_temp_db();
 
-        create_issue_with(&db, "a bug", IssueType::Bug, Priority::P0);
+        let bug = create_issue_with(&db, "a bug", IssueType::Bug, Priority::P0);
         create_issue_with(&db, "a task", IssueType::Task, Priority::P1);
 
+        // Unplanned bug (no fix tasks) should appear in ready
         let ready = db.ready_issues(&ListFilters::default()).unwrap();
-        assert_eq!(ready.len(), 1);
-        assert_eq!(ready[0].title, "a task");
+        assert_eq!(ready.len(), 2);
+        assert_eq!(ready[0].title, "a bug"); // p0 sorts first
+        assert_eq!(ready[1].title, "a task");
+
+        // Create a fix task for the bug → bug becomes planned
+        db.create_issue(&CreateIssueParams {
+            title: "fix the bug".into(),
+            issue_type: IssueType::Task,
+            priority: Priority::P1,
+            description: None,
+            spec: None,
+            fixes: Some(bug.id.clone()),
+            assignee: None,
+            deps: vec![],
+            actor: "test-agent".into(),
+        })
+        .unwrap();
+
+        // Planned bug should no longer appear in ready
+        let ready2 = db.ready_issues(&ListFilters::default()).unwrap();
+        assert_eq!(ready2.len(), 2); // fix task + original task, but not the bug
+        let ready2_ids: Vec<&str> = ready2.iter().map(|i| i.id.as_str()).collect();
+        assert!(!ready2_ids.contains(&bug.id.as_str()));
     }
 
     #[test]

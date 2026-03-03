@@ -362,10 +362,10 @@ fn cycle_detection() {
 }
 
 #[test]
-fn ready_excludes_bugs() {
+fn ready_includes_unplanned_bugs() {
     let daemon = start_daemon();
 
-    // Create a bug
+    // Create a bug with no fix tasks
     let bug = run_ok_json(pn(&daemon).args(["create", "ui glitch", "-t", "bug", "-p", "p1"]));
     let bug_id = extract_id(&bug);
 
@@ -376,10 +376,70 @@ fn ready_excludes_bugs() {
     let ready = run_ok_json(pn(&daemon).args(["ready"]));
     let ready_ids = ids_in_array(&ready);
     assert!(
-        !ready_ids.contains(&bug_id),
-        "bugs should NOT appear in ready"
+        ready_ids.contains(&bug_id),
+        "unplanned bugs should appear in ready"
     );
     assert!(ready_ids.contains(&task_id), "tasks should appear in ready");
+}
+
+#[test]
+fn ready_excludes_planned_bugs() {
+    let daemon = start_daemon();
+
+    // Create a bug
+    let bug = run_ok_json(pn(&daemon).args(["create", "crash on save", "-t", "bug", "-p", "p0"]));
+    let bug_id = extract_id(&bug);
+
+    // Bug should appear in ready (unplanned)
+    let ready = run_ok_json(pn(&daemon).args(["ready"]));
+    let ready_ids = ids_in_array(&ready);
+    assert!(
+        ready_ids.contains(&bug_id),
+        "unplanned bug should appear in ready"
+    );
+
+    // Create a fix task for the bug
+    run_ok_json(pn(&daemon).args([
+        "create",
+        "fix save handler",
+        "-t",
+        "task",
+        "--fixes",
+        &bug_id,
+    ]));
+
+    // Bug should no longer appear in ready (planned)
+    let ready2 = run_ok_json(pn(&daemon).args(["ready"]));
+    let ready2_ids = ids_in_array(&ready2);
+    assert!(
+        !ready2_ids.contains(&bug_id),
+        "planned bug should NOT appear in ready"
+    );
+}
+
+#[test]
+fn ready_type_filter_excludes_bugs() {
+    let daemon = start_daemon();
+
+    // Create a bug
+    let bug = run_ok_json(pn(&daemon).args(["create", "render bug", "-t", "bug", "-p", "p1"]));
+    let bug_id = extract_id(&bug);
+
+    // Create a task
+    let task = run_ok_json(pn(&daemon).args(["create", "add feature", "-t", "task", "-p", "p1"]));
+    let task_id = extract_id(&task);
+
+    // Filter by task type should exclude bugs
+    let ready = run_ok_json(pn(&daemon).args(["ready", "-t", "task"]));
+    let ready_ids = ids_in_array(&ready);
+    assert!(
+        !ready_ids.contains(&bug_id),
+        "bug should not appear when filtering by task type"
+    );
+    assert!(
+        ready_ids.contains(&task_id),
+        "task should appear when filtering by task type"
+    );
 }
 
 #[test]

@@ -255,7 +255,10 @@ fn init_merges_existing_gitignore() {
 
     let content = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
     assert!(content.contains("my-secret.key"), "custom entry lost");
-    assert!(!content.contains(".pensa/db.sqlite"), "db.sqlite should not be in gitignore");
+    assert!(
+        !content.contains(".pensa/db.sqlite"),
+        "db.sqlite should not be in gitignore"
+    );
     assert!(content.contains(".sgf/logs/"), "sgf entry missing");
 }
 
