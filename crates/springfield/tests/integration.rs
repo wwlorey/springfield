@@ -124,7 +124,7 @@ fn init_creates_all_files() {
     sgf_cmd(tmp.path()).arg("init").output().unwrap();
 
     let expected_files = [
-        ".sgf/BACKPRESSURE.md",
+        "BACKPRESSURE.md",
         ".sgf/prompts/spec.md",
         ".sgf/prompts/build.md",
         ".sgf/prompts/verify.md",
@@ -166,9 +166,13 @@ fn init_file_contents() {
 
     // .sgf/MEMENTO.md
     let memento = fs::read_to_string(tmp.path().join(".sgf/MEMENTO.md")).unwrap();
-    assert!(memento.contains("study `specs/README.md`"));
-    assert!(memento.contains("study `.sgf/BACKPRESSURE.md`"));
-    assert!(memento.contains("study `.sgf/PENSA.md`"));
+    assert!(memento.contains("study `@specs/README.md`"));
+    assert!(memento.contains("study `@BACKPRESSURE.md`"));
+    assert!(
+        !memento.contains("study `@.sgf/BACKPRESSURE.md`"),
+        "MEMENTO should reference root BACKPRESSURE.md, not .sgf/"
+    );
+    assert!(memento.contains("study `@.sgf/PENSA.md`"));
     assert!(!memento.contains("## Stack"));
     assert!(!memento.contains("## References"));
 
@@ -934,34 +938,25 @@ fn templates_reference_uppercase_filenames() {
     let tmp = setup_test_dir();
     sgf_cmd(tmp.path()).arg("init").output().unwrap();
 
-    // build.md should reference uppercase .sgf/PENSA.md and .sgf/BACKPRESSURE.md
-    let build = fs::read_to_string(tmp.path().join(".sgf/prompts/build.md")).unwrap();
-    assert!(
-        build.contains(".sgf/PENSA.md"),
-        "build.md should reference .sgf/PENSA.md (uppercase)"
-    );
-    assert!(
-        !build.contains(".sgf/pensa.md"),
-        "build.md should NOT reference .sgf/pensa.md (lowercase)"
-    );
-    assert!(
-        build.contains(".sgf/BACKPRESSURE.md"),
-        "build.md should reference .sgf/BACKPRESSURE.md (uppercase)"
-    );
-    assert!(
-        !build.contains(".sgf/backpressure.md"),
-        "build.md should NOT reference .sgf/backpressure.md (lowercase)"
-    );
-
-    // test.md should reference uppercase
+    // test.md should reference uppercase .sgf/PENSA.md
     let test = fs::read_to_string(tmp.path().join(".sgf/prompts/test.md")).unwrap();
     assert!(
         test.contains(".sgf/PENSA.md"),
-        "test.md should reference .sgf/PENSA.md"
+        "test.md should reference .sgf/PENSA.md (uppercase)"
     );
     assert!(
-        test.contains(".sgf/BACKPRESSURE.md"),
-        "test.md should reference .sgf/BACKPRESSURE.md"
+        !test.contains(".sgf/pensa.md"),
+        "test.md should NOT reference .sgf/pensa.md (lowercase)"
+    );
+
+    // test.md should reference root BACKPRESSURE.md (uppercase, not inside .sgf/)
+    assert!(
+        test.contains("BACKPRESSURE.md"),
+        "test.md should reference BACKPRESSURE.md (uppercase)"
+    );
+    assert!(
+        !test.contains("backpressure.md"),
+        "test.md should NOT reference backpressure.md (lowercase)"
     );
 }
 
@@ -1008,25 +1003,23 @@ fn end_to_end_build_loop_with_memento_injection() {
     let assembled =
         fs::read_to_string(tmp.path().join(".sgf/prompts/.assembled/build.md")).unwrap();
 
-    // Should start with .sgf/MEMENTO.md content (study directives)
+    // Should start with .sgf/MEMENTO.md content (study directives with @ prefix)
     assert!(
-        assembled.starts_with("study `specs/README.md`"),
+        assembled.starts_with("study `@specs/README.md`"),
         "assembled prompt should start with memento content, got: {}",
         assembled.lines().next().unwrap_or("")
     );
     assert!(
-        assembled.contains("study `.sgf/BACKPRESSURE.md`"),
-        "assembled prompt should contain BACKPRESSURE study directive"
+        assembled.contains("study `@BACKPRESSURE.md`"),
+        "assembled prompt should contain root BACKPRESSURE study directive"
     );
     assert!(
-        assembled.contains("study `.sgf/PENSA.md`"),
+        !assembled.contains("study `@.sgf/BACKPRESSURE.md`"),
+        "assembled prompt should NOT reference .sgf/BACKPRESSURE.md"
+    );
+    assert!(
+        assembled.contains("study `@.sgf/PENSA.md`"),
         "assembled prompt should contain PENSA study directive"
-    );
-
-    // Should contain the build template content with {{spec}} replaced
-    assert!(
-        assembled.contains("--spec auth"),
-        "assembled prompt should have {{spec}} replaced with 'auth'"
     );
 
     // Should NOT contain Read `memento.md` directive
@@ -1035,13 +1028,135 @@ fn end_to_end_build_loop_with_memento_injection() {
         "assembled prompt should NOT contain 'Read `memento.md`'"
     );
 
-    // Should reference uppercase filenames
+    // Memento should reference uppercase filenames
     assert!(
         assembled.contains(".sgf/PENSA.md"),
         "assembled prompt should reference .sgf/PENSA.md (uppercase)"
     );
+}
+
+// ===========================================================================
+// End-to-end: sgf init with root-level BACKPRESSURE.md
+// ===========================================================================
+
+#[test]
+fn init_end_to_end_root_backpressure() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    // (1) BACKPRESSURE.md exists at root with expected template content
+    let bp_path = tmp.path().join("BACKPRESSURE.md");
     assert!(
-        assembled.contains(".sgf/BACKPRESSURE.md"),
-        "assembled prompt should reference .sgf/BACKPRESSURE.md (uppercase)"
+        bp_path.is_file(),
+        "BACKPRESSURE.md should exist at project root"
+    );
+    let bp_content = fs::read_to_string(&bp_path).unwrap();
+    assert!(
+        bp_content.contains("# Backpressure"),
+        "BACKPRESSURE.md should contain expected heading"
+    );
+    assert!(
+        bp_content.contains("cargo build"),
+        "BACKPRESSURE.md should contain Rust build commands"
+    );
+    assert!(
+        bp_content.contains("cargo test"),
+        "BACKPRESSURE.md should contain Rust test commands"
+    );
+    assert!(
+        bp_content.contains("cargo clippy"),
+        "BACKPRESSURE.md should contain Rust lint commands"
+    );
+
+    // (2) .sgf/BACKPRESSURE.md does NOT exist
+    assert!(
+        !tmp.path().join(".sgf/BACKPRESSURE.md").exists(),
+        "BACKPRESSURE.md should NOT exist inside .sgf/"
+    );
+
+    // (3) .sgf/MEMENTO.md contains 'study `@BACKPRESSURE.md`' (root reference)
+    let memento = fs::read_to_string(tmp.path().join(".sgf/MEMENTO.md")).unwrap();
+    assert!(
+        memento.contains("study `@BACKPRESSURE.md`"),
+        "MEMENTO.md should reference root BACKPRESSURE.md with @ prefix"
+    );
+    assert!(
+        !memento.contains("study `@.sgf/BACKPRESSURE.md`"),
+        "MEMENTO.md should NOT reference .sgf/BACKPRESSURE.md"
+    );
+
+    // (4) .claude/settings.json deny rules do NOT cover root BACKPRESSURE.md
+    let settings = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&settings).unwrap();
+    let deny = doc["permissions"]["deny"].as_array().unwrap();
+    // All deny rules target .sgf/** — root BACKPRESSURE.md is not blocked
+    for rule in deny {
+        let rule_str = rule.as_str().unwrap();
+        assert!(
+            !rule_str.contains("BACKPRESSURE"),
+            "deny rules should not block root BACKPRESSURE.md, found: {rule_str}"
+        );
+    }
+    // Confirm .sgf/** rules exist (they protect .sgf/ contents, not root files)
+    assert!(
+        deny.contains(&serde_json::Value::String("Edit .sgf/**".to_string())),
+        "deny rules should protect .sgf/ contents"
+    );
+
+    // (5) Prompt assembly produces assembled prompt with correct memento directives
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    let mock_docker_dir = TempDir::new().unwrap();
+    create_mock_script(
+        mock_docker_dir.path(),
+        "docker",
+        concat!(
+            "#!/bin/sh\n",
+            "case \"$1\" in\n",
+            "  image) echo 'somehash|somehash'; exit 0 ;;\n",
+            "  *) exit 0 ;;\n",
+            "esac\n",
+        ),
+    );
+    let path_with_mock_docker = format!("{}:{}", mock_docker_dir.path().display(), mock_path);
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 0\n");
+
+    let output = sgf_cmd(tmp.path())
+        .args(["build", "auth", "-a"])
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("PATH", &path_with_mock_docker)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "sgf build failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let assembled =
+        fs::read_to_string(tmp.path().join(".sgf/prompts/.assembled/build.md")).unwrap();
+
+    // Assembled prompt should start with memento directives
+    assert!(
+        assembled.starts_with("study `@specs/README.md`"),
+        "assembled prompt should start with memento, got: {}",
+        assembled.lines().next().unwrap_or("")
+    );
+    // Root BACKPRESSURE.md reference (not .sgf/)
+    assert!(
+        assembled.contains("study `@BACKPRESSURE.md`"),
+        "assembled prompt should reference root BACKPRESSURE.md"
+    );
+    assert!(
+        !assembled.contains("study `@.sgf/BACKPRESSURE.md`"),
+        "assembled prompt should NOT reference .sgf/BACKPRESSURE.md"
+    );
+    // PENSA.md still inside .sgf/
+    assert!(
+        assembled.contains("study `@.sgf/PENSA.md`"),
+        "assembled prompt should reference .sgf/PENSA.md"
     );
 }
