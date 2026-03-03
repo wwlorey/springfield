@@ -54,7 +54,9 @@ cd your-project
 sgf init
 ```
 
-This creates `.sgf/`, `.pensa/`, `specs/`, prompt templates, `MEMENTO.md`, `CLAUDE.md`, and merges entries into `.gitignore`, `.claude/settings.json`, and `.pre-commit-config.yaml`.
+This creates `.sgf/`, `.pensa/`, `specs/`, prompt templates, `MEMENTO.md`, `CLAUDE.md`, `BACKPRESSURE.md`, and merges entries into `.gitignore`, `.claude/settings.json`, and `.pre-commit-config.yaml`.
+
+`BACKPRESSURE.md` lives at the project root (not inside `.sgf/`) so it is discoverable by both Springfield's prompt assembly and `claude-wrapper`'s `--append-system-prompt-file` injection.
 
 Then install the git hooks:
 
