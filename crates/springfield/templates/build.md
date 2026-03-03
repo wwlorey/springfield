@@ -1,6 +1,6 @@
 Follow the `pn` claim workflow to choose one best next issue to implement.
 
-Touch .ralph-complete` and end if there are no more issues.
+Touch `.ralph-complete` and end if there are no more issues.
 
 If the claimed item is a **bug** (`issue_type == "bug"`):
 1. Study the codebase to understand the bug. Use subagents.
@@ -9,7 +9,7 @@ If the claimed item is a **bug** (`issue_type == "bug"`):
 4. Release the bug: `pn release <bug-id>`
 5. Commit with `[<bug-id>]` prefix.
 
-Otherwise, implement the task. Use subagents.
+Otherwise, implement the issue. Use subagents.
 
 NOTE:
 - Make sure if you change any build flags, etc., to work on Linux that you make the DEFAULT run on Mac (for instance: building with Metal enabled).
@@ -23,6 +23,6 @@ IMPORTANT:
 - **Do not implement placeholder code.** We want full, real implementations.
 - **Author PROPERTY BASED TESTS and/or UNIT TESTS** (whichever is best).
 - **After making changes to the files apply FULL BACKPRESSURE to verify behavior.**
-- When the ONE task is done:
-  * Close the `pn` work (tasks) or release it (bugs).
+- When the ONE issue is done:
+  * Close the `pn` issue or release it (bugs).
   * Commit your changes.
