@@ -77,6 +77,7 @@ RUN . "$CARGO_HOME/env" && cargo install --path /tmp/pensa-src && rm -rf /tmp/pe
 
 # Connect pn to the host daemon (not localhost, which is the container)
 ENV PN_DAEMON="http://host.docker.internal:7533"
+ENV CARGO_TARGET_DIR="/home/agent/target"
 
 # Ensure agent owns their home directory
 RUN chown -R agent:agent /home/agent
