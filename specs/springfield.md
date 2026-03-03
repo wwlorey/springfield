@@ -916,6 +916,10 @@ USER agent
 COPY --chown=agent:agent pensa-src /tmp/pensa-src
 RUN . "$CARGO_HOME/env" && cargo install --path /tmp/pensa-src && rm -rf /tmp/pensa-src
 
+# Connect pn to the host daemon (not localhost, which is the container)
+ENV PN_DAEMON="http://host.docker.internal:7533"
+ENV CARGO_TARGET_DIR="/home/agent/target"
+
 # Ensure agent owns their home directory
 RUN chown -R agent:agent /home/agent
 
@@ -948,6 +952,7 @@ The labels enable pre-flight staleness detection. After updating pensa source or
 - **Credentials**: Docker Desktop automatically injects API keys from the host into the sandbox. Keys never enter the sandbox filesystem.
 - **Agent user**: The agent runs as non-root `agent` user with `sudo` access inside the sandbox.
 - **Pensa access**: `pn` inside the sandbox connects to the host daemon via `http://host.docker.internal:7533`. The Dockerfile sets `ENV PN_DAEMON` to this URL so `pn` uses it automatically. The SQLite database never crosses the sync boundary.
+- **Cargo target directory**: `CARGO_TARGET_DIR` is set to `/home/agent/target` (container-local) to avoid Mutagen sync corrupting compiled artifacts. Without this, rustc encounters SIGBUS errors when Mutagen partially syncs `.rlib`/`.rmeta` files mid-compilation.
 
 ---
 
