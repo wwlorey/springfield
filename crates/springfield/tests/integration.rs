@@ -1160,3 +1160,108 @@ fn init_end_to_end_root_backpressure() {
         "assembled prompt should reference .sgf/PENSA.md"
     );
 }
+
+// ===========================================================================
+// End-to-end: sgf init --force restores templates matching spec
+// ===========================================================================
+
+#[test]
+fn init_force_restores_templates_matching_spec() {
+    let tmp = setup_test_dir();
+
+    let output = sgf_cmd(tmp.path()).arg("init").output().unwrap();
+    assert!(output.status.success(), "sgf init failed");
+
+    // Remove pre-commit hook so git commits succeed in the test env
+    let _ = fs::remove_file(tmp.path().join(".git/hooks/pre-commit"));
+
+    git_add_commit(tmp.path(), "sgf init");
+
+    // Modify templates with stale content
+    fs::write(
+        tmp.path().join(".sgf/PENSA.md"),
+        "# pn — old description\nstale content\n",
+    )
+    .unwrap();
+    fs::write(
+        tmp.path().join(".sgf/prompts/build.md"),
+        "stale build prompt with old task wording\n",
+    )
+    .unwrap();
+    fs::write(tmp.path().join("BACKPRESSURE.md"), "stale backpressure\n").unwrap();
+    git_add_commit(tmp.path(), "stale templates");
+
+    // Run sgf init --force, piping "y" to confirm
+    let output = sgf_cmd(tmp.path())
+        .args(["init", "--force"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            child.stdin.take().unwrap().write_all(b"y\n").unwrap();
+            child.wait_with_output()
+        })
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "sgf init --force failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // (1) .sgf/PENSA.md restored — heading uses 'Exclusive Work Item (Issue) Tracker'
+    let pensa = fs::read_to_string(tmp.path().join(".sgf/PENSA.md")).unwrap();
+    assert!(
+        pensa.contains("# pn — Exclusive Work Item (Issue) Tracker"),
+        "PENSA.md should have spec-aligned heading, got: {}",
+        pensa.lines().next().unwrap_or("")
+    );
+    assert!(
+        pensa.contains("exclusive work item (issue) tracker"),
+        "PENSA.md description should use 'exclusive work item (issue) tracker'"
+    );
+    assert!(
+        pensa.contains("Claim Workflow"),
+        "PENSA.md should contain Claim Workflow section"
+    );
+
+    // (2) .sgf/prompts/build.md restored — uses 'issue' terminology
+    let build = fs::read_to_string(tmp.path().join(".sgf/prompts/build.md")).unwrap();
+    assert!(
+        build.contains("issue"),
+        "build.md should use 'issue' terminology"
+    );
+    assert!(
+        !build.contains("stale"),
+        "build.md should have been overwritten (no stale content)"
+    );
+
+    // (3) BACKPRESSURE.md at root restored with real content
+    let bp = fs::read_to_string(tmp.path().join("BACKPRESSURE.md")).unwrap();
+    assert!(
+        bp.contains("# Backpressure"),
+        "BACKPRESSURE.md should be restored with template content"
+    );
+    assert!(
+        bp.contains("cargo build"),
+        "BACKPRESSURE.md should contain cargo build command"
+    );
+
+    // (4) specs/README.md should NOT be overwritten by --force
+    let specs_readme = fs::read_to_string(tmp.path().join("specs/README.md")).unwrap();
+    assert!(
+        specs_readme.contains("# Specifications"),
+        "specs/README.md should still exist"
+    );
+
+    // (5) Config files should still be intact after force
+    let settings = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&settings).unwrap();
+    let deny = doc["permissions"]["deny"].as_array().unwrap();
+    assert!(
+        deny.contains(&serde_json::Value::String("Edit .sgf/**".to_string())),
+        "deny rules should still be present after force init"
+    );
+}
