@@ -953,7 +953,7 @@ The labels enable pre-flight staleness detection. After updating pensa source or
 - **File sync**: Workspace directory syncs bidirectionally between host and sandbox at the same absolute path via Mutagen. Changes the agent makes sync back to the host.
 - **Credentials**: Docker Desktop automatically injects API keys from the host into the sandbox. Keys never enter the sandbox filesystem.
 - **Agent user**: The agent runs as non-root `agent` user with `sudo` access inside the sandbox.
-- **Pensa access**: `pn` inside the sandbox connects to the host daemon via `http://host.docker.internal:7533`. The SQLite database never crosses the sync boundary.
+- **Pensa access**: `pn` inside the sandbox connects to the host daemon via `http://host.docker.internal:7533`. The Dockerfile sets `ENV PN_DAEMON` to this URL so `pn` uses it automatically. The SQLite database never crosses the sync boundary.
 
 ---
 

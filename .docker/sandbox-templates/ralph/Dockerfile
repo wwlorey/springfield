@@ -75,6 +75,9 @@ USER agent
 COPY --chown=agent:agent pensa-src /tmp/pensa-src
 RUN . "$CARGO_HOME/env" && cargo install --path /tmp/pensa-src && rm -rf /tmp/pensa-src
 
+# Connect pn to the host daemon (not localhost, which is the container)
+ENV PN_DAEMON="http://host.docker.internal:7533"
+
 # Ensure agent owns their home directory
 RUN chown -R agent:agent /home/agent
 
