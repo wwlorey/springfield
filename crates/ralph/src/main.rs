@@ -20,7 +20,7 @@ const DING_SENTINEL: &str = ".ralph-ding";
 
 fn ensure_sandbox(template: &str) {
     let status = Command::new("docker")
-        .args(["sandbox", "create", "claude", "--template", template])
+        .args(["sandbox", "create", "--template", template, "claude"])
         .stdin(Stdio::null())
         .status();
     match status {
