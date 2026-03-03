@@ -949,6 +949,47 @@ repos:
     }
 
     #[test]
+    fn backpressure_at_root() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+        run(tmp.path(), false).unwrap();
+
+        assert!(
+            tmp.path().join("BACKPRESSURE.md").is_file(),
+            "BACKPRESSURE.md should exist at project root"
+        );
+    }
+
+    #[test]
+    fn backpressure_not_in_sgf() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+        run(tmp.path(), false).unwrap();
+
+        assert!(
+            !tmp.path().join(".sgf/BACKPRESSURE.md").exists(),
+            "BACKPRESSURE.md should NOT exist inside .sgf/"
+        );
+    }
+
+    #[test]
+    fn memento_references_root_backpressure() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+        run(tmp.path(), false).unwrap();
+
+        let content = fs::read_to_string(tmp.path().join(".sgf/MEMENTO.md")).unwrap();
+        assert!(
+            content.contains("study `@BACKPRESSURE.md`"),
+            "MEMENTO.md should reference BACKPRESSURE.md at root"
+        );
+        assert!(
+            !content.contains("study `@.sgf/BACKPRESSURE.md`"),
+            "MEMENTO.md should NOT reference .sgf/BACKPRESSURE.md"
+        );
+    }
+
+    #[test]
     fn force_overwrites_existing_files() {
         let tmp = TempDir::new().unwrap();
         git_init(tmp.path());
