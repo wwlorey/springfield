@@ -888,6 +888,89 @@ fn human_readable_output() {
 }
 
 #[test]
+fn bug_planning_e2e() {
+    let daemon = start_daemon();
+
+    // Step 1: Create a bug
+    let bug = run_ok_json(pn(&daemon).args(["create", "crash on upload", "-t", "bug", "-p", "p0"]));
+    let bug_id = extract_id(&bug);
+    assert_eq!(bug["status"], "open");
+
+    // Step 2: Verify bug appears in pn ready (unplanned)
+    let ready = run_ok_json(pn(&daemon).args(["ready"]));
+    let ready_ids = ids_in_array(&ready);
+    assert!(
+        ready_ids.contains(&bug_id),
+        "unplanned bug should appear in ready"
+    );
+
+    // Step 3: Claim the bug
+    let claimed = run_ok_json(pn(&daemon).args(["update", &bug_id, "--claim"]));
+    assert_eq!(claimed["status"], "in_progress");
+
+    // Step 4: Create fix task with --fixes
+    let fix_task = run_ok_json(pn(&daemon).args([
+        "create",
+        "fix: validate upload payload before processing",
+        "-t",
+        "task",
+        "--fixes",
+        &bug_id,
+    ]));
+    let fix_id = extract_id(&fix_task);
+    assert_eq!(fix_task["fixes"], bug_id);
+
+    // Step 5: Release the bug (bug planning complete)
+    let released = run_ok_json(pn(&daemon).args(["release", &bug_id]));
+    assert_eq!(released["status"], "open");
+
+    // Step 6: Bug should no longer appear in pn ready (now planned)
+    let ready2 = run_ok_json(pn(&daemon).args(["ready"]));
+    let ready2_ids = ids_in_array(&ready2);
+    assert!(
+        !ready2_ids.contains(&bug_id),
+        "planned bug should NOT appear in ready"
+    );
+
+    // Step 7: Fix task should appear in ready
+    assert!(
+        ready2_ids.contains(&fix_id),
+        "fix task should appear in ready"
+    );
+
+    // Step 8: Claim the fix task
+    let fix_claimed = run_ok_json(pn(&daemon).args(["update", &fix_id, "--claim"]));
+    assert_eq!(fix_claimed["status"], "in_progress");
+
+    // Step 9: Close the fix task
+    let fix_closed = run_ok_json(pn(&daemon).args(["close", &fix_id, "--reason", "validated fix"]));
+    assert_eq!(fix_closed["status"], "closed");
+
+    // Step 10: Verify bug is auto-closed
+    let bug_after = run_ok_json(pn(&daemon).args(["show", &bug_id]));
+    assert_eq!(
+        bug_after["status"], "closed",
+        "bug should be auto-closed when all fix tasks are closed"
+    );
+    assert_eq!(
+        bug_after["close_reason"], "fixed",
+        "auto-closed bug should have close_reason 'fixed'"
+    );
+
+    // Step 11: Neither bug nor fix task should appear in ready
+    let ready3 = run_ok_json(pn(&daemon).args(["ready"]));
+    let ready3_ids = ids_in_array(&ready3);
+    assert!(
+        !ready3_ids.contains(&bug_id),
+        "closed bug should not appear in ready"
+    );
+    assert!(
+        !ready3_ids.contains(&fix_id),
+        "closed fix task should not appear in ready"
+    );
+}
+
+#[test]
 fn dep_tree_structure() {
     let daemon = start_daemon();
 
