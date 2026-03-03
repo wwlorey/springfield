@@ -19,8 +19,10 @@ const SENTINEL_MAX_DEPTH: usize = 2;
 const DING_SENTINEL: &str = ".ralph-ding";
 
 fn ensure_sandbox(template: &str) {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let workspace = cwd.to_string_lossy();
     let status = Command::new("docker")
-        .args(["sandbox", "create", "--template", template, "claude"])
+        .args(["sandbox", "create", "--template", template, "claude", &workspace])
         .stdin(Stdio::null())
         .status();
     match status {

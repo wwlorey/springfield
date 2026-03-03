@@ -345,7 +345,7 @@ Returns formatted text to print, or `None` if the line should be skipped. Comple
 Before the loop:
 - Search for and delete any stale `.ralph-complete` sentinel file (from a previous crashed/killed run), searching recursively up to depth 2
 - Delete stale `.ralph-ding` sentinel file if present
-- If sandboxed: run `docker sandbox create --template <TEMPLATE> claude` to ensure the sandbox exists (idempotent — errors are ignored if the sandbox already exists from a previous run). Note: `--template` must precede the agent subcommand.
+- If sandboxed: run `docker sandbox create --template <TEMPLATE> claude <WORKSPACE>` to ensure the sandbox exists (idempotent — errors are ignored if the sandbox already exists from a previous run). `<WORKSPACE>` is the current working directory. Note: `--template` must precede the agent subcommand.
 
 Prompt resolution (before the loop):
 - If no explicit prompt provided and `prompt.md` does not exist → exit 1 with error
