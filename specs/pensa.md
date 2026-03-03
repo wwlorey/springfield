@@ -44,7 +44,7 @@ Docker sandboxes use Mutagen-based file synchronization (not bind mounts). POSIX
 
 - Every `pn` command (create, list, ready, close, etc.) sends an HTTP request to the daemon.
 - The CLI discovers the daemon via `PN_DAEMON` env var (default: `http://localhost:7533`). Inside Docker sandboxes, this is `http://host.docker.internal:7533`.
-- If the daemon is unreachable, the CLI fails with a clear error message and non-zero exit.
+- If the daemon is unreachable, the CLI auto-starts it (spawning `pn daemon` in the background with the current working directory as `--project-dir`), waits up to 5 seconds for it to become ready, then proceeds. If the daemon still isn't reachable after 5 seconds, the command continues anyway (the HTTP call will fail with a clear error). The `daemon` and `where` subcommands skip auto-start.
 
 ### Technology choices
 

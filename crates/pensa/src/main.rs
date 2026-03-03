@@ -1,4 +1,6 @@
-use std::process;
+use std::process::{self, Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use clap::{Parser, Subcommand};
 
@@ -211,6 +213,42 @@ fn fail(err: PensaError, mode: OutputMode) -> ! {
     process::exit(1);
 }
 
+fn ensure_daemon() {
+    let client = Client::new();
+    if client.check_reachable().is_ok() {
+        return;
+    }
+
+    let dir = std::env::current_dir().unwrap();
+    eprintln!("pn: starting daemon...");
+
+    if let Err(e) = Command::new(std::env::current_exe().unwrap())
+        .args(["daemon", "--project-dir", &dir.to_string_lossy()])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        eprintln!("pn: failed to start daemon: {e}");
+        return;
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(100));
+        if client.check_reachable().is_ok() {
+            eprintln!("pn: daemon ready");
+            return;
+        }
+    }
+
+    eprintln!("pn: warning: daemon did not become ready within 5s");
+}
+
+fn needs_daemon(cmd: &Commands) -> bool {
+    !matches!(cmd, Commands::Daemon { .. } | Commands::Where)
+}
+
 fn main() {
     tracing_subscriber::fmt::init();
     let cli = Cli::parse();
@@ -220,6 +258,10 @@ fn main() {
         OutputMode::Human
     };
     let actor = resolve_actor(cli.actor);
+
+    if needs_daemon(&cli.command) {
+        ensure_daemon();
+    }
 
     match cli.command {
         Commands::Daemon {

@@ -1,5 +1,3 @@
-Read `specs/README.md`.
-
 If `verification-report.md` exists, read it.
 
 If **ALL** specs listed in `specs/README.md` have been verified in the report (whether they match or are missing), `touch .ralph-complete` and stop.
