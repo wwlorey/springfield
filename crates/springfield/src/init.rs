@@ -23,7 +23,7 @@ const TEMPLATE_LOOM_SPECS_README: &str = include_str!("../templates/loom-specs-R
 const MEMENTO_CONTENT: &str = "\
 study `@specs/README.md`
 study `@.sgf/PENSA.md`
-study `@.sgf/BACKPRESSURE.md`
+study `@BACKPRESSURE.md`
 ";
 
 const SPECS_README_CONTENT: &str = "\
@@ -50,7 +50,7 @@ struct TemplateFile {
 
 const TEMPLATE_FILES: &[TemplateFile] = &[
     TemplateFile {
-        path: ".sgf/BACKPRESSURE.md",
+        path: "BACKPRESSURE.md",
         content: TEMPLATE_BACKPRESSURE,
     },
     TemplateFile {
@@ -627,7 +627,7 @@ mod tests {
 
         let content = fs::read_to_string(tmp.path().join(".sgf/MEMENTO.md")).unwrap();
         assert!(content.contains("study `@specs/README.md`"));
-        assert!(content.contains("study `@.sgf/BACKPRESSURE.md`"));
+        assert!(content.contains("study `@BACKPRESSURE.md`"));
         assert!(content.contains("study `@.sgf/PENSA.md`"));
         assert!(!content.contains("## Stack"));
         assert!(!content.contains("## References"));
