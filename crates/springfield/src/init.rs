@@ -109,7 +109,6 @@ const SKELETON_FILES: &[SkeletonFile] = &[
 
 const GITIGNORE_FULL: &str = "\
 # Springfield
-.pensa/db.sqlite
 .sgf/logs/
 .sgf/run/
 .sgf/prompts/.assembled/
@@ -135,7 +134,6 @@ node_modules/
 ";
 
 const GITIGNORE_ENTRIES: &[&str] = &[
-    ".pensa/db.sqlite",
     ".sgf/logs/",
     ".sgf/run/",
     ".sgf/prompts/.assembled/",
@@ -767,7 +765,7 @@ mod tests {
         let ds_count = content.lines().filter(|l| l.trim() == ".DS_Store").count();
         assert_eq!(ds_count, 1, ".DS_Store duplicated");
         assert!(
-            content.lines().any(|l| l.trim() == ".pensa/db.sqlite"),
+            content.lines().any(|l| l.trim() == ".ralph-complete"),
             "missing new entry"
         );
     }

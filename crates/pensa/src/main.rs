@@ -291,7 +291,8 @@ fn main() {
 
         Commands::Where => {
             let dir = std::env::current_dir().unwrap();
-            println!("{}", dir.join(".pensa").display());
+            println!("jsonl: {}", dir.join(".pensa").display());
+            println!("db:    {}", pensa::db::data_dir_for(&dir).display());
         }
 
         Commands::Create {

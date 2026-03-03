@@ -16,6 +16,26 @@ use crate::types::{
 pub struct Db {
     pub conn: Connection,
     pub pensa_dir: PathBuf,
+    pub data_dir: PathBuf,
+}
+
+pub fn data_dir_for(project_dir: &Path) -> PathBuf {
+    data_dir(project_dir)
+}
+
+fn data_dir(project_dir: &Path) -> PathBuf {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let canonical = project_dir
+        .canonicalize()
+        .unwrap_or_else(|_| project_dir.to_path_buf());
+    let mut hasher = DefaultHasher::new();
+    canonical.to_string_lossy().hash(&mut hasher);
+    let hash = format!("{:016x}", hasher.finish());
+    let home = std::env::var("HOME").expect("HOME not set");
+    PathBuf::from(home)
+        .join(".local/share/pensa")
+        .join(hash)
 }
 
 fn parse_dt(s: &str) -> DateTime<Utc> {
@@ -61,11 +81,28 @@ pub(crate) fn comment_from_row(row: &rusqlite::Row) -> Result<Comment, rusqlite:
 impl Db {
     pub fn open(project_dir: &Path) -> Result<Db, PensaError> {
         let pensa_dir = project_dir.join(".pensa");
+        let dd = data_dir(project_dir);
+        Self::open_with_data_dir(pensa_dir, dd)
+    }
+
+    fn open_with_data_dir(pensa_dir: PathBuf, data_dir: PathBuf) -> Result<Db, PensaError> {
         fs::create_dir_all(&pensa_dir)
             .map_err(|e| PensaError::Internal(format!("failed to create .pensa dir: {e}")))?;
+        fs::create_dir_all(&data_dir)
+            .map_err(|e| PensaError::Internal(format!("failed to create data dir: {e}")))?;
 
-        let db_path = pensa_dir.join("db.sqlite");
-        let conn = Connection::open(&db_path)
+        let old_db = pensa_dir.join("db.sqlite");
+        let new_db = data_dir.join("db.sqlite");
+        if old_db.exists() && !new_db.exists() {
+            if fs::rename(&old_db, &new_db).is_err() {
+                fs::copy(&old_db, &new_db).map_err(|e| {
+                    PensaError::Internal(format!("failed to migrate db.sqlite: {e}"))
+                })?;
+                let _ = fs::remove_file(&old_db);
+            }
+        }
+
+        let conn = Connection::open(&new_db)
             .map_err(|e| PensaError::Internal(format!("failed to open database: {e}")))?;
 
         conn.pragma_update(None, "busy_timeout", 5000)
@@ -78,6 +115,7 @@ impl Db {
         let db = Db {
             conn,
             pensa_dir: pensa_dir.clone(),
+            data_dir,
         };
 
         let issue_count: i64 = db
@@ -1335,7 +1373,9 @@ mod tests {
 
     fn open_temp_db() -> (Db, TempDir) {
         let dir = TempDir::new().unwrap();
-        let db = Db::open(dir.path()).unwrap();
+        let pensa_dir = dir.path().join(".pensa");
+        let data_dir = dir.path().join("data");
+        let db = Db::open_with_data_dir(pensa_dir, data_dir).unwrap();
         (db, dir)
     }
 
@@ -2151,20 +2191,22 @@ mod tests {
     #[test]
     fn auto_import_on_open() {
         let dir = TempDir::new().unwrap();
+        let pensa_dir = dir.path().join(".pensa");
+        let data_dir = dir.path().join("data");
 
         // First, create data and export
         {
-            let db = Db::open(dir.path()).unwrap();
+            let db = Db::open_with_data_dir(pensa_dir.clone(), data_dir.clone()).unwrap();
             create_task(&db, "task A");
             create_task(&db, "task B");
             db.export_jsonl().unwrap();
         }
 
         // Delete the DB file
-        fs::remove_file(dir.path().join(".pensa/db.sqlite")).unwrap();
+        fs::remove_file(data_dir.join("db.sqlite")).unwrap();
 
         // Re-open — should auto-import from JSONL
-        let db = Db::open(dir.path()).unwrap();
+        let db = Db::open_with_data_dir(pensa_dir, data_dir).unwrap();
         let issues = db.list_issues(&ListFilters::default()).unwrap();
         assert_eq!(issues.len(), 2);
     }

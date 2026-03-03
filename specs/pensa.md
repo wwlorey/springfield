@@ -12,7 +12,7 @@ Pensa lives at `crates/pensa/` in the Springfield workspace. It produces one bin
 
 Dual-layer storage:
 
-- **`.pensa/db.sqlite`** — the working database, gitignored. Lives on the host, owned by the pensa daemon. Rebuilt from JSONL on clone.
+- **`~/.local/share/pensa/<project-hash>/db.sqlite`** — the working database, stored outside the workspace to avoid Docker Mutagen sync corruption. Lives on the host, owned by the pensa daemon. Rebuilt from JSONL on clone. The `<project-hash>` is a 16-hex-char hash of the canonical project directory path.
 - **`.pensa/*.jsonl`** — the git-committed exports. Separate files per entity: `issues.jsonl`, `deps.jsonl`, `comments.jsonl`. Events are not exported (derivable from issue history, avoids monotonic file growth). Human-readable, diffs cleanly. JSONL files are never read at runtime — they capture a snapshot at commit time via `pn export` and are only used to rebuild SQLite on clone or post-merge via `pn import`.
 
 Git sync is automated via prek (git hooks):
@@ -262,7 +262,7 @@ Since the daemon owns the database, `pn export` and `pn import` are daemon comma
 
 With `--fix`: releases all in_progress claims (set status → open, clear assignee) and repairs integrity issues (remove orphaned deps).
 
-**`pn where`** — prints the `.pensa/` directory path. Useful for scripts and debugging.
+**`pn where`** — prints both the JSONL directory (`.pensa/`) and the DB directory (`~/.local/share/pensa/<hash>/`). Useful for scripts and debugging.
 
 ---
 
@@ -385,10 +385,12 @@ One line per comment: `{"id": "...", "issue_id": "...", "actor": "...", "text": 
 When the daemon starts:
 
 1. Create `.pensa/` directory if it doesn't exist.
-2. Open (or create) `.pensa/db.sqlite`.
-3. Set pragmas: `busy_timeout=5000`, `foreign_keys=ON`.
-4. Run migrations — create tables if they don't exist.
-5. If JSONL files exist but the database is empty, automatically import from JSONL (handles fresh clone scenario).
+2. Create `~/.local/share/pensa/<project-hash>/` directory if it doesn't exist.
+3. If `.pensa/db.sqlite` exists but `~/.local/share/pensa/<project-hash>/db.sqlite` does not, migrate (move) the old DB to the new location.
+4. Open (or create) `~/.local/share/pensa/<project-hash>/db.sqlite`.
+5. Set pragmas: `busy_timeout=5000`, `foreign_keys=ON`.
+6. Run migrations — create tables if they don't exist.
+7. If JSONL files exist but the database is empty, automatically import from JSONL (handles fresh clone scenario).
 
 ---
 
