@@ -1,5 +1,7 @@
 Let's have a discussion and you can interview me about what I want to build.
 
+Read the spec(s) that are involved in these changes as I mention them (if applicable).
+
 ---
 
 After the discussion, produce the following deliverables:
