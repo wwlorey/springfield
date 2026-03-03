@@ -557,7 +557,7 @@ The implementation plan should END with:
 IMPORTANT:
 - **The spec should be designed so that the result can be end-to-end tested from the command line.** If more tools are required to achieve this, make that known.
 - Implementation items should be scoped to atomic changes—the smallest self-contained modifications to the codebase that can be implemented and tested independently.
-- **Commit the changes when finished.**
+- **Commit your changes when finished.**
 ```
 
 ### build.md
@@ -713,9 +713,10 @@ The following is the full content of `.sgf/PENSA.md` that `sgf init` writes. It 
 
 ## Claim Workflow
 
-1. Query for work (e.g., `pn ready --spec auth --json`).
-2. Pick ONE item and claim: `pn update <id> --claim`.
-3. If claim fails (`already_claimed`) → re-query and pick another.
+1. Query for issues (e.g., `pn ready --spec auth --json`).
+2. **If there are no issues returned from `pn ready`, there are no available issues to claim right now.**
+3. Pick ONE issue and claim: `pn update <id> --claim`.
+4. If claim fails (`already_claimed`) → re-query and pick another.
 
 ## Logging Bugs
 

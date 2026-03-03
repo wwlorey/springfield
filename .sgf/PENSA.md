@@ -23,9 +23,10 @@
 
 ## Claim Workflow
 
-1. Query for work (e.g., `pn ready --spec auth --json`).
-2. Pick ONE item and claim: `pn update <id> --claim`.
-3. If claim fails (`already_claimed`) → re-query and pick another.
+1. Query for issues (e.g., `pn ready --spec auth --json`).
+2. **If there are no issues returned from `pn ready`, there are no available issues to claim right now.**
+3. Pick ONE issue and claim: `pn update <id> --claim`.
+4. If claim fails (`already_claimed`) → re-query and pick another.
 
 ## Logging Bugs
 

@@ -18,4 +18,4 @@ The implementation plan should END with:
 IMPORTANT:
 - **The spec should be designed so that the result can be end-to-end tested from the command line.** If more tools are required to achieve this, make that known.
 - Implementation items should be scoped to atomic changes—the smallest self-contained modifications to the codebase that can be implemented and tested independently.
-- **Commit the changes when finished.**
+- **Commit your changes when finished.**
