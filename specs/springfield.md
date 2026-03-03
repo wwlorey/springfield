@@ -563,9 +563,9 @@ IMPORTANT:
 ### build.md
 
 ```markdown
-Follow the `pn` claim workflow to choose one best next task to implement.
+Follow the `pn` claim workflow to choose one best next issue to implement.
 
-If there are (1) no tasks OR (2) no tasks **that can be implemented**, touch .ralph-complete` and end.
+Touch .ralph-complete` and end if there are no more issues.
 
 Implement that task. Use subagents.
 
@@ -690,7 +690,7 @@ The following is the full content of `.sgf/PENSA.md` that `sgf init` writes. It 
 ```markdown
 # pn — Task & Issue Tracker
 
-`pn` (pensa) is the exclusive task and issue tracker. Never use TodoWrite, TaskCreate, or markdown files for tracking work.
+`pn` (pensa) is the exclusive work item (issue) tracker. Never use TodoWrite, TaskCreate, or markdown files for tracking work.
 
 ## Rules
 
