@@ -892,8 +892,8 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
     && rustup default stable \
     && rustup component add rustfmt clippy
 
-# Install Tauri CLI and cargo-geiger (unsafe code auditing)
-RUN . "$CARGO_HOME/env" && cargo install tauri-cli cargo-geiger
+# Install Tauri CLI, cargo-geiger (unsafe code auditing), and prek (git hook manager)
+RUN . "$CARGO_HOME/env" && cargo install tauri-cli cargo-geiger prek
 
 # Enable pnpm
 USER root
@@ -928,7 +928,7 @@ USER agent
 WORKDIR /home/agent
 
 # Verify installations
-RUN rustc --version && cargo --version && cargo geiger --version && node --version && pnpm --version && npx playwright --version && pn --help
+RUN rustc --version && cargo --version && cargo geiger --version && prek --version && node --version && pnpm --version && npx playwright --version && pn --help
 ```
 
 ### sgf template build

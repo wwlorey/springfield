@@ -18,6 +18,18 @@ const SENTINEL: &str = ".ralph-complete";
 const SENTINEL_MAX_DEPTH: usize = 2;
 const DING_SENTINEL: &str = ".ralph-ding";
 
+fn ensure_sandbox(template: &str) {
+    let status = Command::new("docker")
+        .args(["sandbox", "create", "claude", "--template", template])
+        .stdin(Stdio::null())
+        .status();
+    match status {
+        Ok(s) if s.success() => {}
+        Ok(_) => {}
+        Err(e) => eprintln!("Warning: failed to run docker sandbox create: {e}"),
+    }
+}
+
 fn find_sentinel(dir: &Path, max_depth: usize) -> Option<PathBuf> {
     let candidate = dir.join(SENTINEL);
     if candidate.exists() {
@@ -126,6 +138,10 @@ fn main() {
 
     remove_sentinel();
     let _ = fs::remove_file(DING_SENTINEL);
+
+    if !cli.no_sandbox && cli.command.is_none() {
+        ensure_sandbox(&cli.template);
+    }
 
     for i in 1..=iterations {
         println!();
@@ -286,9 +302,8 @@ fn run_interactive(cli: &Cli, is_file: bool) {
             .args([
                 "sandbox",
                 "run",
-                "--template",
-                &cli.template,
                 "claude",
+                "--",
                 "--verbose",
                 "--dangerously-skip-permissions",
                 &prompt_arg,
@@ -375,9 +390,8 @@ fn run_afk(cli: &Cli, is_file: bool, interrupted: &Arc<AtomicBool>) {
                 .args([
                     "sandbox",
                     "run",
-                    "--template",
-                    &cli.template,
                     "claude",
+                    "--",
                     "--verbose",
                     "--print",
                     "--output-format",

@@ -127,8 +127,8 @@ Spawns Claude with full terminal passthrough (stdin/stdout/stderr inherited).
 
 ```
 docker sandbox run \
-  --template <TEMPLATE> \
   claude \
+  -- \
   --verbose \
   --dangerously-skip-permissions \
   @<PROMPT_FILE>       # file prompt (@ prefix)
@@ -158,8 +158,8 @@ Spawns Claude with piped stdout, stderr inherited.
 
 ```
 docker sandbox run \
-  --template <TEMPLATE> \
   claude \
+  -- \
   --verbose \
   --print \
   --output-format stream-json \
@@ -345,6 +345,7 @@ Returns formatted text to print, or `None` if the line should be skipped. Comple
 Before the loop:
 - Search for and delete any stale `.ralph-complete` sentinel file (from a previous crashed/killed run), searching recursively up to depth 2
 - Delete stale `.ralph-ding` sentinel file if present
+- If sandboxed: run `docker sandbox create claude --template <TEMPLATE>` to ensure the sandbox exists (idempotent — errors are ignored if the sandbox already exists from a previous run)
 
 Prompt resolution (before the loop):
 - If no explicit prompt provided and `prompt.md` does not exist → exit 1 with error
