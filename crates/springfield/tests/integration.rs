@@ -131,7 +131,6 @@ fn init_creates_all_files() {
         ".sgf/prompts/test-plan.md",
         ".sgf/prompts/test.md",
         ".sgf/prompts/issues.md",
-        ".sgf/prompts/issues-plan.md",
         ".sgf/PENSA.md",
         ".sgf/MEMENTO.md",
         "specs/README.md",
@@ -919,7 +918,6 @@ fn templates_no_read_memento_directive() {
         ".sgf/prompts/test-plan.md",
         ".sgf/prompts/test.md",
         ".sgf/prompts/issues.md",
-        ".sgf/prompts/issues-plan.md",
     ];
 
     for tmpl in templates {
@@ -964,13 +962,6 @@ fn templates_reference_uppercase_filenames() {
     assert!(
         test.contains(".sgf/BACKPRESSURE.md"),
         "test.md should reference .sgf/BACKPRESSURE.md"
-    );
-
-    // issues-plan.md should reference uppercase PENSA.md
-    let issues_plan = fs::read_to_string(tmp.path().join(".sgf/prompts/issues-plan.md")).unwrap();
-    assert!(
-        issues_plan.contains(".sgf/PENSA.md"),
-        "issues-plan.md should reference .sgf/PENSA.md"
     );
 }
 

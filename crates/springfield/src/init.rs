@@ -16,7 +16,6 @@ const TEMPLATE_VERIFY: &str = include_str!("../templates/verify.md");
 const TEMPLATE_TEST_PLAN: &str = include_str!("../templates/test-plan.md");
 const TEMPLATE_TEST: &str = include_str!("../templates/test.md");
 const TEMPLATE_ISSUES: &str = include_str!("../templates/issues.md");
-const TEMPLATE_ISSUES_PLAN: &str = include_str!("../templates/issues-plan.md");
 const TEMPLATE_PENSA: &str = include_str!("../templates/pensa.md");
 const TEMPLATE_LOOM_SPECS_README: &str = include_str!("../templates/loom-specs-README.md");
 
@@ -76,10 +75,6 @@ const TEMPLATE_FILES: &[TemplateFile] = &[
     TemplateFile {
         path: ".sgf/prompts/issues.md",
         content: TEMPLATE_ISSUES,
-    },
-    TemplateFile {
-        path: ".sgf/prompts/issues-plan.md",
-        content: TEMPLATE_ISSUES_PLAN,
     },
     TemplateFile {
         path: ".sgf/PENSA.md",

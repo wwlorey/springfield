@@ -772,35 +772,4 @@ mod tests {
         let args_content = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
         assert!(args_content.contains("test-plan-"));
     }
-
-    #[test]
-    fn issues_plan_no_variables() {
-        let tmp = TempDir::new().unwrap();
-        let root = tmp.path();
-        setup_project(root, "issues-plan", "Plan fixes for open bugs.");
-        setup_git_repo(root);
-
-        let mock = mock_ralph_script(
-            root,
-            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
-        );
-
-        let config = LoopConfig {
-            stage: "issues-plan".to_string(),
-            spec: None,
-            afk: true,
-            no_push: false,
-            iterations: 30,
-            no_sandbox: false,
-            ralph_binary: Some(mock),
-            skip_preflight: true,
-            prompt_template: None,
-        };
-
-        let exit_code = run(root, &config).unwrap();
-        assert_eq!(exit_code, 0);
-
-        let args_content = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
-        assert!(args_content.contains("issues-plan-"));
-    }
 }

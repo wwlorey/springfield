@@ -91,12 +91,6 @@ struct LoopOpts {
 enum IssuesSubcommand {
     /// Interactive session for logging bugs
     Log,
-
-    /// Run bug planning loop
-    Plan {
-        #[command(flatten)]
-        opts: LoopOpts,
-    },
 }
 
 #[derive(Subcommand)]
@@ -172,9 +166,6 @@ fn main() {
                     iterations: 1,
                 };
                 run_loop("issues-log", None, &opts, Some("issues"), true);
-            }
-            IssuesSubcommand::Plan { opts } => {
-                run_loop("issues-plan", None, &opts, None, false);
             }
         },
         Commands::Status => {
