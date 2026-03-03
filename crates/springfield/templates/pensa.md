@@ -32,6 +32,14 @@
 
 `pn create "<description>" -t bug`
 
+## Bug Planning (when `pn ready` returns a bug)
+
+1. Claim the bug: `pn update <id> --claim`
+2. Study the codebase, create fix task(s): `pn create -t task "fix: ..." --fixes <bug-id> [--spec <stem>]`
+3. Comment lessons learned: `pn comment add <bug-id> "..."`
+4. Release the bug: `pn release <bug-id>`
+5. Commit with `[<bug-id>]` prefix
+
 ## Closing Work
 
 1. Comment with (1) crucial lessons learned and/or (2) notable design/testing decisions made (if any; only if useful to future agents): `pn comment add <id> "<insights>"`
