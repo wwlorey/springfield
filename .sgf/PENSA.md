@@ -1,6 +1,6 @@
-# pn — Task & Issue Tracker
+# pn — Exclusive Work Item (Issue) Tracker
 
-`pn` (pensa) is the exclusive task and issue tracker. Never use TodoWrite, TaskCreate, or markdown files for tracking work.
+`pn` (pensa) is the exclusive work item (issue) tracker. Never use TodoWrite, TaskCreate, or markdown files for tracking work.
 
 ## Rules
 
