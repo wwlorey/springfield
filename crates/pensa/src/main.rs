@@ -219,6 +219,14 @@ fn ensure_daemon() {
         return;
     }
 
+    if std::env::var("PN_DAEMON").is_ok() {
+        eprintln!(
+            "pn: daemon unreachable at {} (set via PN_DAEMON)",
+            client.base_url()
+        );
+        process::exit(1);
+    }
+
     let dir = std::env::current_dir().unwrap();
     eprintln!("pn: starting daemon...");
 
