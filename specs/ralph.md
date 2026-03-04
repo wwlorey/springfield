@@ -93,6 +93,7 @@ The default value `prompt.md` is treated specially: if no explicit prompt is pro
 | `--max-iterations` | `RALPH_MAX_ITERATIONS` | `100` | Safety limit for iterations |
 | `--auto-push` | `RALPH_AUTO_PUSH` | `true` | Auto-push after new commits (requires explicit value: `true`/`false`/`yes`/`no`/`1`/`0`) |
 | `--command` | `RALPH_COMMAND` | — | Override: path to executable replacing docker invocation (for testing) |
+| — | `SGF_DOCKER_CONTEXT` | auto-detect | Docker context to use for all docker commands |
 
 ### Exit Codes
 
@@ -126,7 +127,7 @@ Spawns Claude with full terminal passthrough (stdin/stdout/stderr inherited).
 **Sandboxed (default):**
 
 ```
-docker sandbox run \
+docker --context <CONTEXT> sandbox run \
   claude \
   -- \
   --verbose \
@@ -134,6 +135,8 @@ docker sandbox run \
   @<PROMPT_FILE>       # file prompt (@ prefix)
   # or: "<inline text>"  # inline text (no @ prefix)
 ```
+
+If `SGF_DOCKER_CONTEXT` is set, its value is used as `<CONTEXT>`. Otherwise, the context active at ralph startup (`docker context show`) is captured and passed explicitly to all docker commands.
 
 **Host-direct (`--no-sandbox`):**
 
@@ -157,7 +160,7 @@ Spawns Claude with piped stdout, stderr inherited.
 **Sandboxed (default):**
 
 ```
-docker sandbox run \
+docker --context <CONTEXT> sandbox run \
   claude \
   -- \
   --verbose \
@@ -345,7 +348,7 @@ Returns formatted text to print, or `None` if the line should be skipped. Comple
 Before the loop:
 - Search for and delete any stale `.ralph-complete` sentinel file (from a previous crashed/killed run), searching recursively up to depth 2
 - Delete stale `.ralph-ding` sentinel file if present
-- If sandboxed: run `docker sandbox create --template <TEMPLATE> claude <WORKSPACE>` to ensure the sandbox exists (idempotent — errors are ignored if the sandbox already exists from a previous run). `<WORKSPACE>` is the current working directory. Note: `--template` must precede the agent subcommand.
+- If sandboxed: run `docker --context <CONTEXT> sandbox create --template <TEMPLATE> claude <WORKSPACE>` to ensure the sandbox exists (idempotent — errors are ignored if the sandbox already exists from a previous run). `<WORKSPACE>` is the current working directory. Note: `--template` must precede the agent subcommand.
 
 Prompt resolution (before the loop):
 - If no explicit prompt provided and `prompt.md` does not exist → exit 1 with error

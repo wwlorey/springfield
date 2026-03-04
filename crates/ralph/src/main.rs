@@ -8,6 +8,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::fd::{FromRawFd, OwnedFd};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
+use docker_ctx::docker_command;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
@@ -21,7 +22,7 @@ const DING_SENTINEL: &str = ".ralph-ding";
 fn ensure_sandbox(template: &str) {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let workspace = cwd.to_string_lossy();
-    let status = Command::new("docker")
+    let status = docker_command()
         .args([
             "sandbox",
             "create",
@@ -307,7 +308,7 @@ fn run_interactive(cli: &Cli, is_file: bool) {
             .stderr(Stdio::inherit())
             .status()
     } else {
-        Command::new("docker")
+        docker_command()
             .args([
                 "sandbox",
                 "run",
@@ -395,7 +396,7 @@ fn run_afk(cli: &Cli, is_file: bool, interrupted: &Arc<AtomicBool>) {
         let (master, slave_stdio) = create_pty_stdin();
         _pty_master = Some(master);
         unsafe {
-            Command::new("docker")
+            docker_command()
                 .args([
                     "sandbox",
                     "run",

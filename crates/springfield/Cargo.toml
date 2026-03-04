@@ -17,6 +17,7 @@ signal-hook = "0.4"
 serde_yaml = "0.9"
 libc = "0.2"
 sha2 = "0.10"
+docker-ctx = { path = "../docker-ctx" }
 tempfile = "3"
 
 [dev-dependencies]

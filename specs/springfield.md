@@ -407,13 +407,14 @@ The daemon runs for the duration of the `sgf` session. It stops on SIGTERM or wh
 
 `sgf` checks the Docker sandbox template before launching any loop:
 
-1. Run `docker image inspect ralph-sandbox:latest` to check if the image exists
-2. If the image does not exist, auto-build it (runs `sgf template build` logic internally). Print a heads-up before building — the first build takes several minutes.
-3. If the image exists, check staleness by comparing Docker image labels against current values:
+1. Resolve Docker context: use `SGF_DOCKER_CONTEXT` env var if set, otherwise capture current context via `docker context show`. Pass `--context <resolved>` on all subsequent docker commands.
+2. Run `docker --context <CONTEXT> image inspect ralph-sandbox:latest` to check if the image exists
+3. If the image does not exist, auto-build it (runs `sgf template build` logic internally). Print a heads-up before building — the first build takes several minutes.
+4. If the image exists, check staleness by comparing Docker image labels against current values:
    - `pn_hash` — SHA-256 of the pensa crate source (Cargo.toml + src/*.rs)
    - `dockerfile_hash` — SHA-256 of the embedded Dockerfile content
-4. If stale, print a warning with the reason (e.g., "pensa source has changed") and the remediation command (`sgf template build`). Do not block — the existing image still works.
-5. If fresh, proceed silently.
+5. If stale, print a warning with the reason (e.g., "pensa source has changed") and the remediation command (`sgf template build`). Do not block — the existing image still works.
+6. If fresh, proceed silently.
 
 Auto-build failure is a hard error — the loop cannot proceed without a template.
 
@@ -939,7 +940,7 @@ Builds the `ralph-sandbox:latest` Docker image:
 3. Write the Dockerfile (embedded in the sgf binary at compile time via `include_str!`)
 4. Copy the pensa crate source into the build context as `pensa-src/`, inlining workspace `Cargo.toml` fields (`version`, `edition`, `license`) so it builds standalone
 5. Compute SHA-256 hashes of the pensa source (Cargo.toml + all `src/*.rs` files, sorted) and Dockerfile content
-6. Run `docker build -t ralph-sandbox:latest --label pn_hash=<sha256> --label dockerfile_hash=<sha256> .`
+6. Run `docker --context <CONTEXT> build -t ralph-sandbox:latest --label pn_hash=<sha256> --label dockerfile_hash=<sha256> .`
 7. Clean up the temporary directory
 
 The `pn` binary is compiled from source inside the Docker container via `cargo install --path`, ensuring the binary matches the container's architecture (no cross-compilation required on the host).
@@ -963,6 +964,7 @@ The labels enable pre-flight staleness detection. After updating pensa source or
 | Iterations | `30` | Positional arg: `sgf build auth 10` |
 | Auto-push | `true` | `--no-push` flag |
 | Docker template | `ralph-sandbox:latest` | None (constant) |
+| Docker context | auto-detect | `SGF_DOCKER_CONTEXT` env var |
 | Pensa daemon port | `7533` | None (constant) |
 
 ---
