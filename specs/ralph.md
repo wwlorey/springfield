@@ -45,6 +45,8 @@ ralph/
 | `serde_json` (1) | NDJSON line parsing |
 | `signal-hook` (0.4) | SIGINT/SIGTERM handling for graceful shutdown |
 | `libc` (0.2) | `setsid()` in pre_exec hook to detach child from controlling terminal |
+| `tracing` (0.1) | Structured logging |
+| `tracing-subscriber` (0.3, fmt + env-filter) | Log output formatting, `RUST_LOG` env filter |
 
 Dev dependencies for integration tests:
 
@@ -348,7 +350,7 @@ Returns formatted text to print, or `None` if the line should be skipped. Comple
 Before the loop:
 - Search for and delete any stale `.ralph-complete` sentinel file (from a previous crashed/killed run), searching recursively up to depth 2
 - Delete stale `.ralph-ding` sentinel file if present
-- If sandboxed: run `docker --context <CONTEXT> sandbox create --template <TEMPLATE> claude <WORKSPACE>` to ensure the sandbox exists (idempotent — errors are ignored if the sandbox already exists from a previous run). `<WORKSPACE>` is the current working directory. Note: `--template` must precede the agent subcommand.
+- If sandboxed: run `docker --context <CONTEXT> sandbox create --template <TEMPLATE> claude <WORKSPACE>` to ensure the sandbox exists (idempotent — non-zero exit codes are logged as warnings since the sandbox may already exist from a previous run). `<WORKSPACE>` is the current working directory. Note: `--template` must precede the agent subcommand.
 
 Prompt resolution (before the loop):
 - If no explicit prompt provided and `prompt.md` does not exist → exit 1 with error
@@ -359,17 +361,18 @@ The startup banner includes mode, prompt source, iteration count, execution targ
 
 For each iteration `i` in `1..=iterations`:
 
-1. Print iteration banner (includes loop ID if provided)
-2. Record `git rev-parse HEAD` as `head_before`
-3. Execute Claude via Docker (or `--command` override):
+1. Remove any stale `.ralph-complete` sentinel (guards against late-arriving Mutagen syncs between iterations)
+2. Print iteration banner (includes loop ID if provided)
+3. Record `git rev-parse HEAD` as `head_before`
+4. Execute Claude via Docker (or `--command` override):
    - Interactive: start notification watcher thread, `.status()` with inherited stdio, stop watcher thread
    - AFK: `.spawn()` with piped stdout, read lines via reader thread + channel through `format_line()`
-4. If interrupted: print "Interrupted.", exit 130
-5. Search for `.ralph-complete` recursively (depth <= 2): if found, delete it, print completion banner, auto-push, exit 0
-6. Print "Iteration N complete, continuing..."
-7. Sleep 2 seconds (interruptible, polled in 100ms increments)
-8. If interrupted: print "Interrupted.", exit 130
-9. If `--auto-push` and HEAD changed: run `git push`
+5. If interrupted: log warning, exit 130
+6. Search for `.ralph-complete` recursively (depth <= 2): if found, delete it, print completion banner, auto-push, exit 0
+7. Print "Iteration N complete, continuing..."
+8. Sleep 2 seconds (interruptible, polled in 100ms increments)
+9. If interrupted: log warning, exit 130
+10. If `--auto-push` and HEAD changed: run `git push`
 
 After loop: search for and delete sentinel files (depth <= 2), print max iterations banner, exit 2.
 
@@ -412,13 +415,14 @@ No custom error types. Fail loudly, continue when sensible:
 
 | Scenario | Behavior |
 |----------|----------|
-| Default prompt file missing | `eprintln!` + exit 1 (before loop starts, only when no explicit prompt provided) |
-| Docker/command spawn failure | `eprintln!` warning, continue to next iteration |
-| NDJSON parse error | Skip line silently (non-JSON output from Docker/verbose) |
-| stdout read error | `eprintln!` warning, continue reading |
+| Default prompt file missing | `tracing::error!` + exit 1 (before loop starts, only when no explicit prompt provided) |
+| Docker/command spawn failure | `tracing::warn!`, continue to next iteration |
+| NDJSON parse error (line starts with `{`) | Skip line, log at debug level |
+| Non-JSON line (no `{` prefix) | Skip line silently (expected Docker/verbose debug output) |
+| stdout read error | `tracing::warn!`, continue reading |
 | Git `rev-parse` failure | Return `None`, skip push check |
-| Git push failure | `eprintln!` warning, continue |
-| SIGINT/SIGTERM received | Kill child process (AFK), print "Interrupted.", exit 130 |
+| Git push failure | `tracing::warn!`, continue |
+| SIGINT/SIGTERM received | Kill child process (AFK), `tracing::warn!`, exit 130 |
 
 ## Testing
 

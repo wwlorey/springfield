@@ -81,6 +81,7 @@ fn ralph_cmd(dir: &TempDir) -> Command {
     let mut cmd = Command::new(bin);
     cmd.current_dir(dir.path());
     cmd.env("RALPH_AUTO_PUSH", "false");
+    cmd.env("RUST_LOG", "warn");
     cmd
 }
 
@@ -323,7 +324,7 @@ fn iterations_clamped_to_max() {
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     assert!(
-        stderr.contains("Warning: Reducing iterations from 100 to max allowed (5)"),
+        stderr.contains("reducing iterations to max allowed"),
         "should warn about clamping, got stderr:\n{stderr}"
     );
 }

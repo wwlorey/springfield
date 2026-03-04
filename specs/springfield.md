@@ -367,11 +367,11 @@ Before launching ralph, `sgf` scans all PID files in `.sgf/run/`:
 
 - **Any PID alive** (verified via `kill -0`) → another loop is running. Skip cleanup and launch normally — the dirty tree or in-progress claims may belong to that loop.
 - **All PIDs stale** (process dead) → no loops are running. Remove stale PID files, then recover:
-  1. `git checkout -- .` — discard modifications to tracked files
-  2. `git clean -fd` — remove untracked files (respects `.gitignore`, so `db.sqlite`, logs, and assembled prompts are safe)
-  3. `pn doctor --fix` — release stale claims and repair integrity
+  1. `git checkout -- .` — discard modifications to tracked files. **Failure is fatal** — loop launch is aborted.
+  2. `git clean -fd` — remove untracked files (respects `.gitignore`, so `db.sqlite`, logs, and assembled prompts are safe). **Failure is fatal** — loop launch is aborted.
+  3. `pn doctor --fix` — release stale claims and repair integrity (warning only — supplementary, not critical for state consistency)
 
-**Principle**: Work is only preserved when committed. Uncommitted changes from crashed iterations are discarded — the agent that produced them is gone and cannot continue them.
+**Principle**: Work is only preserved when committed. Uncommitted changes from crashed iterations are discarded — the agent that produced them is gone and cannot continue them. Git recovery failures are hard errors that prevent loop launch — proceeding with dirty state would violate the atomic iteration guarantee.
 
 ---
 
@@ -398,7 +398,7 @@ Template pre-flight is skipped for host-direct stages — no Docker image is nee
 
 1. Check if the daemon is reachable (`pn daemon status`)
 2. If not, start it: `pn daemon --project-dir <project-root> &` (backgrounded)
-3. Wait for readiness (poll `pn daemon status` with short timeout)
+3. Wait for readiness (poll `pn daemon status` with exponential backoff: 50ms initial, doubling up to 800ms cap, 5s total deadline)
 4. Proceed with loop launch
 
 The daemon runs for the duration of the `sgf` session. It stops on SIGTERM or when `sgf` shuts down.

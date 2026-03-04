@@ -32,20 +32,36 @@ pub fn pre_launch_recovery(root: &Path) -> io::Result<()> {
         .args(["checkout", "--", "."])
         .current_dir(root)
         .status();
-    if let Ok(status) = checkout
-        && !status.success()
-    {
-        eprintln!("sgf: warning: git checkout -- . exited with {status}");
+    match checkout {
+        Ok(s) if s.success() => {}
+        Ok(s) => {
+            return Err(io::Error::other(format!(
+                "git checkout -- . failed with {s}"
+            )));
+        }
+        Err(e) => {
+            return Err(io::Error::other(format!(
+                "failed to run git checkout: {e}"
+            )));
+        }
     }
 
     let clean = Command::new("git")
         .args(["clean", "-fd"])
         .current_dir(root)
         .status();
-    if let Ok(status) = clean
-        && !status.success()
-    {
-        eprintln!("sgf: warning: git clean -fd exited with {status}");
+    match clean {
+        Ok(s) if s.success() => {}
+        Ok(s) => {
+            return Err(io::Error::other(format!(
+                "git clean -fd failed with {s}"
+            )));
+        }
+        Err(e) => {
+            return Err(io::Error::other(format!(
+                "failed to run git clean: {e}"
+            )));
+        }
     }
 
     let doctor = Command::new("pn")
@@ -83,12 +99,15 @@ pub fn ensure_daemon(root: &Path) -> io::Result<()> {
         .map_err(|e| io::Error::other(format!("failed to start pn daemon: {e}")))?;
 
     let deadline = Instant::now() + Duration::from_secs(5);
+    let mut interval = Duration::from_millis(50);
+    let max_interval = Duration::from_millis(800);
     while Instant::now() < deadline {
-        thread::sleep(Duration::from_millis(100));
+        thread::sleep(interval);
         if daemon_is_reachable(root) {
             eprintln!("sgf: pensa daemon ready");
             return Ok(());
         }
+        interval = (interval * 2).min(max_interval);
     }
 
     Err(io::Error::new(

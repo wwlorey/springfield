@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::Duration;
+use tracing::{error, warn};
 
 const SENTINEL: &str = ".ralph-complete";
 const SENTINEL_MAX_DEPTH: usize = 2;
@@ -35,8 +36,13 @@ fn ensure_sandbox(template: &str) {
         .status();
     match status {
         Ok(s) if s.success() => {}
-        Ok(_) => {}
-        Err(e) => eprintln!("Warning: failed to run docker sandbox create: {e}"),
+        Ok(s) => {
+            warn!(
+                status = s.code().unwrap_or(-1),
+                "docker sandbox create exited with non-zero status"
+            );
+        }
+        Err(e) => warn!(error = %e, "failed to run docker sandbox create"),
     }
 }
 
@@ -120,6 +126,13 @@ fn parse_bool(s: &str) -> Result<bool, String> {
 }
 
 fn main() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::from_default_env()
+        )
+        .with_writer(std::io::stderr)
+        .init();
+
     let cli = Cli::parse();
 
     let interrupted = Arc::new(AtomicBool::new(false));
@@ -130,14 +143,15 @@ fn main() {
     let is_file = Path::new(&cli.prompt).exists();
 
     if is_default_prompt && !is_file {
-        eprintln!("Error: Prompt file '{}' not found", cli.prompt);
+        error!(prompt = %cli.prompt, "prompt file not found");
         std::process::exit(1);
     }
 
     let iterations = if cli.iterations > cli.max_iterations {
-        eprintln!(
-            "Warning: Reducing iterations from {} to max allowed ({})",
-            cli.iterations, cli.max_iterations
+        warn!(
+            requested = cli.iterations,
+            max = cli.max_iterations,
+            "reducing iterations to max allowed"
         );
         cli.max_iterations
     } else {
@@ -154,6 +168,8 @@ fn main() {
     }
 
     for i in 1..=iterations {
+        remove_sentinel();
+
         println!();
         println!("========================================");
         if let Some(ref id) = cli.loop_id {
@@ -173,7 +189,7 @@ fn main() {
         }
 
         if interrupted.load(Ordering::Relaxed) {
-            eprintln!("\nInterrupted.");
+            warn!("interrupted");
             std::process::exit(130);
         }
 
@@ -198,7 +214,7 @@ fn main() {
         }
 
         if interrupted.load(Ordering::Relaxed) {
-            eprintln!("\nInterrupted.");
+            warn!("interrupted");
             std::process::exit(130);
         }
 
@@ -329,13 +345,13 @@ fn run_interactive(cli: &Cli, is_file: bool) {
 
     match result {
         Ok(status) if !status.success() => {
-            eprintln!(
-                "Warning: command exited with status {}",
-                status.code().unwrap_or(-1)
+            warn!(
+                status = status.code().unwrap_or(-1),
+                "command exited with non-zero status"
             );
         }
         Err(e) => {
-            eprintln!("Warning: failed to spawn command: {e}");
+            warn!(error = %e, "failed to spawn command");
         }
         _ => {}
     }
@@ -420,7 +436,7 @@ fn run_afk(cli: &Cli, is_file: bool, interrupted: &Arc<AtomicBool>) {
     let mut child = match child {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("Warning: failed to spawn command: {e}");
+            warn!(error = %e, "failed to spawn command");
             return;
         }
     };
@@ -428,7 +444,7 @@ fn run_afk(cli: &Cli, is_file: bool, interrupted: &Arc<AtomicBool>) {
     let stdout = match child.stdout.take() {
         Some(s) => s,
         None => {
-            eprintln!("Warning: failed to capture stdout");
+            warn!("failed to capture stdout");
             return;
         }
     };
@@ -475,7 +491,7 @@ fn run_afk(cli: &Cli, is_file: bool, interrupted: &Arc<AtomicBool>) {
                 }
             }
             Ok(Err(e)) => {
-                eprintln!("Warning: error reading stdout: {e}");
+                warn!(error = %e, "error reading stdout");
             }
             Err(mpsc::RecvTimeoutError::Timeout) => continue,
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
@@ -483,29 +499,24 @@ fn run_afk(cli: &Cli, is_file: bool, interrupted: &Arc<AtomicBool>) {
     }
 
     if let Err(e) = child.wait() {
-        eprintln!("Warning: error waiting for child process: {e}");
+        warn!(error = %e, "error waiting for child process");
     }
 }
 
 fn create_pty_stdin() -> (OwnedFd, Stdio) {
     let mut master: libc::c_int = 0;
     let mut slave: libc::c_int = 0;
-    let ret = unsafe {
-        libc::openpty(
+    unsafe {
+        let ret = libc::openpty(
             &mut master,
             &mut slave,
             std::ptr::null_mut(),
             std::ptr::null_mut(),
             std::ptr::null_mut(),
-        )
-    };
-    assert_eq!(
-        ret,
-        0,
-        "openpty failed: {}",
-        std::io::Error::last_os_error()
-    );
-    unsafe {
+        );
+        if ret != 0 {
+            panic!("openpty failed: {}", std::io::Error::last_os_error());
+        }
         (
             OwnedFd::from_raw_fd(master),
             Stdio::from(OwnedFd::from_raw_fd(slave)),
@@ -535,10 +546,10 @@ fn auto_push_if_changed(cli: &Cli, head_before: &Option<String>) {
         println!("New commits detected, pushing...");
         match Command::new("git").arg("push").status() {
             Ok(status) if !status.success() => {
-                eprintln!("Warning: git push failed, continuing...");
+                warn!("git push failed, continuing");
             }
             Err(e) => {
-                eprintln!("Warning: git push failed: {e}");
+                warn!(error = %e, "git push failed");
             }
             _ => {}
         }

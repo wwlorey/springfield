@@ -39,7 +39,10 @@ pub fn format_line(line: &str) -> Option<String> {
 
     let event: StreamEvent = match serde_json::from_str(line) {
         Ok(e) => e,
-        Err(_) => return None,
+        Err(e) => {
+            tracing::debug!(error = %e, "skipping malformed JSON line");
+            return None;
+        }
     };
 
     match event {
