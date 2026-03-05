@@ -31,7 +31,6 @@ const DIRECTORIES: &[&str] = &[
     ".sgf/logs",
     ".sgf/run",
     ".sgf/prompts",
-    ".sgf/prompts/.assembled",
     "specs",
 ];
 
@@ -89,7 +88,6 @@ const GITIGNORE_FULL: &str = "\
 # Springfield
 .sgf/logs/
 .sgf/run/
-.sgf/prompts/.assembled/
 .ralph-complete
 .ralph-ding
 **/.pensa/daemon.port
@@ -115,7 +113,6 @@ node_modules/
 const GITIGNORE_ENTRIES: &[&str] = &[
     ".sgf/logs/",
     ".sgf/run/",
-    ".sgf/prompts/.assembled/",
     ".ralph-complete",
     ".ralph-ding",
     "**/.pensa/daemon.port",

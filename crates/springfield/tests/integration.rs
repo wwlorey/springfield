@@ -121,7 +121,6 @@ fn init_creates_all_directories() {
         ".sgf/logs",
         ".sgf/run",
         ".sgf/prompts",
-        ".sgf/prompts/.assembled",
         "specs",
     ];
     for dir in expected_dirs {
