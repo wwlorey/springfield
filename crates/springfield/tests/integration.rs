@@ -454,7 +454,7 @@ fn build_creates_and_cleans_pid_file() {
 }
 
 #[test]
-fn afk_tees_output_to_log() {
+fn afk_passes_log_file_to_ralph() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
@@ -465,7 +465,7 @@ fn afk_tees_output_to_log() {
     let mock_ralph = create_mock_script(
         mock_dir.path(),
         "mock_ralph.sh",
-        "#!/bin/sh\necho 'iteration 1 of 30'\necho 'task complete'\nexit 0\n",
+        "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
     );
 
     let output = sgf_cmd(tmp.path())
@@ -477,18 +477,15 @@ fn afk_tees_output_to_log() {
         .unwrap();
     assert!(output.status.success());
 
-    // Find the log file
-    let logs_dir = tmp.path().join(".sgf/logs");
-    let log_files: Vec<_> = fs::read_dir(&logs_dir)
-        .unwrap()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().is_some_and(|ext| ext == "log"))
-        .collect();
-    assert_eq!(log_files.len(), 1, "expected exactly one log file");
-
-    let log_content = fs::read_to_string(log_files[0].path()).unwrap();
-    assert!(log_content.contains("iteration 1 of 30"));
-    assert!(log_content.contains("task complete"));
+    let args_content = fs::read_to_string(mock_dir.path().join("ralph_args.txt")).unwrap();
+    assert!(
+        args_content.contains("--log-file"),
+        "should pass --log-file to ralph, got: {args_content}"
+    );
+    assert!(
+        args_content.contains(".sgf/logs/"),
+        "log-file path should be in .sgf/logs/, got: {args_content}"
+    );
 }
 
 #[test]

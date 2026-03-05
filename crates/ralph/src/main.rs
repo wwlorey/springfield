@@ -11,10 +11,52 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, mpsc};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
+
+struct TeeWriter {
+    log_file: Option<Mutex<fs::File>>,
+}
+
+impl TeeWriter {
+    fn new(path: Option<&Path>) -> std::io::Result<Self> {
+        let log_file = match path {
+            Some(p) => {
+                if let Some(parent) = p.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                Some(Mutex::new(
+                    fs::OpenOptions::new().create(true).append(true).open(p)?,
+                ))
+            }
+            None => None,
+        };
+        Ok(TeeWriter { log_file })
+    }
+
+    fn writeln(&self, line: &str) {
+        println!("{line}");
+        if let Some(ref f) = self.log_file
+            && let Ok(mut f) = f.lock()
+        {
+            let _ = writeln!(f, "{line}");
+        }
+    }
+
+    fn write_ansi_line(&self, line: &str) {
+        let stdout = std::io::stdout();
+        let mut lock = stdout.lock();
+        let _ = write!(lock, "\r\x1b[2K{line}\n");
+        let _ = lock.flush();
+        if let Some(ref f) = self.log_file
+            && let Ok(mut f) = f.lock()
+        {
+            let _ = writeln!(f, "{line}");
+        }
+    }
+}
 
 const SENTINEL: &str = ".ralph-complete";
 const SENTINEL_MAX_DEPTH: usize = 2;
@@ -128,6 +170,10 @@ struct Cli {
     /// Additional system prompt file path (repeatable)
     #[arg(long = "system-file")]
     system_file: Vec<String>,
+
+    /// Path to log file — ralph tees its output here
+    #[arg(long)]
+    log_file: Option<PathBuf>,
 }
 
 fn parse_bool(s: &str) -> Result<bool, String> {
@@ -232,6 +278,11 @@ fn main() {
 
     let system_files = collect_system_files(&cli);
 
+    let tee = TeeWriter::new(cli.log_file.as_deref()).unwrap_or_else(|e| {
+        error!(error = %e, "failed to open log file");
+        std::process::exit(1);
+    });
+
     let iterations = if cli.iterations > cli.max_iterations {
         warn!(
             requested = cli.iterations,
@@ -243,7 +294,7 @@ fn main() {
         cli.iterations
     };
 
-    print_banner(&cli, iterations, is_file);
+    print_banner(&cli, iterations, is_file, &tee);
 
     remove_sentinel();
     let _ = fs::remove_file(DING_SENTINEL);
@@ -255,20 +306,27 @@ fn main() {
     for i in 1..=iterations {
         remove_sentinel();
 
-        println!();
-        println!("========================================");
+        tee.writeln("");
+        tee.writeln("========================================");
         if let Some(ref id) = cli.loop_id {
-            println!("Iteration {} of {} [{}]", i, iterations, id);
+            tee.writeln(&format!("Iteration {} of {} [{}]", i, iterations, id));
         } else {
-            println!("Iteration {} of {}", i, iterations);
+            tee.writeln(&format!("Iteration {} of {}", i, iterations));
         }
-        println!("========================================");
-        println!();
+        tee.writeln("========================================");
+        tee.writeln("");
 
         let head_before = git_head();
 
         if cli.afk {
-            run_afk(&cli, is_file, &system_files, &sigint_count, &interrupted);
+            run_afk(
+                &cli,
+                is_file,
+                &system_files,
+                &sigint_count,
+                &interrupted,
+                &tee,
+            );
         } else {
             run_interactive(&cli, is_file, &system_files);
         }
@@ -281,16 +339,16 @@ fn main() {
 
         if let Some(sentinel_path) = find_sentinel(Path::new("."), SENTINEL_MAX_DEPTH) {
             let _ = fs::remove_file(sentinel_path);
-            println!();
-            println!("========================================");
-            println!("Ralph COMPLETE after {} iterations!", i);
-            println!("========================================");
+            tee.writeln("");
+            tee.writeln("========================================");
+            tee.writeln(&format!("Ralph COMPLETE after {} iterations!", i));
+            tee.writeln("========================================");
             auto_push_if_changed(&cli, &head_before);
             std::process::exit(0);
         }
 
-        println!();
-        println!("Iteration {} complete, continuing...", i);
+        tee.writeln("");
+        tee.writeln(&format!("Iteration {} complete, continuing...", i));
 
         for _ in 0..20 {
             if sigint_count.load(Ordering::Relaxed) >= 1 || interrupted.load(Ordering::Relaxed) {
@@ -309,65 +367,65 @@ fn main() {
     }
 
     remove_sentinel();
-    println!();
-    println!("========================================");
-    println!("Ralph reached max iterations ({})", iterations);
-    println!("========================================");
+    tee.writeln("");
+    tee.writeln("========================================");
+    tee.writeln(&format!("Ralph reached max iterations ({})", iterations));
+    tee.writeln("========================================");
     std::process::exit(2);
 }
 
-fn print_banner(cli: &Cli, iterations: u32, is_file: bool) {
-    println!("⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣤⡴⣶⠖⡲⠒⡶⠒⣖⢲⡤⣄⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀");
-    println!("⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⢴⡾⣻⠟⢉⡞⢁⡞⠁⢠⠇⠀⠸⡄⠳⡈⢫⡙⢦⣄⠀⠀⠀⠀⠀⠀⠀⠀⠀");
-    println!("⠀⠀⠀⠀⠀⠀⠀⢀⡴⢚⡵⢋⡜⠁⢠⡎⠀⡞⠀⠀⢸⠀⠀⠀⡇⠀⢹⡀⠹⡌⢳⡙⣦⡀⠀⠀⠀⠀⠀⠀");
-    println!("⠀⠀⠀⠀⠀⠀⠐⠋⠀⡞⠀⣸⠔⠒⠲⣄⠀⠀⠀⢀⡔⠋⠉⠙⠲⡀⠀⢷⠀⢹⡀⢱⡘⣟⣆⠀⠀⠀⠀⠀");
-    println!("⠀⠀⠀⠀⠀⠀⠀⠀⢰⠃⢸⠁⠀⣤⠄⠈⡇⠀⠀⢸⠀⠀⠾⠆⠀⡇⠀⠈⠀⠀⣇⠀⢧⢸⡘⡆⠀⠀⠀⠀");
-    println!("⠀⠀⠀⠀⠀⠀⠀⠀⢸⠀⠘⢆⡀⠀⣠⠴⢧⠀⠀⠈⠳⣄⣀⣠⠜⠁⠀⠀⠀⠀⠀⠀⠸⠄⡇⡇⠀⠀⠀⠀");
-    println!("⠀⠀⠀⠀⠀⠀⠀⢀⡼⠀⠀⠀⠉⠉⣇⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣤⠖⠲⣇⠀⠀⠀⠀⠀");
-    println!("⠀⠀⠀⠀⠀⠀⠀⣏⠀⠀⠀⠀⠀⠀⠀⠉⠁⠀⠀⠀⠀⠀⠀⠀⠀⣀⣤⡄⠀⠀⠀⠀⢿⠓⣹⠀⠀⠀⠀⠀");
-    println!("⠀⠀⠀⠀⠀⠀⠀⠈⠓⠦⠤⠭⢿⡒⠒⠒⠒⠒⠒⠒⠒⠒⠊⠉⠉⠁⠀⠁⠀⠀⠀⠦⡤⠖⠃⠀⠀⠀⠀⠀");
-    println!("⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⣾⡁⠀⠀⠀⠀⠀⠀⠀");
-    println!("⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⢴⡶⡇⠀⠀⠀⠀⠀⠀⣀⣀⣀⡤⠤⠤⠖⠚⠉⠁⠀⢧⠀⠀⠀⠀⠀⠀⠀");
-    println!("⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⢾⠏⠈⠳⣇⠀⠀⠀⠀⣠⠞⠁⠲⣄⠀⠀⠀⠀⠀⠀⢀⣠⡾⢤⡀⠀⠀⠀⠀⠀");
-    println!("⠀⠀⠀⠀⠀⠀⠀⣠⡾⠃⢸⡴⠚⠁⠈⠳⢤⡠⠞⠁⠀⠀⠀⠈⢦⢀⣀⡤⠖⠛⢩⠋⠀⠀⠈⢣⡀⠀⠀⠀");
-    println!("⠀⠀⠀⠀⠀⢀⣾⡟⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠉⠀⠀⠀⠀⡞⠀⠀⠀⠀⠀⠹⡄⠀⠀");
-    println!("⠀⠀⠀⠀⢠⢏⡟⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡇⠀⠀⠀⠀⠀⠀⠹⡀⠀");
-    println!("⠀⠀⠀⣰⠃⡼⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣷⠀⠀⠀⠀⠀⠀⠀⢳⠀");
-    println!("⠀⠀⢠⠇⢰⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⠀⠀⠀⠀⠀⠀⠀⠘⡆");
-    println!("⠀⠀⡏⠀⢸⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⠀⠀⠀⠀⠀⠀⠀⠀⣇");
-    println!("⠀⢰⢡⠀⢸⠀⠀⠀⠀⠀⢀⣀⣤⣤⣤⣤⣤⣤⣀⣠⣤⣤⣄⣀⣀⣀⣀⣀⣀⡀⠈⡇⠀⠀⠀⠀⠀⠀⠀⣿");
-    println!("⠀⢸⢀⣀⣸⠞⠋⠉⠉⢉⣹⣿⣿⣿⣿⣿⣿⣿⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⡀⠉⠉⡗⠒⠒⠢⠤⣄⡀⠀⡿");
-    println!("⠀⠘⢿⠁⢸⡴⠖⠛⠉⠉⠙⠛⠛⠛⠋⠉⠉⠁⠀⠀⠀⠀⠀⠀⠀⠀⠉⠉⠉⣽⠟⠁⠀⠀⠀⠀⠀⠙⡖⠃");
-    println!("⠀⠀⠘⣆⢣⣳⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠧⣤⠴⡄⠀⢀⠀⠀⢠⠃⠀");
-    println!("⠀⠀⠀⠈⠢⣝⣻⣦⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡼⠃⢀⡞⢠⠆⡞⠀⠀");
-    println!("⠀⠀⠀⠀⠀⠀⠈⣯⠳⣦⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠳⢶⣏⡴⠯⠞⠀⠀⠀");
-    println!("⠀⠀⠀⠀⠀⠀⢸⣿⠀⠀⠙⠶⣤⣀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⠁⠀⠀⠀⠀⠀⠀");
-    println!("⠀⠀⠀⠀⠀⠀⢸⡏⠀⠀⠀⠀⠀⠉⠉⠛⠒⢲⠖⠚⠋⢹⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⠀⠀⠀⠀⠀⠀⠀");
-    println!("⠀⠀⠀⠀⠀⠀⣼⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⠀⠀⠀⢸⡆⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⡆⠀⠀⠀⠀⠀⠀");
-    println!("⠀⠀⠀⠀⠀⠀⡏⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠸⡆⠀⠀⢸⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⡇⠀⠀⠀⠀⠀⠀");
-    println!("⠀⠀⠀⠀⠀⢸⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡇⠀⠀⢸⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢷⠀⠀⠀⠀⠀⠀");
-    println!("⠀⠀⣠⡴⠒⠛⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠙⠛⣻⠖⠚⠉⠉⠉⠉⠉⠉⠉⠉⠉⠛⠛⠛⠛⢦⡀⠀⠀⠀⠀");
-    println!("⢠⡾⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⡞⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡇⠀⠀⠀⠀");
-    println!("========================================");
-    println!("Ralph Loop Starting");
-    println!("========================================");
-    println!(
+fn print_banner(cli: &Cli, iterations: u32, is_file: bool, tee: &TeeWriter) {
+    tee.writeln("⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣤⡴⣶⠖⡲⠒⡶⠒⣖⢲⡤⣄⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀");
+    tee.writeln("⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⢴⡾⣻⠟⢉⡞⢁⡞⠁⢠⠇⠀⠸⡄⠳⡈⢫⡙⢦⣄⠀⠀⠀⠀⠀⠀⠀⠀⠀");
+    tee.writeln("⠀⠀⠀⠀⠀⠀⠀⢀⡴⢚⡵⢋⡜⠁⢠⡎⠀⡞⠀⠀⢸⠀⠀⠀⡇⠀⢹⡀⠹⡌⢳⡙⣦⡀⠀⠀⠀⠀⠀⠀");
+    tee.writeln("⠀⠀⠀⠀⠀⠀⠐⠋⠀⡞⠀⣸⠔⠒⠲⣄⠀⠀⠀⢀⡔⠋⠉⠙⠲⡀⠀⢷⠀⢹⡀⢱⡘⣟⣆⠀⠀⠀⠀⠀");
+    tee.writeln("⠀⠀⠀⠀⠀⠀⠀⠀⢰⠃⢸⠁⠀⣤⠄⠈⡇⠀⠀⢸⠀⠀⠾⠆⠀⡇⠀⠈⠀⠀⣇⠀⢧⢸⡘⡆⠀⠀⠀⠀");
+    tee.writeln("⠀⠀⠀⠀⠀⠀⠀⠀⢸⠀⠘⢆⡀⠀⣠⠴⢧⠀⠀⠈⠳⣄⣀⣠⠜⠁⠀⠀⠀⠀⠀⠀⠸⠄⡇⡇⠀⠀⠀⠀");
+    tee.writeln("⠀⠀⠀⠀⠀⠀⠀⢀⡼⠀⠀⠀⠉⠉⣇⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣤⠖⠲⣇⠀⠀⠀⠀⠀");
+    tee.writeln("⠀⠀⠀⠀⠀⠀⠀⣏⠀⠀⠀⠀⠀⠀⠀⠉⠁⠀⠀⠀⠀⠀⠀⠀⠀⣀⣤⡄⠀⠀⠀⠀⢿⠓⣹⠀⠀⠀⠀⠀");
+    tee.writeln("⠀⠀⠀⠀⠀⠀⠀⠈⠓⠦⠤⠭⢿⡒⠒⠒⠒⠒⠒⠒⠒⠒⠊⠉⠉⠁⠀⠁⠀⠀⠀⠦⡤⠖⠃⠀⠀⠀⠀⠀");
+    tee.writeln("⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⣾⡁⠀⠀⠀⠀⠀⠀⠀");
+    tee.writeln("⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⢴⡶⡇⠀⠀⠀⠀⠀⠀⣀⣀⣀⡤⠤⠤⠖⠚⠉⠁⠀⢧⠀⠀⠀⠀⠀⠀⠀");
+    tee.writeln("⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⢾⠏⠈⠳⣇⠀⠀⠀⠀⣠⠞⠁⠲⣄⠀⠀⠀⠀⠀⠀⢀⣠⡾⢤⡀⠀⠀⠀⠀⠀");
+    tee.writeln("⠀⠀⠀⠀⠀⠀⠀⣠⡾⠃⢸⡴⠚⠁⠈⠳⢤⡠⠞⠁⠀⠀⠀⠈⢦⢀⣀⡤⠖⠛⢩⠋⠀⠀⠈⢣⡀⠀⠀⠀");
+    tee.writeln("⠀⠀⠀⠀⠀⢀⣾⡟⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠉⠀⠀⠀⠀⡞⠀⠀⠀⠀⠀⠹⡄⠀⠀");
+    tee.writeln("⠀⠀⠀⠀⢠⢏⡟⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡇⠀⠀⠀⠀⠀⠀⠹⡀⠀");
+    tee.writeln("⠀⠀⠀⣰⠃⡼⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣷⠀⠀⠀⠀⠀⠀⠀⢳⠀");
+    tee.writeln("⠀⠀⢠⠇⢰⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⠀⠀⠀⠀⠀⠀⠀⠘⡆");
+    tee.writeln("⠀⠀⡏⠀⢸⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⠀⠀⠀⠀⠀⠀⠀⠀⣇");
+    tee.writeln("⠀⢰⢡⠀⢸⠀⠀⠀⠀⠀⢀⣀⣤⣤⣤⣤⣤⣤⣀⣠⣤⣤⣄⣀⣀⣀⣀⣀⣀⡀⠈⡇⠀⠀⠀⠀⠀⠀⠀⣿");
+    tee.writeln("⠀⢸⢀⣀⣸⠞⠋⠉⠉⢉⣹⣿⣿⣿⣿⣿⣿⣿⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⡀⠉⠉⡗⠒⠒⠢⠤⣄⡀⠀⡿");
+    tee.writeln("⠀⠘⢿⠁⢸⡴⠖⠛⠉⠉⠙⠛⠛⠛⠋⠉⠉⠁⠀⠀⠀⠀⠀⠀⠀⠀⠉⠉⠉⣽⠟⠁⠀⠀⠀⠀⠀⠙⡖⠃");
+    tee.writeln("⠀⠀⠘⣆⢣⣳⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠧⣤⠴⡄⠀⢀⠀⠀⢠⠃⠀");
+    tee.writeln("⠀⠀⠀⠈⠢⣝⣻⣦⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡼⠃⢀⡞⢠⠆⡞⠀⠀");
+    tee.writeln("⠀⠀⠀⠀⠀⠀⠈⣯⠳⣦⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠳⢶⣏⡴⠯⠞⠀⠀⠀");
+    tee.writeln("⠀⠀⠀⠀⠀⠀⢸⣿⠀⠀⠙⠶⣤⣀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⠁⠀⠀⠀⠀⠀⠀");
+    tee.writeln("⠀⠀⠀⠀⠀⠀⢸⡏⠀⠀⠀⠀⠀⠉⠉⠛⠒⢲⠖⠚⠋⢹⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⠀⠀⠀⠀⠀⠀⠀");
+    tee.writeln("⠀⠀⠀⠀⠀⠀⣼⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⠀⠀⠀⢸⡆⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⡆⠀⠀⠀⠀⠀⠀");
+    tee.writeln("⠀⠀⠀⠀⠀⠀⡏⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠸⡆⠀⠀⢸⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⡇⠀⠀⠀⠀⠀⠀");
+    tee.writeln("⠀⠀⠀⠀⠀⢸⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡇⠀⠀⢸⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢷⠀⠀⠀⠀⠀⠀");
+    tee.writeln("⠀⠀⣠⡴⠒⠛⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠙⠛⣻⠖⠚⠉⠉⠉⠉⠉⠉⠉⠉⠉⠛⠛⠛⠛⢦⡀⠀⠀⠀⠀");
+    tee.writeln("⢠⡾⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⡞⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡇⠀⠀⠀⠀");
+    tee.writeln("========================================");
+    tee.writeln("Ralph Loop Starting");
+    tee.writeln("========================================");
+    tee.writeln(&format!(
         "Mode:        {}",
         if cli.afk { "AFK" } else { "Interactive" }
-    );
+    ));
     if is_file {
-        println!("Prompt:      {} (file)", cli.prompt);
+        tee.writeln(&format!("Prompt:      {} (file)", cli.prompt));
     } else {
         let display = format::truncate(&cli.prompt, 60);
-        println!("Prompt:      {} (text)", display);
+        tee.writeln(&format!("Prompt:      {} (text)", display));
     }
-    println!("Iterations:  {}", iterations);
-    println!("Sandbox:     {}", cli.template);
+    tee.writeln(&format!("Iterations:  {}", iterations));
+    tee.writeln(&format!("Sandbox:     {}", cli.template));
     if let Some(ref id) = cli.loop_id {
-        println!("Loop ID:     {}", id);
+        tee.writeln(&format!("Loop ID:     {}", id));
     }
-    println!("========================================");
-    println!();
+    tee.writeln("========================================");
+    tee.writeln("");
 }
 
 fn ding_watcher(stop: &AtomicBool) {
@@ -447,6 +505,7 @@ fn run_afk(
     system_files: &[String],
     sigint_count: &Arc<AtomicUsize>,
     interrupted: &Arc<AtomicBool>,
+    tee: &TeeWriter,
 ) {
     // Two defenses keep Ctrl+C working in AFK mode:
     //
@@ -569,7 +628,7 @@ fn run_afk(
                     first_sigint_at = None;
                 }
             } else {
-                println!("\nPress Ctrl+C again to stop\n");
+                tee.writeln("\nPress Ctrl+C again to stop\n");
                 first_sigint_at = Some(Instant::now());
             }
         }
@@ -577,22 +636,9 @@ fn run_afk(
         match rx.recv_timeout(Duration::from_millis(100)) {
             Ok(Ok(line)) => {
                 if let Some(output) = format::format_line(&line) {
-                    // Docker sandbox writes spinner/progress output directly to /dev/tty,
-                    // bypassing stdout/stderr redirection. These writes move the terminal
-                    // cursor to unpredictable columns. Without correction, ralph's output
-                    // appears at random horizontal offsets instead of left-aligned.
-                    //
-                    // Fix: prefix EVERY line with \r (carriage return to column 0) +
-                    // \x1b[2K (ANSI clear entire line). This must apply to each line
-                    // individually because text content from Claude contains embedded
-                    // newlines (markdown lists, paragraphs, etc.) — a single prefix
-                    // would only fix the first line of a multi-line block.
-                    let stdout = std::io::stdout();
-                    let mut lock = stdout.lock();
                     for line in output.split('\n') {
-                        let _ = write!(lock, "\r\x1b[2K{line}\n");
+                        tee.write_ansi_line(line);
                     }
-                    let _ = lock.flush();
                 }
             }
             Ok(Err(e)) => {

@@ -54,7 +54,12 @@ fn export_pensa() {
     }
 }
 
-fn build_ralph_args(config: &LoopConfig, loop_id: &str, prompt_path: &Path) -> Vec<String> {
+fn build_ralph_args(
+    config: &LoopConfig,
+    loop_id: &str,
+    prompt_path: &Path,
+    log_path: Option<&Path>,
+) -> Vec<String> {
     let mut args = Vec::new();
 
     if config.afk {
@@ -80,6 +85,11 @@ fn build_ralph_args(config: &LoopConfig, loop_id: &str, prompt_path: &Path) -> V
     if let Some(ref spec) = config.spec {
         args.push("--spec".to_string());
         args.push(spec.clone());
+    }
+
+    if let Some(lp) = log_path {
+        args.push("--log-file".to_string());
+        args.push(lp.to_string_lossy().to_string());
     }
 
     args.push(config.iterations.to_string());
@@ -127,7 +137,14 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
     loop_mgmt::write_pid_file(root, &loop_id)?;
 
     let binary = resolve_ralph_binary(config);
-    let args = build_ralph_args(config, &loop_id, &prompt_path);
+
+    let log_path = if config.afk {
+        Some(loop_mgmt::create_log_file(root, &loop_id)?)
+    } else {
+        None
+    };
+
+    let args = build_ralph_args(config, &loop_id, &prompt_path, log_path.as_deref());
 
     let interrupted = Arc::new(AtomicBool::new(false));
     flag::register(SIGINT, Arc::clone(&interrupted))
@@ -137,18 +154,7 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
 
     eprintln!("sgf: launching ralph [{loop_id}]");
 
-    let exit_code = if config.afk {
-        run_afk(
-            root,
-            &binary,
-            &args,
-            &loop_id,
-            config.spec.as_deref(),
-            &interrupted,
-        )?
-    } else {
-        run_interactive(&binary, &args, config.spec.as_deref(), &interrupted)?
-    };
+    let exit_code = run_ralph(&binary, &args, config.spec.as_deref(), &interrupted)?;
 
     loop_mgmt::remove_pid_file(root, &loop_id);
 
@@ -173,58 +179,7 @@ fn run_interactive_claude(prompt_path: &Path) -> io::Result<i32> {
     Ok(status.code().unwrap_or(1))
 }
 
-fn run_afk(
-    root: &Path,
-    binary: &str,
-    args: &[String],
-    loop_id: &str,
-    spec: Option<&str>,
-    interrupted: &AtomicBool,
-) -> io::Result<i32> {
-    let log_path = loop_mgmt::create_log_file(root, loop_id)?;
-
-    let mut cmd = Command::new(binary);
-    cmd.args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit());
-    if let Some(stem) = spec {
-        cmd.env("SGF_SPEC", stem);
-    }
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| io::Error::other(format!("failed to spawn ralph: {e}")))?;
-
-    let stdout = child.stdout.take().expect("stdout was piped");
-
-    let log_path_clone = log_path.clone();
-    let tee_handle = std::thread::spawn(move || loop_mgmt::tee_output(stdout, &log_path_clone));
-
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                let _ = tee_handle.join();
-                return Ok(status.code().unwrap_or(1));
-            }
-            Ok(None) => {
-                if interrupted.load(Ordering::Relaxed) {
-                    kill_child(&child);
-                    let _ = child.wait();
-                    stop_sandbox();
-                    let _ = tee_handle.join();
-                    return Ok(130);
-                }
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-            Err(e) => {
-                let _ = tee_handle.join();
-                return Err(e);
-            }
-        }
-    }
-}
-
-fn run_interactive(
+fn run_ralph(
     binary: &str,
     args: &[String],
     spec: Option<&str>,
@@ -366,6 +321,7 @@ mod tests {
             &config,
             "build-auth-20260226T143000",
             Path::new("/tmp/prompt.md"),
+            None,
         );
 
         assert_eq!(
@@ -405,6 +361,7 @@ mod tests {
             &config,
             "verify-20260226T150000",
             Path::new("/tmp/verify.md"),
+            None,
         );
 
         assert!(!args.contains(&"-a".to_string()));
@@ -430,6 +387,7 @@ mod tests {
             &config,
             "build-auth-20260226T143000",
             Path::new("/tmp/prompt.md"),
+            None,
         );
 
         assert!(!args.contains(&"--no-sandbox".to_string()));
@@ -452,6 +410,7 @@ mod tests {
             &config,
             "build-auth-20260226T143000",
             Path::new("/tmp/prompt.md"),
+            None,
         );
 
         assert!(args.contains(&"30".to_string()));
@@ -585,7 +544,7 @@ mod tests {
     }
 
     #[test]
-    fn run_afk_tees_log() {
+    fn run_afk_passes_log_file() {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
         setup_project(root, "build", "Build the spec now.");
@@ -594,7 +553,7 @@ mod tests {
 
         let mock = mock_ralph_script(
             root,
-            "#!/bin/sh\necho 'iteration 1 of 30'\necho 'task complete'\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
         );
 
         let config = LoopConfig {
@@ -612,16 +571,15 @@ mod tests {
         let exit_code = run(root, &config).unwrap();
         assert_eq!(exit_code, 0);
 
-        let logs_dir = root.join(".sgf/logs");
-        let log_files: Vec<_> = fs::read_dir(&logs_dir)
-            .unwrap()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().is_some_and(|ext| ext == "log"))
-            .collect();
-        assert_eq!(log_files.len(), 1);
-        let log_content = fs::read_to_string(log_files[0].path()).unwrap();
-        assert!(log_content.contains("iteration 1 of 30"));
-        assert!(log_content.contains("task complete"));
+        let args_content = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
+        assert!(
+            args_content.contains("--log-file"),
+            "should pass --log-file to ralph, got: {args_content}"
+        );
+        assert!(
+            args_content.contains(".sgf/logs/"),
+            "log-file path should be in .sgf/logs/, got: {args_content}"
+        );
     }
 
     #[test]
