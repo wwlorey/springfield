@@ -92,7 +92,7 @@ const GITIGNORE_FULL: &str = "\
 .sgf/prompts/.assembled/
 .ralph-complete
 .ralph-ding
-.pensa/daemon.port
+**/.pensa/daemon.port
 
 # Rust
 /target
@@ -118,7 +118,7 @@ const GITIGNORE_ENTRIES: &[&str] = &[
     ".sgf/prompts/.assembled/",
     ".ralph-complete",
     ".ralph-ding",
-    ".pensa/daemon.port",
+    "**/.pensa/daemon.port",
     "/target",
     "node_modules/",
     ".svelte-kit/",
