@@ -56,7 +56,7 @@ sgf init
 
 This creates `.sgf/`, `.pensa/`, `specs/`, prompt templates, `MEMENTO.md`, `CLAUDE.md`, `BACKPRESSURE.md`, and merges entries into `.gitignore`, `.claude/settings.json`, and `.pre-commit-config.yaml`.
 
-`BACKPRESSURE.md` lives at the project root (not inside `.sgf/`) so it is discoverable by both Springfield's prompt assembly and `claude-wrapper`'s `--append-system-prompt-file` injection.
+`BACKPRESSURE.md` lives at the project root (not inside `.sgf/`) so it is discoverable by ralph's `--append-system-prompt-file` injection and `$AGENT_CMD` wrappers.
 
 Then install the git hooks:
 
@@ -95,7 +95,7 @@ cargo fmt --all
 springfield/
 ├── Cargo.toml                 (workspace)
 ├── crates/
-│   ├── springfield/           — CLI binary (`sgf`), entry point, scaffolding, prompt assembly
+│   ├── springfield/           — CLI binary (`sgf`), entry point, scaffolding, prompt delivery
 │   ├── pensa/                 — agent persistent memory (CLI binary + library)
 │   └── ralph/                 — loop runner (standalone binary)
 ```
@@ -104,11 +104,19 @@ springfield/
 
 **`pensa`** (Latin: "tasks", singular: pensum) — A Rust CLI that serves as the agent's persistent structured memory. Replaces markdown-based issue logging and implementation plan tracking. Inspired by [beads](https://github.com/steveyegge/beads) but built in Rust with tighter integration into the Springfield workflow. Stores issues with typed classification, dependencies, priorities, ownership, and status tracking. Uses SQLite locally with JSONL export for git portability. Why not [Dolt](https://github.com/dolthub/dolt)? SQLite + JSONL is simpler: SQLite is tiny, JSONL travels with git (no DoltHub remote needed), and `rusqlite` is mature. Dolt's strengths (table-level merges, branching) matter more in multi-user scenarios.
 
-**`ralph`** — The loop runner. Executes Claude Code iteratively against a prompt file inside Docker sandboxes. Supports interactive mode (terminal passthrough with notification sounds) and AFK mode (NDJSON stream parsing with formatted output). Standalone binary — `sgf` invokes it as a subprocess, assembling prompts and passing them as arguments. Originally developed in the [buddy-ralph](../buddy-ralph/ralph/) project; copied into this workspace as a clean break with full ownership.
+**`ralph`** — The loop runner. Executes Claude Code iteratively against a prompt file inside Docker sandboxes. Supports interactive mode (terminal passthrough with notification sounds) and AFK mode (NDJSON stream parsing with formatted output). Standalone binary — `sgf` invokes it as a subprocess, passing prompt paths and environment variables. Ralph reads `PROMPT_FILES` and passes `--append-system-prompt-file` for each entry to Claude Code. Originally developed in the [buddy-ralph](../buddy-ralph/ralph/) project; copied into this workspace as a clean break with full ownership.
+
+### Prompt Delivery and System Prompt Injection
+
+sgf does not assemble or preprocess prompts. Templates in `.sgf/prompts/` are passed directly to ralph or `$AGENT_CMD`.
+
+**Automated stages** (`build`, `verify`, `test-plan`, `test`) go through ralph, which owns system prompt injection. Ralph reads the `PROMPT_FILES` env var (default: `$HOME/.MEMENTO.md:./BACKPRESSURE.md:./specs/README.md`) and passes `--append-system-prompt-file` for each entry to Claude Code inside the Docker sandbox.
+
+**Interactive stages** (`spec`, `issues log`) call `$AGENT_CMD` directly — no ralph, no Docker. The `$AGENT_CMD` wrapper (default: `claude`) is responsible for system prompt injection (e.g., reading `PROMPT_FILES` and passing `--append-system-prompt-file` flags).
 
 ### Sandboxing
 
-All sessions run inside Docker Desktop sandboxes (`docker sandbox run`), including human-in-the-loop stages like `sgf spec` and `sgf issues log`.
+Automated stages run inside Docker Desktop sandboxes (`docker sandbox run`) via ralph. Interactive stages (`spec`, `issues log`) run outside Docker — they call `$AGENT_CMD` directly, inheriting stdio.
 
 **Docker over native sandbox**: Claude Code's built-in sandbox (`/sandbox`) provides OS-level filesystem and network isolation, but bundles them together — network access requires per-domain approval, which is incompatible with AFK/unattended operation. Docker provides the filesystem isolation we need (protecting the host machine) while leaving network access unrestricted, which is the right tradeoff for an autonomous runner. The template image overhead is worth it.
 
