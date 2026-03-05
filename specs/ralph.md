@@ -198,7 +198,33 @@ Stdout is read line-by-line via `BufRead`, parsed as NDJSON, and formatted for h
 
 ## Signal Handling
 
-Ralph registers handlers for SIGINT (Ctrl+C) and SIGTERM at startup using `signal-hook`. These set an `AtomicBool` flag that is polled throughout the iteration loop and inside `run_afk()`.
+Ralph registers signal handlers at startup using `signal-hook`:
+
+- **SIGTERM**: Sets an `AtomicBool` (`interrupted`) flag. A single SIGTERM always triggers immediate shutdown.
+- **SIGINT (Ctrl+C)**: Increments an `AtomicUsize` counter (`sigint_count`) via `signal_hook::flag::register_usize`. Behavior depends on mode:
+  - **Interactive mode**: A single SIGINT triggers immediate shutdown (same as SIGTERM). The counter is checked against `>= 1`.
+  - **AFK mode**: Requires **two presses** within a timeout window (see [Double Ctrl+C in AFK Mode](#double-ctrlc-in-afk-mode)).
+
+The between-iteration gap (2-second sleep) and the post-`run_afk` check both use single-press semantics: `sigint_count >= 1 || interrupted`.
+
+### Double Ctrl+C in AFK Mode
+
+In AFK mode, ralph requires two Ctrl+C presses to abort, similar to Claude Code's behavior. This prevents accidental termination of long-running unattended loops.
+
+**Mechanism:**
+
+1. First Ctrl+C increments `sigint_count` to 1. The `run_afk` polling loop detects `sigint_count == 1` and:
+   - Prints `"\nPress Ctrl+C again to stop\n"` to stdout (not to the log file)
+   - Records the current time as the start of the confirmation window
+2. Second Ctrl+C increments `sigint_count` to 2. The polling loop detects `sigint_count >= 2` and:
+   - Kills the child process via `child.kill()`
+   - Calls `child.wait()` to reap the process
+   - Returns to the main loop, which detects the signal and exits with code 130
+3. **Timeout**: If no second press arrives within **2 seconds**, the counter is reset to 0 (via `store(0, Ordering::Relaxed)`) and the confirmation window message is cleared. The loop continues running normally.
+
+**Why stdout-only for the message:** The "press again" prompt is an interactive terminal cue, not an application event. It should not appear in `--log-file` output or structured logs.
+
+### PTY and Session Isolation (AFK mode)
 
 In sandboxed AFK mode, two defenses keep Ctrl+C working:
 
@@ -206,13 +232,15 @@ In sandboxed AFK mode, two defenses keep Ctrl+C working:
 
 2. **`setsid()` in `pre_exec`**: Creates a new session, detaching docker from ralph's session. Without this, docker could call `tcsetpgrp()` on the inherited stderr fd (which points to ralph's terminal) to become the foreground process group, stealing SIGINT delivery. With `setsid`, docker is in a different session and `tcsetpgrp()` on ralph's terminal fails.
 
-Stdout is read on a dedicated thread that sends lines through an `mpsc` channel. The main thread uses `recv_timeout` (100ms) to poll the channel, checking the interrupt flag between receives. When interrupted:
+### Stdout Reading and Interrupt Polling
+
+Stdout is read on a dedicated thread that sends lines through an `mpsc` channel. The main thread uses `recv_timeout` (100ms) to poll the channel, checking both the `interrupted` flag and `sigint_count` between receives. When the abort condition is met (double Ctrl+C in AFK, or single SIGTERM):
 
 1. The child process is killed via `child.kill()`
 2. `child.wait()` reaps the process
 3. Control returns to the main loop, which detects the flag and exits with code 130
 
-The 2-second sleep between iterations is also interruptible (polled in 100ms increments).
+The 2-second sleep between iterations is also interruptible (polled in 100ms increments), using single-press semantics.
 
 In interactive mode, SIGINT is delivered to the entire foreground process group. The docker child receives it directly (stdin is inherited), handles it, and eventually exits. Ralph's `.status()` call returns, the flag is checked, and ralph exits with code 130.
 
@@ -431,7 +459,9 @@ No custom error types. Fail loudly, continue when sensible:
 | stdout read error | `tracing::warn!`, continue reading |
 | Git `rev-parse` failure | Return `None`, skip push check |
 | Git push failure | `tracing::warn!`, continue |
-| SIGINT/SIGTERM received | Kill child process (AFK), `tracing::warn!`, exit 130 |
+| SIGINT received (AFK mode) | First press: print "Press Ctrl+C again to stop" to stdout, start 2s timeout. Second press: kill child, `tracing::warn!`, exit 130. Timeout: reset counter, continue. |
+| SIGINT received (interactive / between iterations) | Kill child process, `tracing::warn!`, exit 130 |
+| SIGTERM received | Kill child process (AFK), `tracing::warn!`, exit 130 (immediate, single signal) |
 
 ## Testing
 
@@ -474,6 +504,8 @@ Binary-level E2E tests using `cargo test -p ralph`. Each test:
 | Iterations clamped to max | `afk-session.ndjson` | stdout contains "Warning: Reducing iterations" |
 | Help flag | — | exit code 0, stdout contains usage info |
 | Bash command truncation | `afk-session.ndjson` | long commands end with `...` |
+| AFK double Ctrl+C aborts | `afk-session.ndjson` + two SIGINTs | exit code 130, stdout contains "Press Ctrl+C again to stop" |
+| AFK single Ctrl+C resets after timeout | `afk-session.ndjson` + one SIGINT | exit code 2 (iterations exhaust), loop continues after timeout |
 
 ### NDJSON Fixtures
 
