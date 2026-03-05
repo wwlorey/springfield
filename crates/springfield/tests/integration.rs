@@ -1162,3 +1162,64 @@ fn init_force_restores_templates_matching_spec() {
         "deny rules should still be present after force init"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Spec validation (CLI-level)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn build_nonexistent_spec_fails_with_error() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    let output = sgf_cmd(tmp.path())
+        .args(["build", "nonexistent", "-a"])
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("PATH", &mock_path)
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "should exit 1 for missing spec"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("spec not found"),
+        "stderr should contain 'spec not found': {stderr}"
+    );
+    assert!(
+        stderr.contains("specs/nonexistent.md"),
+        "stderr should name the missing spec file: {stderr}"
+    );
+}
+
+#[test]
+fn build_valid_spec_proceeds() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 0\n");
+
+    let output = sgf_cmd(tmp.path())
+        .args(["build", "auth", "-a"])
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("PATH", &mock_path)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "sgf build with valid spec should succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
