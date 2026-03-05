@@ -542,7 +542,7 @@ Read the spec(s) that are involved in these changes as I mention them (if applic
 After the discussion, produce the following deliverables:
 
 1. Write/update spec files (`specs/*.md`).
-  a. NOTE: Favor updating existing spec files over creating new ones unless it makes sense (e.g. we're making a brand new package).
+  a. NOTE: Favor updating existing spec files over creating new ones unless doing so makes sense (e.g. we're making a brand new package).
 2. Update `specs/README.md` with any new entries in this format: `| Spec | Code | Purpose |`.
    (Study `@.sgf/loom-specs-README.md` for the reference format.)
 3. Use `pn` to create implementation items which cite (1) the specification with lookups for the source code and (2) documentation that needs to be viewed/changed/added.
