@@ -342,10 +342,10 @@ fn prompt_assembly_prepends_system_files() {
     let template = "Read `specs/README.md`.\n\nVerify the specs.\n";
     fs::write(tmp.path().join(".sgf/prompts/verify.md"), template).unwrap();
 
-    unsafe { std::env::set_var("AGENT_FILES", sys_file.to_string_lossy().as_ref()) };
+    unsafe { std::env::set_var("PROMPT_FILES", sys_file.to_string_lossy().as_ref()) };
     let vars = std::collections::HashMap::new();
     let result = springfield::prompt::assemble(tmp.path(), "verify", &vars, true).unwrap();
-    unsafe { std::env::remove_var("AGENT_FILES") };
+    unsafe { std::env::remove_var("PROMPT_FILES") };
 
     let assembled = fs::read_to_string(&result).unwrap();
     assert!(
@@ -536,7 +536,7 @@ fn spec_runs_interactive_via_agent_cmd() {
     let output = sgf_cmd(tmp.path())
         .arg("spec")
         .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
-        .env("AGENT_FILES", "")
+        .env("PROMPT_FILES", "")
         .env("PATH", &mock_path)
         .env_remove("CLAUDECODE")
         .output()
@@ -577,7 +577,7 @@ fn issues_log_runs_interactive_via_agent_cmd() {
     let output = sgf_cmd(tmp.path())
         .args(["issues", "log"])
         .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
-        .env("AGENT_FILES", "")
+        .env("PROMPT_FILES", "")
         .env("PATH", &mock_path)
         .env_remove("CLAUDECODE")
         .output()
@@ -978,7 +978,7 @@ fn end_to_end_build_loop_with_system_file_injection() {
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
         .env("PATH", &path_with_mock_docker)
-        .env("AGENT_FILES", "./BACKPRESSURE.md:./specs/README.md")
+        .env("PROMPT_FILES", "./BACKPRESSURE.md:./specs/README.md")
         .output()
         .unwrap();
 
@@ -1093,7 +1093,7 @@ fn init_end_to_end_root_backpressure() {
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
         .env("PATH", &path_with_mock_docker)
-        .env("AGENT_FILES", "./BACKPRESSURE.md:./specs/README.md")
+        .env("PROMPT_FILES", "./BACKPRESSURE.md:./specs/README.md")
         .output()
         .unwrap();
 

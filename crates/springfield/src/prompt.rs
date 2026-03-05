@@ -3,10 +3,16 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-const DEFAULT_AGENT_FILES: &str = "$HOME/.MEMENTO.md:./BACKPRESSURE.md:./specs/README.md";
+const DEFAULT_PROMPT_FILES: &str = "$HOME/.MEMENTO.md:./BACKPRESSURE.md:./specs/README.md";
 
 pub fn resolve_system_prompt_files(root: &Path) -> Vec<PathBuf> {
-    let raw = std::env::var("AGENT_FILES").unwrap_or_else(|_| DEFAULT_AGENT_FILES.to_string());
+    let raw = match std::env::var("PROMPT_FILES") {
+        Ok(v) => v,
+        Err(_) => {
+            eprintln!("Warning: PROMPT_FILES not set, using default");
+            DEFAULT_PROMPT_FILES.to_string()
+        }
+    };
     let home = std::env::var("HOME").unwrap_or_default();
 
     raw.split(':')
@@ -18,7 +24,12 @@ pub fn resolve_system_prompt_files(root: &Path) -> Vec<PathBuf> {
             } else {
                 PathBuf::from(&expanded)
             };
-            if path.exists() { Some(path) } else { None }
+            if path.exists() {
+                Some(path)
+            } else {
+                eprintln!("Warning: prompt file not found: {}", path.display());
+                None
+            }
         })
         .collect()
 }

@@ -229,7 +229,7 @@ specs/
 
 **`.sgf/` protection** — The entire `.sgf/` directory is protected from agent modification via Claude deny settings. `sgf init` scaffolds these rules. This is enforced at the framework level — agents cannot write to prompts or reference files regardless of prompt instructions. `BACKPRESSURE.md` is intentionally outside `.sgf/` and not protected — it is developer-authored content that agents may need to reference or suggest edits to.
 
-**`AGENT_FILES`** (env var) — Colon-separated list of files to inject into the system prompt. Default: `$HOME/.MEMENTO.md:./BACKPRESSURE.md:./specs/README.md`. Both the wrapper and `sgf` read this variable. `~` is expanded to `$HOME`; `./` paths are resolved relative to the project root. Files that do not exist are silently skipped.
+**`PROMPT_FILES`** (env var) — Colon-separated list of files to inject into the system prompt. Default: `$HOME/.MEMENTO.md:./BACKPRESSURE.md:./specs/README.md`. Both the wrapper and `sgf` read this variable. `~` is expanded to `$HOME`; `./` paths are resolved relative to the project root. Missing files emit a warning to stderr. If `PROMPT_FILES` is not set, a warning is emitted and the default is used.
 
 **`AGENT_CMD`** (env var) — Command used for interactive Claude sessions. Default: `claude`. Interactive stages call `$AGENT_CMD` directly with `--verbose @{prompt_path}`, inheriting stdio.
 
@@ -243,19 +243,19 @@ specs/
 
 ### Assembly Process (Automated Stages)
 
-1. Read the `AGENT_FILES` env var (default: `$HOME/.MEMENTO.md:./BACKPRESSURE.md:./specs/README.md`)
+1. Read the `PROMPT_FILES` env var (default: `$HOME/.MEMENTO.md:./BACKPRESSURE.md:./specs/README.md`)
 2. Resolve paths — expand `~` to `$HOME`, resolve `./` relative to the project root
-3. Read each file that exists (skip missing files silently)
+3. Read each file that exists (warn to stderr for missing files)
 4. Read the template from `.sgf/prompts/<stage>.md`
 5. Substitute variables — replace `{{var}}` tokens with their values
 6. Validate — scan for unresolved `{{...}}` tokens and fail with an error before launching
-7. Prepend the contents of the resolved `AGENT_FILES` before the template content
+7. Prepend the contents of the resolved `PROMPT_FILES` before the template content
 8. Write the assembled prompt to `.sgf/prompts/.assembled/<stage>.md`
 9. Pass the file path as ralph's `PROMPT` argument
 
 ### Interactive Stages
 
-Interactive stages (`spec`, `issues log`) call `$AGENT_CMD` directly. `sgf` does not inject system prompt files — the wrapper (configured by the user) handles system prompt injection via its own `AGENT_FILES` reading.
+Interactive stages (`spec`, `issues log`) call `$AGENT_CMD` directly. `sgf` does not inject system prompt files — the wrapper (configured by the user) handles system prompt injection via its own `PROMPT_FILES` reading.
 
 ### Template Variables
 
@@ -425,7 +425,7 @@ Auto-build failure is a hard error — the loop cannot proceed without a templat
 
 Build, Test, and Issues Plan stages share a common iteration pattern. Each iteration:
 
-1. **Orient** — system prompt files from `AGENT_FILES` are already in context (injected by sgf for automated stages, or by the wrapper for interactive stages).
+1. **Orient** — system prompt files from `PROMPT_FILES` are already in context (injected by sgf for automated stages, or by the wrapper for interactive stages).
 2. **Query** — find work items via pensa (stage-specific query). If none, write `.ralph-complete` and exit.
 3. **Choose & Claim** — pick a task from the results, then `pn update <id> --claim`. If the claim fails (`already_claimed`), re-query and pick another.
 4. **Work** — stage-specific implementation
@@ -922,7 +922,7 @@ The labels enable pre-flight staleness detection. After updating pensa source or
 
 **Editable prompts**: Prompts are plain markdown files owned by the project. Edit them as you learn what works. To improve defaults, update Springfield's templates.
 
-**Env-var-driven context injection**: `AGENT_FILES` lists the files to inject into the system prompt (default: `$HOME/.MEMENTO.md:./BACKPRESSURE.md:./specs/README.md`). For automated stages, `sgf` reads and prepends these files. For interactive stages, the wrapper handles injection. This replaces the former `.sgf/MEMENTO.md` approach — the reference files now live outside the repo (in `~/.MEMENTO.md`) or at the project root, and are configured via a single env var.
+**Env-var-driven context injection**: `PROMPT_FILES` lists the files to inject into the system prompt (default: `$HOME/.MEMENTO.md:./BACKPRESSURE.md:./specs/README.md`). For automated stages, `sgf` reads and prepends these files. For interactive stages, the wrapper handles injection. This replaces the former `.sgf/MEMENTO.md` approach — the reference files now live outside the repo (in `~/.MEMENTO.md`) or at the project root, and are configured via a single env var.
 
 **Protected scaffolding**: `.sgf/` is protected from agent writes via Claude deny settings. The developer is the authority on prompts, backpressure, and project configuration.
 
