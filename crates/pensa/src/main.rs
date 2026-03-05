@@ -213,15 +213,26 @@ fn fail(err: PensaError, mode: OutputMode) -> ! {
     process::exit(1);
 }
 
+fn is_remote_host() -> bool {
+    if std::env::var("PN_DAEMON").is_ok() {
+        return true;
+    }
+    if let Ok(host) = std::env::var("PN_DAEMON_HOST") {
+        let h = host.trim();
+        return !h.is_empty() && h != "localhost" && h != "127.0.0.1" && h != "::1";
+    }
+    false
+}
+
 fn ensure_daemon() {
     let client = Client::new();
     if client.check_reachable().is_ok() {
         return;
     }
 
-    if std::env::var("PN_DAEMON").is_ok() {
+    if is_remote_host() {
         eprintln!(
-            "pn: daemon unreachable at {} (set via PN_DAEMON)",
+            "pn: daemon unreachable at {} (remote host configured via PN_DAEMON or PN_DAEMON_HOST)",
             client.base_url()
         );
         process::exit(1);
