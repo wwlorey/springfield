@@ -10,15 +10,25 @@ use std::os::fd::{FromRawFd, OwnedFd};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, mpsc};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
 
 const SENTINEL: &str = ".ralph-complete";
 const SENTINEL_MAX_DEPTH: usize = 2;
 const DING_SENTINEL: &str = ".ralph-ding";
+
+fn stop_sandbox() {
+    info!("stopping docker sandbox");
+    let _ = docker_command()
+        .args(["sandbox", "stop", "claude"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
 
 fn ensure_sandbox(template: &str) {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -199,8 +209,17 @@ fn main() {
 
     let cli = Cli::parse();
 
+    let sigint_count = Arc::new(AtomicUsize::new(0));
     let interrupted = Arc::new(AtomicBool::new(false));
-    flag::register(SIGINT, interrupted.clone()).expect("Failed to register SIGINT handler");
+    {
+        let sigint_count = sigint_count.clone();
+        unsafe {
+            signal_hook::low_level::register(SIGINT, move || {
+                sigint_count.fetch_add(1, Ordering::SeqCst);
+            })
+        }
+        .expect("Failed to register SIGINT handler");
+    }
     flag::register(SIGTERM, interrupted.clone()).expect("Failed to register SIGTERM handler");
 
     let is_default_prompt = cli.prompt == "prompt.md";
@@ -249,13 +268,14 @@ fn main() {
         let head_before = git_head();
 
         if cli.afk {
-            run_afk(&cli, is_file, &system_files, &interrupted);
+            run_afk(&cli, is_file, &system_files, &sigint_count, &interrupted);
         } else {
             run_interactive(&cli, is_file, &system_files);
         }
 
-        if interrupted.load(Ordering::Relaxed) {
+        if sigint_count.load(Ordering::Relaxed) >= 1 || interrupted.load(Ordering::Relaxed) {
             warn!("interrupted");
+            stop_sandbox();
             std::process::exit(130);
         }
 
@@ -273,14 +293,15 @@ fn main() {
         println!("Iteration {} complete, continuing...", i);
 
         for _ in 0..20 {
-            if interrupted.load(Ordering::Relaxed) {
+            if sigint_count.load(Ordering::Relaxed) >= 1 || interrupted.load(Ordering::Relaxed) {
                 break;
             }
             thread::sleep(Duration::from_millis(100));
         }
 
-        if interrupted.load(Ordering::Relaxed) {
+        if sigint_count.load(Ordering::Relaxed) >= 1 || interrupted.load(Ordering::Relaxed) {
             warn!("interrupted");
+            stop_sandbox();
             std::process::exit(130);
         }
 
@@ -415,7 +436,13 @@ fn run_interactive(cli: &Cli, is_file: bool, system_files: &[String]) {
     }
 }
 
-fn run_afk(cli: &Cli, is_file: bool, system_files: &[String], interrupted: &Arc<AtomicBool>) {
+fn run_afk(
+    cli: &Cli,
+    is_file: bool,
+    system_files: &[String],
+    sigint_count: &Arc<AtomicUsize>,
+    interrupted: &Arc<AtomicBool>,
+) {
     // Two defenses keep Ctrl+C working in AFK mode:
     //
     // 1. PTY for docker's stdin: docker puts its stdin terminal into raw mode,
@@ -508,12 +535,35 @@ fn run_afk(cli: &Cli, is_file: bool, system_files: &[String], interrupted: &Arc<
         }
     });
 
+    let mut first_sigint_at: Option<Instant> = None;
+
     loop {
         if interrupted.load(Ordering::Relaxed) {
             let _ = child.kill();
             let _ = child.wait();
+            stop_sandbox();
             return;
         }
+
+        let count = sigint_count.load(Ordering::Relaxed);
+        if count >= 2 {
+            let _ = child.kill();
+            let _ = child.wait();
+            stop_sandbox();
+            return;
+        }
+        if count == 1 {
+            if let Some(first_at) = first_sigint_at {
+                if first_at.elapsed() >= Duration::from_secs(2) {
+                    sigint_count.store(0, Ordering::Relaxed);
+                    first_sigint_at = None;
+                }
+            } else {
+                println!("\nPress Ctrl+C again to stop\n");
+                first_sigint_at = Some(Instant::now());
+            }
+        }
+
         match rx.recv_timeout(Duration::from_millis(100)) {
             Ok(Ok(line)) => {
                 if let Some(output) = format::format_line(&line) {

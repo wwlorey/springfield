@@ -2,6 +2,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::Command;
+use std::time::Duration;
 use tempfile::TempDir;
 
 fn fixtures_dir() -> PathBuf {
@@ -1061,5 +1062,116 @@ fn spec_flag_overrides_env_var() {
         output.status.code(),
         Some(1),
         "should exit 1 when --spec flag overrides env with nonexistent spec"
+    );
+}
+
+fn create_slow_mock_script(dir: &TempDir, fixture_name: &str) -> PathBuf {
+    let fixture_path = fixtures_dir().join(fixture_name);
+    let script_path = dir.path().join("mock.sh");
+    let content = format!(
+        "#!/bin/bash\ntrap '' INT\nfor i in $(seq 1 50); do cat {}; sleep 0.1; done\n",
+        fixture_path.display()
+    );
+    fs::write(&script_path, content).expect("write mock script");
+    fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755)).expect("chmod");
+    script_path
+}
+
+#[test]
+fn afk_double_ctrlc_aborts() {
+    let dir = setup_test_dir();
+    let mock = create_slow_mock_script(&dir, "afk-session.ndjson");
+
+    let child = ralph_cmd(&dir)
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "5",
+            "prompt.md",
+        ])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn ralph");
+
+    let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+
+    std::thread::sleep(Duration::from_millis(500));
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send first SIGINT");
+    std::thread::sleep(Duration::from_millis(200));
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send second SIGINT");
+
+    let output = child.wait_with_output().expect("wait for ralph");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert_eq!(
+        output.status.code(),
+        Some(130),
+        "should exit 130 on double Ctrl+C, got stdout:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Press Ctrl+C again to stop"),
+        "should show double-press prompt, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn interactive_sigint_exits_130() {
+    let dir = setup_test_dir();
+    let script_path = dir.path().join("mock_slow_interactive.sh");
+    fs::write(&script_path, "#!/bin/bash\ntrap '' INT\nsleep 1\n").expect("write mock");
+    fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755)).expect("chmod");
+
+    let child = ralph_cmd(&dir)
+        .args(["--command", script_path.to_str().unwrap(), "1", "prompt.md"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn ralph");
+
+    let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+
+    std::thread::sleep(Duration::from_millis(500));
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send SIGINT");
+
+    let output = child.wait_with_output().expect("wait for ralph");
+
+    assert_eq!(
+        output.status.code(),
+        Some(130),
+        "should exit 130 on SIGINT in interactive mode"
+    );
+}
+
+#[test]
+fn afk_single_ctrlc_resets_after_timeout() {
+    let dir = setup_test_dir();
+    let mock = create_slow_mock_script(&dir, "afk-session.ndjson");
+
+    let child = ralph_cmd(&dir)
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn ralph");
+
+    let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+
+    std::thread::sleep(Duration::from_millis(500));
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send single SIGINT");
+
+    let output = child.wait_with_output().expect("wait for ralph");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "should exit 2 (iterations exhausted) after single Ctrl+C timeout"
     );
 }
