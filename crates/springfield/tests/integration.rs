@@ -401,6 +401,7 @@ fn build_invokes_ralph_with_correct_flags() {
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
         .env("PATH", &mock_path)
         .output()
         .unwrap();
@@ -454,6 +455,7 @@ fn build_creates_and_cleans_pid_file() {
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
         .env("PATH", &mock_path)
         .output()
         .unwrap();
@@ -493,6 +495,7 @@ fn afk_tees_output_to_log() {
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
         .env("PATH", &mock_path)
         .output()
         .unwrap();
@@ -634,6 +637,7 @@ fn recovery_cleans_stale_state() {
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
         .env("PATH", &mock_path)
         .output()
         .unwrap();

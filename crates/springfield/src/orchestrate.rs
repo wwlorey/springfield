@@ -101,8 +101,10 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
 
     if !config.skip_preflight {
         recovery::pre_launch_recovery(root)?;
-        recovery::ensure_daemon(root)?;
-        template::ensure_template()?;
+        if std::env::var("SGF_SKIP_PREFLIGHT").is_err() {
+            recovery::ensure_daemon(root)?;
+            template::ensure_template()?;
+        }
     }
 
     loop_mgmt::write_pid_file(root, &loop_id)?;
