@@ -1,3 +1,5 @@
+Rust workspace for orchestrating AI-driven dev via iterative agent loops. CLI: `sgf`. Codifies the Ralph Wiggum technique.
+
 ## Project Structure
 
 - Rust workspace with crates under crates/.
