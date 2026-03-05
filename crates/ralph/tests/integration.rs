@@ -1079,6 +1079,183 @@ fn create_arg_capturing_mock(dir: &TempDir, fixture_name: &str) -> PathBuf {
     script_path
 }
 
+#[test]
+fn prompt_files_passed_as_append_system_prompt_file_args() {
+    let dir = setup_test_dir();
+    let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
+
+    fs::write(dir.path().join("BACKPRESSURE.md"), "# BP\n").expect("write bp");
+    fs::write(dir.path().join("NOTES.md"), "# Notes\n").expect("write notes");
+
+    let bp_path = dir.path().join("BACKPRESSURE.md");
+    let notes_path = dir.path().join("NOTES.md");
+
+    let output = ralph_cmd(&dir)
+        .env(
+            "PROMPT_FILES",
+            format!("{}:{}", bp_path.display(), notes_path.display()),
+        )
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "should exit 0, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        output.status.code()
+    );
+
+    let args = fs::read_to_string(dir.path().join("captured-args.txt"))
+        .expect("read captured args");
+    let arg_lines: Vec<&str> = args.lines().collect();
+
+    // Collect all --append-system-prompt-file values
+    let asp_values: Vec<&str> = arg_lines
+        .windows(2)
+        .filter(|w| w[0] == "--append-system-prompt-file")
+        .map(|w| w[1])
+        .collect();
+
+    assert!(
+        asp_values.iter().any(|v| v.contains("BACKPRESSURE.md")),
+        "should pass BACKPRESSURE.md as --append-system-prompt-file, got args: {asp_values:?}"
+    );
+    assert!(
+        asp_values.iter().any(|v| v.contains("NOTES.md")),
+        "should pass NOTES.md as --append-system-prompt-file, got args: {asp_values:?}"
+    );
+}
+
+#[test]
+fn prompt_files_missing_entries_not_passed_as_args() {
+    let dir = setup_test_dir();
+    let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
+
+    fs::write(dir.path().join("EXISTS.md"), "# Exists\n").expect("write exists");
+
+    let output = ralph_cmd(&dir)
+        .env(
+            "PROMPT_FILES",
+            format!("{}:/nonexistent/file.md", dir.path().join("EXISTS.md").display()),
+        )
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "should exit 0, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        output.status.code()
+    );
+
+    assert!(
+        stderr.contains("PROMPT_FILES entry not found"),
+        "should warn about missing entry, got stderr:\n{stderr}"
+    );
+
+    let args = fs::read_to_string(dir.path().join("captured-args.txt"))
+        .expect("read captured args");
+    let arg_lines: Vec<&str> = args.lines().collect();
+
+    let asp_values: Vec<&str> = arg_lines
+        .windows(2)
+        .filter(|w| w[0] == "--append-system-prompt-file")
+        .map(|w| w[1])
+        .collect();
+
+    assert!(
+        asp_values.iter().any(|v| v.contains("EXISTS.md")),
+        "should pass EXISTS.md as --append-system-prompt-file, got args: {asp_values:?}"
+    );
+    assert!(
+        !asp_values.iter().any(|v| v.contains("nonexistent")),
+        "should NOT pass nonexistent file as --append-system-prompt-file, got args: {asp_values:?}"
+    );
+}
+
+#[test]
+fn prompt_files_default_entries_passed_when_unset() {
+    let dir = setup_test_dir();
+    let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
+
+    // Create some of the default PROMPT_FILES entries
+    fs::write(dir.path().join("BACKPRESSURE.md"), "# BP\n").expect("write bp");
+    let specs_dir = dir.path().join("specs");
+    fs::create_dir_all(&specs_dir).expect("create specs dir");
+    fs::write(specs_dir.join("README.md"), "# Specs\n").expect("write specs readme");
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ralph"));
+    cmd.current_dir(dir.path());
+    cmd.env("RALPH_AUTO_PUSH", "false");
+    cmd.env("RUST_LOG", "warn");
+    cmd.env_remove("PROMPT_FILES");
+    cmd.args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+        "prompt.md",
+    ]);
+
+    let output = cmd.output().expect("run ralph");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "should exit 0, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        output.status.code()
+    );
+
+    assert!(
+        stderr.contains("PROMPT_FILES not set"),
+        "should warn about unset PROMPT_FILES, got stderr:\n{stderr}"
+    );
+
+    let args = fs::read_to_string(dir.path().join("captured-args.txt"))
+        .expect("read captured args");
+    let arg_lines: Vec<&str> = args.lines().collect();
+
+    let asp_values: Vec<&str> = arg_lines
+        .windows(2)
+        .filter(|w| w[0] == "--append-system-prompt-file")
+        .map(|w| w[1])
+        .collect();
+
+    // Default includes ./BACKPRESSURE.md and ./specs/README.md which we created
+    assert!(
+        asp_values.iter().any(|v| v.contains("BACKPRESSURE.md")),
+        "default PROMPT_FILES should include BACKPRESSURE.md, got args: {asp_values:?}"
+    );
+    assert!(
+        asp_values.iter().any(|v| v.contains("specs/README.md")),
+        "default PROMPT_FILES should include specs/README.md, got args: {asp_values:?}"
+    );
+    // $HOME/.MEMENTO.md likely doesn't exist, so it should be skipped
+    assert!(
+        !asp_values.iter().any(|v| v.contains("MEMENTO.md")),
+        "default should skip non-existent $HOME/.MEMENTO.md, got args: {asp_values:?}"
+    );
+}
+
 fn create_slow_mock_script(dir: &TempDir, fixture_name: &str) -> PathBuf {
     let fixture_path = fixtures_dir().join(fixture_name);
     let script_path = dir.path().join("mock.sh");
