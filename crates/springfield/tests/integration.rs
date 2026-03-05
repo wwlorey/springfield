@@ -94,6 +94,17 @@ fn sgf_init_and_commit(dir: &Path) {
     git_add_commit(dir, "sgf init");
 }
 
+/// Create a spec file at specs/<stem>.md and commit it.
+fn create_spec_and_commit(dir: &Path, stem: &str) {
+    fs::create_dir_all(dir.join("specs")).unwrap();
+    fs::write(
+        dir.join(format!("specs/{stem}.md")),
+        format!("# {stem} spec\n"),
+    )
+    .unwrap();
+    git_add_commit(dir, &format!("add spec {stem}"));
+}
+
 // ===========================================================================
 // sgf init
 // ===========================================================================
@@ -274,105 +285,68 @@ fn init_merges_existing_settings_json() {
 }
 
 // ===========================================================================
-// Prompt assembly (library-level, called from integration test context)
+// Prompt validation (library-level, called from integration test context)
 // ===========================================================================
 
 #[test]
-fn prompt_assembly_substitutes_spec() {
+fn prompt_validate_existing_template() {
     let tmp = TempDir::new().unwrap();
-    fs::create_dir_all(tmp.path().join(".sgf/prompts/.assembled")).unwrap();
+    fs::create_dir_all(tmp.path().join(".sgf/prompts")).unwrap();
     fs::write(
         tmp.path().join(".sgf/prompts/build.md"),
-        "Build {{spec}} now.",
+        "Build the spec now.",
     )
     .unwrap();
 
-    let vars = std::collections::HashMap::from([("spec".to_string(), "auth".to_string())]);
-    let result = springfield::prompt::assemble(tmp.path(), "build", &vars, false).unwrap();
-
-    let assembled = fs::read_to_string(&result).unwrap();
-    assert_eq!(assembled, "Build auth now.");
-    assert!(result.ends_with(".sgf/prompts/.assembled/build.md"));
+    let result = springfield::prompt::validate(tmp.path(), "build", None).unwrap();
+    assert!(result.ends_with(".sgf/prompts/build.md"));
 }
 
 #[test]
-fn prompt_assembly_validates_unresolved() {
+fn prompt_validate_missing_template() {
     let tmp = TempDir::new().unwrap();
-    fs::create_dir_all(tmp.path().join(".sgf/prompts/.assembled")).unwrap();
-    fs::write(
-        tmp.path().join(".sgf/prompts/build.md"),
-        "Build {{spec}} with {{unknown}}.",
-    )
-    .unwrap();
+    fs::create_dir_all(tmp.path().join(".sgf/prompts")).unwrap();
 
-    let vars = std::collections::HashMap::from([("spec".to_string(), "auth".to_string())]);
-    let result = springfield::prompt::assemble(tmp.path(), "build", &vars, false);
+    let err = springfield::prompt::validate(tmp.path(), "nonexistent", None).unwrap_err();
+    assert!(err.to_string().contains("template not found"));
+}
 
-    assert!(result.is_err());
-    let err = result.unwrap_err().to_string();
+#[test]
+fn prompt_validate_spec_exists() {
+    let tmp = TempDir::new().unwrap();
+    fs::create_dir_all(tmp.path().join(".sgf/prompts")).unwrap();
+    fs::create_dir_all(tmp.path().join("specs")).unwrap();
+    fs::write(tmp.path().join(".sgf/prompts/build.md"), "Build prompt.").unwrap();
+    fs::write(tmp.path().join("specs/auth.md"), "# Auth spec").unwrap();
+
+    let result = springfield::prompt::validate(tmp.path(), "build", Some("auth")).unwrap();
+    assert!(result.ends_with(".sgf/prompts/build.md"));
+}
+
+#[test]
+fn prompt_validate_spec_missing() {
+    let tmp = TempDir::new().unwrap();
+    fs::create_dir_all(tmp.path().join(".sgf/prompts")).unwrap();
+    fs::write(tmp.path().join(".sgf/prompts/build.md"), "Build prompt.").unwrap();
+
+    let err = springfield::prompt::validate(tmp.path(), "build", Some("auth")).unwrap_err();
     assert!(
-        err.contains("unknown"),
-        "error should name unresolved var: {err}"
+        err.to_string().contains("spec not found: specs/auth.md"),
+        "should report missing spec: {}",
+        err
     );
 }
 
 #[test]
-fn prompt_assembly_passthrough() {
+fn prompt_validate_returns_raw_path() {
     let tmp = TempDir::new().unwrap();
-    fs::create_dir_all(tmp.path().join(".sgf/prompts/.assembled")).unwrap();
+    fs::create_dir_all(tmp.path().join(".sgf/prompts")).unwrap();
     let content = "No variables here, just plain text.";
     fs::write(tmp.path().join(".sgf/prompts/verify.md"), content).unwrap();
 
-    let vars = std::collections::HashMap::new();
-    let result = springfield::prompt::assemble(tmp.path(), "verify", &vars, false).unwrap();
-
-    let assembled = fs::read_to_string(&result).unwrap();
-    assert_eq!(assembled, content);
-}
-
-#[test]
-fn prompt_assembly_prepends_system_files() {
-    let tmp = TempDir::new().unwrap();
-    fs::create_dir_all(tmp.path().join(".sgf/prompts/.assembled")).unwrap();
-
-    let sys_content = "# System Context\n";
-    let sys_file = tmp.path().join("system.md");
-    fs::write(&sys_file, sys_content).unwrap();
-
-    let template = "Read `specs/README.md`.\n\nVerify the specs.\n";
-    fs::write(tmp.path().join(".sgf/prompts/verify.md"), template).unwrap();
-
-    unsafe { std::env::set_var("PROMPT_FILES", sys_file.to_string_lossy().as_ref()) };
-    let vars = std::collections::HashMap::new();
-    let result = springfield::prompt::assemble(tmp.path(), "verify", &vars, true).unwrap();
-    unsafe { std::env::remove_var("PROMPT_FILES") };
-
-    let assembled = fs::read_to_string(&result).unwrap();
-    assert!(
-        assembled.starts_with(sys_content),
-        "assembled should start with system file content"
-    );
-    assert!(
-        assembled.contains(template),
-        "assembled should contain template content"
-    );
-}
-
-#[test]
-fn prompt_assembly_no_prepend_when_false() {
-    let tmp = TempDir::new().unwrap();
-    fs::create_dir_all(tmp.path().join(".sgf/prompts/.assembled")).unwrap();
-    let template = "No variables here, just plain text.";
-    fs::write(tmp.path().join(".sgf/prompts/verify.md"), template).unwrap();
-
-    let vars = std::collections::HashMap::new();
-    let result = springfield::prompt::assemble(tmp.path(), "verify", &vars, false).unwrap();
-
-    let assembled = fs::read_to_string(&result).unwrap();
-    assert_eq!(
-        assembled, template,
-        "with prepend=false, assembled should equal template"
-    );
+    let result = springfield::prompt::validate(tmp.path(), "verify", None).unwrap();
+    let read_back = fs::read_to_string(&result).unwrap();
+    assert_eq!(read_back, content);
 }
 
 // ===========================================================================
@@ -383,6 +357,7 @@ fn prompt_assembly_no_prepend_when_false() {
 fn build_invokes_ralph_with_correct_flags() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
 
     let (_mock_pn_dir, mock_path) = setup_mock_pn();
 
@@ -437,6 +412,7 @@ fn build_invokes_ralph_with_correct_flags() {
 fn build_creates_and_cleans_pid_file() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
 
     let (_mock_pn_dir, mock_path) = setup_mock_pn();
 
@@ -482,6 +458,7 @@ fn build_creates_and_cleans_pid_file() {
 fn afk_tees_output_to_log() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
 
     let (_mock_pn_dir, mock_path) = setup_mock_pn();
 
@@ -551,8 +528,8 @@ fn spec_runs_interactive_via_agent_cmd() {
     assert!(args.contains("--verbose"), "should pass --verbose to agent");
     assert!(args.contains("@"), "should pass prompt via @ prefix");
     assert!(
-        args.contains(".assembled/spec.md"),
-        "should pass assembled spec prompt"
+        args.contains(".sgf/prompts/spec.md"),
+        "should pass raw spec prompt path"
     );
 }
 
@@ -592,8 +569,8 @@ fn issues_log_runs_interactive_via_agent_cmd() {
     assert!(args.contains("--verbose"), "should pass --verbose to agent");
     assert!(args.contains("@"), "should pass prompt via @ prefix");
     assert!(
-        args.contains(".assembled/issues.md"),
-        "should pass assembled issues prompt"
+        args.contains(".sgf/prompts/issues.md"),
+        "should pass raw issues prompt path"
     );
 }
 
@@ -605,6 +582,7 @@ fn issues_log_runs_interactive_via_agent_cmd() {
 fn recovery_cleans_stale_state() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
 
     let (_mock_pn_dir, mock_path) = setup_mock_pn();
 
@@ -665,6 +643,7 @@ fn recovery_cleans_stale_state() {
 fn recovery_skips_when_live_pid() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
 
     let (_mock_pn_dir, mock_path) = setup_mock_pn();
 
@@ -796,6 +775,7 @@ fn template_build_requires_pn() {
 fn preflight_template_missing_and_build_fails_aborts_loop() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
 
     let (_mock_pn_dir, mock_path) = setup_mock_pn();
 
@@ -832,6 +812,7 @@ fn preflight_template_missing_and_build_fails_aborts_loop() {
 fn preflight_template_exists_loop_proceeds() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
 
     let (_mock_pn_dir, mock_path) = setup_mock_pn();
 
@@ -949,7 +930,7 @@ fn templates_reference_uppercase_filenames() {
 }
 
 #[test]
-fn end_to_end_build_loop_with_system_file_injection() {
+fn end_to_end_build_passes_raw_path_and_spec() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
 
@@ -970,15 +951,29 @@ fn end_to_end_build_loop_with_system_file_injection() {
     );
     let path_with_mock_docker = format!("{}:{}", mock_docker_dir.path().display(), mock_path);
 
-    // Mock ralph that just exits 0
+    // Create spec file (validate requires it)
+    fs::create_dir_all(tmp.path().join("specs")).unwrap();
+    fs::write(tmp.path().join("specs/auth.md"), "# Auth spec").unwrap();
+    git_add_commit(tmp.path(), "add spec");
+
+    // Mock ralph that logs args and env
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 0\n");
+    let args_file = mock_dir.path().join("ralph_args.txt");
+    let env_file = mock_dir.path().join("ralph_env.txt");
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph.sh",
+        &format!(
+            "#!/bin/sh\necho \"$@\" > \"{}\"\necho \"SGF_SPEC=$SGF_SPEC\" > \"{}\"\nexit 0\n",
+            args_file.display(),
+            env_file.display()
+        ),
+    );
 
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
         .env("PATH", &path_with_mock_docker)
-        .env("PROMPT_FILES", "./BACKPRESSURE.md:./specs/README.md")
         .output()
         .unwrap();
 
@@ -988,17 +983,26 @@ fn end_to_end_build_loop_with_system_file_injection() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    // Check the assembled prompt — system files should be prepended
-    let assembled =
-        fs::read_to_string(tmp.path().join(".sgf/prompts/.assembled/build.md")).unwrap();
-
+    // Ralph should receive raw prompt path (not assembled)
+    let args = fs::read_to_string(&args_file).unwrap();
     assert!(
-        assembled.contains("# Backpressure"),
-        "assembled prompt should contain BACKPRESSURE.md content"
+        args.contains(".sgf/prompts/build.md"),
+        "should pass raw prompt path, got: {args}"
     );
     assert!(
-        assembled.contains("# Specifications"),
-        "assembled prompt should contain specs/README.md content"
+        !args.contains(".assembled"),
+        "should NOT pass assembled path, got: {args}"
+    );
+    assert!(
+        args.contains("--spec auth"),
+        "should pass --spec to ralph, got: {args}"
+    );
+
+    // Ralph should receive SGF_SPEC env var
+    let env = fs::read_to_string(&env_file).unwrap();
+    assert!(
+        env.contains("SGF_SPEC=auth"),
+        "should set SGF_SPEC env var, got: {env}"
     );
 }
 
@@ -1067,53 +1071,6 @@ fn init_end_to_end_root_backpressure() {
     assert!(
         deny.contains(&serde_json::Value::String("Edit .sgf/**".to_string())),
         "deny rules should protect .sgf/ contents"
-    );
-
-    // (5) Prompt assembly produces assembled prompt with correct memento directives
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
-    let mock_docker_dir = TempDir::new().unwrap();
-    create_mock_script(
-        mock_docker_dir.path(),
-        "docker",
-        concat!(
-            "#!/bin/sh\n",
-            "case \"$1\" in\n",
-            "  image) echo 'somehash|somehash'; exit 0 ;;\n",
-            "  *) exit 0 ;;\n",
-            "esac\n",
-        ),
-    );
-    let path_with_mock_docker = format!("{}:{}", mock_docker_dir.path().display(), mock_path);
-
-    let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 0\n");
-
-    let output = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("PATH", &path_with_mock_docker)
-        .env("PROMPT_FILES", "./BACKPRESSURE.md:./specs/README.md")
-        .output()
-        .unwrap();
-
-    assert!(
-        output.status.success(),
-        "sgf build failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let assembled =
-        fs::read_to_string(tmp.path().join(".sgf/prompts/.assembled/build.md")).unwrap();
-
-    // Assembled prompt should contain system file contents
-    assert!(
-        assembled.contains("# Backpressure"),
-        "assembled prompt should contain BACKPRESSURE.md content"
-    );
-    assert!(
-        assembled.contains("# Specifications"),
-        "assembled prompt should contain specs/README.md content"
     );
 }
 

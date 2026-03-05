@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::io;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -78,6 +77,11 @@ fn build_ralph_args(config: &LoopConfig, loop_id: &str, prompt_path: &Path) -> V
     args.push("--max-iterations".to_string());
     args.push("30".to_string());
 
+    if let Some(ref spec) = config.spec {
+        args.push("--spec".to_string());
+        args.push(spec.clone());
+    }
+
     args.push(config.iterations.to_string());
 
     args.push(prompt_path.to_string_lossy().to_string());
@@ -96,12 +100,8 @@ fn exit_message(code: i32) -> &'static str {
 }
 
 pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
-    let mut vars = HashMap::new();
-    if let Some(ref spec) = config.spec {
-        vars.insert("spec".to_string(), spec.clone());
-    }
     let template_stage = config.prompt_template.as_deref().unwrap_or(&config.stage);
-    let prompt_path = prompt::assemble(root, template_stage, &vars, !config.interactive)?;
+    let prompt_path = prompt::validate(root, template_stage, config.spec.as_deref())?;
 
     if config.interactive {
         if !config.skip_preflight {
@@ -138,9 +138,16 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
     eprintln!("sgf: launching ralph [{loop_id}]");
 
     let exit_code = if config.afk {
-        run_afk(root, &binary, &args, &loop_id, &interrupted)?
+        run_afk(
+            root,
+            &binary,
+            &args,
+            &loop_id,
+            config.spec.as_deref(),
+            &interrupted,
+        )?
     } else {
-        run_interactive(&binary, &args, &interrupted)?
+        run_interactive(&binary, &args, config.spec.as_deref(), &interrupted)?
     };
 
     loop_mgmt::remove_pid_file(root, &loop_id);
@@ -171,15 +178,20 @@ fn run_afk(
     binary: &str,
     args: &[String],
     loop_id: &str,
+    spec: Option<&str>,
     interrupted: &AtomicBool,
 ) -> io::Result<i32> {
     let log_path = loop_mgmt::create_log_file(root, loop_id)?;
 
-    let mut child = Command::new(binary)
-        .args(args)
+    let mut cmd = Command::new(binary);
+    cmd.args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
+        .stderr(Stdio::inherit());
+    if let Some(stem) = spec {
+        cmd.env("SGF_SPEC", stem);
+    }
+    let mut child = cmd
         .spawn()
         .map_err(|e| io::Error::other(format!("failed to spawn ralph: {e}")))?;
 
@@ -211,12 +223,21 @@ fn run_afk(
     }
 }
 
-fn run_interactive(binary: &str, args: &[String], interrupted: &AtomicBool) -> io::Result<i32> {
-    let mut child = Command::new(binary)
-        .args(args)
+fn run_interactive(
+    binary: &str,
+    args: &[String],
+    spec: Option<&str>,
+    interrupted: &AtomicBool,
+) -> io::Result<i32> {
+    let mut cmd = Command::new(binary);
+    cmd.args(args)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
+        .stderr(Stdio::inherit());
+    if let Some(stem) = spec {
+        cmd.env("SGF_SPEC", stem);
+    }
+    let mut child = cmd
         .spawn()
         .map_err(|e| io::Error::other(format!("failed to spawn ralph: {e}")))?;
 
@@ -252,12 +273,21 @@ mod tests {
     use tempfile::TempDir;
 
     fn setup_project(root: &Path, stage: &str, template_content: &str) {
-        fs::create_dir_all(root.join(".sgf/prompts/.assembled")).unwrap();
+        fs::create_dir_all(root.join(".sgf/prompts")).unwrap();
         fs::create_dir_all(root.join(".sgf/run")).unwrap();
         fs::create_dir_all(root.join(".sgf/logs")).unwrap();
         fs::write(
             root.join(format!(".sgf/prompts/{stage}.md")),
             template_content,
+        )
+        .unwrap();
+    }
+
+    fn setup_spec(root: &Path, stem: &str) {
+        fs::create_dir_all(root.join("specs")).unwrap();
+        fs::write(
+            root.join(format!("specs/{stem}.md")),
+            format!("# {stem} spec"),
         )
         .unwrap();
     }
@@ -339,6 +369,8 @@ mod tests {
                 "false",
                 "--max-iterations",
                 "30",
+                "--spec",
+                "auth",
                 "10",
                 "/tmp/prompt.md",
             ]
@@ -449,7 +481,8 @@ mod tests {
     fn run_with_mock_ralph_exit_0() {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
-        setup_project(root, "build", "Build {{spec}} now.");
+        setup_project(root, "build", "Build the spec now.");
+        setup_spec(root, "auth");
         setup_git_repo(root);
 
         let mock = mock_ralph_script(
@@ -487,7 +520,8 @@ mod tests {
     fn run_with_mock_ralph_exit_1() {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
-        setup_project(root, "build", "Build {{spec}} now.");
+        setup_project(root, "build", "Build the spec now.");
+        setup_spec(root, "auth");
         setup_git_repo(root);
 
         let mock = mock_ralph_script(root, "#!/bin/sh\nexit 1\n");
@@ -543,7 +577,8 @@ mod tests {
     fn run_afk_tees_log() {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
-        setup_project(root, "build", "Build {{spec}} now.");
+        setup_project(root, "build", "Build the spec now.");
+        setup_spec(root, "auth");
         setup_git_repo(root);
 
         let mock = mock_ralph_script(
@@ -582,7 +617,8 @@ mod tests {
     fn run_no_push_passes_auto_push_false() {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
-        setup_project(root, "build", "Build {{spec}} now.");
+        setup_project(root, "build", "Build the spec now.");
+        setup_spec(root, "auth");
         setup_git_repo(root);
 
         let mock = mock_ralph_script(
@@ -610,10 +646,11 @@ mod tests {
     }
 
     #[test]
-    fn run_passes_assembled_prompt_path() {
+    fn run_passes_raw_prompt_path() {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
-        setup_project(root, "build", "Build {{spec}} now.");
+        setup_project(root, "build", "Build the spec now.");
+        setup_spec(root, "auth");
         setup_git_repo(root);
 
         let mock = mock_ralph_script(
@@ -636,17 +673,18 @@ mod tests {
         run(root, &config).unwrap();
 
         let args_content = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
-        assert!(args_content.contains(".sgf/prompts/.assembled/build.md"));
-
-        let assembled = fs::read_to_string(root.join(".sgf/prompts/.assembled/build.md")).unwrap();
         assert!(
-            assembled.ends_with("Build auth now."),
-            "assembled should end with template content, got: {assembled}"
+            args_content.contains(".sgf/prompts/build.md"),
+            "should pass raw template path, got: {args_content}"
+        );
+        assert!(
+            !args_content.contains(".assembled"),
+            "should NOT pass assembled path, got: {args_content}"
         );
     }
 
     #[test]
-    fn verify_assembles_without_variables() {
+    fn verify_passes_raw_path() {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
         setup_project(root, "verify", "Verify all specs against codebase.");
@@ -676,19 +714,15 @@ mod tests {
         assert!(args_content.contains("--loop-id"));
         assert!(args_content.contains("verify-"));
         assert!(args_content.contains("-a"));
-
-        let assembled = fs::read_to_string(root.join(".sgf/prompts/.assembled/verify.md")).unwrap();
-        assert!(
-            assembled.ends_with("Verify all specs against codebase."),
-            "assembled should end with template content, got: {assembled}"
-        );
+        assert!(args_content.contains(".sgf/prompts/verify.md"));
     }
 
     #[test]
-    fn test_stage_substitutes_spec() {
+    fn test_stage_passes_spec_flag() {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
-        setup_project(root, "test", "Test {{spec}} items.");
+        setup_project(root, "test", "Test $SGF_SPEC items.");
+        setup_spec(root, "auth");
         setup_git_repo(root);
 
         let mock = mock_ralph_script(
@@ -711,10 +745,10 @@ mod tests {
         let exit_code = run(root, &config).unwrap();
         assert_eq!(exit_code, 0);
 
-        let assembled = fs::read_to_string(root.join(".sgf/prompts/.assembled/test.md")).unwrap();
+        let args_content = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
         assert!(
-            assembled.ends_with("Test auth items."),
-            "assembled should end with template content, got: {assembled}"
+            args_content.contains("--spec auth"),
+            "should pass --spec to ralph, got: {args_content}"
         );
     }
 
