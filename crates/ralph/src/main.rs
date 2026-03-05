@@ -394,7 +394,12 @@ fn run_interactive(cli: &Cli, is_file: bool, system_files: &[String]) {
     };
 
     let result = if let Some(ref cmd) = cli.command {
-        Command::new(cmd)
+        let mut command = Command::new(cmd);
+        for f in system_files {
+            command.args(["--append-system-prompt-file", f]);
+        }
+        command
+            .arg(&prompt_arg)
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
@@ -470,8 +475,13 @@ fn run_afk(
     };
 
     let child = if let Some(ref cmd) = cli.command {
+        let mut command = Command::new(cmd);
+        for f in system_files {
+            command.args(["--append-system-prompt-file", f]);
+        }
         unsafe {
-            Command::new(cmd)
+            command
+                .arg(&prompt_arg)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::inherit())
                 .pre_exec(setsid_hook)

@@ -1065,6 +1065,20 @@ fn spec_flag_overrides_env_var() {
     );
 }
 
+fn create_arg_capturing_mock(dir: &TempDir, fixture_name: &str) -> PathBuf {
+    let fixture_path = fixtures_dir().join(fixture_name);
+    let args_file = dir.path().join("captured-args.txt");
+    let script_path = dir.path().join("mock.sh");
+    let content = format!(
+        "#!/bin/bash\nprintf '%s\\n' \"$@\" > {}\ncat {}\ntouch .ralph-complete\n",
+        args_file.display(),
+        fixture_path.display()
+    );
+    fs::write(&script_path, content).expect("write mock script");
+    fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755)).expect("chmod");
+    script_path
+}
+
 fn create_slow_mock_script(dir: &TempDir, fixture_name: &str) -> PathBuf {
     let fixture_path = fixtures_dir().join(fixture_name);
     let script_path = dir.path().join("mock.sh");
@@ -1173,5 +1187,50 @@ fn afk_single_ctrlc_resets_after_timeout() {
         output.status.code(),
         Some(2),
         "should exit 2 (iterations exhausted) after single Ctrl+C timeout"
+    );
+}
+
+#[test]
+fn spec_passes_append_system_prompt_file_arg() {
+    let dir = setup_test_dir();
+    let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
+
+    let specs_dir = dir.path().join("specs");
+    fs::create_dir_all(&specs_dir).expect("create specs dir");
+    fs::write(specs_dir.join("auth.md"), "# Auth spec\n").expect("write spec file");
+
+    let output = ralph_cmd(&dir)
+        .args([
+            "--afk",
+            "--spec",
+            "auth",
+            "--command",
+            mock.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "should exit 0, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        output.status.code()
+    );
+
+    let args = fs::read_to_string(dir.path().join("captured-args.txt"))
+        .expect("read captured args");
+    let arg_lines: Vec<&str> = args.lines().collect();
+
+    let asp_idx = arg_lines
+        .iter()
+        .position(|&a| a == "--append-system-prompt-file")
+        .expect("should contain --append-system-prompt-file flag");
+    assert_eq!(
+        arg_lines[asp_idx + 1], "./specs/auth.md",
+        "--append-system-prompt-file should be followed by spec path"
     );
 }
