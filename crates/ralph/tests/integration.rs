@@ -1114,8 +1114,8 @@ fn prompt_files_passed_as_append_system_prompt_file_args() {
         output.status.code()
     );
 
-    let args = fs::read_to_string(dir.path().join("captured-args.txt"))
-        .expect("read captured args");
+    let args =
+        fs::read_to_string(dir.path().join("captured-args.txt")).expect("read captured args");
     let arg_lines: Vec<&str> = args.lines().collect();
 
     // Collect all --append-system-prompt-file values
@@ -1145,7 +1145,10 @@ fn prompt_files_missing_entries_not_passed_as_args() {
     let output = ralph_cmd(&dir)
         .env(
             "PROMPT_FILES",
-            format!("{}:/nonexistent/file.md", dir.path().join("EXISTS.md").display()),
+            format!(
+                "{}:/nonexistent/file.md",
+                dir.path().join("EXISTS.md").display()
+            ),
         )
         .args([
             "--afk",
@@ -1171,8 +1174,8 @@ fn prompt_files_missing_entries_not_passed_as_args() {
         "should warn about missing entry, got stderr:\n{stderr}"
     );
 
-    let args = fs::read_to_string(dir.path().join("captured-args.txt"))
-        .expect("read captured args");
+    let args =
+        fs::read_to_string(dir.path().join("captured-args.txt")).expect("read captured args");
     let arg_lines: Vec<&str> = args.lines().collect();
 
     let asp_values: Vec<&str> = arg_lines
@@ -1230,8 +1233,8 @@ fn prompt_files_default_entries_passed_when_unset() {
         "should warn about unset PROMPT_FILES, got stderr:\n{stderr}"
     );
 
-    let args = fs::read_to_string(dir.path().join("captured-args.txt"))
-        .expect("read captured args");
+    let args =
+        fs::read_to_string(dir.path().join("captured-args.txt")).expect("read captured args");
     let arg_lines: Vec<&str> = args.lines().collect();
 
     let asp_values: Vec<&str> = arg_lines
@@ -1398,8 +1401,8 @@ fn spec_passes_append_system_prompt_file_arg() {
         output.status.code()
     );
 
-    let args = fs::read_to_string(dir.path().join("captured-args.txt"))
-        .expect("read captured args");
+    let args =
+        fs::read_to_string(dir.path().join("captured-args.txt")).expect("read captured args");
     let arg_lines: Vec<&str> = args.lines().collect();
 
     let asp_idx = arg_lines
@@ -1407,7 +1410,97 @@ fn spec_passes_append_system_prompt_file_arg() {
         .position(|&a| a == "--append-system-prompt-file")
         .expect("should contain --append-system-prompt-file flag");
     assert_eq!(
-        arg_lines[asp_idx + 1], "./specs/auth.md",
+        arg_lines[asp_idx + 1],
+        "./specs/auth.md",
         "--append-system-prompt-file should be followed by spec path"
+    );
+}
+
+#[test]
+fn afk_log_file_captures_output() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
+    let log_path = dir.path().join("logs/test.log");
+
+    let output = ralph_cmd(&dir)
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "--log-file",
+            log_path.to_str().unwrap(),
+            "1",
+        ])
+        .output()
+        .expect("run ralph");
+
+    assert!(
+        output.status.success(),
+        "should exit 0, got: {:?}",
+        output.status.code()
+    );
+
+    assert!(log_path.exists(), "log file should be created");
+
+    let log_content = fs::read_to_string(&log_path).expect("read log file");
+    assert!(
+        log_content.contains("Iteration 1 of 1"),
+        "log should contain iteration banner, got: {log_content}"
+    );
+    assert!(
+        log_content.contains("Ralph COMPLETE"),
+        "log should contain completion banner, got: {log_content}"
+    );
+}
+
+#[test]
+fn afk_log_file_creates_parent_dirs() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
+    let log_path = dir.path().join("deeply/nested/dir/test.log");
+
+    let output = ralph_cmd(&dir)
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "--log-file",
+            log_path.to_str().unwrap(),
+            "1",
+        ])
+        .output()
+        .expect("run ralph");
+
+    assert!(
+        output.status.success(),
+        "should exit 0, got: {:?}",
+        output.status.code()
+    );
+    assert!(
+        log_path.exists(),
+        "log file should be created in nested dir"
+    );
+}
+
+#[test]
+fn no_log_file_by_default() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .args(["--afk", "--command", mock.to_str().unwrap(), "1"])
+        .output()
+        .expect("run ralph");
+
+    assert!(output.status.success());
+
+    let log_files: Vec<_> = fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "log"))
+        .collect();
+    assert!(
+        log_files.is_empty(),
+        "no log file should be created by default"
     );
 }

@@ -255,6 +255,14 @@ fn main() {
 
     let cli = Cli::parse();
 
+    let tee = match TeeWriter::new(cli.log_file.as_deref()) {
+        Ok(t) => Arc::new(t),
+        Err(e) => {
+            error!(error = %e, "failed to open log file");
+            std::process::exit(1);
+        }
+    };
+
     let sigint_count = Arc::new(AtomicUsize::new(0));
     let interrupted = Arc::new(AtomicBool::new(false));
     {
@@ -277,11 +285,6 @@ fn main() {
     }
 
     let system_files = collect_system_files(&cli);
-
-    let tee = TeeWriter::new(cli.log_file.as_deref()).unwrap_or_else(|e| {
-        error!(error = %e, "failed to open log file");
-        std::process::exit(1);
-    });
 
     let iterations = if cli.iterations > cli.max_iterations {
         warn!(
@@ -343,7 +346,7 @@ fn main() {
             tee.writeln("========================================");
             tee.writeln(&format!("Ralph COMPLETE after {} iterations!", i));
             tee.writeln("========================================");
-            auto_push_if_changed(&cli, &head_before);
+            auto_push_if_changed(&cli, &head_before, &tee);
             std::process::exit(0);
         }
 
@@ -363,7 +366,7 @@ fn main() {
             std::process::exit(130);
         }
 
-        auto_push_if_changed(&cli, &head_before);
+        auto_push_if_changed(&cli, &head_before, &tee);
     }
 
     remove_sentinel();
@@ -507,24 +510,11 @@ fn run_afk(
     interrupted: &Arc<AtomicBool>,
     tee: &TeeWriter,
 ) {
-    // Two defenses keep Ctrl+C working in AFK mode:
-    //
-    // 1. PTY for docker's stdin: docker puts its stdin terminal into raw mode,
-    //    which disables Ctrl+C signal generation. By giving docker its own PTY,
-    //    raw mode only affects the PTY — ralph's terminal stays in cooked mode
-    //    and Ctrl+C generates SIGINT normally. Docker requires isatty(0) == true,
-    //    so we can't use Stdio::null().
-    //
-    // 2. setsid() in pre_exec: detaches docker from ralph's session so docker
-    //    cannot call tcsetpgrp() on ralph's terminal (via the inherited stderr fd)
-    //    to steal the foreground process group.
     let setsid_hook = || unsafe {
         libc::setsid();
         Ok(())
     };
 
-    // Keeps the master end of the PTY alive until run_afk returns.
-    // Dropping it early causes EIO on docker's stdin.
     let mut _pty_master: Option<OwnedFd> = None;
 
     let prompt_arg = if is_file {
@@ -590,9 +580,6 @@ fn run_afk(
         }
     };
 
-    // Read stdout on a separate thread so the main thread can poll for
-    // interrupts between lines. Without this, reader.lines() blocks
-    // indefinitely and prevents Ctrl+C from taking effect in AFK mode.
     let reader = BufReader::new(stdout);
     let (tx, rx) = mpsc::channel();
 
@@ -628,7 +615,7 @@ fn run_afk(
                     first_sigint_at = None;
                 }
             } else {
-                tee.writeln("\nPress Ctrl+C again to stop\n");
+                println!("\nPress Ctrl+C again to stop\n");
                 first_sigint_at = Some(Instant::now());
             }
         }
@@ -684,7 +671,7 @@ fn git_head() -> Option<String> {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
 }
 
-fn auto_push_if_changed(cli: &Cli, head_before: &Option<String>) {
+fn auto_push_if_changed(cli: &Cli, head_before: &Option<String>, tee: &TeeWriter) {
     if !cli.auto_push {
         return;
     }
@@ -694,7 +681,7 @@ fn auto_push_if_changed(cli: &Cli, head_before: &Option<String>) {
     if let (Some(before), Some(after)) = (head_before, &head_after)
         && before != after
     {
-        println!("New commits detected, pushing...");
+        tee.writeln("New commits detected, pushing...");
         match Command::new("git").arg("push").status() {
             Ok(status) if !status.success() => {
                 warn!("git push failed, continuing");

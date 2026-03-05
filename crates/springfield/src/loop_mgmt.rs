@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{self, BufRead, Write};
+use std::io;
 use std::path::{Path, PathBuf};
 
 use chrono::Local;
@@ -58,23 +58,6 @@ pub fn create_log_file(root: &Path, loop_id: &str) -> io::Result<PathBuf> {
     fs::create_dir_all(log_path.parent().unwrap())?;
     fs::File::create(&log_path)?;
     Ok(log_path)
-}
-
-pub fn tee_output<R: io::Read>(reader: R, log_path: &Path) -> io::Result<()> {
-    let mut log_file = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log_path)?;
-    let buf_reader = io::BufReader::new(reader);
-    let stdout = io::stdout();
-    let mut stdout_lock = stdout.lock();
-
-    for line in buf_reader.lines() {
-        let line = line?;
-        writeln!(stdout_lock, "{line}")?;
-        writeln!(log_file, "{line}")?;
-    }
-    Ok(())
 }
 
 pub fn run_logs(root: &Path, loop_id: &str) -> io::Result<()> {
@@ -224,19 +207,6 @@ mod tests {
             log_path,
             root.join(".sgf/logs/build-auth-20260226T143000.log")
         );
-    }
-
-    #[test]
-    fn tee_output_writes_to_both() {
-        let tmp = TempDir::new().unwrap();
-        let log_path = tmp.path().join("test.log");
-
-        let input = b"line one\nline two\n";
-        tee_output(&input[..], &log_path).unwrap();
-
-        let log_contents = fs::read_to_string(&log_path).unwrap();
-        assert!(log_contents.contains("line one"));
-        assert!(log_contents.contains("line two"));
     }
 
     #[test]
