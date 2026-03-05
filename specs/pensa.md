@@ -28,7 +28,7 @@ Pensa uses a client/daemon model. The daemon runs on the host, owns the SQLite d
 
 ### Why a daemon?
 
-Docker sandboxes use Mutagen-based file synchronization (not bind mounts). POSIX file locks don't propagate across the sync boundary — two sandboxes writing to the same SQLite file would corrupt it. The daemon keeps SQLite on the host behind a single process, making concurrent access from multiple sandboxes safe.
+SQLite needs serialized write access. The daemon keeps all reads and writes behind a single process, avoiding concurrent SQLite writers. On the host, this prevents conflicts when multiple CLI invocations run simultaneously. Inside Docker sandboxes, each sandbox runs its own daemon against the Mutagen-synced database files. The JSONL export/import cycle bridges state between host and sandbox: the host exports before sandbox launch, and the sandbox daemon auto-imports on first start.
 
 ### Daemon (`pn daemon`)
 
@@ -43,8 +43,9 @@ Docker sandboxes use Mutagen-based file synchronization (not bind mounts). POSIX
 ### CLI client
 
 - Every `pn` command (create, list, ready, close, etc.) sends an HTTP request to the daemon.
-- The CLI discovers the daemon via `PN_DAEMON` env var. If unset, it checks the port file (`.pensa/daemon.port`, written by the daemon on startup), then falls back to SHA-256 derivation of the project directory. Inside Docker sandboxes, `PN_DAEMON_HOST` (default: `host.docker.internal`) overrides the hostname, combined with the port from the port file synced into the sandbox.
-- If the daemon is unreachable and a remote host is configured — either `PN_DAEMON` is explicitly set, or `PN_DAEMON_HOST` is set to something other than `localhost`/`127.0.0.1`/`::1` — the CLI prints an error and exits (exit code 1). It never auto-starts a daemon when a remote daemon address is configured (this prevents Docker sandboxes from silently spawning a local daemon with an empty database). Otherwise (local host), the CLI auto-starts it (spawning `pn daemon` in the background with the current working directory as `--project-dir`), waits up to 5 seconds for it to become ready, then proceeds. If the daemon still isn't reachable after 5 seconds, the command continues anyway (the HTTP call will fail with a clear error). The `daemon` and `where` subcommands skip auto-start.
+- The CLI discovers the daemon address via env vars and port discovery. Resolution order: (1) if `PN_DAEMON_HOST` is set and non-empty, use `http://<host>:<port>` with port from discovery; (2) if `PN_DAEMON` is set, use it as the full URL; (3) otherwise use `http://localhost:<port>`. Port discovery checks `.pensa/daemon.port` (written by the daemon on startup), falling back to SHA-256 derivation of the project directory.
+- If the daemon is unreachable and a remote host is configured — `PN_DAEMON_HOST` is set to something other than empty/`localhost`/`127.0.0.1`/`::1`, or `PN_DAEMON` is explicitly set — the CLI prints an error and exits (exit code 1). It never auto-starts a daemon when a remote daemon address is configured. Otherwise (local host), the CLI auto-starts it (spawning `pn daemon` in the background with the current working directory as `--project-dir`), waits up to 5 seconds for it to become ready, then proceeds. If the daemon still isn't reachable after 5 seconds, the command continues anyway (the HTTP call will fail with a clear error). The `daemon` and `where` subcommands skip auto-start.
+- **Docker sandbox strategy**: Docker sandbox network policy blocks connections from the container back to the host, making `host.docker.internal` unreachable. Instead, `pn` auto-starts a local daemon inside the sandbox that reads/writes the Mutagen-synced `.pensa/db.sqlite`. The sandbox template clears `PN_DAEMON_HOST` (set by the base image) so the local auto-start path is taken. On first launch, the daemon auto-imports from the JSONL files synced into the workspace. The host runs `pn export` before launching the sandbox to ensure JSONL is current.
 
 ### Technology choices
 

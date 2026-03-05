@@ -214,12 +214,12 @@ fn fail(err: PensaError, mode: OutputMode) -> ! {
 }
 
 fn is_remote_host() -> bool {
-    if std::env::var("PN_DAEMON").is_ok() {
-        return true;
-    }
     if let Ok(host) = std::env::var("PN_DAEMON_HOST") {
         let h = host.trim();
         return !h.is_empty() && h != "localhost" && h != "127.0.0.1" && h != "::1";
+    }
+    if std::env::var("PN_DAEMON").is_ok() {
+        return true;
     }
     false
 }

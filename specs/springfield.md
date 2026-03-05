@@ -380,6 +380,7 @@ Before launching any loop, `sgf` runs pre-launch checks. The checks vary by stag
 1. **Recovery** — clean up stale state from crashed iterations (see Recovery)
 2. **Daemon** — start the pensa daemon if not already running
 3. **Template** — ensure the Docker sandbox template exists and is current
+4. **Pensa export** — run `pn export` to sync SQLite → JSONL before the sandbox launches (the sandbox daemon auto-imports from JSONL on first start)
 
 **Interactive stages** (spec, issues log):
 
@@ -858,8 +859,10 @@ USER agent
 COPY --chown=agent:agent pensa-src /tmp/pensa-src
 RUN . "$CARGO_HOME/env" && cargo install --path /tmp/pensa-src && rm -rf /tmp/pensa-src
 
-# Connect pn to the host daemon (not localhost, which is the container)
-ENV PN_DAEMON_HOST=host.docker.internal
+# Override base image's PN_DAEMON_HOST (points to host.docker.internal, which
+# is unreachable due to sandbox network policy). With this unset, pn auto-starts
+# a local daemon that reads/writes the Mutagen-synced .pensa/db.sqlite.
+ENV PN_DAEMON_HOST=
 ENV CARGO_TARGET_DIR="/home/agent/target"
 
 # Ensure agent owns their home directory
@@ -893,7 +896,7 @@ The labels enable pre-flight staleness detection. After updating pensa source or
 - **File sync**: Workspace directory syncs bidirectionally between host and sandbox at the same absolute path via Mutagen. Changes the agent makes sync back to the host.
 - **Credentials**: Docker Desktop automatically injects API keys from the host into the sandbox. Keys never enter the sandbox filesystem.
 - **Agent user**: The agent runs as non-root `agent` user with `sudo` access inside the sandbox.
-- **Pensa access**: `pn` inside the sandbox connects to the host daemon via `PN_DAEMON_HOST` (`host.docker.internal`) combined with the port from the port file (`.pensa/daemon.port`, synced into the sandbox). The SQLite database never crosses the sync boundary.
+- **Pensa access**: Docker sandbox network policy blocks connections from the container to the host, so `pn` cannot reach the host daemon. Instead, the sandbox template clears `PN_DAEMON_HOST` (set by the base image to `host.docker.internal`), allowing `pn` to auto-start a local daemon inside the sandbox. This daemon reads/writes the Mutagen-synced `.pensa/db.sqlite` via auto-import from JSONL on first launch. `sgf` runs `pn export` before launching the sandbox to ensure JSONL files are current.
 - **Cargo target directory**: `CARGO_TARGET_DIR` is set to `/home/agent/target` (container-local) to avoid Mutagen sync corrupting compiled artifacts. Without this, rustc encounters SIGBUS errors when Mutagen partially syncs `.rlib`/`.rmeta` files mid-compilation.
 
 ---

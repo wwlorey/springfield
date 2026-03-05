@@ -17,12 +17,16 @@ impl Default for Client {
 
 impl Client {
     pub fn new() -> Self {
-        let base_url = if let Ok(url) = std::env::var("PN_DAEMON") {
+        let base_url = if let Ok(host) = std::env::var("PN_DAEMON_HOST")
+            && !host.trim().is_empty()
+        {
+            let port = Self::discover_port();
+            format!("http://{host}:{port}")
+        } else if let Ok(url) = std::env::var("PN_DAEMON") {
             url
         } else {
             let port = Self::discover_port();
-            let host = std::env::var("PN_DAEMON_HOST").unwrap_or_else(|_| "localhost".to_string());
-            format!("http://{host}:{port}")
+            format!("http://localhost:{port}")
         };
         let http = HttpClient::new();
         Client { http, base_url }

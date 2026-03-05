@@ -40,6 +40,21 @@ fn resolve_agent_cmd() -> String {
     std::env::var("AGENT_CMD").unwrap_or_else(|_| "claude".to_string())
 }
 
+fn export_pensa() {
+    match Command::new("pn").arg("export").output() {
+        Ok(out) if out.status.success() => {
+            eprintln!("sgf: pn export ok");
+        }
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            eprintln!("sgf: pn export failed: {}", stderr.trim());
+        }
+        Err(e) => {
+            eprintln!("sgf: pn export skipped (pn not found: {e})");
+        }
+    }
+}
+
 fn build_ralph_args(config: &LoopConfig, loop_id: &str, prompt_path: &Path) -> Vec<String> {
     let mut args = Vec::new();
 
@@ -106,6 +121,8 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
             template::ensure_template()?;
         }
     }
+
+    export_pensa();
 
     loop_mgmt::write_pid_file(root, &loop_id)?;
 

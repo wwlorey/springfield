@@ -75,9 +75,10 @@ USER agent
 COPY --chown=agent:agent pensa-src /tmp/pensa-src
 RUN . "$CARGO_HOME/env" && cargo install --path /tmp/pensa-src && rm -rf /tmp/pensa-src
 
-# Connect pn to the host daemon (not localhost, which is the container).
-# Port is discovered from .pensa/daemon.port (Mutagen-synced).
-ENV PN_DAEMON_HOST=host.docker.internal
+# Override base image's PN_DAEMON_HOST (points to host.docker.internal, which
+# is unreachable due to sandbox network policy). With this unset, pn auto-starts
+# a local daemon that reads/writes the Mutagen-synced .pensa/db.sqlite.
+ENV PN_DAEMON_HOST=
 ENV CARGO_TARGET_DIR="/home/agent/target"
 
 # Ensure agent owns their home directory
