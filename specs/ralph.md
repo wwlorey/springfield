@@ -7,6 +7,7 @@ CLI tool for iterative Claude Code execution. Replaces `scripts/ralph.sh` with a
 `ralph` provides:
 - **Iteration loop**: Run Claude Code repeatedly against a prompt file or inline text, up to N iterations
 - **Two modes**: Interactive (terminal passthrough) and AFK (formatted NDJSON stream)
+- **System prompt injection**: Read `PROMPT_FILES` env var and pass `--append-system-prompt-file` for each entry to Claude Code; optionally append spec files via `--spec`
 - **NDJSON formatting**: Compact, readable output from Claude's stream-json format
 - **Completion detection**: Exit early when Claude signals task completion by creating the `.ralph-complete` sentinel file
 - **Interactive notification**: Play a sound on the host when Claude needs user input (via `.ralph-ding` sentinel file)
@@ -65,7 +66,7 @@ ralph [OPTIONS] [ITERATIONS] [PROMPT]
 When invoked by `sgf`, the full command looks like:
 
 ```
-ralph [-a] [--loop-id ID] [--template T] [--auto-push BOOL] [--max-iterations N] ITERATIONS PROMPT
+SGF_SPEC=auth ralph [-a] [--loop-id ID] [--template T] [--auto-push BOOL] [--max-iterations N] [--spec auth] ITERATIONS PROMPT
 ```
 
 ### Arguments
@@ -94,6 +95,9 @@ The default value `prompt.md` is treated specially: if no explicit prompt is pro
 | `--max-iterations` | `RALPH_MAX_ITERATIONS` | `100` | Safety limit for iterations |
 | `--auto-push` | `RALPH_AUTO_PUSH` | `true` | Auto-push after new commits (requires explicit value: `true`/`false`/`yes`/`no`/`1`/`0`) |
 | `--command` | `RALPH_COMMAND` | — | Override: path to executable replacing docker invocation (for testing) |
+| `--spec` | `SGF_SPEC` | — | Spec stem — appends `./specs/<stem>.md` as a system prompt file. Fails with error if the spec file does not exist. |
+| `--system-file` | — | — | Additional system prompt file path (repeatable). Each is passed as `--append-system-prompt-file` to Claude. |
+| — | `PROMPT_FILES` | `$HOME/.MEMENTO.md:./BACKPRESSURE.md:./specs/README.md` | Colon-separated list of files to inject as system prompt files |
 | — | `SGF_DOCKER_CONTEXT` | auto-detect | Docker context to use for all docker commands |
 
 ### Exit Codes
@@ -116,7 +120,35 @@ ralph -a 3 "refactor auth module"     # AFK mode with inline text
 RALPH_TEMPLATE=custom:v2 ralph -a 3   # Custom docker template
 RALPH_AUTO_PUSH=false ralph -a 10     # Disable auto-push
 ralph -a --loop-id build-auth-20260226T143000 10 prompt.md  # With loop ID (sgf passes this)
+ralph -a --spec auth 10 .sgf/prompts/build.md              # With spec (injects specs/auth.md as system prompt)
+ralph --system-file ./NOTES.md 5 prompt.md                 # Extra system prompt file
 ```
+
+## System Prompt Injection
+
+Ralph owns system prompt injection for all automated stages. It collects system files from three sources and passes each as `--append-system-prompt-file <path>` to the Claude Code invocation inside the Docker sandbox.
+
+### Sources (in order)
+
+1. **`PROMPT_FILES` env var** — Colon-separated list of files. Default: `$HOME/.MEMENTO.md:./BACKPRESSURE.md:./specs/README.md`. Path resolution: `~` and `$HOME` expand to the home directory; `./` paths resolve relative to cwd. Missing files emit a warning to stderr and are skipped. If `PROMPT_FILES` is not set, a warning is emitted and the default is used.
+2. **`--spec <stem>`** — If provided, appends `./specs/<stem>.md`. Fails with exit code 1 and a clear error (e.g., `spec file not found: specs/auth.md`) if the file does not exist.
+3. **`--system-file <path>`** (repeatable) — Additional explicit files. Missing files are a fatal error (exit code 1).
+
+### Claude Invocation
+
+The collected system files are inserted as `--append-system-prompt-file` arguments before the prompt argument in the `docker sandbox run claude` invocation:
+
+```
+docker sandbox run claude -- \
+  --verbose \
+  --dangerously-skip-permissions \
+  --append-system-prompt-file ./BACKPRESSURE.md \
+  --append-system-prompt-file ./specs/README.md \
+  --append-system-prompt-file ./specs/auth.md \
+  @prompt.md
+```
+
+When `--command` is set (testing mode), system file arguments are not passed (the mock command does not understand them).
 
 ## Modes
 
@@ -132,6 +164,7 @@ docker --context <CONTEXT> sandbox run \
   -- \
   --verbose \
   --dangerously-skip-permissions \
+  [--append-system-prompt-file <FILE>]...  # from PROMPT_FILES, --spec, --system-file
   @<PROMPT_FILE>       # file prompt (@ prefix)
   # or: "<inline text>"  # inline text (no @ prefix)
 ```
@@ -156,6 +189,7 @@ docker --context <CONTEXT> sandbox run \
   --print \
   --output-format stream-json \
   --dangerously-skip-permissions \
+  [--append-system-prompt-file <FILE>]...  # from PROMPT_FILES, --spec, --system-file
   @<PROMPT_FILE>       # file prompt (@ prefix)
   # or: "<inline text>"  # inline text (no @ prefix)
 ```
@@ -388,6 +422,9 @@ No custom error types. Fail loudly, continue when sensible:
 | Scenario | Behavior |
 |----------|----------|
 | Default prompt file missing | `tracing::error!` + exit 1 (before loop starts, only when no explicit prompt provided) |
+| Spec file missing (`--spec`) | `tracing::error!` + exit 1 (e.g., `spec file not found: specs/auth.md`) |
+| System file missing (`--system-file`) | `tracing::error!` + exit 1 |
+| `PROMPT_FILES` entry missing | `tracing::warn!` to stderr, skip the file (non-fatal) |
 | Docker/command spawn failure | `tracing::warn!`, continue to next iteration |
 | NDJSON parse error (line starts with `{`) | Skip line, log at debug level |
 | Non-JSON line (no `{` prefix) | Skip line silently (expected Docker/verbose debug output) |
