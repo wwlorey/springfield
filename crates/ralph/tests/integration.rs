@@ -82,6 +82,7 @@ fn ralph_cmd(dir: &TempDir) -> Command {
     cmd.current_dir(dir.path());
     cmd.env("RALPH_AUTO_PUSH", "false");
     cmd.env("RUST_LOG", "warn");
+    cmd.env("PROMPT_FILES", "");
     cmd
 }
 
@@ -843,6 +844,192 @@ fn spec_via_env_var() {
         output.status.success(),
         "should exit 0 with SGF_SPEC env var, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
         output.status.code()
+    );
+}
+
+#[test]
+fn prompt_files_default_warns_when_unset() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ralph"));
+    cmd.current_dir(dir.path());
+    cmd.env("RALPH_AUTO_PUSH", "false");
+    cmd.env("RUST_LOG", "warn");
+    cmd.env_remove("PROMPT_FILES");
+    cmd.args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+        "prompt.md",
+    ]);
+
+    let output = cmd.output().expect("run ralph");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        stderr.contains("PROMPT_FILES not set"),
+        "should warn when PROMPT_FILES is not set, got stderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn prompt_files_resolves_existing_files() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
+
+    fs::write(dir.path().join("BACKPRESSURE.md"), "# BP\n").expect("write bp");
+    fs::write(dir.path().join("README.md"), "# README\n").expect("write readme");
+
+    let output = ralph_cmd(&dir)
+        .env(
+            "PROMPT_FILES",
+            format!(
+                "{}:{}",
+                dir.path().join("BACKPRESSURE.md").display(),
+                dir.path().join("README.md").display()
+            ),
+        )
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !stderr.contains("not found"),
+        "should not warn for existing PROMPT_FILES entries, got stderr:\n{stderr}"
+    );
+    assert!(
+        output.status.success(),
+        "should exit 0 with valid PROMPT_FILES"
+    );
+}
+
+#[test]
+fn prompt_files_warns_on_missing_entries() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .env("PROMPT_FILES", "/nonexistent/file.md:./also-missing.md")
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        stderr.contains("PROMPT_FILES entry not found"),
+        "should warn about missing PROMPT_FILES entries, got stderr:\n{stderr}"
+    );
+    assert!(
+        output.status.success(),
+        "should still succeed (missing PROMPT_FILES entries are non-fatal)"
+    );
+}
+
+#[test]
+fn prompt_files_expands_home() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
+
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let test_file = PathBuf::from(&home).join(".ralph-test-prompt-file.md");
+    fs::write(&test_file, "# Test\n").expect("write test file in HOME");
+
+    let output = ralph_cmd(&dir)
+        .env("PROMPT_FILES", "$HOME/.ralph-test-prompt-file.md")
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let _ = fs::remove_file(&test_file);
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !stderr.contains("not found"),
+        "should resolve $HOME in PROMPT_FILES paths, got stderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn prompt_files_expands_tilde() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
+
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let test_file = PathBuf::from(&home).join(".ralph-test-tilde-file.md");
+    fs::write(&test_file, "# Test\n").expect("write test file in HOME");
+
+    let output = ralph_cmd(&dir)
+        .env("PROMPT_FILES", "~/.ralph-test-tilde-file.md")
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let _ = fs::remove_file(&test_file);
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !stderr.contains("not found"),
+        "should resolve ~ in PROMPT_FILES paths, got stderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn prompt_files_empty_value_yields_no_files() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .env("PROMPT_FILES", "")
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !stderr.contains("not found"),
+        "empty PROMPT_FILES should not warn about missing files, got stderr:\n{stderr}"
+    );
+    assert!(
+        output.status.success(),
+        "should exit 0 with empty PROMPT_FILES"
     );
 }
 

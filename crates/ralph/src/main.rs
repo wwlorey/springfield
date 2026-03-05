@@ -130,8 +130,46 @@ fn parse_bool(s: &str) -> Result<bool, String> {
     }
 }
 
-fn collect_system_files(cli: &Cli) -> Vec<String> {
+fn resolve_prompt_files() -> Vec<String> {
+    let default = "$HOME/.MEMENTO.md:./BACKPRESSURE.md:./specs/README.md";
+    let raw = match std::env::var("PROMPT_FILES") {
+        Ok(val) => val,
+        Err(_) => {
+            warn!("PROMPT_FILES not set, using default: {default}");
+            default.to_string()
+        }
+    };
+
+    let home = std::env::var("HOME").unwrap_or_default();
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+
     let mut files = Vec::new();
+    for entry in raw.split(':') {
+        let entry = entry.trim();
+        if entry.is_empty() {
+            continue;
+        }
+
+        let expanded = entry.replace("$HOME", &home).replace('~', &home);
+
+        let path = if expanded.starts_with("./") || expanded.starts_with("../") {
+            cwd.join(&expanded)
+        } else {
+            PathBuf::from(&expanded)
+        };
+
+        if path.exists() {
+            files.push(expanded);
+        } else {
+            warn!(path = %path.display(), "PROMPT_FILES entry not found, skipping");
+        }
+    }
+
+    files
+}
+
+fn collect_system_files(cli: &Cli) -> Vec<String> {
+    let mut files = resolve_prompt_files();
 
     if let Some(ref stem) = cli.spec {
         let spec_path = format!("./specs/{stem}.md");
