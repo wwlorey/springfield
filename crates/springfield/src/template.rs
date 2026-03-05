@@ -156,13 +156,12 @@ fn inspect_template_labels() -> Option<(Option<String>, Option<String>)> {
     Some((parse(parts[0]), parse(parts[1])))
 }
 
-fn check_staleness(img_pn_hash: Option<String>, img_df_hash: Option<String>) {
+fn staleness_reasons(
+    img_pn_hash: Option<String>,
+    img_df_hash: Option<String>,
+) -> Vec<&'static str> {
     if img_pn_hash.is_none() && img_df_hash.is_none() {
-        eprintln!(
-            "sgf: warning: ralph-sandbox:latest has no version labels. \
-             Run 'sgf template build' to update."
-        );
-        return;
+        return vec!["image has no version labels"];
     }
 
     let mut reasons = Vec::new();
@@ -179,29 +178,24 @@ fn check_staleness(img_pn_hash: Option<String>, img_df_hash: Option<String>) {
         reasons.push("pensa source has changed");
     }
 
-    if !reasons.is_empty() {
-        eprintln!(
-            "sgf: warning: ralph-sandbox:latest may be stale ({}). \
-             Run 'sgf template build' to update.",
-            reasons.join(", ")
-        );
-    }
+    reasons
 }
 
 pub fn ensure_template() -> io::Result<()> {
-    match inspect_template_labels() {
-        None => {
-            eprintln!(
-                "sgf: ralph-sandbox:latest not found, building template \
-                 (this may take several minutes)..."
-            );
-            build_template().map_err(io::Error::other)?;
-            eprintln!("sgf: template built successfully");
-        }
+    let reason = match inspect_template_labels() {
+        None => "image not found".to_string(),
         Some((pn_h, df_h)) => {
-            check_staleness(pn_h, df_h);
+            let reasons = staleness_reasons(pn_h, df_h);
+            if reasons.is_empty() {
+                return Ok(());
+            }
+            reasons.join(", ")
         }
-    }
+    };
+
+    eprintln!("sgf: rebuilding ralph-sandbox:latest ({reason})...");
+    build_template().map_err(io::Error::other)?;
+    eprintln!("sgf: template rebuilt successfully");
     Ok(())
 }
 

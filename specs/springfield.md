@@ -409,7 +409,7 @@ The daemon runs for the duration of the `sgf` session. It stops on SIGTERM or wh
 4. If the image exists, check staleness by comparing Docker image labels against current values:
    - `pn_hash` — SHA-256 of the pensa crate source (Cargo.toml + src/*.rs)
    - `dockerfile_hash` — SHA-256 of the embedded Dockerfile content
-5. If stale, print a warning with the reason (e.g., "pensa source has changed") and the remediation command (`sgf template build`). Do not block — the existing image still works.
+5. If stale, auto-rebuild it (same as step 3). Print the reason (e.g., "rebuilding ralph-sandbox:latest (pensa source has changed)...").
 6. If fresh, proceed silently.
 
 Auto-build failure is a hard error — the loop cannot proceed without a template.
