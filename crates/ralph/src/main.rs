@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::Duration;
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 const SENTINEL: &str = ".ralph-complete";
 const SENTINEL_MAX_DEPTH: usize = 2;
@@ -23,6 +23,7 @@ const DING_SENTINEL: &str = ".ralph-ding";
 fn ensure_sandbox(template: &str) {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let workspace = cwd.to_string_lossy();
+    info!(template, %workspace, "ensuring docker sandbox exists");
     let status = docker_command()
         .args([
             "sandbox",
@@ -35,7 +36,7 @@ fn ensure_sandbox(template: &str) {
         .stdin(Stdio::null())
         .status();
     match status {
-        Ok(s) if s.success() => {}
+        Ok(s) if s.success() => info!("docker sandbox ready"),
         Ok(s) => {
             warn!(
                 status = s.code().unwrap_or(-1),
@@ -109,6 +110,14 @@ struct Cli {
     /// Override: path to executable replacing docker invocation (for testing)
     #[arg(long, env = "RALPH_COMMAND")]
     command: Option<String>,
+
+    /// Spec stem — appends ./specs/<stem>.md as a system prompt file
+    #[arg(long, env = "SGF_SPEC")]
+    spec: Option<String>,
+
+    /// Additional system prompt file path (repeatable)
+    #[arg(long = "system-file")]
+    system_file: Vec<String>,
 }
 
 fn parse_bool(s: &str) -> Result<bool, String> {
@@ -119,6 +128,29 @@ fn parse_bool(s: &str) -> Result<bool, String> {
             "invalid boolean value '{other}': expected true/false, 1/0, or yes/no"
         )),
     }
+}
+
+fn collect_system_files(cli: &Cli) -> Vec<String> {
+    let mut files = Vec::new();
+
+    if let Some(ref stem) = cli.spec {
+        let spec_path = format!("./specs/{stem}.md");
+        if !Path::new(&spec_path).exists() {
+            error!("spec file not found: specs/{stem}.md");
+            std::process::exit(1);
+        }
+        files.push(spec_path);
+    }
+
+    for path in &cli.system_file {
+        if !Path::new(path).exists() {
+            error!(path, "system file not found");
+            std::process::exit(1);
+        }
+        files.push(path.clone());
+    }
+
+    files
 }
 
 fn main() {
@@ -140,6 +172,8 @@ fn main() {
         error!(prompt = %cli.prompt, "prompt file not found");
         std::process::exit(1);
     }
+
+    let system_files = collect_system_files(&cli);
 
     let iterations = if cli.iterations > cli.max_iterations {
         warn!(
@@ -177,9 +211,9 @@ fn main() {
         let head_before = git_head();
 
         if cli.afk {
-            run_afk(&cli, is_file, &interrupted);
+            run_afk(&cli, is_file, &system_files, &interrupted);
         } else {
-            run_interactive(&cli, is_file);
+            run_interactive(&cli, is_file, &system_files);
         }
 
         if interrupted.load(Ordering::Relaxed) {
@@ -289,7 +323,7 @@ fn ding_watcher(stop: &AtomicBool) {
     }
 }
 
-fn run_interactive(cli: &Cli, is_file: bool) {
+fn run_interactive(cli: &Cli, is_file: bool, system_files: &[String]) {
     let stop = Arc::new(AtomicBool::new(false));
     let stop_clone = stop.clone();
     let watcher = thread::spawn(move || ding_watcher(&stop_clone));
@@ -307,16 +341,19 @@ fn run_interactive(cli: &Cli, is_file: bool) {
             .stderr(Stdio::inherit())
             .status()
     } else {
-        docker_command()
-            .args([
-                "sandbox",
-                "run",
-                "claude",
-                "--",
-                "--verbose",
-                "--dangerously-skip-permissions",
-                &prompt_arg,
-            ])
+        let mut cmd = docker_command();
+        cmd.args([
+            "sandbox",
+            "run",
+            "claude",
+            "--",
+            "--verbose",
+            "--dangerously-skip-permissions",
+        ]);
+        for f in system_files {
+            cmd.args(["--append-system-prompt-file", f]);
+        }
+        cmd.arg(&prompt_arg)
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
@@ -340,7 +377,7 @@ fn run_interactive(cli: &Cli, is_file: bool) {
     }
 }
 
-fn run_afk(cli: &Cli, is_file: bool, interrupted: &Arc<AtomicBool>) {
+fn run_afk(cli: &Cli, is_file: bool, system_files: &[String], interrupted: &Arc<AtomicBool>) {
     // Two defenses keep Ctrl+C working in AFK mode:
     //
     // 1. PTY for docker's stdin: docker puts its stdin terminal into raw mode,
@@ -378,20 +415,23 @@ fn run_afk(cli: &Cli, is_file: bool, interrupted: &Arc<AtomicBool>) {
     } else {
         let (master, slave_stdio) = create_pty_stdin();
         _pty_master = Some(master);
+        let mut cmd = docker_command();
+        cmd.args([
+            "sandbox",
+            "run",
+            "claude",
+            "--",
+            "--verbose",
+            "--print",
+            "--output-format",
+            "stream-json",
+            "--dangerously-skip-permissions",
+        ]);
+        for f in system_files {
+            cmd.args(["--append-system-prompt-file", f]);
+        }
         unsafe {
-            docker_command()
-                .args([
-                    "sandbox",
-                    "run",
-                    "claude",
-                    "--",
-                    "--verbose",
-                    "--print",
-                    "--output-format",
-                    "stream-json",
-                    "--dangerously-skip-permissions",
-                    &prompt_arg,
-                ])
+            cmd.arg(&prompt_arg)
                 .stdin(slave_stdio)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::inherit())

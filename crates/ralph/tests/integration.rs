@@ -657,3 +657,222 @@ fn explicit_file_prompt_shows_file_suffix() {
         "banner should show (file) suffix for file prompt, got:\n{stdout}"
     );
 }
+
+#[test]
+fn spec_flag_missing_file_exits_1() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script(&dir, "afk-session.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .args([
+            "--afk",
+            "--spec",
+            "nonexistent",
+            "--command",
+            mock.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "should exit 1 when spec file is missing"
+    );
+    assert!(
+        stderr.contains("spec file not found"),
+        "stderr should mention spec file not found, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn spec_flag_existing_file_accepted() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
+
+    let specs_dir = dir.path().join("specs");
+    fs::create_dir_all(&specs_dir).expect("create specs dir");
+    fs::write(specs_dir.join("auth.md"), "# Auth spec\n").expect("write spec file");
+
+    let output = ralph_cmd(&dir)
+        .args([
+            "--afk",
+            "--spec",
+            "auth",
+            "--command",
+            mock.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "should exit 0 with valid spec, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        output.status.code()
+    );
+}
+
+#[test]
+fn system_file_missing_exits_1() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script(&dir, "afk-session.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .args([
+            "--afk",
+            "--system-file",
+            "./does-not-exist.md",
+            "--command",
+            mock.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "should exit 1 when system file is missing"
+    );
+    assert!(
+        stderr.contains("system file not found"),
+        "stderr should mention system file not found, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn system_file_existing_accepted() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
+
+    fs::write(dir.path().join("NOTES.md"), "# Notes\n").expect("write notes file");
+
+    let output = ralph_cmd(&dir)
+        .args([
+            "--afk",
+            "--system-file",
+            "./NOTES.md",
+            "--command",
+            mock.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "should exit 0 with valid system file, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        output.status.code()
+    );
+}
+
+#[test]
+fn multiple_system_files_accepted() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
+
+    fs::write(dir.path().join("NOTES.md"), "# Notes\n").expect("write notes");
+    fs::write(dir.path().join("EXTRA.md"), "# Extra\n").expect("write extra");
+
+    let output = ralph_cmd(&dir)
+        .args([
+            "--afk",
+            "--system-file",
+            "./NOTES.md",
+            "--system-file",
+            "./EXTRA.md",
+            "--command",
+            mock.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "should exit 0 with multiple system files, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        output.status.code()
+    );
+}
+
+#[test]
+fn spec_via_env_var() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
+
+    let specs_dir = dir.path().join("specs");
+    fs::create_dir_all(&specs_dir).expect("create specs dir");
+    fs::write(specs_dir.join("auth.md"), "# Auth spec\n").expect("write spec file");
+
+    let output = ralph_cmd(&dir)
+        .env("SGF_SPEC", "auth")
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "should exit 0 with SGF_SPEC env var, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        output.status.code()
+    );
+}
+
+#[test]
+fn spec_flag_overrides_env_var() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script(&dir, "afk-session.ndjson");
+
+    let specs_dir = dir.path().join("specs");
+    fs::create_dir_all(&specs_dir).expect("create specs dir");
+    fs::write(specs_dir.join("auth.md"), "# Auth spec\n").expect("write auth spec");
+
+    // SGF_SPEC=auth but --spec=nonexistent should use the flag value
+    let output = ralph_cmd(&dir)
+        .env("SGF_SPEC", "auth")
+        .args([
+            "--afk",
+            "--spec",
+            "nonexistent",
+            "--command",
+            mock.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "should exit 1 when --spec flag overrides env with nonexistent spec"
+    );
+}
