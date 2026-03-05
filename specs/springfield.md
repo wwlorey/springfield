@@ -19,10 +19,10 @@ CLI entry point for Springfield. All developer interaction goes through this bin
 ```
 sgf init                               — scaffold a new project
 sgf spec                               — generate specs and implementation plan (interactive)
-sgf build <spec> [-a] [--no-push] [N]  — run build loop
+sgf build [spec] [-a] [--no-push] [N]  — run build loop
 sgf verify [-a] [--no-push] [N]        — run verification loop
 sgf test-plan [-a] [--no-push] [N]     — run test plan generation loop
-sgf test <spec> [-a] [--no-push] [N]   — run test execution loop
+sgf test [spec] [-a] [--no-push] [N]   — run test execution loop
 sgf issues log                         — interactive session for logging bugs
 sgf status                             — show project state (future work)
 sgf logs <loop-id>                     — tail a running loop's output
@@ -474,11 +474,11 @@ Tasks linked to a spec *are* the implementation plan. Query with `pn list -t tas
 4. Updates the spec file in `specs/`
 5. Restart build loops after revision is committed
 
-### 2. Build (`sgf build <spec>`)
+### 2. Build (`sgf build [spec]`)
 
-Follows the standard loop iteration. Runs via ralph using `.sgf/prompts/build.md`. Requires a spec stem — `sgf build auth` builds tasks for the `auth` spec. sgf validates that `specs/auth.md` exists before launching (fails with a clear error if not found).
+Follows the standard loop iteration. Runs via ralph using `.sgf/prompts/build.md`. The spec stem is **optional** — `sgf build auth` builds tasks for the `auth` spec, while `sgf build` runs without a spec filter. When a spec is provided, sgf validates that `specs/auth.md` exists before launching (fails with a clear error if not found).
 
-sgf sets `SGF_SPEC=auth` in ralph's environment and passes `--spec auth` to ralph. Ralph appends `specs/auth.md` as a system prompt file so the agent has the full spec in context. The build stage adds **backpressure** — after implementing the task, the agent runs build, test, and lint commands per `BACKPRESSURE.md`.
+When a spec is given, sgf sets `SGF_SPEC=auth` in ralph's environment and passes `--spec auth` to ralph. Ralph appends `specs/auth.md` as a system prompt file so the agent has the full spec in context. When no spec is given, neither `SGF_SPEC` nor `--spec` are set. The build stage adds **backpressure** — after implementing the task, the agent runs build, test, and lint commands per `BACKPRESSURE.md`.
 
 Run interactively first for a few supervised rounds, then switch to AFK mode (`-a`) for autonomous execution.
 
@@ -505,9 +505,9 @@ Runs via ralph using `.sgf/prompts/test-plan.md`. The agent:
 4. Creates test items via `pn create -t test --spec <stem>`, with dependencies and priorities
 5. Commits
 
-### 5. Test (`sgf test <spec>`)
+### 5. Test (`sgf test [spec]`)
 
-Follows the standard loop iteration. Runs via ralph using `.sgf/prompts/test.md`. Requires a spec stem — `sgf test auth` runs test items for the `auth` spec. sgf validates that `specs/auth.md` exists before launching. Sets `SGF_SPEC=auth` and passes `--spec auth` to ralph.
+Follows the standard loop iteration. Runs via ralph using `.sgf/prompts/test.md`. The spec stem is **optional** — `sgf test auth` runs test items for the `auth` spec, while `sgf test` runs all test items regardless of spec. When a spec is provided, sgf validates that `specs/auth.md` exists before launching. Sets `SGF_SPEC` and `--spec` only when a spec is given.
 
 After all test items are closed, a final iteration generates `test-report.md` — a summary of all test results, pass/fail status, and any bugs logged.
 
