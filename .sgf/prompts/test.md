@@ -4,7 +4,7 @@ If no test items are returned:
 1. Generate `test-report.md` — summarize all test results, pass/fail status, and any bugs logged.
 2. `touch .ralph-complete` and stop.
 
-Otherwise, claim ONE test item per `.sgf/PENSA.md`.
+Otherwise, claim ONE test item using the pn claim workflow.
 
 Execute the test. Use subagents.
 
