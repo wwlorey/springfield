@@ -616,7 +616,7 @@ mod tests {
         let log_files: Vec<_> = fs::read_dir(&logs_dir)
             .unwrap()
             .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().map_or(false, |ext| ext == "log"))
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "log"))
             .collect();
         assert_eq!(log_files.len(), 1);
         let log_content = fs::read_to_string(log_files[0].path()).unwrap();
