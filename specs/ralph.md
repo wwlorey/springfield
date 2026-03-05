@@ -238,11 +238,21 @@ Stdout is read on a dedicated thread that sends lines through an `mpsc` channel.
 
 1. The child process is killed via `child.kill()`
 2. `child.wait()` reaps the process
-3. Control returns to the main loop, which detects the flag and exits with code 130
+3. `docker sandbox stop claude` is run to ensure the Docker sandbox is stopped (fire-and-forget, stdout/stderr suppressed)
+4. Control returns to the main loop, which detects the flag and exits with code 130
 
 The 2-second sleep between iterations is also interruptible (polled in 100ms increments), using single-press semantics.
 
 In interactive mode, SIGINT is delivered to the entire foreground process group. The docker child receives it directly (stdin is inherited), handles it, and eventually exits. Ralph's `.status()` call returns, the flag is checked, and ralph exits with code 130.
+
+### Sandbox Cleanup on Interrupt
+
+Killing the `docker` CLI process does not guarantee the Docker sandbox container stops — the container may continue running in the background. To prevent orphaned containers, ralph calls `docker sandbox stop claude` on every interrupt path:
+
+- After `child.kill()` + `child.wait()` in `run_afk`
+- At both between-iteration interrupt checks in the main loop
+
+The `stop_sandbox()` call is fire-and-forget: stdin/stdout/stderr are null, and failures are silently ignored (the sandbox may already be stopped). This is a belt-and-suspenders measure — sgf's orchestrate layer also calls `docker sandbox stop claude` after killing ralph, so cleanup happens even if ralph is hard-killed.
 
 ## Interactive Notification
 
@@ -459,9 +469,9 @@ No custom error types. Fail loudly, continue when sensible:
 | stdout read error | `tracing::warn!`, continue reading |
 | Git `rev-parse` failure | Return `None`, skip push check |
 | Git push failure | `tracing::warn!`, continue |
-| SIGINT received (AFK mode) | First press: print "Press Ctrl+C again to stop" to stdout, start 2s timeout. Second press: kill child, `tracing::warn!`, exit 130. Timeout: reset counter, continue. |
-| SIGINT received (interactive / between iterations) | Kill child process, `tracing::warn!`, exit 130 |
-| SIGTERM received | Kill child process (AFK), `tracing::warn!`, exit 130 (immediate, single signal) |
+| SIGINT received (AFK mode) | First press: print "Press Ctrl+C again to stop" to stdout, start 2s timeout. Second press: kill child, stop sandbox, `tracing::warn!`, exit 130. Timeout: reset counter, continue. |
+| SIGINT received (interactive / between iterations) | Kill child process, stop sandbox, `tracing::warn!`, exit 130 |
+| SIGTERM received | Kill child process (AFK), stop sandbox, `tracing::warn!`, exit 130 (immediate, single signal) |
 
 ## Testing
 

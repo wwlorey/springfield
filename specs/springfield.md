@@ -314,7 +314,9 @@ Interactive stages (`spec`, `issues log`) call `$AGENT_CMD` directly. No PID fil
 | `0` | Sentinel found (`.ralph-complete`) — loop completed | Log success, clean up |
 | `1` | Error (bad args, missing prompt, etc.) | Log error, alert developer |
 | `2` | Iterations exhausted — may have remaining work | Developer decides: re-launch or stop |
-| `130` | Interrupted (SIGINT/SIGTERM) | Log interruption, clean up |
+| `130` | Interrupted (SIGINT/SIGTERM) | Log interruption, stop sandbox, clean up |
+
+On interrupt (SIGINT/SIGTERM), sgf sends SIGTERM to the ralph child process, waits for it to exit, then runs `docker sandbox stop claude` to ensure the Docker sandbox container is stopped. This is belt-and-suspenders with ralph's own sandbox cleanup — even if ralph is hard-killed, sgf ensures no orphaned containers remain.
 
 Claude Code crashes and push failures are handled within ralph as warnings — they do not produce distinct exit codes. Ralph logs the failure and continues to the next iteration without cleanup. The next iteration's agent inherits whatever state exists and proceeds via forward correction. Stale claims and dirty working trees accumulate within a ralph run and are cleared by sgf's pre-launch recovery before the next run.
 

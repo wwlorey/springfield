@@ -210,6 +210,7 @@ fn run_afk(
                 if interrupted.load(Ordering::Relaxed) {
                     kill_child(&child);
                     let _ = child.wait();
+                    stop_sandbox();
                     let _ = tee_handle.join();
                     return Ok(130);
                 }
@@ -250,6 +251,7 @@ fn run_interactive(
                 if interrupted.load(Ordering::Relaxed) {
                     kill_child(&child);
                     let _ = child.wait();
+                    stop_sandbox();
                     return Ok(130);
                 }
                 std::thread::sleep(std::time::Duration::from_millis(50));
@@ -264,6 +266,15 @@ fn kill_child(child: &std::process::Child) {
     unsafe {
         libc::kill(pid, libc::SIGTERM);
     }
+}
+
+fn stop_sandbox() {
+    let _ = docker_ctx::docker_command()
+        .args(["sandbox", "stop", "claude"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
 }
 
 #[cfg(test)]
