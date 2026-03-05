@@ -1,5 +1,6 @@
 /target
 .pensa/db.sqlite
+.pensa/daemon.port
 .ralph-complete
 .ralph-ding
 

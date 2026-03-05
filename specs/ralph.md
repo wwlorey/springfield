@@ -1,6 +1,6 @@
 # ralph Specification
 
-CLI tool for iterative Claude Code execution. Replaces `scripts/ralph.sh` with a Rust binary that provides clean NDJSON stream formatting, sentinel file completion detection, and git auto-push. Supports two execution modes: sandboxed (Docker sandbox, default) and host-direct (`--no-sandbox`).
+CLI tool for iterative Claude Code execution. Replaces `scripts/ralph.sh` with a Rust binary that provides clean NDJSON stream formatting, sentinel file completion detection, and git auto-push.
 
 ## Overview
 
@@ -65,7 +65,7 @@ ralph [OPTIONS] [ITERATIONS] [PROMPT]
 When invoked by `sgf`, the full command looks like:
 
 ```
-ralph [-a] [--no-sandbox] [--loop-id ID] [--template T] [--auto-push BOOL] [--max-iterations N] ITERATIONS PROMPT
+ralph [-a] [--loop-id ID] [--template T] [--auto-push BOOL] [--max-iterations N] ITERATIONS PROMPT
 ```
 
 ### Arguments
@@ -89,9 +89,8 @@ The default value `prompt.md` is treated specially: if no explicit prompt is pro
 | Flag/Option | Env Var | Default | Description |
 |-------------|---------|---------|-------------|
 | `-a`, `--afk` | — | `false` | Run in AFK mode (non-interactive) |
-| `--no-sandbox` | — | `false` | Run Claude directly on the host instead of in a Docker sandbox |
 | `--loop-id` | — | — | Loop identifier (sgf-generated, included in banner output) |
-| `--template` | `RALPH_TEMPLATE` | `ralph-sandbox:latest` | Docker sandbox template image (ignored when `--no-sandbox`) |
+| `--template` | `RALPH_TEMPLATE` | `ralph-sandbox:latest` | Docker sandbox template image |
 | `--max-iterations` | `RALPH_MAX_ITERATIONS` | `100` | Safety limit for iterations |
 | `--auto-push` | `RALPH_AUTO_PUSH` | `true` | Auto-push after new commits (requires explicit value: `true`/`false`/`yes`/`no`/`1`/`0`) |
 | `--command` | `RALPH_COMMAND` | — | Override: path to executable replacing docker invocation (for testing) |
@@ -114,7 +113,6 @@ ralph -a 5                            # AFK mode, 5 iterations
 ralph 10 my-task.md                   # Custom prompt file
 ralph 5 "fix the login bug"           # Inline text prompt
 ralph -a 3 "refactor auth module"     # AFK mode with inline text
-ralph --no-sandbox 1 spec.md          # Host-direct, no Docker sandbox
 RALPH_TEMPLATE=custom:v2 ralph -a 3   # Custom docker template
 RALPH_AUTO_PUSH=false ralph -a 10     # Disable auto-push
 ralph -a --loop-id build-auth-20260226T143000 10 prompt.md  # With loop ID (sgf passes this)
@@ -140,18 +138,7 @@ docker --context <CONTEXT> sandbox run \
 
 If `SGF_DOCKER_CONTEXT` is set, its value is used as `<CONTEXT>`. Otherwise, the context active at ralph startup (`docker context show`) is captured and passed explicitly to all docker commands.
 
-**Host-direct (`--no-sandbox`):**
-
-```
-claude-wrapper \
-  --verbose \
-  @<PROMPT_FILE>       # file prompt (@ prefix)
-  # or: "<inline text>"  # inline text (no @ prefix)
-```
-
-When `--no-sandbox` is set, `--dangerously-skip-permissions` is never passed. The developer interacts with Claude's normal permission prompts. This is intentional — without sandbox isolation, permission checks are the safety boundary. Host-direct mode uses `claude-wrapper` instead of `claude` directly; the wrapper is not needed inside Docker sandboxes.
-
-No output processing in either variant. The user interacts with Claude directly. After each iteration, ralph checks for the `.ralph-complete` sentinel file to detect task completion.
+No output processing. The user interacts with Claude directly. After each iteration, ralph checks for the `.ralph-complete` sentinel file to detect task completion.
 
 In interactive mode, ralph also runs a **notification watcher thread** that monitors for the `.ralph-ding` sentinel file. When detected, ralph plays a notification sound on the host machine to alert the user that Claude needs input. See [Interactive Notification](#interactive-notification).
 
@@ -173,19 +160,6 @@ docker --context <CONTEXT> sandbox run \
   # or: "<inline text>"  # inline text (no @ prefix)
 ```
 
-**Host-direct (`--no-sandbox`):**
-
-```
-claude-wrapper \
-  --verbose \
-  --print \
-  --output-format stream-json \
-  @<PROMPT_FILE>       # file prompt (@ prefix)
-  # or: "<inline text>"  # inline text (no @ prefix)
-```
-
-When `--no-sandbox` is set, `--dangerously-skip-permissions` is never passed.
-
 Stdout is read line-by-line via `BufRead`, parsed as NDJSON, and formatted for human readability. Lines not starting with `{` are skipped silently (handles Docker/verbose debug output). Each output line is prefixed with `\r\x1b[2K` (carriage return + ANSI clear-line) to counteract Docker sandbox spinner/progress writes to `/dev/tty`, which move the cursor to unpredictable columns. This prefix is applied per line (not per block) because text content from Claude contains embedded newlines. After the process exits, ralph checks for the `.ralph-complete` sentinel file to determine if the task is complete.
 
 ## Signal Handling
@@ -197,8 +171,6 @@ In sandboxed AFK mode, two defenses keep Ctrl+C working:
 1. **PTY for docker's stdin**: Docker puts its stdin terminal into raw mode via `tcsetattr()`, which disables Ctrl+C signal generation on that terminal. By creating a PTY pair (`openpty()`) and giving docker the slave end as stdin, raw mode only affects the PTY — ralph's terminal stays in cooked mode and Ctrl+C generates SIGINT normally. Docker requires `isatty(0) == true`, so `Stdio::null()` cannot be used. The master end of the PTY is held alive until the child exits.
 
 2. **`setsid()` in `pre_exec`**: Creates a new session, detaching docker from ralph's session. Without this, docker could call `tcsetpgrp()` on the inherited stderr fd (which points to ralph's terminal) to become the foreground process group, stealing SIGINT delivery. With `setsid`, docker is in a different session and `tcsetpgrp()` on ralph's terminal fails.
-
-In host-direct AFK mode (`--no-sandbox`), neither defense is needed — there is no Docker process to interfere with terminal settings. The `claude-wrapper` process is spawned with `setsid()` only (no PTY) and `Stdio::null()` for stdin.
 
 Stdout is read on a dedicated thread that sends lines through an `mpsc` channel. The main thread uses `recv_timeout` (100ms) to poll the channel, checking the interrupt flag between receives. When interrupted:
 
@@ -357,7 +329,7 @@ Prompt resolution (before the loop):
 - If explicit prompt provided and it is a path to an existing file → use as file prompt (`@` prefix)
 - If explicit prompt provided and it is not an existing file → use as inline text (no `@` prefix)
 
-The startup banner includes mode, prompt source, iteration count, execution target (sandbox template name or "Host" when `--no-sandbox`), and loop ID (if provided via `--loop-id`).
+The startup banner includes mode, prompt source, iteration count, execution target (sandbox template name), and loop ID (if provided via `--loop-id`).
 
 For each iteration `i` in `1..=iterations`:
 

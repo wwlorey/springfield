@@ -1,6 +1,7 @@
 pub(crate) mod format;
 
 use clap::Parser;
+use docker_ctx::docker_command;
 use signal_hook::consts::{SIGINT, SIGTERM};
 use signal_hook::flag;
 use std::fs;
@@ -8,7 +9,6 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::fd::{FromRawFd, OwnedFd};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use docker_ctx::docker_command;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
@@ -82,10 +82,6 @@ struct Cli {
     #[arg(short = 'a', long)]
     afk: bool,
 
-    /// Run Claude directly on the host instead of in a Docker sandbox
-    #[arg(long)]
-    no_sandbox: bool,
-
     /// Loop identifier (sgf-generated, included in banner output)
     #[arg(long)]
     loop_id: Option<String>,
@@ -127,9 +123,7 @@ fn parse_bool(s: &str) -> Result<bool, String> {
 
 fn main() {
     tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env()
-        )
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_writer(std::io::stderr)
         .init();
 
@@ -163,7 +157,7 @@ fn main() {
     remove_sentinel();
     let _ = fs::remove_file(DING_SENTINEL);
 
-    if !cli.no_sandbox && cli.command.is_none() {
+    if cli.command.is_none() {
         ensure_sandbox(&cli.template);
     }
 
@@ -249,7 +243,7 @@ fn print_banner(cli: &Cli, iterations: u32, is_file: bool) {
     println!("⠀⠀⢠⠇⢰⠃⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⠀⠀⠀⠀⠀⠀⠀⠘⡆");
     println!("⠀⠀⡏⠀⢸⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⠀⠀⠀⠀⠀⠀⠀⠀⣇");
     println!("⠀⢰⢡⠀⢸⠀⠀⠀⠀⠀⢀⣀⣤⣤⣤⣤⣤⣤⣀⣠⣤⣤⣄⣀⣀⣀⣀⣀⣀⡀⠈⡇⠀⠀⠀⠀⠀⠀⠀⣿");
-    println!("⠀⢸⢀⣀⣸⠞⠋⠉⠉⢉⣹⣿⣿⣿⣿⣿⣿⣿⣀⣀⣀⣀⣀⣀⣀⣀⣀⡀⠉⠉⠉⡗⠒⠒⠢⠤⣄⡀⠀⡿");
+    println!("⠀⢸⢀⣀⣸⠞⠋⠉⠉⢉⣹⣿⣿⣿⣿⣿⣿⣿⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⡀⠉⠉⡗⠒⠒⠢⠤⣄⡀⠀⡿");
     println!("⠀⠘⢿⠁⢸⡴⠖⠛⠉⠉⠙⠛⠛⠛⠋⠉⠉⠁⠀⠀⠀⠀⠀⠀⠀⠀⠉⠉⠉⣽⠟⠁⠀⠀⠀⠀⠀⠙⡖⠃");
     println!("⠀⠀⠘⣆⢣⣳⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠧⣤⠴⡄⠀⢀⠀⠀⢠⠃⠀");
     println!("⠀⠀⠀⠈⠢⣝⣻⣦⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡼⠃⢀⡞⢠⠆⡞⠀⠀");
@@ -275,11 +269,7 @@ fn print_banner(cli: &Cli, iterations: u32, is_file: bool) {
         println!("Prompt:      {} (text)", display);
     }
     println!("Iterations:  {}", iterations);
-    if cli.no_sandbox {
-        println!("Sandbox:     Host");
-    } else {
-        println!("Sandbox:     {}", cli.template);
-    }
+    println!("Sandbox:     {}", cli.template);
     if let Some(ref id) = cli.loop_id {
         println!("Loop ID:     {}", id);
     }
@@ -312,13 +302,6 @@ fn run_interactive(cli: &Cli, is_file: bool) {
 
     let result = if let Some(ref cmd) = cli.command {
         Command::new(cmd)
-            .stdin(Stdio::inherit())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .status()
-    } else if cli.no_sandbox {
-        Command::new("claude-wrapper")
-            .args(["--verbose", &prompt_arg])
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
@@ -387,22 +370,6 @@ fn run_afk(cli: &Cli, is_file: bool, interrupted: &Arc<AtomicBool>) {
     let child = if let Some(ref cmd) = cli.command {
         unsafe {
             Command::new(cmd)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::inherit())
-                .pre_exec(setsid_hook)
-                .spawn()
-        }
-    } else if cli.no_sandbox {
-        unsafe {
-            Command::new("claude-wrapper")
-                .args([
-                    "--verbose",
-                    "--print",
-                    "--output-format",
-                    "stream-json",
-                    &prompt_arg,
-                ])
-                .stdin(Stdio::null())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::inherit())
                 .pre_exec(setsid_hook)

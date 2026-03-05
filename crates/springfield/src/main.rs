@@ -104,7 +104,7 @@ fn run_loop(
     spec: Option<&str>,
     opts: &LoopOpts,
     prompt_template: Option<&str>,
-    no_sandbox: bool,
+    interactive: bool,
 ) -> ! {
     let root = std::env::current_dir().expect("failed to get current directory");
     let config = springfield::orchestrate::LoopConfig {
@@ -113,7 +113,7 @@ fn run_loop(
         afk: opts.afk,
         no_push: opts.no_push,
         iterations: opts.iterations,
-        no_sandbox,
+        interactive,
         ralph_binary: None,
         skip_preflight: false,
         prompt_template: prompt_template.map(|s| s.to_string()),

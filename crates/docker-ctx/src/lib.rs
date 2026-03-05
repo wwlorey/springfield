@@ -4,10 +4,10 @@ use std::sync::OnceLock;
 static RESOLVED_CONTEXT: OnceLock<Option<String>> = OnceLock::new();
 
 fn resolve_context() -> Option<String> {
-    if let Ok(ctx) = std::env::var("SGF_DOCKER_CONTEXT") {
-        if !ctx.is_empty() {
-            return Some(ctx);
-        }
+    if let Ok(ctx) = std::env::var("SGF_DOCKER_CONTEXT")
+        && !ctx.is_empty()
+    {
+        return Some(ctx);
     }
     let output = Command::new("docker")
         .args(["context", "show"])

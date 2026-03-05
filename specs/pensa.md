@@ -32,7 +32,7 @@ Docker sandboxes use Mutagen-based file synchronization (not bind mounts). POSIX
 
 ### Daemon (`pn daemon`)
 
-- Listens on a local port (default: `7533`).
+- Listens on a per-project derived port (SHA-256 of the canonical project directory, bytes 8-9 mapped to range [10000, 60000]).
 - Owns `.pensa/db.sqlite` directly via `rusqlite`.
 - Sets pragmas on every connection: `busy_timeout=5000`, `foreign_keys=ON`.
 - All mutation is serialized through the daemon — no concurrent SQLite writers.
@@ -43,7 +43,7 @@ Docker sandboxes use Mutagen-based file synchronization (not bind mounts). POSIX
 ### CLI client
 
 - Every `pn` command (create, list, ready, close, etc.) sends an HTTP request to the daemon.
-- The CLI discovers the daemon via `PN_DAEMON` env var (default: `http://localhost:7533`). Inside Docker sandboxes, this is `http://host.docker.internal:7533`.
+- The CLI discovers the daemon via `PN_DAEMON` env var. If unset, it checks the port file (`.pensa/daemon.port`, written by the daemon on startup), then falls back to SHA-256 derivation of the project directory. Inside Docker sandboxes, `PN_DAEMON_HOST` (default: `host.docker.internal`) overrides the hostname, combined with the port from the port file synced into the sandbox.
 - If the daemon is unreachable and `PN_DAEMON` is explicitly set, the CLI prints an error and exits (exit code 1) — it never auto-starts a daemon when a remote daemon address is configured. Otherwise (no `PN_DAEMON` set), the CLI auto-starts it (spawning `pn daemon` in the background with the current working directory as `--project-dir`), waits up to 5 seconds for it to become ready, then proceeds. If the daemon still isn't reachable after 5 seconds, the command continues anyway (the HTTP call will fail with a clear error). The `daemon` and `where` subcommands skip auto-start.
 
 ### Technology choices
@@ -236,7 +236,7 @@ pn daemon [--port <port>] [--project-dir <path>]
 pn daemon status
 ```
 
-**`pn daemon`** starts the daemon in the foreground on the specified port (default: `7533`). The `--project-dir` flag tells the daemon where `.pensa/` lives (default: current working directory). The daemon creates `.pensa/` and `db.sqlite` if they don't exist, runs migrations, and starts serving.
+**`pn daemon`** starts the daemon in the foreground on the specified port (default: per-project derived via SHA-256). The `--project-dir` flag tells the daemon where `.pensa/` lives (default: current working directory). The daemon creates `.pensa/` and `db.sqlite` if they don't exist, runs migrations, and starts serving.
 
 **`pn daemon status`** checks if the daemon is running and reachable. Prints the daemon URL and project directory if connected. Exits 0 if reachable, 1 if not.
 

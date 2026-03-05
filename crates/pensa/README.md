@@ -8,7 +8,7 @@ Inspired by [beads](https://github.com/steveyegge/beads), rebuilt in Rust with t
 
 Pensa uses a **client/daemon** model:
 
-- **Daemon** (`pn daemon`) — runs on the host, owns the SQLite database, handles all reads and writes. Listens on port `7533` by default.
+- **Daemon** (`pn daemon`) — runs on the host, owns the SQLite database, handles all reads and writes. Listens on a per-project derived port by default.
 - **CLI client** (`pn <command>`) — thin HTTP client that translates subcommands into REST requests to the daemon.
 
 This architecture exists because Docker sandboxes use file synchronization (not bind mounts), so POSIX file locks don't propagate. The daemon keeps SQLite behind a single process, making concurrent access from multiple sandboxes safe.
@@ -29,7 +29,7 @@ This architecture exists because Docker sandboxes use file synchronization (not 
 ## Quick Start
 
 ```bash
-# Start the daemon (foreground, default port 7533)
+# Start the daemon (foreground, per-project derived port)
 pn daemon
 
 # In another terminal — create an issue
@@ -107,7 +107,8 @@ pn daemon status
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `PN_DAEMON` | `http://localhost:7533` | Daemon URL. Set to `http://host.docker.internal:7533` inside Docker sandboxes. |
+| `PN_DAEMON` | (port file `.pensa/daemon.port`, then SHA-256 derived port) | Full daemon URL. Overrides all other discovery. |
+| `PN_DAEMON_HOST` | `localhost` (`host.docker.internal` in Docker) | Daemon hostname. Combined with port from port file or SHA-256 derivation. |
 | `PN_ACTOR` | (git user / $USER) | Actor name for audit trail. Overridden by `--actor` flag. |
 
 ## Testing

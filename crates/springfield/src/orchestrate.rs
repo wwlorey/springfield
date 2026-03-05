@@ -19,8 +19,8 @@ pub struct LoopConfig {
     pub afk: bool,
     pub no_push: bool,
     pub iterations: u32,
-    /// Run Claude on host instead of Docker sandbox.
-    pub no_sandbox: bool,
+    /// Interactive stage — calls $AGENT_CMD directly instead of ralph.
+    pub interactive: bool,
     /// Override ralph binary path (defaults to `SGF_RALPH_BINARY` env, then `ralph`).
     pub ralph_binary: Option<String>,
     /// Skip pre-launch recovery and daemon startup (for testing).
@@ -36,15 +36,15 @@ fn resolve_ralph_binary(config: &LoopConfig) -> String {
     std::env::var("SGF_RALPH_BINARY").unwrap_or_else(|_| "ralph".to_string())
 }
 
+fn resolve_agent_cmd() -> String {
+    std::env::var("AGENT_CMD").unwrap_or_else(|_| "claude".to_string())
+}
+
 fn build_ralph_args(config: &LoopConfig, loop_id: &str, prompt_path: &Path) -> Vec<String> {
     let mut args = Vec::new();
 
     if config.afk {
         args.push("-a".to_string());
-    }
-
-    if config.no_sandbox {
-        args.push("--no-sandbox".to_string());
     }
 
     args.push("--loop-id".to_string());
@@ -81,21 +81,28 @@ fn exit_message(code: i32) -> &'static str {
 }
 
 pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
-    let loop_id = loop_mgmt::generate_loop_id(&config.stage, config.spec.as_deref());
-
     let mut vars = HashMap::new();
     if let Some(ref spec) = config.spec {
         vars.insert("spec".to_string(), spec.clone());
     }
     let template_stage = config.prompt_template.as_deref().unwrap_or(&config.stage);
-    let prompt_path = prompt::assemble(root, template_stage, &vars)?;
+    let prompt_path = prompt::assemble(root, template_stage, &vars, !config.interactive)?;
+
+    if config.interactive {
+        if !config.skip_preflight {
+            recovery::ensure_daemon(root)?;
+        }
+
+        eprintln!("sgf: launching interactive session [{}]", config.stage);
+        return run_interactive_claude(&prompt_path);
+    }
+
+    let loop_id = loop_mgmt::generate_loop_id(&config.stage, config.spec.as_deref());
 
     if !config.skip_preflight {
         recovery::pre_launch_recovery(root)?;
         recovery::ensure_daemon(root)?;
-        if !config.no_sandbox {
-            template::ensure_template()?;
-        }
+        template::ensure_template()?;
     }
 
     loop_mgmt::write_pid_file(root, &loop_id)?;
@@ -123,6 +130,21 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
     eprintln!("sgf: {msg} [{loop_id}]");
 
     Ok(exit_code)
+}
+
+fn run_interactive_claude(prompt_path: &Path) -> io::Result<i32> {
+    let cmd = resolve_agent_cmd();
+    let prompt_arg = format!("@{}", prompt_path.display());
+
+    let status = Command::new(&cmd)
+        .args(["--verbose", &prompt_arg])
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()
+        .map_err(|e| io::Error::other(format!("failed to spawn {cmd}: {e}")))?;
+
+    Ok(status.code().unwrap_or(1))
 }
 
 fn run_afk(
@@ -275,7 +297,7 @@ mod tests {
             afk: true,
             no_push: true,
             iterations: 10,
-            no_sandbox: false,
+            interactive: false,
             ralph_binary: None,
             skip_preflight: false,
             prompt_template: None,
@@ -312,7 +334,7 @@ mod tests {
             afk: false,
             no_push: false,
             iterations: 30,
-            no_sandbox: false,
+            interactive: false,
             ralph_binary: None,
             skip_preflight: false,
             prompt_template: None,
@@ -330,23 +352,25 @@ mod tests {
     }
 
     #[test]
-    fn build_args_spec_one_iteration() {
+    fn build_args_no_sandbox_removed() {
         let config = LoopConfig {
-            stage: "spec".to_string(),
-            spec: None,
+            stage: "build".to_string(),
+            spec: Some("auth".to_string()),
             afk: false,
             no_push: false,
-            iterations: 1,
-            no_sandbox: true,
+            iterations: 30,
+            interactive: false,
             ralph_binary: None,
             skip_preflight: false,
             prompt_template: None,
         };
-        let args = build_ralph_args(&config, "spec-20260226T160000", Path::new("/tmp/spec.md"));
+        let args = build_ralph_args(
+            &config,
+            "build-auth-20260226T143000",
+            Path::new("/tmp/prompt.md"),
+        );
 
-        assert!(!args.contains(&"-a".to_string()));
-        assert!(args.contains(&"--no-sandbox".to_string()));
-        assert!(args.contains(&"1".to_string()));
+        assert!(!args.contains(&"--no-sandbox".to_string()));
     }
 
     #[test]
@@ -357,7 +381,7 @@ mod tests {
             afk: false,
             no_push: false,
             iterations: 30,
-            no_sandbox: false,
+            interactive: false,
             ralph_binary: None,
             skip_preflight: false,
             prompt_template: None,
@@ -394,7 +418,7 @@ mod tests {
             afk: false,
             no_push: false,
             iterations: 30,
-            no_sandbox: false,
+            interactive: false,
             ralph_binary: Some("/custom/ralph".to_string()),
             skip_preflight: false,
             prompt_template: None,
@@ -420,7 +444,7 @@ mod tests {
             afk: true,
             no_push: false,
             iterations: 30,
-            no_sandbox: false,
+            interactive: false,
             ralph_binary: Some(mock),
             skip_preflight: true,
             prompt_template: None,
@@ -455,7 +479,7 @@ mod tests {
             afk: true,
             no_push: false,
             iterations: 30,
-            no_sandbox: false,
+            interactive: false,
             ralph_binary: Some(mock),
             skip_preflight: true,
             prompt_template: None,
@@ -483,7 +507,7 @@ mod tests {
             afk: true,
             no_push: false,
             iterations: 30,
-            no_sandbox: false,
+            interactive: false,
             ralph_binary: Some(mock),
             skip_preflight: true,
             prompt_template: None,
@@ -514,7 +538,7 @@ mod tests {
             afk: true,
             no_push: false,
             iterations: 30,
-            no_sandbox: false,
+            interactive: false,
             ralph_binary: Some(mock),
             skip_preflight: true,
             prompt_template: None,
@@ -553,7 +577,7 @@ mod tests {
             afk: true,
             no_push: true,
             iterations: 10,
-            no_sandbox: false,
+            interactive: false,
             ralph_binary: Some(mock),
             skip_preflight: true,
             prompt_template: None,
@@ -584,7 +608,7 @@ mod tests {
             afk: true,
             no_push: false,
             iterations: 30,
-            no_sandbox: false,
+            interactive: false,
             ralph_binary: Some(mock),
             skip_preflight: true,
             prompt_template: None,
@@ -596,7 +620,10 @@ mod tests {
         assert!(args_content.contains(".sgf/prompts/.assembled/build.md"));
 
         let assembled = fs::read_to_string(root.join(".sgf/prompts/.assembled/build.md")).unwrap();
-        assert_eq!(assembled, "Build auth now.");
+        assert!(
+            assembled.ends_with("Build auth now."),
+            "assembled should end with template content, got: {assembled}"
+        );
     }
 
     #[test]
@@ -617,7 +644,7 @@ mod tests {
             afk: true,
             no_push: false,
             iterations: 30,
-            no_sandbox: false,
+            interactive: false,
             ralph_binary: Some(mock),
             skip_preflight: true,
             prompt_template: None,
@@ -632,83 +659,10 @@ mod tests {
         assert!(args_content.contains("-a"));
 
         let assembled = fs::read_to_string(root.join(".sgf/prompts/.assembled/verify.md")).unwrap();
-        assert_eq!(assembled, "Verify all specs against codebase.");
-    }
-
-    #[test]
-    fn spec_one_iteration_interactive() {
-        let tmp = TempDir::new().unwrap();
-        let root = tmp.path();
-        setup_project(root, "spec", "Interview the developer about specs.");
-        setup_git_repo(root);
-
-        let mock = mock_ralph_script(
-            root,
-            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
-        );
-
-        let config = LoopConfig {
-            stage: "spec".to_string(),
-            spec: None,
-            afk: false,
-            no_push: false,
-            iterations: 1,
-            no_sandbox: true,
-            ralph_binary: Some(mock),
-            skip_preflight: true,
-            prompt_template: None,
-        };
-
-        let exit_code = run(root, &config).unwrap();
-        assert_eq!(exit_code, 0);
-
-        let args_content = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
         assert!(
-            !args_content.starts_with("-a "),
-            "should not have --afk flag"
+            assembled.ends_with("Verify all specs against codebase."),
+            "assembled should end with template content, got: {assembled}"
         );
-        assert!(args_content.contains("--no-sandbox"));
-        assert!(args_content.contains(" 1 "));
-    }
-
-    #[test]
-    fn issues_log_uses_issues_template() {
-        let tmp = TempDir::new().unwrap();
-        let root = tmp.path();
-        setup_project(root, "issues", "Log a bug interactively.");
-        setup_git_repo(root);
-
-        let mock = mock_ralph_script(
-            root,
-            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
-        );
-
-        let config = LoopConfig {
-            stage: "issues-log".to_string(),
-            spec: None,
-            afk: false,
-            no_push: false,
-            iterations: 1,
-            no_sandbox: true,
-            ralph_binary: Some(mock),
-            skip_preflight: true,
-            prompt_template: Some("issues".to_string()),
-        };
-
-        let exit_code = run(root, &config).unwrap();
-        assert_eq!(exit_code, 0);
-
-        let args_content = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
-        assert!(args_content.contains("issues-log-"));
-        assert!(
-            !args_content.starts_with("-a "),
-            "should not have --afk flag"
-        );
-        assert!(args_content.contains("--no-sandbox"));
-        assert!(args_content.contains(" 1 "));
-
-        let assembled = fs::read_to_string(root.join(".sgf/prompts/.assembled/issues.md")).unwrap();
-        assert_eq!(assembled, "Log a bug interactively.");
     }
 
     #[test]
@@ -729,7 +683,7 @@ mod tests {
             afk: true,
             no_push: false,
             iterations: 30,
-            no_sandbox: false,
+            interactive: false,
             ralph_binary: Some(mock),
             skip_preflight: true,
             prompt_template: None,
@@ -739,7 +693,10 @@ mod tests {
         assert_eq!(exit_code, 0);
 
         let assembled = fs::read_to_string(root.join(".sgf/prompts/.assembled/test.md")).unwrap();
-        assert_eq!(assembled, "Test auth items.");
+        assert!(
+            assembled.ends_with("Test auth items."),
+            "assembled should end with template content, got: {assembled}"
+        );
     }
 
     #[test]
@@ -760,7 +717,7 @@ mod tests {
             afk: true,
             no_push: false,
             iterations: 30,
-            no_sandbox: false,
+            interactive: false,
             ralph_binary: Some(mock),
             skip_preflight: true,
             prompt_template: None,

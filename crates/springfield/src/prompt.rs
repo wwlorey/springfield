@@ -3,7 +3,32 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-pub fn assemble(root: &Path, stage: &str, vars: &HashMap<String, String>) -> io::Result<PathBuf> {
+const DEFAULT_AGENT_FILES: &str = "$HOME/.MEMENTO.md:./BACKPRESSURE.md:./specs/README.md";
+
+pub fn resolve_system_prompt_files(root: &Path) -> Vec<PathBuf> {
+    let raw = std::env::var("AGENT_FILES").unwrap_or_else(|_| DEFAULT_AGENT_FILES.to_string());
+    let home = std::env::var("HOME").unwrap_or_default();
+
+    raw.split(':')
+        .filter(|s| !s.is_empty())
+        .filter_map(|entry| {
+            let expanded = entry.replace("$HOME", &home).replace('~', &home);
+            let path = if expanded.starts_with("./") || expanded.starts_with("../") {
+                root.join(&expanded)
+            } else {
+                PathBuf::from(&expanded)
+            };
+            if path.exists() { Some(path) } else { None }
+        })
+        .collect()
+}
+
+pub fn assemble(
+    root: &Path,
+    stage: &str,
+    vars: &HashMap<String, String>,
+    prepend_system_files: bool,
+) -> io::Result<PathBuf> {
     let template_path = root.join(format!(".sgf/prompts/{stage}.md"));
     if !template_path.exists() {
         return Err(io::Error::new(
@@ -11,17 +36,6 @@ pub fn assemble(root: &Path, stage: &str, vars: &HashMap<String, String>) -> io:
             format!("template not found: {}", template_path.display()),
         ));
     }
-
-    // Read .sgf/MEMENTO.md (graceful fallback if missing)
-    let memento_path = root.join(".sgf/MEMENTO.md");
-    let memento_content = match fs::read_to_string(&memento_path) {
-        Ok(content) => Some(content),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => None,
-        Err(e) => {
-            eprintln!("warning: could not read .sgf/MEMENTO.md: {e}");
-            None
-        }
-    };
 
     let mut content = fs::read_to_string(&template_path)?;
 
@@ -37,10 +51,22 @@ pub fn assemble(root: &Path, stage: &str, vars: &HashMap<String, String>) -> io:
         ));
     }
 
-    // Prepend memento content before template content
-    let final_content = match memento_content {
-        Some(memento) => format!("{memento}\n{content}"),
-        None => content,
+    let final_content = if prepend_system_files {
+        let files = resolve_system_prompt_files(root);
+        let mut parts: Vec<String> = Vec::new();
+        for file in files {
+            if let Ok(text) = fs::read_to_string(&file) {
+                parts.push(text);
+            }
+        }
+        if parts.is_empty() {
+            content
+        } else {
+            parts.push(content);
+            parts.join("\n")
+        }
+    } else {
+        content
     };
 
     let assembled_dir = root.join(".sgf/prompts/.assembled");
@@ -92,7 +118,7 @@ mod tests {
         let mut vars = HashMap::new();
         vars.insert("spec".to_string(), "auth".to_string());
 
-        let path = assemble(tmp.path(), "build", &vars).unwrap();
+        let path = assemble(tmp.path(), "build", &vars, false).unwrap();
         let content = fs::read_to_string(&path).unwrap();
 
         assert_eq!(content, "Run `pn ready --spec auth --json`.\n");
@@ -112,7 +138,7 @@ mod tests {
         let mut vars = HashMap::new();
         vars.insert("spec".to_string(), "auth".to_string());
 
-        let path = assemble(tmp.path(), "build", &vars).unwrap();
+        let path = assemble(tmp.path(), "build", &vars, false).unwrap();
         let content = fs::read_to_string(&path).unwrap();
 
         assert_eq!(content, "Build auth then test auth.");
@@ -126,7 +152,7 @@ mod tests {
         fs::write(tmp.path().join(".sgf/prompts/verify.md"), original).unwrap();
 
         let vars = HashMap::new();
-        let path = assemble(tmp.path(), "verify", &vars).unwrap();
+        let path = assemble(tmp.path(), "verify", &vars, false).unwrap();
         let content = fs::read_to_string(&path).unwrap();
 
         assert_eq!(content, original);
@@ -143,7 +169,7 @@ mod tests {
         .unwrap();
 
         let vars = HashMap::new();
-        let err = assemble(tmp.path(), "build", &vars).unwrap_err();
+        let err = assemble(tmp.path(), "build", &vars, false).unwrap_err();
 
         assert_eq!(err.kind(), io::ErrorKind::InvalidData);
         let msg = err.to_string();
@@ -159,7 +185,7 @@ mod tests {
         setup_project(tmp.path());
 
         let vars = HashMap::new();
-        let err = assemble(tmp.path(), "nonexistent", &vars).unwrap_err();
+        let err = assemble(tmp.path(), "nonexistent", &vars, false).unwrap_err();
 
         assert_eq!(err.kind(), io::ErrorKind::NotFound);
         assert!(err.to_string().contains("template not found"));
@@ -174,7 +200,7 @@ mod tests {
         fs::write(tmp.path().join(".sgf/prompts/verify.md"), "plain text").unwrap();
 
         let vars = HashMap::new();
-        let path = assemble(tmp.path(), "verify", &vars).unwrap();
+        let path = assemble(tmp.path(), "verify", &vars, false).unwrap();
 
         assert!(path.exists());
         assert!(tmp.path().join(".sgf/prompts/.assembled").is_dir());
@@ -191,7 +217,7 @@ mod tests {
         .unwrap();
 
         let vars = HashMap::new();
-        let err = assemble(tmp.path(), "build", &vars).unwrap_err();
+        let err = assemble(tmp.path(), "build", &vars, false).unwrap_err();
 
         let msg = err.to_string();
         assert!(msg.contains("{{foo}}"), "should list {{foo}}: {msg}");
@@ -211,7 +237,7 @@ mod tests {
         let mut vars = HashMap::new();
         vars.insert("spec".to_string(), "auth".to_string());
 
-        let err = assemble(tmp.path(), "build", &vars).unwrap_err();
+        let err = assemble(tmp.path(), "build", &vars, false).unwrap_err();
 
         let msg = err.to_string();
         assert!(
@@ -222,5 +248,18 @@ mod tests {
             !msg.contains("{{spec}}"),
             "should not report resolved: {msg}"
         );
+    }
+
+    #[test]
+    fn prepend_false_skips_system_files() {
+        let tmp = TempDir::new().unwrap();
+        setup_project(tmp.path());
+        fs::write(tmp.path().join(".sgf/prompts/build.md"), "template body").unwrap();
+
+        let vars = HashMap::new();
+        let path = assemble(tmp.path(), "build", &vars, false).unwrap();
+
+        let content = fs::read_to_string(&path).unwrap();
+        assert_eq!(content, "template body");
     }
 }

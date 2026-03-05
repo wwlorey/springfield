@@ -25,8 +25,8 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     Daemon {
-        #[arg(long, default_value_t = 7533)]
-        port: u16,
+        #[arg(long)]
+        port: Option<u16>,
         #[arg(long)]
         project_dir: Option<std::path::PathBuf>,
         #[command(subcommand)]
@@ -228,10 +228,17 @@ fn ensure_daemon() {
     }
 
     let dir = std::env::current_dir().unwrap();
-    eprintln!("pn: starting daemon...");
+    let port = pensa::db::project_port(&dir);
+    eprintln!("pn: starting daemon on port {port}...");
 
     if let Err(e) = Command::new(std::env::current_exe().unwrap())
-        .args(["daemon", "--project-dir", &dir.to_string_lossy()])
+        .args([
+            "daemon",
+            "--port",
+            &port.to_string(),
+            "--project-dir",
+            &dir.to_string_lossy(),
+        ])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -292,6 +299,7 @@ fn main() {
             }
             None => {
                 let dir = project_dir.unwrap_or_else(|| std::env::current_dir().unwrap());
+                let port = port.unwrap_or_else(|| pensa::db::project_port(&dir));
                 let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
                 rt.block_on(pensa::daemon::start(port, dir));
             }

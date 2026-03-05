@@ -80,12 +80,20 @@ pub async fn start(port: u16, project_dir: PathBuf) {
         .await
         .expect("failed to bind");
 
+    let port_file = project_dir.join(".pensa/daemon.port");
+    let _ = std::fs::create_dir_all(project_dir.join(".pensa"));
+    if let Err(e) = std::fs::write(&port_file, port.to_string()) {
+        tracing::warn!("failed to write port file: {e}");
+    }
+
     tracing::info!("pensa daemon listening on port {port}");
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await
         .expect("server error");
+
+    let _ = std::fs::remove_file(&port_file);
 }
 
 async fn shutdown_signal() {

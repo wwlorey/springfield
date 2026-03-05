@@ -131,8 +131,6 @@ fn init_creates_all_files() {
         ".sgf/prompts/test-plan.md",
         ".sgf/prompts/test.md",
         ".sgf/prompts/issues.md",
-        ".sgf/PENSA.md",
-        ".sgf/MEMENTO.md",
         "specs/README.md",
         ".claude/settings.json",
         ".pre-commit-config.yaml",
@@ -164,24 +162,14 @@ fn init_file_contents() {
     let target = fs::read_link(&claude_md).unwrap();
     assert_eq!(target.to_str().unwrap(), "AGENTS.md");
 
-    // .sgf/MEMENTO.md
-    let memento = fs::read_to_string(tmp.path().join(".sgf/MEMENTO.md")).unwrap();
-    assert!(memento.contains("study `@specs/README.md`"));
-    assert!(memento.contains("study `@BACKPRESSURE.md`"));
+    // .sgf/MEMENTO.md and .sgf/PENSA.md should NOT exist
     assert!(
-        !memento.contains("study `@.sgf/BACKPRESSURE.md`"),
-        "MEMENTO should reference root BACKPRESSURE.md, not .sgf/"
+        !tmp.path().join(".sgf/MEMENTO.md").exists(),
+        ".sgf/MEMENTO.md should NOT be created"
     );
-    assert!(memento.contains("study `@.sgf/PENSA.md`"));
-    assert!(!memento.contains("## Stack"));
-    assert!(!memento.contains("## References"));
-
-    // .sgf/PENSA.md
-    let pensa = fs::read_to_string(tmp.path().join(".sgf/PENSA.md")).unwrap();
-    assert!(pensa.contains("pn"), "pensa.md should mention pn");
     assert!(
-        pensa.contains("Claim Workflow"),
-        "pensa.md should contain claim workflow"
+        !tmp.path().join(".sgf/PENSA.md").exists(),
+        ".sgf/PENSA.md should NOT be created"
     );
 
     // .claude/settings.json
@@ -300,7 +288,7 @@ fn prompt_assembly_substitutes_spec() {
     .unwrap();
 
     let vars = std::collections::HashMap::from([("spec".to_string(), "auth".to_string())]);
-    let result = springfield::prompt::assemble(tmp.path(), "build", &vars).unwrap();
+    let result = springfield::prompt::assemble(tmp.path(), "build", &vars, false).unwrap();
 
     let assembled = fs::read_to_string(&result).unwrap();
     assert_eq!(assembled, "Build auth now.");
@@ -318,7 +306,7 @@ fn prompt_assembly_validates_unresolved() {
     .unwrap();
 
     let vars = std::collections::HashMap::from([("spec".to_string(), "auth".to_string())]);
-    let result = springfield::prompt::assemble(tmp.path(), "build", &vars);
+    let result = springfield::prompt::assemble(tmp.path(), "build", &vars, false);
 
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
@@ -336,56 +324,54 @@ fn prompt_assembly_passthrough() {
     fs::write(tmp.path().join(".sgf/prompts/verify.md"), content).unwrap();
 
     let vars = std::collections::HashMap::new();
-    let result = springfield::prompt::assemble(tmp.path(), "verify", &vars).unwrap();
+    let result = springfield::prompt::assemble(tmp.path(), "verify", &vars, false).unwrap();
 
     let assembled = fs::read_to_string(&result).unwrap();
     assert_eq!(assembled, content);
 }
 
 #[test]
-fn prompt_assembly_prepends_memento() {
+fn prompt_assembly_prepends_system_files() {
     let tmp = TempDir::new().unwrap();
     fs::create_dir_all(tmp.path().join(".sgf/prompts/.assembled")).unwrap();
 
-    let memento = "study `specs/README.md`\nstudy `.sgf/BACKPRESSURE.md`\nstudy `.sgf/PENSA.md`\n";
-    fs::write(tmp.path().join(".sgf/MEMENTO.md"), memento).unwrap();
+    let sys_content = "# System Context\n";
+    let sys_file = tmp.path().join("system.md");
+    fs::write(&sys_file, sys_content).unwrap();
 
     let template = "Read `specs/README.md`.\n\nVerify the specs.\n";
     fs::write(tmp.path().join(".sgf/prompts/verify.md"), template).unwrap();
 
+    unsafe { std::env::set_var("AGENT_FILES", sys_file.to_string_lossy().as_ref()) };
     let vars = std::collections::HashMap::new();
-    let result = springfield::prompt::assemble(tmp.path(), "verify", &vars).unwrap();
+    let result = springfield::prompt::assemble(tmp.path(), "verify", &vars, true).unwrap();
+    unsafe { std::env::remove_var("AGENT_FILES") };
 
     let assembled = fs::read_to_string(&result).unwrap();
     assert!(
-        assembled.starts_with(memento),
-        "assembled should start with memento content"
+        assembled.starts_with(sys_content),
+        "assembled should start with system file content"
     );
     assert!(
         assembled.contains(template),
         "assembled should contain template content"
     );
-    assert!(
-        assembled.find(memento).unwrap() < assembled.find(template).unwrap(),
-        "memento should appear before template"
-    );
 }
 
 #[test]
-fn prompt_assembly_without_memento() {
+fn prompt_assembly_no_prepend_when_false() {
     let tmp = TempDir::new().unwrap();
     fs::create_dir_all(tmp.path().join(".sgf/prompts/.assembled")).unwrap();
-    // Do NOT create .sgf/MEMENTO.md
     let template = "No variables here, just plain text.";
     fs::write(tmp.path().join(".sgf/prompts/verify.md"), template).unwrap();
 
     let vars = std::collections::HashMap::new();
-    let result = springfield::prompt::assemble(tmp.path(), "verify", &vars).unwrap();
+    let result = springfield::prompt::assemble(tmp.path(), "verify", &vars, false).unwrap();
 
     let assembled = fs::read_to_string(&result).unwrap();
     assert_eq!(
         assembled, template,
-        "without memento, assembled should equal template"
+        "with prepend=false, assembled should equal template"
     );
 }
 
@@ -527,17 +513,17 @@ fn afk_tees_output_to_log() {
 }
 
 #[test]
-fn spec_runs_one_interactive_iteration() {
+fn spec_runs_interactive_via_agent_cmd() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
 
     let (_mock_pn_dir, mock_path) = setup_mock_pn();
 
     let mock_dir = TempDir::new().unwrap();
-    let args_file = mock_dir.path().join("ralph_args.txt");
-    let mock_ralph = create_mock_script(
+    let args_file = mock_dir.path().join("agent_args.txt");
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         &format!(
             "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
             args_file.display()
@@ -546,8 +532,10 @@ fn spec_runs_one_interactive_iteration() {
 
     let output = sgf_cmd(tmp.path())
         .arg("spec")
-        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
+        .env("AGENT_FILES", "")
         .env("PATH", &mock_path)
+        .env_remove("CLAUDECODE")
         .output()
         .unwrap();
     assert!(
@@ -557,27 +545,26 @@ fn spec_runs_one_interactive_iteration() {
     );
 
     let args = fs::read_to_string(&args_file).unwrap();
-    // Should have 1 iteration, no --afk, with --no-sandbox
-    assert!(args.contains(" 1 "), "should have 1 iteration");
-    assert!(!args.starts_with("-a "), "should not have --afk flag");
+    assert!(args.contains("--verbose"), "should pass --verbose to agent");
+    assert!(args.contains("@"), "should pass prompt via @ prefix");
     assert!(
-        args.contains("--no-sandbox"),
-        "spec should pass --no-sandbox"
+        args.contains(".assembled/spec.md"),
+        "should pass assembled spec prompt"
     );
 }
 
 #[test]
-fn issues_log_runs_one_interactive_iteration() {
+fn issues_log_runs_interactive_via_agent_cmd() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
 
     let (_mock_pn_dir, mock_path) = setup_mock_pn();
 
     let mock_dir = TempDir::new().unwrap();
-    let args_file = mock_dir.path().join("ralph_args.txt");
-    let mock_ralph = create_mock_script(
+    let args_file = mock_dir.path().join("agent_args.txt");
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         &format!(
             "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
             args_file.display()
@@ -586,8 +573,10 @@ fn issues_log_runs_one_interactive_iteration() {
 
     let output = sgf_cmd(tmp.path())
         .args(["issues", "log"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
+        .env("AGENT_FILES", "")
         .env("PATH", &mock_path)
+        .env_remove("CLAUDECODE")
         .output()
         .unwrap();
     assert!(
@@ -597,15 +586,11 @@ fn issues_log_runs_one_interactive_iteration() {
     );
 
     let args = fs::read_to_string(&args_file).unwrap();
-    assert!(args.contains(" 1 "), "should have 1 iteration");
-    assert!(!args.starts_with("-a "), "should not have --afk flag");
+    assert!(args.contains("--verbose"), "should pass --verbose to agent");
+    assert!(args.contains("@"), "should pass prompt via @ prefix");
     assert!(
-        args.contains("--no-sandbox"),
-        "issues log should pass --no-sandbox"
-    );
-    assert!(
-        args.contains("issues-log-"),
-        "loop ID should contain issues-log"
+        args.contains(".assembled/issues.md"),
+        "should pass assembled issues prompt"
     );
 }
 
@@ -938,18 +923,8 @@ fn templates_reference_uppercase_filenames() {
     let tmp = setup_test_dir();
     sgf_cmd(tmp.path()).arg("init").output().unwrap();
 
-    // test.md should reference uppercase .sgf/PENSA.md
-    let test = fs::read_to_string(tmp.path().join(".sgf/prompts/test.md")).unwrap();
-    assert!(
-        test.contains(".sgf/PENSA.md"),
-        "test.md should reference .sgf/PENSA.md (uppercase)"
-    );
-    assert!(
-        !test.contains(".sgf/pensa.md"),
-        "test.md should NOT reference .sgf/pensa.md (lowercase)"
-    );
-
     // test.md should reference root BACKPRESSURE.md (uppercase, not inside .sgf/)
+    let test = fs::read_to_string(tmp.path().join(".sgf/prompts/test.md")).unwrap();
     assert!(
         test.contains("BACKPRESSURE.md"),
         "test.md should reference BACKPRESSURE.md (uppercase)"
@@ -958,10 +933,19 @@ fn templates_reference_uppercase_filenames() {
         !test.contains("backpressure.md"),
         "test.md should NOT reference backpressure.md (lowercase)"
     );
+    // test.md should use pn claim workflow, not reference .sgf/PENSA.md
+    assert!(
+        test.contains("pn claim workflow"),
+        "test.md should reference pn claim workflow"
+    );
+    assert!(
+        !test.contains(".sgf/PENSA.md"),
+        "test.md should NOT reference .sgf/PENSA.md"
+    );
 }
 
 #[test]
-fn end_to_end_build_loop_with_memento_injection() {
+fn end_to_end_build_loop_with_system_file_injection() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
 
@@ -990,6 +974,7 @@ fn end_to_end_build_loop_with_memento_injection() {
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
         .env("PATH", &path_with_mock_docker)
+        .env("AGENT_FILES", "./BACKPRESSURE.md:./specs/README.md")
         .output()
         .unwrap();
 
@@ -999,39 +984,17 @@ fn end_to_end_build_loop_with_memento_injection() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    // Check the assembled prompt
+    // Check the assembled prompt — system files should be prepended
     let assembled =
         fs::read_to_string(tmp.path().join(".sgf/prompts/.assembled/build.md")).unwrap();
 
-    // Should start with .sgf/MEMENTO.md content (study directives with @ prefix)
     assert!(
-        assembled.starts_with("study `@specs/README.md`"),
-        "assembled prompt should start with memento content, got: {}",
-        assembled.lines().next().unwrap_or("")
+        assembled.contains("# Backpressure"),
+        "assembled prompt should contain BACKPRESSURE.md content"
     );
     assert!(
-        assembled.contains("study `@BACKPRESSURE.md`"),
-        "assembled prompt should contain root BACKPRESSURE study directive"
-    );
-    assert!(
-        !assembled.contains("study `@.sgf/BACKPRESSURE.md`"),
-        "assembled prompt should NOT reference .sgf/BACKPRESSURE.md"
-    );
-    assert!(
-        assembled.contains("study `@.sgf/PENSA.md`"),
-        "assembled prompt should contain PENSA study directive"
-    );
-
-    // Should NOT contain Read `memento.md` directive
-    assert!(
-        !assembled.contains("Read `memento.md`"),
-        "assembled prompt should NOT contain 'Read `memento.md`'"
-    );
-
-    // Memento should reference uppercase filenames
-    assert!(
-        assembled.contains(".sgf/PENSA.md"),
-        "assembled prompt should reference .sgf/PENSA.md (uppercase)"
+        assembled.contains("# Specifications"),
+        "assembled prompt should contain specs/README.md content"
     );
 }
 
@@ -1074,15 +1037,14 @@ fn init_end_to_end_root_backpressure() {
         "BACKPRESSURE.md should NOT exist inside .sgf/"
     );
 
-    // (3) .sgf/MEMENTO.md contains 'study `@BACKPRESSURE.md`' (root reference)
-    let memento = fs::read_to_string(tmp.path().join(".sgf/MEMENTO.md")).unwrap();
+    // (3) .sgf/MEMENTO.md and .sgf/PENSA.md should NOT exist
     assert!(
-        memento.contains("study `@BACKPRESSURE.md`"),
-        "MEMENTO.md should reference root BACKPRESSURE.md with @ prefix"
+        !tmp.path().join(".sgf/MEMENTO.md").exists(),
+        ".sgf/MEMENTO.md should NOT be created"
     );
     assert!(
-        !memento.contains("study `@.sgf/BACKPRESSURE.md`"),
-        "MEMENTO.md should NOT reference .sgf/BACKPRESSURE.md"
+        !tmp.path().join(".sgf/PENSA.md").exists(),
+        ".sgf/PENSA.md should NOT be created"
     );
 
     // (4) .claude/settings.json deny rules do NOT cover root BACKPRESSURE.md
@@ -1127,6 +1089,7 @@ fn init_end_to_end_root_backpressure() {
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
         .env("PATH", &path_with_mock_docker)
+        .env("AGENT_FILES", "./BACKPRESSURE.md:./specs/README.md")
         .output()
         .unwrap();
 
@@ -1139,25 +1102,14 @@ fn init_end_to_end_root_backpressure() {
     let assembled =
         fs::read_to_string(tmp.path().join(".sgf/prompts/.assembled/build.md")).unwrap();
 
-    // Assembled prompt should start with memento directives
+    // Assembled prompt should contain system file contents
     assert!(
-        assembled.starts_with("study `@specs/README.md`"),
-        "assembled prompt should start with memento, got: {}",
-        assembled.lines().next().unwrap_or("")
-    );
-    // Root BACKPRESSURE.md reference (not .sgf/)
-    assert!(
-        assembled.contains("study `@BACKPRESSURE.md`"),
-        "assembled prompt should reference root BACKPRESSURE.md"
+        assembled.contains("# Backpressure"),
+        "assembled prompt should contain BACKPRESSURE.md content"
     );
     assert!(
-        !assembled.contains("study `@.sgf/BACKPRESSURE.md`"),
-        "assembled prompt should NOT reference .sgf/BACKPRESSURE.md"
-    );
-    // PENSA.md still inside .sgf/
-    assert!(
-        assembled.contains("study `@.sgf/PENSA.md`"),
-        "assembled prompt should reference .sgf/PENSA.md"
+        assembled.contains("# Specifications"),
+        "assembled prompt should contain specs/README.md content"
     );
 }
 
@@ -1178,11 +1130,6 @@ fn init_force_restores_templates_matching_spec() {
     git_add_commit(tmp.path(), "sgf init");
 
     // Modify templates with stale content
-    fs::write(
-        tmp.path().join(".sgf/PENSA.md"),
-        "# pn — old description\nstale content\n",
-    )
-    .unwrap();
     fs::write(
         tmp.path().join(".sgf/prompts/build.md"),
         "stale build prompt with old task wording\n",
@@ -1211,20 +1158,10 @@ fn init_force_restores_templates_matching_spec() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    // (1) .sgf/PENSA.md restored — heading uses 'Exclusive Work Item (Issue) Tracker'
-    let pensa = fs::read_to_string(tmp.path().join(".sgf/PENSA.md")).unwrap();
+    // (1) .sgf/PENSA.md should NOT exist
     assert!(
-        pensa.contains("# pn — Exclusive Work Item (Issue) Tracker"),
-        "PENSA.md should have spec-aligned heading, got: {}",
-        pensa.lines().next().unwrap_or("")
-    );
-    assert!(
-        pensa.contains("exclusive work item (issue) tracker"),
-        "PENSA.md description should use 'exclusive work item (issue) tracker'"
-    );
-    assert!(
-        pensa.contains("Claim Workflow"),
-        "PENSA.md should contain Claim Workflow section"
+        !tmp.path().join(".sgf/PENSA.md").exists(),
+        ".sgf/PENSA.md should NOT be created by force init"
     );
 
     // (2) .sgf/prompts/build.md restored — uses 'issue' terminology

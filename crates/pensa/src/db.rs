@@ -23,7 +23,22 @@ pub fn data_dir_for(project_dir: &Path) -> PathBuf {
     data_dir(project_dir)
 }
 
+fn project_hash(project_dir: &Path) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let canonical = project_dir
+        .canonicalize()
+        .unwrap_or_else(|_| project_dir.to_path_buf());
+    Sha256::digest(canonical.to_string_lossy().as_bytes()).into()
+}
+
 fn data_dir(project_dir: &Path) -> PathBuf {
+    let hash = project_hash(project_dir);
+    let hex: String = hash[..8].iter().map(|b| format!("{b:02x}")).collect();
+    let home = std::env::var("HOME").expect("HOME not set");
+    PathBuf::from(home).join(".local/share/pensa").join(hex)
+}
+
+fn old_data_dir(project_dir: &Path) -> PathBuf {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
     let canonical = project_dir
@@ -34,6 +49,12 @@ fn data_dir(project_dir: &Path) -> PathBuf {
     let hash = format!("{:016x}", hasher.finish());
     let home = std::env::var("HOME").expect("HOME not set");
     PathBuf::from(home).join(".local/share/pensa").join(hash)
+}
+
+pub fn project_port(project_dir: &Path) -> u16 {
+    let hash = project_hash(project_dir);
+    let raw = u16::from_be_bytes([hash[8], hash[9]]);
+    10000 + (raw % 50000)
 }
 
 fn parse_dt(s: &str) -> DateTime<Utc> {
@@ -80,6 +101,20 @@ impl Db {
     pub fn open(project_dir: &Path) -> Result<Db, PensaError> {
         let pensa_dir = project_dir.join(".pensa");
         let dd = data_dir(project_dir);
+
+        let old_dd = old_data_dir(project_dir);
+        if old_dd != dd
+            && old_dd.exists()
+            && !dd.exists()
+            && let Err(e) = fs::rename(&old_dd, &dd)
+        {
+            tracing::warn!(
+                old = %old_dd.display(),
+                new = %dd.display(),
+                "rename failed, will create fresh: {e}"
+            );
+        }
+
         Self::open_with_data_dir(pensa_dir, dd)
     }
 

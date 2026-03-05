@@ -6,6 +6,14 @@ use std::time::{Duration, Instant};
 
 use crate::loop_mgmt;
 
+pub(crate) fn project_port(root: &Path) -> u16 {
+    use sha2::{Digest, Sha256};
+    let canonical = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let hash: [u8; 32] = Sha256::digest(canonical.to_string_lossy().as_bytes()).into();
+    let raw = u16::from_be_bytes([hash[8], hash[9]]);
+    10000 + (raw % 50000)
+}
+
 pub fn pre_launch_recovery(root: &Path) -> io::Result<()> {
     let pid_entries = loop_mgmt::list_pid_files(root);
 
@@ -40,9 +48,7 @@ pub fn pre_launch_recovery(root: &Path) -> io::Result<()> {
             )));
         }
         Err(e) => {
-            return Err(io::Error::other(format!(
-                "failed to run git checkout: {e}"
-            )));
+            return Err(io::Error::other(format!("failed to run git checkout: {e}")));
         }
     }
 
@@ -53,14 +59,10 @@ pub fn pre_launch_recovery(root: &Path) -> io::Result<()> {
     match clean {
         Ok(s) if s.success() => {}
         Ok(s) => {
-            return Err(io::Error::other(format!(
-                "git clean -fd failed with {s}"
-            )));
+            return Err(io::Error::other(format!("git clean -fd failed with {s}")));
         }
         Err(e) => {
-            return Err(io::Error::other(format!(
-                "failed to run git clean: {e}"
-            )));
+            return Err(io::Error::other(format!("failed to run git clean: {e}")));
         }
     }
 
@@ -87,10 +89,17 @@ pub fn ensure_daemon(root: &Path) -> io::Result<()> {
         return Ok(());
     }
 
-    eprintln!("sgf: starting pensa daemon...");
+    let port = project_port(root);
+    eprintln!("sgf: starting pensa daemon on port {port}...");
 
     Command::new("pn")
-        .args(["daemon", "--project-dir", &root.to_string_lossy()])
+        .args([
+            "daemon",
+            "--port",
+            &port.to_string(),
+            "--project-dir",
+            &root.to_string_lossy(),
+        ])
         .current_dir(root)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -253,12 +262,5 @@ mod tests {
         assert!(run_dir.join("dead-loop.pid").exists());
         // Dirty file should still exist
         assert!(tmp.path().join("dirty.txt").exists());
-    }
-
-    #[test]
-    fn daemon_not_reachable_without_pn() {
-        let tmp = TempDir::new().unwrap();
-        // pn daemon status should fail (or pn not found) → not reachable
-        assert!(!daemon_is_reachable(tmp.path()));
     }
 }

@@ -16,14 +16,7 @@ const TEMPLATE_VERIFY: &str = include_str!("../templates/verify.md");
 const TEMPLATE_TEST_PLAN: &str = include_str!("../templates/test-plan.md");
 const TEMPLATE_TEST: &str = include_str!("../templates/test.md");
 const TEMPLATE_ISSUES: &str = include_str!("../templates/issues.md");
-const TEMPLATE_PENSA: &str = include_str!("../templates/pensa.md");
 const TEMPLATE_LOOM_SPECS_README: &str = include_str!("../templates/loom-specs-README.md");
-
-const MEMENTO_CONTENT: &str = "\
-study `@specs/README.md`
-study `@.sgf/PENSA.md`
-study `@BACKPRESSURE.md`
-";
 
 const SPECS_README_CONTENT: &str = "\
 # Specifications
@@ -77,10 +70,6 @@ const TEMPLATE_FILES: &[TemplateFile] = &[
         content: TEMPLATE_ISSUES,
     },
     TemplateFile {
-        path: ".sgf/PENSA.md",
-        content: TEMPLATE_PENSA,
-    },
-    TemplateFile {
         path: ".sgf/loom-specs-README.md",
         content: TEMPLATE_LOOM_SPECS_README,
     },
@@ -91,16 +80,10 @@ struct SkeletonFile {
     content: &'static str,
 }
 
-const SKELETON_FILES: &[SkeletonFile] = &[
-    SkeletonFile {
-        path: ".sgf/MEMENTO.md",
-        content: MEMENTO_CONTENT,
-    },
-    SkeletonFile {
-        path: "specs/README.md",
-        content: SPECS_README_CONTENT,
-    },
-];
+const SKELETON_FILES: &[SkeletonFile] = &[SkeletonFile {
+    path: "specs/README.md",
+    content: SPECS_README_CONTENT,
+}];
 
 const GITIGNORE_FULL: &str = "\
 # Springfield
@@ -109,6 +92,7 @@ const GITIGNORE_FULL: &str = "\
 .sgf/prompts/.assembled/
 .ralph-complete
 .ralph-ding
+.pensa/daemon.port
 
 # Rust
 /target
@@ -134,6 +118,7 @@ const GITIGNORE_ENTRIES: &[&str] = &[
     ".sgf/prompts/.assembled/",
     ".ralph-complete",
     ".ralph-ding",
+    ".pensa/daemon.port",
     "/target",
     "node_modules/",
     ".svelte-kit/",
@@ -447,15 +432,7 @@ fn write_force_files(root: &Path) -> io::Result<()> {
         fs::write(&path, tf.content)?;
     }
     for sf in SKELETON_FILES {
-        if sf.path == "specs/README.md" {
-            write_if_missing(&root.join(sf.path), sf.content)?;
-            continue;
-        }
-        let path = root.join(sf.path);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(&path, sf.content)?;
+        write_if_missing(&root.join(sf.path), sf.content)?;
     }
     Ok(())
 }
@@ -615,17 +592,19 @@ mod tests {
     }
 
     #[test]
-    fn memento_content() {
+    fn no_memento_or_pensa_scaffolded() {
         let tmp = TempDir::new().unwrap();
         git_init(tmp.path());
         run(tmp.path(), false).unwrap();
 
-        let content = fs::read_to_string(tmp.path().join(".sgf/MEMENTO.md")).unwrap();
-        assert!(content.contains("study `@specs/README.md`"));
-        assert!(content.contains("study `@BACKPRESSURE.md`"));
-        assert!(content.contains("study `@.sgf/PENSA.md`"));
-        assert!(!content.contains("## Stack"));
-        assert!(!content.contains("## References"));
+        assert!(
+            !tmp.path().join(".sgf/MEMENTO.md").exists(),
+            ".sgf/MEMENTO.md should NOT be created"
+        );
+        assert!(
+            !tmp.path().join(".sgf/PENSA.md").exists(),
+            ".sgf/PENSA.md should NOT be created"
+        );
     }
 
     #[test]
@@ -969,23 +948,6 @@ repos:
         assert!(
             !tmp.path().join(".sgf/BACKPRESSURE.md").exists(),
             "BACKPRESSURE.md should NOT exist inside .sgf/"
-        );
-    }
-
-    #[test]
-    fn memento_references_root_backpressure() {
-        let tmp = TempDir::new().unwrap();
-        git_init(tmp.path());
-        run(tmp.path(), false).unwrap();
-
-        let content = fs::read_to_string(tmp.path().join(".sgf/MEMENTO.md")).unwrap();
-        assert!(
-            content.contains("study `@BACKPRESSURE.md`"),
-            "MEMENTO.md should reference BACKPRESSURE.md at root"
-        );
-        assert!(
-            !content.contains("study `@.sgf/BACKPRESSURE.md`"),
-            "MEMENTO.md should NOT reference .sgf/BACKPRESSURE.md"
         );
     }
 

@@ -17,10 +17,26 @@ impl Default for Client {
 
 impl Client {
     pub fn new() -> Self {
-        let base_url =
-            std::env::var("PN_DAEMON").unwrap_or_else(|_| "http://localhost:7533".to_string());
+        let base_url = if let Ok(url) = std::env::var("PN_DAEMON") {
+            url
+        } else {
+            let port = Self::discover_port();
+            let host = std::env::var("PN_DAEMON_HOST").unwrap_or_else(|_| "localhost".to_string());
+            format!("http://{host}:{port}")
+        };
         let http = HttpClient::new();
         Client { http, base_url }
+    }
+
+    fn discover_port() -> u16 {
+        let dir = std::env::current_dir().unwrap();
+        let port_file = dir.join(".pensa/daemon.port");
+        if let Ok(contents) = std::fs::read_to_string(&port_file)
+            && let Ok(port) = contents.trim().parse::<u16>()
+        {
+            return port;
+        }
+        crate::db::project_port(&dir)
     }
 
     pub fn check_reachable(&self) -> Result<(), String> {
