@@ -288,6 +288,15 @@ mod tests {
     fn dockerfile_contains_pnpm_setup() {
         assert!(DOCKERFILE.contains("corepack enable"));
         assert!(DOCKERFILE.contains("pnpm setup"));
+        assert!(DOCKERFILE.contains("yarn@stable"));
+    }
+
+    #[test]
+    fn dockerfile_contains_mobile_tools() {
+        assert!(DOCKERFILE.contains("madge"));
+        assert!(DOCKERFILE.contains("knip"));
+        assert!(DOCKERFILE.contains("type-coverage"));
+        assert!(DOCKERFILE.contains("gitleaks"));
     }
 
     #[test]

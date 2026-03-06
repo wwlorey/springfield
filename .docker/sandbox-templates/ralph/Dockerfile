@@ -49,9 +49,9 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
 # Install Tauri CLI, cargo-geiger (unsafe code auditing), and prek (git hook manager)
 RUN . "$CARGO_HOME/env" && cargo install tauri-cli cargo-geiger prek
 
-# Enable pnpm
+# Enable pnpm and yarn
 USER root
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@latest --activate && corepack prepare yarn@stable --activate
 
 # Install global JS tools
 USER agent
@@ -63,11 +63,19 @@ RUN pnpm setup && \
     pnpm add -g \
     typescript \
     @tauri-apps/cli \
-    playwright
+    playwright \
+    madge \
+    knip \
+    type-coverage
 
 # Install Playwright browsers
 USER root
 RUN npm install -g playwright && npx playwright install
+
+# Install gitleaks (secrets scanner)
+RUN GITLEAKS_VERSION=$(curl -s https://api.github.com/repos/gitleaks/gitleaks/releases/latest | grep '"tag_name"' | sed 's/.*"v\(.*\)".*/\1/') && \
+    curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_amd64.tar.gz" | tar xz -C /usr/local/bin gitleaks
+
 USER agent
 
 # Install pensa CLI from source
@@ -84,4 +92,4 @@ USER agent
 WORKDIR /home/agent
 
 # Verify installations
-RUN rustc --version && cargo --version && cargo geiger --version && prek --version && node --version && pnpm --version && npx playwright --version && pn --help
+RUN rustc --version && cargo --version && cargo geiger --version && prek --version && node --version && pnpm --version && yarn --version && npx playwright --version && gitleaks version && madge --version && knip --version && pn --help
