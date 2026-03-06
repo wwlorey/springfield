@@ -171,9 +171,14 @@ fn sandbox_exists(name: &str) -> bool {
 }
 
 fn ensure_sandbox(template: &str) {
+    let name = sandbox_name();
+    if sandbox_exists(&name) {
+        info!(sandbox = %name, "docker sandbox already exists, skipping create");
+        return;
+    }
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let workspace = cwd.to_string_lossy();
-    info!(template, %workspace, "ensuring docker sandbox exists");
+    info!(template, %workspace, "creating docker sandbox");
     let status = docker_command()
         .args([
             "sandbox",
@@ -184,6 +189,8 @@ fn ensure_sandbox(template: &str) {
             &workspace,
         ])
         .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status();
     match status {
         Ok(s) if s.success() => info!("docker sandbox ready"),
