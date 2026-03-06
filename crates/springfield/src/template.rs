@@ -1,7 +1,6 @@
 use std::io;
 use std::path::{Path, PathBuf};
-
-use docker_ctx::docker_command;
+use std::process::Command;
 
 use sha2::{Digest, Sha256};
 
@@ -93,7 +92,7 @@ pub fn build_template() -> Result<(), String> {
     let pn_h = pensa_src_hash(&pensa_dir)?;
     let df_h = dockerfile_hash();
 
-    let status = docker_command()
+    let status = Command::new("docker")
         .args([
             "build",
             "-t",
@@ -123,7 +122,7 @@ pub fn build_template() -> Result<(), String> {
 /// Either label may be `None` if the image was built without labels.
 /// Returns `None` if the image does not exist.
 fn inspect_template_labels() -> Option<(Option<String>, Option<String>)> {
-    let output = docker_command()
+    let output = Command::new("docker")
         .args([
             "image",
             "inspect",

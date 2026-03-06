@@ -1,7 +1,6 @@
 pub(crate) mod format;
 
 use clap::Parser;
-use docker_ctx::docker_command;
 use signal_hook::consts::{SIGINT, SIGTERM};
 use signal_hook::flag;
 use std::fs;
@@ -64,7 +63,7 @@ const DING_SENTINEL: &str = ".ralph-ding";
 
 fn stop_sandbox() {
     info!("stopping docker sandbox");
-    let _ = docker_command()
+    let _ = Command::new("docker")
         .args(["sandbox", "stop", "claude"])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -120,7 +119,7 @@ fn sandbox_name() -> String {
 fn configure_sandbox_network() {
     let sandbox_name = sandbox_name();
     info!(sandbox = %sandbox_name, "configuring sandbox network proxy to allow localhost");
-    let status = docker_command()
+    let status = Command::new("docker")
         .args([
             "sandbox",
             "network",
@@ -146,7 +145,7 @@ fn configure_sandbox_network() {
 }
 
 fn sandbox_exists(name: &str) -> bool {
-    let output = docker_command()
+    let output = Command::new("docker")
         .args(["sandbox", "ls", "-q"])
         .stdin(Stdio::null())
         .stderr(Stdio::null())
@@ -179,7 +178,7 @@ fn ensure_sandbox(template: &str) {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let workspace = cwd.to_string_lossy();
     info!(template, %workspace, "creating docker sandbox");
-    let status = docker_command()
+    let status = Command::new("docker")
         .args([
             "sandbox",
             "create",
@@ -655,7 +654,7 @@ fn run_interactive(cli: &Cli, is_file: bool, prompt_files: &[String]) {
             .stderr(Stdio::inherit())
             .status()
     } else {
-        let mut cmd = docker_command();
+        let mut cmd = Command::new("docker");
         cmd.args([
             "sandbox",
             "run",
@@ -728,7 +727,7 @@ fn run_afk(
     } else {
         let (master, slave_stdio) = create_pty_stdin();
         _pty_master = Some(master);
-        let mut cmd = docker_command();
+        let mut cmd = Command::new("docker");
         cmd.args([
             "sandbox",
             "run",

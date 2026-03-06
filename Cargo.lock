@@ -369,10 +369,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "docker-ctx"
-version = "0.1.0"
-
-[[package]]
 name = "encoding_rs"
 version = "0.8.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1309,7 +1305,6 @@ name = "ralph"
 version = "0.1.0"
 dependencies = [
  "clap",
- "docker-ctx",
  "libc",
  "nix",
  "serde",
@@ -1764,7 +1759,6 @@ dependencies = [
  "assert_cmd",
  "chrono",
  "clap",
- "docker-ctx",
  "libc",
  "portpicker",
  "predicates",

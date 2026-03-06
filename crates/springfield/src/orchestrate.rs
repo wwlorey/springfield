@@ -281,7 +281,7 @@ fn kill_child(child: &std::process::Child) {
 }
 
 fn stop_sandbox() {
-    let _ = docker_ctx::docker_command()
+    let _ = Command::new("docker")
         .args(["sandbox", "stop", "claude"])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
