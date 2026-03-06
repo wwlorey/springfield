@@ -25,7 +25,12 @@ IMPORTANT:
 - **Do not implement placeholder code.** We want full, real implementations.
 - **Author PROPERTY BASED TESTS and/or UNIT TESTS** (whichever is best).
 - **After making changes to the files apply FULL BACKPRESSURE to verify behavior.**
+
+VERY IMPORTANT:
 - When the ONE issue is done:
-  * Close the `pn` issue or release it (for bugs).
+  IF the issue is a bug:
+    + Release it.
+  ELSE:
+    + Close `pn` issue.
   * Commit your changes.
   * Stop working.
