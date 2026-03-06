@@ -457,7 +457,7 @@ fn main() {
         cli.iterations
     };
 
-    print_banner(&cli, iterations, is_file, &tee);
+    print_banner(&cli, iterations, is_file, &system_files, &tee);
 
     remove_sentinel();
     let _ = fs::remove_file(DING_SENTINEL);
@@ -542,7 +542,7 @@ fn main() {
     std::process::exit(2);
 }
 
-fn print_banner(cli: &Cli, iterations: u32, is_file: bool, tee: &TeeWriter) {
+fn print_banner(cli: &Cli, iterations: u32, is_file: bool, system_files: &[String], tee: &TeeWriter) {
     tee.writeln("⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣤⡴⣶⠖⡲⠒⡶⠒⣖⢲⡤⣄⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀");
     tee.writeln("⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⢴⡾⣻⠟⢉⡞⢁⡞⠁⢠⠇⠀⠸⡄⠳⡈⢫⡙⢦⣄⠀⠀⠀⠀⠀⠀⠀⠀⠀");
     tee.writeln("⠀⠀⠀⠀⠀⠀⠀⢀⡴⢚⡵⢋⡜⠁⢠⡎⠀⡞⠀⠀⢸⠀⠀⠀⡇⠀⢹⡀⠹⡌⢳⡙⣦⡀⠀⠀⠀⠀⠀⠀");
@@ -591,6 +591,12 @@ fn print_banner(cli: &Cli, iterations: u32, is_file: bool, tee: &TeeWriter) {
     tee.writeln(&format!("Sandbox:     {}", cli.template));
     if let Some(ref id) = cli.loop_id {
         tee.writeln(&format!("Loop ID:     {}", id));
+    }
+    if !system_files.is_empty() {
+        tee.writeln("System files:");
+        for f in system_files {
+            tee.writeln(&format!("  - {}", f));
+        }
     }
     tee.writeln("========================================");
     tee.writeln("");

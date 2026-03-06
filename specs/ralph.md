@@ -426,7 +426,7 @@ Prompt resolution (before the loop):
 - If explicit prompt provided and it is a path to an existing file → use as file prompt (`@` prefix)
 - If explicit prompt provided and it is not an existing file → use as inline text (no `@` prefix)
 
-The startup banner includes mode, prompt source, iteration count, execution target (sandbox template name), and loop ID (if provided via `--loop-id`).
+The startup banner includes mode, prompt source, iteration count, execution target (sandbox template name), loop ID (if provided via `--loop-id`), and a list of all collected system prompt files (each on its own line, prefixed with `  - `).
 
 For each iteration `i` in `1..=iterations`:
 
