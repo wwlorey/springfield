@@ -272,9 +272,9 @@ struct Cli {
     #[arg(long, env = "SGF_SPEC")]
     spec: Option<String>,
 
-    /// Additional system prompt file path (repeatable)
-    #[arg(long = "system-file")]
-    system_file: Vec<String>,
+    /// Additional prompt file path (repeatable)
+    #[arg(long = "prompt-file")]
+    prompt_file: Vec<String>,
 
     /// Path to log file — ralph tees its output here
     #[arg(long)]
@@ -359,7 +359,7 @@ fn stage_external_files(files: Vec<String>) -> Vec<String> {
             }
 
             if let Err(e) = fs::create_dir_all(&staging_dir) {
-                warn!(error = %e, "failed to create staging dir for system files");
+                warn!(error = %e, "failed to create staging dir for prompt files");
                 return f;
             }
 
@@ -371,12 +371,12 @@ fn stage_external_files(files: Vec<String>) -> Vec<String> {
                     info!(
                         original = %f,
                         staged = %staged,
-                        "staged external system file into workspace"
+                        "staged external prompt file into workspace"
                     );
                     staged
                 }
                 Err(e) => {
-                    warn!(path = %path.display(), error = %e, "failed to stage system file into workspace");
+                    warn!(path = %path.display(), error = %e, "failed to stage prompt file into workspace");
                     f
                 }
             }
@@ -384,11 +384,11 @@ fn stage_external_files(files: Vec<String>) -> Vec<String> {
         .collect()
 }
 
-fn build_study_args(system_files: &[String]) -> Vec<String> {
-    if system_files.is_empty() {
+fn build_study_args(prompt_files: &[String]) -> Vec<String> {
+    if prompt_files.is_empty() {
         return Vec::new();
     }
-    let instruction = system_files
+    let instruction = prompt_files
         .iter()
         .map(|f| format!("study @{f}"))
         .collect::<Vec<_>>()
@@ -396,7 +396,7 @@ fn build_study_args(system_files: &[String]) -> Vec<String> {
     vec!["--append-system-prompt".to_string(), instruction]
 }
 
-fn collect_system_files(cli: &Cli) -> Vec<String> {
+fn collect_prompt_files(cli: &Cli) -> Vec<String> {
     let mut files = resolve_prompt_files();
 
     if let Some(ref stem) = cli.spec {
@@ -408,9 +408,9 @@ fn collect_system_files(cli: &Cli) -> Vec<String> {
         files.push(spec_path);
     }
 
-    for path in &cli.system_file {
+    for path in &cli.prompt_file {
         if !Path::new(path).exists() {
-            error!(path, "system file not found");
+            error!(path, "prompt file not found");
             std::process::exit(1);
         }
         files.push(path.clone());
@@ -456,7 +456,7 @@ fn main() {
         std::process::exit(1);
     }
 
-    let system_files = collect_system_files(&cli);
+    let prompt_files = collect_prompt_files(&cli);
 
     let iterations = if cli.iterations > cli.max_iterations {
         warn!(
@@ -469,7 +469,7 @@ fn main() {
         cli.iterations
     };
 
-    print_banner(&cli, iterations, is_file, &system_files, &tee);
+    print_banner(&cli, iterations, is_file, &prompt_files, &tee);
 
     remove_sentinel();
     let _ = fs::remove_file(DING_SENTINEL);
@@ -502,13 +502,13 @@ fn main() {
             run_afk(
                 &cli,
                 is_file,
-                &system_files,
+                &prompt_files,
                 &sigint_count,
                 &interrupted,
                 &tee,
             );
         } else {
-            run_interactive(&cli, is_file, &system_files);
+            run_interactive(&cli, is_file, &prompt_files);
         }
 
         if sigint_count.load(Ordering::Relaxed) >= 1 || interrupted.load(Ordering::Relaxed) {
@@ -558,7 +558,7 @@ fn print_banner(
     cli: &Cli,
     iterations: u32,
     is_file: bool,
-    system_files: &[String],
+    prompt_files: &[String],
     tee: &TeeWriter,
 ) {
     tee.writeln("⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣤⡴⣶⠖⡲⠒⡶⠒⣖⢲⡤⣄⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀");
@@ -610,9 +610,9 @@ fn print_banner(
     if let Some(ref id) = cli.loop_id {
         tee.writeln(&format!("Loop ID:     {}", id));
     }
-    if !system_files.is_empty() {
-        tee.writeln("System files:");
-        for f in system_files {
+    if !prompt_files.is_empty() {
+        tee.writeln("Prompt files:");
+        for f in prompt_files {
             tee.writeln(&format!("  - {}", f));
         }
     }
@@ -632,7 +632,7 @@ fn ding_watcher(stop: &AtomicBool) {
     }
 }
 
-fn run_interactive(cli: &Cli, is_file: bool, system_files: &[String]) {
+fn run_interactive(cli: &Cli, is_file: bool, prompt_files: &[String]) {
     let stop = Arc::new(AtomicBool::new(false));
     let stop_clone = stop.clone();
     let watcher = thread::spawn(move || ding_watcher(&stop_clone));
@@ -643,7 +643,7 @@ fn run_interactive(cli: &Cli, is_file: bool, system_files: &[String]) {
         cli.prompt.clone()
     };
 
-    let study_args = build_study_args(system_files);
+    let study_args = build_study_args(prompt_files);
 
     let result = if let Some(ref cmd) = cli.command {
         let mut command = Command::new(cmd);
@@ -694,7 +694,7 @@ fn run_interactive(cli: &Cli, is_file: bool, system_files: &[String]) {
 fn run_afk(
     cli: &Cli,
     is_file: bool,
-    system_files: &[String],
+    prompt_files: &[String],
     sigint_count: &Arc<AtomicUsize>,
     interrupted: &Arc<AtomicBool>,
     tee: &TeeWriter,
@@ -712,7 +712,7 @@ fn run_afk(
         cli.prompt.clone()
     };
 
-    let study_args = build_study_args(system_files);
+    let study_args = build_study_args(prompt_files);
 
     let child = if let Some(ref cmd) = cli.command {
         let mut command = Command::new(cmd);

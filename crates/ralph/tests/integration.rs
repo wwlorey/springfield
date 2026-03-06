@@ -724,14 +724,14 @@ fn spec_flag_existing_file_accepted() {
 }
 
 #[test]
-fn system_file_missing_exits_1() {
+fn prompt_file_missing_exits_1() {
     let dir = setup_test_dir();
     let mock = create_mock_script(&dir, "afk-session.ndjson");
 
     let output = ralph_cmd(&dir)
         .args([
             "--afk",
-            "--system-file",
+            "--prompt-file",
             "./does-not-exist.md",
             "--command",
             mock.to_str().unwrap(),
@@ -746,16 +746,16 @@ fn system_file_missing_exits_1() {
     assert_eq!(
         output.status.code(),
         Some(1),
-        "should exit 1 when system file is missing"
+        "should exit 1 when prompt file is missing"
     );
     assert!(
-        stderr.contains("system file not found"),
-        "stderr should mention system file not found, got:\n{stderr}"
+        stderr.contains("prompt file not found"),
+        "stderr should mention prompt file not found, got:\n{stderr}"
     );
 }
 
 #[test]
-fn system_file_existing_accepted() {
+fn prompt_file_existing_accepted() {
     let dir = setup_test_dir();
     let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
 
@@ -764,7 +764,7 @@ fn system_file_existing_accepted() {
     let output = ralph_cmd(&dir)
         .args([
             "--afk",
-            "--system-file",
+            "--prompt-file",
             "./NOTES.md",
             "--command",
             mock.to_str().unwrap(),
@@ -779,13 +779,13 @@ fn system_file_existing_accepted() {
 
     assert!(
         output.status.success(),
-        "should exit 0 with valid system file, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        "should exit 0 with valid prompt file, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
         output.status.code()
     );
 }
 
 #[test]
-fn multiple_system_files_accepted() {
+fn multiple_prompt_files_accepted() {
     let dir = setup_test_dir();
     let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
 
@@ -795,9 +795,9 @@ fn multiple_system_files_accepted() {
     let output = ralph_cmd(&dir)
         .args([
             "--afk",
-            "--system-file",
+            "--prompt-file",
             "./NOTES.md",
-            "--system-file",
+            "--prompt-file",
             "./EXTRA.md",
             "--command",
             mock.to_str().unwrap(),
@@ -812,7 +812,7 @@ fn multiple_system_files_accepted() {
 
     assert!(
         output.status.success(),
-        "should exit 0 with multiple system files, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        "should exit 0 with multiple prompt files, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
         output.status.code()
     );
 }
