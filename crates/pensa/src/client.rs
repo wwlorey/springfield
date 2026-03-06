@@ -4,14 +4,6 @@ use serde_json::Value;
 use crate::error::{ErrorResponse, PensaError};
 use crate::types::{CreateIssueParams, ListFilters};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum UrlSource {
-    DaemonHost,
-    DaemonEnv,
-    DaemonFile,
-    LocalhostFallback,
-}
-
 pub struct Client {
     http: HttpClient,
     base_url: String,
@@ -25,43 +17,26 @@ impl Default for Client {
 
 impl Client {
     pub fn new() -> Self {
-        let (base_url, source) = Self::resolve_url();
-        let http = Self::build_http_client(source);
+        let base_url = Self::resolve_url();
+        let http = HttpClient::new();
         Client { http, base_url }
     }
 
-    fn resolve_url() -> (String, UrlSource) {
+    fn resolve_url() -> String {
         if let Ok(host) = std::env::var("PN_DAEMON_HOST")
             && !host.trim().is_empty()
         {
             let port = Self::discover_port();
-            return (format!("http://{host}:{port}"), UrlSource::DaemonHost);
+            return format!("http://{host}:{port}");
         }
         if let Ok(url) = std::env::var("PN_DAEMON") {
-            return (url, UrlSource::DaemonEnv);
+            return url;
         }
         if let Ok(url) = Self::read_daemon_url() {
-            let url = Self::rewrite_localhost_in_container(url);
-            return (url, UrlSource::DaemonFile);
+            return url;
         }
         let port = Self::discover_port();
-        (
-            format!("http://localhost:{port}"),
-            UrlSource::LocalhostFallback,
-        )
-    }
-
-    fn in_container() -> bool {
-        std::path::Path::new("/.dockerenv").exists()
-    }
-
-    fn rewrite_localhost_in_container(url: String) -> String {
-        if Self::in_container() {
-            url.replace("://localhost:", "://host.docker.internal:")
-                .replace("://127.0.0.1:", "://host.docker.internal:")
-        } else {
-            url
-        }
+        format!("http://localhost:{port}")
     }
 
     fn read_daemon_url() -> Result<String, ()> {
@@ -73,21 +48,6 @@ impl Client {
             return Err(());
         }
         Ok(trimmed)
-    }
-
-    fn build_http_client(source: UrlSource) -> HttpClient {
-        if matches!(source, UrlSource::DaemonEnv | UrlSource::DaemonFile)
-            && let Ok(proxy_url) =
-                std::env::var("HTTP_PROXY").or_else(|_| std::env::var("http_proxy"))
-            && !proxy_url.is_empty()
-            && let Ok(proxy) = reqwest::Proxy::all(&proxy_url)
-        {
-            let proxy = proxy.no_proxy(reqwest::NoProxy::from_string(""));
-            if let Ok(client) = HttpClient::builder().proxy(proxy).build() {
-                return client;
-            }
-        }
-        HttpClient::new()
     }
 
     fn discover_port() -> u16 {
