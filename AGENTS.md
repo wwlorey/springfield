@@ -25,3 +25,7 @@ sgf template build
 - **No comments** unless code is complex and requires context for future developers.
 - **Logging:** Use structured logging (`tracing`). Never log secrets directly.
 - **Instrumentation:** Use `#[instrument(skip(self, secrets, large_args), fields(id = %id))]`. Always skip secrets.
+
+## IMPORTANT
+
+- Always read the given prompt files at the beginning of each session.
