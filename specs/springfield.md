@@ -244,8 +244,8 @@ sgf does not assemble, transform, or preprocess prompt templates. Templates in `
 ### What sgf Does
 
 1. **Validate** — confirm `.sgf/prompts/<stage>.md` exists. Fail with a clear error if not found.
-2. **Validate spec** — for stages requiring a spec (`build`, `test`), confirm `specs/<spec>.md` exists. Fail with a clear error (e.g., `spec not found: specs/auth.md`) if the file is missing.
-3. **Set environment** — for spec-dependent stages, set `SGF_SPEC=<stem>` in ralph's environment.
+2. **Validate spec** — for stages given a spec (`build [spec]`, `test [spec]`), confirm `specs/<spec>.md` exists. Fail with a clear error (e.g., `spec not found: specs/auth.md`) if the file is missing. Skip this step when no spec is provided.
+3. **Set environment** — when a spec is provided, set `SGF_SPEC=<stem>` in ralph's environment. When no spec is given, neither `SGF_SPEC` nor `--spec` are set.
 4. **Pass the raw path** — give ralph or `$AGENT_CMD` the template path directly (no intermediate files).
 
 ### System Prompt Injection
@@ -445,8 +445,8 @@ Each iteration gets fresh context. The pensa database persists state between ite
 
 | Stage | Query | Work | Close |
 |-------|-------|------|-------|
-| Build | `pn ready --spec <stem> --json` | Implement the task (or plan the bug — see below); apply backpressure | `pn close <id> --reason "..."` (tasks) / `pn release <id>` (bugs) |
-| Test | `pn ready -t test --spec <stem> --json` | Execute the test | `pn close <id> --reason "..."` |
+| Build | `pn ready [--spec <stem>] --json` | Implement the task (or plan the bug — see below); apply backpressure | `pn close <id> --reason "..."` (tasks) / `pn release <id>` (bugs) |
+| Test | `pn ready -t test [--spec <stem>] --json` | Execute the test | `pn close <id> --reason "..."` |
 
 #### Bug Planning in the Build Loop
 
