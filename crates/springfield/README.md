@@ -14,7 +14,6 @@ sgf test [spec] [-a] [--no-push] [N]   — run test execution loop
 sgf issues log                         — interactive session for logging bugs
 sgf status                             — show project state (future work)
 sgf logs <loop-id>                     — tail a running loop's output
-sgf template build                     — rebuild Docker sandbox template
 ```
 
 ### Common Flags
@@ -37,7 +36,6 @@ crates/springfield/
 │   ├── loop_mgmt.rs     — loop ID generation, PID files, log teeing
 │   ├── recovery.rs      — pre-launch cleanup of crashed iterations
 │   ├── orchestrate.rs   — ralph process lifecycle, flag translation, signal handling
-│   └── template.rs      — Docker sandbox template build
 ├── templates/           — embedded prompt templates and backpressure doc
 └── tests/               — integration tests
 ```
@@ -63,9 +61,6 @@ cargo test -p springfield
 
 # Scaffold a new project
 sgf init
-
-# Build the Docker sandbox template (requires pn and Docker)
-sgf template build
 
 # Run a build loop in AFK mode
 sgf build auth -a

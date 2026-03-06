@@ -35,8 +35,7 @@ The agent's persistent memory system, pensa, is inspired by Steve Yegge's [beads
 ### Prerequisites
 
 - [Rust](https://rustup.rs/) (edition 2024)
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (for sandboxed agent loops)
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (invoked by ralph inside sandboxes)
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (invoked by ralph via `$AGENT_CMD`)
 - [prek](https://github.com/j178/prek) (git hook manager — runs `pn export`/`pn import` hooks)
 
 ### Install
@@ -63,8 +62,6 @@ Then install the git hooks:
 ```sh
 prek install
 ```
-
-The Docker sandbox template (`ralph-sandbox:latest`) is built automatically the first time you run a loop command. To rebuild it manually: `sgf template build`.
 
 ### Usage
 
@@ -103,23 +100,15 @@ springfield/
 
 **`pensa`** (Latin: "tasks", singular: pensum) — A Rust CLI that serves as the agent's persistent structured memory. Replaces markdown-based issue logging and implementation plan tracking. Inspired by [beads](https://github.com/steveyegge/beads) but built in Rust with tighter integration into the Springfield workflow. Stores issues with typed classification, dependencies, priorities, ownership, and status tracking. Uses SQLite locally with JSONL export for git portability. Why not [Dolt](https://github.com/dolthub/dolt)? SQLite + JSONL is simpler: SQLite is tiny, JSONL travels with git (no DoltHub remote needed), and `rusqlite` is mature. Dolt's strengths (table-level merges, branching) matter more in multi-user scenarios.
 
-**`ralph`** — The loop runner. Executes Claude Code iteratively against a prompt file inside Docker sandboxes. Supports interactive mode (terminal passthrough with notification sounds) and AFK mode (NDJSON stream parsing with formatted output). Standalone binary — `sgf` invokes it as a subprocess, passing prompt paths and environment variables. Ralph reads `PROMPT_FILES` and passes a `study @<file>` instruction via `--append-system-prompt` to Claude Code, ensuring the agent actively reads and processes context files. Originally developed in the [buddy-ralph](../buddy-ralph/ralph/) project; copied into this workspace as a clean break with full ownership.
+**`ralph`** — The loop runner. Invokes `$AGENT_CMD` directly (no Docker) to execute Claude Code iteratively against a prompt file. Supports interactive mode (terminal passthrough with notification sounds) and AFK mode (NDJSON stream parsing with formatted output). Standalone binary — `sgf` invokes it as a subprocess, passing prompt paths and environment variables. Ralph reads `PROMPT_FILES` and passes a `study @<file>` instruction via `--append-system-prompt` to Claude Code, ensuring the agent actively reads and processes context files. Originally developed in the [buddy-ralph](../buddy-ralph/ralph/) project; copied into this workspace as a clean break with full ownership.
 
 ### Prompt Delivery and System Prompt Injection
 
 sgf does not assemble or preprocess prompts. Templates in `.sgf/prompts/` are passed directly to ralph or `$AGENT_CMD`.
 
-**Automated stages** (`build`, `verify`, `test-plan`, `test`) go through ralph, which owns system prompt injection. Ralph reads the `PROMPT_FILES` env var (default: `$HOME/.MEMENTO.md:./BACKPRESSURE.md:./specs/README.md`) and passes `--append-system-prompt` with a `study @<file>` instruction for each entry to Claude Code inside the Docker sandbox.
+**Automated stages** (`build`, `verify`, `test-plan`, `test`) go through ralph, which owns system prompt injection. Ralph reads the `PROMPT_FILES` env var (default: `$HOME/.MEMENTO.md:./BACKPRESSURE.md:./specs/README.md`) and passes `--append-system-prompt` with a `study @<file>` instruction for each entry to Claude Code.
 
-**Interactive stages** (`spec`, `issues log`) call `$AGENT_CMD` directly — no ralph, no Docker. The `$AGENT_CMD` wrapper (default: `claude`) is responsible for system prompt injection (e.g., reading `PROMPT_FILES` and passing `--append-system-prompt` with `study` instructions).
-
-### Sandboxing
-
-Automated stages run inside Docker Desktop sandboxes (`docker sandbox run`) via ralph. Interactive stages (`spec`, `issues log`) run outside Docker — they call `$AGENT_CMD` directly, inheriting stdio.
-
-**Docker over native sandbox**: Claude Code's built-in sandbox (`/sandbox`) provides OS-level filesystem and network isolation, but bundles them together — network access requires per-domain approval, which is incompatible with AFK/unattended operation. Docker provides the filesystem isolation we need (protecting the host machine) while leaving network access unrestricted, which is the right tradeoff for an autonomous runner. The template image overhead is worth it.
-
-**How sandboxes work**: Docker sandboxes are microVMs (not containers). The workspace directory syncs bidirectionally between host and VM at the same absolute path — `/Users/you/project` on the host appears at `/Users/you/project` inside the sandbox. This is file synchronization, not volume mounting. Changes the agent makes sync back to the host; changes on the host sync into the VM.
+**Interactive stages** (`spec`, `issues log`) call `$AGENT_CMD` directly — no ralph wrapper. The `$AGENT_CMD` wrapper (default: `claude`) is responsible for system prompt injection (e.g., reading `PROMPT_FILES` and passing `--append-system-prompt` with `study` instructions).
 
 ## References
 

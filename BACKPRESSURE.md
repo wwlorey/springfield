@@ -144,5 +144,3 @@ E2E tests run against simulators and emulators only — no real devices required
 
 > **Platform note:** iOS Simulator requires macOS. Android Emulator runs on both macOS and Linux. On Linux CI, only Android e2e tests are executable.
 
-> **Sandbox note:** Maestro E2E tests are **not executable in the Docker sandbox** — there is no simulator or emulator available. Agents in the sandbox can author and validate Maestro YAML flows, but E2E execution must happen on the host machine.
-

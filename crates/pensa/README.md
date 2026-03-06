@@ -11,7 +11,7 @@ Pensa uses a **client/daemon** model:
 - **Daemon** (`pn daemon`) — runs on the host, owns the SQLite database, handles all reads and writes. Listens on a per-project derived port by default.
 - **CLI client** (`pn <command>`) — thin HTTP client that translates subcommands into REST requests to the daemon.
 
-This architecture exists because Docker sandboxes use file synchronization (not bind mounts), so POSIX file locks don't propagate. The daemon keeps SQLite behind a single process, making concurrent access from multiple sandboxes safe.
+The daemon keeps SQLite behind a single process, making concurrent access from multiple agent sessions safe.
 
 ### Storage
 
@@ -108,7 +108,7 @@ pn daemon status
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `PN_DAEMON` | (port file `.pensa/daemon.port`, then SHA-256 derived port) | Full daemon URL. Overrides all other discovery. |
-| `PN_DAEMON_HOST` | `localhost` (`host.docker.internal` in Docker) | Daemon hostname. Combined with port from port file or SHA-256 derivation. |
+| `PN_DAEMON_HOST` | `localhost` | Daemon hostname. Combined with port from port file or SHA-256 derivation. |
 | `PN_ACTOR` | (git user / $USER) | Actor name for audit trail. Overridden by `--actor` flag. |
 
 ## Testing

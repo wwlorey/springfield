@@ -315,7 +315,7 @@ Interactive stages (`spec`, `issues log`) call `$AGENT_CMD` directly. No PID fil
 | `0` | Sentinel found (`.ralph-complete`) — loop completed | Log success, clean up |
 | `1` | Error (bad args, missing prompt, etc.) | Log error, alert developer |
 | `2` | Iterations exhausted — may have remaining work | Developer decides: re-launch or stop |
-| `130` | Interrupted (SIGINT/SIGTERM) | Log interruption, stop sandbox, clean up |
+| `130` | Interrupted (SIGINT/SIGTERM) | Log interruption, clean up |
 
 On interrupt, sgf's behavior depends on the stage type:
 
