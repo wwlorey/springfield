@@ -1526,3 +1526,123 @@ fn command_mode_does_not_create_daemon_url() {
         "daemon.url should NOT be created in --command mode"
     );
 }
+
+#[test]
+fn no_sandbox_already_exists_output_leak() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script_with_sentinel(&dir, "afk-session.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .args(["--afk", "--command", mock.to_str().unwrap(), "1"])
+        .output()
+        .expect("run ralph");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !stdout.contains("already exists"),
+        "stdout must not contain 'already exists' message, got:\n{stdout}"
+    );
+    assert!(
+        !stderr.contains("already exists"),
+        "stderr must not contain 'already exists' message, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn external_prompt_file_staged_into_workspace() {
+    let workspace = setup_test_dir();
+    let external_dir = TempDir::new().expect("create external temp dir");
+    let mock = create_arg_capturing_mock(&workspace, "complete.ndjson");
+
+    let memento_path = external_dir.path().join(".MEMENTO.md");
+    fs::write(&memento_path, "# Memento\npn cheat sheet here\n").expect("write memento");
+
+    let output = ralph_cmd(&workspace)
+        .env("PROMPT_FILES", memento_path.to_str().unwrap())
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "should exit 0, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        output.status.code()
+    );
+
+    let staged = workspace
+        .path()
+        .join(".sgf/prompts/.system/.MEMENTO.md");
+    assert!(
+        staged.exists(),
+        "external file should be staged into .sgf/prompts/.system/"
+    );
+    let content = fs::read_to_string(&staged).expect("read staged file");
+    assert!(
+        content.contains("pn cheat sheet here"),
+        "staged file should have original content"
+    );
+
+    let args =
+        fs::read_to_string(workspace.path().join("captured-args.txt")).expect("read captured args");
+    let arg_lines: Vec<&str> = args.lines().collect();
+    let asp_values: Vec<&str> = arg_lines
+        .windows(2)
+        .filter(|w| w[0] == "--append-system-prompt-file")
+        .map(|w| w[1])
+        .collect();
+
+    assert!(
+        asp_values
+            .iter()
+            .any(|v| v.contains(".sgf/prompts/.system/.MEMENTO.md")),
+        "should pass staged workspace path, not original external path, got: {asp_values:?}"
+    );
+    assert!(
+        !asp_values
+            .iter()
+            .any(|v| v.contains(external_dir.path().to_str().unwrap())),
+        "should NOT pass original external path, got: {asp_values:?}"
+    );
+}
+
+#[test]
+fn workspace_relative_files_not_staged() {
+    let workspace = setup_test_dir();
+    let mock = create_arg_capturing_mock(&workspace, "complete.ndjson");
+
+    fs::write(workspace.path().join("BACKPRESSURE.md"), "# BP\n").expect("write bp");
+
+    let bp_path = workspace.path().join("BACKPRESSURE.md");
+    let output = ralph_cmd(&workspace)
+        .env("PROMPT_FILES", bp_path.to_str().unwrap())
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    assert!(output.status.success());
+
+    let staging_dir = workspace.path().join(".sgf/prompts/.system");
+    assert!(
+        !staging_dir.exists(),
+        "staging dir should not be created for workspace-relative files"
+    );
+}

@@ -329,6 +329,61 @@ fn resolve_prompt_files() -> Vec<String> {
     files
 }
 
+fn stage_external_files(files: Vec<String>) -> Vec<String> {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let staging_dir = cwd.join(".sgf/prompts/.system");
+
+    files
+        .into_iter()
+        .map(|f| {
+            let path = PathBuf::from(&f);
+            let abs = if path.is_absolute() {
+                path.clone()
+            } else {
+                cwd.join(&path)
+            };
+            let abs = abs.canonicalize().unwrap_or(abs);
+            let cwd_canon = cwd.canonicalize().unwrap_or_else(|_| cwd.clone());
+
+            if abs.starts_with(&cwd_canon) {
+                return f;
+            }
+
+            let filename = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+            if filename.is_empty() {
+                return f;
+            }
+
+            if let Err(e) = fs::create_dir_all(&staging_dir) {
+                warn!(error = %e, "failed to create staging dir for system files");
+                return f;
+            }
+
+            let dest = staging_dir.join(&filename);
+            match fs::copy(&path, &dest) {
+                Ok(_) => {
+                    let relative = dest.strip_prefix(&cwd).unwrap_or(&dest);
+                    let staged = format!("./{}", relative.display());
+                    info!(
+                        original = %f,
+                        staged = %staged,
+                        "staged external system file into workspace"
+                    );
+                    staged
+                }
+                Err(e) => {
+                    warn!(path = %path.display(), error = %e, "failed to stage system file into workspace");
+                    f
+                }
+            }
+        })
+        .collect()
+}
+
 fn collect_system_files(cli: &Cli) -> Vec<String> {
     let mut files = resolve_prompt_files();
 
@@ -349,7 +404,7 @@ fn collect_system_files(cli: &Cli) -> Vec<String> {
         files.push(path.clone());
     }
 
-    files
+    stage_external_files(files)
 }
 
 fn main() {
