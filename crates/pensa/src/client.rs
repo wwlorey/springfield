@@ -41,10 +41,24 @@ impl Client {
             return (url, UrlSource::DaemonEnv);
         }
         if let Ok(url) = Self::read_daemon_url() {
+            let url = Self::rewrite_localhost_in_container(url);
             return (url, UrlSource::DaemonFile);
         }
         let port = Self::discover_port();
         (format!("http://localhost:{port}"), UrlSource::LocalhostFallback)
+    }
+
+    fn in_container() -> bool {
+        std::path::Path::new("/.dockerenv").exists()
+    }
+
+    fn rewrite_localhost_in_container(url: String) -> String {
+        if Self::in_container() {
+            url.replace("://localhost:", "://host.docker.internal:")
+                .replace("://127.0.0.1:", "://host.docker.internal:")
+        } else {
+            url
+        }
     }
 
     fn read_daemon_url() -> Result<String, ()> {

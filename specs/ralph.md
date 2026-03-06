@@ -154,8 +154,8 @@ When `--command` is set (testing mode), system file arguments are not passed (th
 
 Ralph ensures sandbox-side `pn` connects to the host daemon rather than auto-starting a local one:
 
-1. **Write `daemon.url`**: After `ensure_sandbox()`, ralph reads `.pensa/daemon.port` and writes `.pensa/daemon.url` containing `http://localhost:<port>`. This file tells `pn` inside the sandbox to treat the daemon as remote (no auto-start) and use the proxy to reach it.
-2. **Configure network proxy**: Ralph runs `docker sandbox network proxy <name> --allow-host localhost` to allow the sandbox's HTTP proxy to route `localhost` requests back to the host. The sandbox name is `claude-<workspace_dir_basename>`.
+1. **Write `daemon.url`**: After `ensure_sandbox()`, ralph reads `.pensa/daemon.port` and writes `.pensa/daemon.url` containing `http://localhost:<port>`. This file tells `pn` inside the sandbox to treat the daemon as remote (no auto-start). The `pn` client detects it is running inside a Docker container (via `/.dockerenv`) and rewrites `localhost` to `host.docker.internal` so the request reaches the host daemon.
+2. **Configure network proxy**: Ralph runs `docker sandbox network proxy <name> --allow-host localhost --allow-host host.docker.internal` to allow the sandbox's HTTP proxy to route requests back to the host. The sandbox name is `claude-<workspace_dir_basename>`.
 3. **Cleanup**: Ralph removes `.pensa/daemon.url` on exit (via Drop guard) to prevent stale files from confusing host-side `pn`.
 
 Both steps are skipped when `--command` is set (test mode — no sandbox).

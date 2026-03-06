@@ -124,6 +124,8 @@ fn configure_sandbox_network() {
             &sandbox_name,
             "--allow-host",
             "localhost",
+            "--allow-host",
+            "host.docker.internal",
         ])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
