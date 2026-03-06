@@ -1557,3 +1557,267 @@ fn agent_cmd_not_required_with_command_override() {
         "should exit 0 when --command is provided even without AGENT_CMD"
     );
 }
+
+#[test]
+fn afk_invocation_passes_correct_flags() {
+    let dir = setup_test_dir();
+    let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "should exit 0, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        output.status.code()
+    );
+
+    let args =
+        fs::read_to_string(dir.path().join("captured-args.txt")).expect("read captured args");
+    let arg_lines: Vec<&str> = args.lines().collect();
+
+    assert!(
+        arg_lines.contains(&"--verbose"),
+        "should pass --verbose, got args:\n{args}"
+    );
+    assert!(
+        arg_lines.contains(&"--print"),
+        "should pass --print in AFK mode, got args:\n{args}"
+    );
+    assert!(
+        arg_lines.contains(&"--output-format"),
+        "should pass --output-format in AFK mode, got args:\n{args}"
+    );
+    assert!(
+        arg_lines.contains(&"stream-json"),
+        "should pass stream-json as output format, got args:\n{args}"
+    );
+    assert!(
+        arg_lines.contains(&"--dangerously-skip-permissions"),
+        "should pass --dangerously-skip-permissions, got args:\n{args}"
+    );
+    assert!(
+        arg_lines.contains(&"--settings"),
+        "should pass --settings, got args:\n{args}"
+    );
+    assert!(
+        arg_lines.contains(&r#"{"autoMemoryEnabled": false}"#),
+        "should pass autoMemoryEnabled:false settings, got args:\n{args}"
+    );
+
+    let last_arg = arg_lines.last().expect("should have args");
+    assert_eq!(
+        *last_arg, "@prompt.md",
+        "last arg should be @prompt.md (file prompt), got: {last_arg}"
+    );
+}
+
+#[test]
+fn interactive_invocation_passes_correct_flags() {
+    let dir = setup_test_dir();
+    let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .args(["--command", mock.to_str().unwrap(), "1", "prompt.md"])
+        .output()
+        .expect("run ralph");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "should exit 0, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        output.status.code()
+    );
+
+    let args =
+        fs::read_to_string(dir.path().join("captured-args.txt")).expect("read captured args");
+    let arg_lines: Vec<&str> = args.lines().collect();
+
+    assert!(
+        arg_lines.contains(&"--verbose"),
+        "should pass --verbose, got args:\n{args}"
+    );
+    assert!(
+        !arg_lines.contains(&"--print"),
+        "should NOT pass --print in interactive mode, got args:\n{args}"
+    );
+    assert!(
+        !arg_lines.contains(&"--output-format"),
+        "should NOT pass --output-format in interactive mode, got args:\n{args}"
+    );
+    assert!(
+        arg_lines.contains(&"--dangerously-skip-permissions"),
+        "should pass --dangerously-skip-permissions, got args:\n{args}"
+    );
+    assert!(
+        arg_lines.contains(&"--settings"),
+        "should pass --settings, got args:\n{args}"
+    );
+
+    let last_arg = arg_lines.last().expect("should have args");
+    assert_eq!(
+        *last_arg, "@prompt.md",
+        "last arg should be @prompt.md (file prompt), got: {last_arg}"
+    );
+}
+
+#[test]
+fn inline_text_prompt_not_prefixed_with_at() {
+    let dir = setup_test_dir();
+    let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "1",
+            "fix the login bug",
+        ])
+        .output()
+        .expect("run ralph");
+
+    assert!(
+        output.status.success(),
+        "should exit 0, got: {:?}",
+        output.status.code()
+    );
+
+    let args =
+        fs::read_to_string(dir.path().join("captured-args.txt")).expect("read captured args");
+    let arg_lines: Vec<&str> = args.lines().collect();
+
+    let last_arg = arg_lines.last().expect("should have args");
+    assert_eq!(
+        *last_arg, "fix the login bug",
+        "inline text should be passed without @ prefix, got: {last_arg}"
+    );
+}
+
+#[test]
+fn auto_push_pushes_when_head_changes() {
+    let dir = setup_test_dir();
+
+    let bare_dir = TempDir::new().expect("create bare repo dir");
+    let run_git = |args: &[&str], cwd: &std::path::Path| {
+        Command::new("git")
+            .args(args)
+            .current_dir(cwd)
+            .output()
+            .expect("git command")
+    };
+
+    run_git(&["init", "--bare"], bare_dir.path());
+    run_git(
+        &["remote", "add", "origin", bare_dir.path().to_str().unwrap()],
+        dir.path(),
+    );
+    run_git(&["push", "-u", "origin", "master"], dir.path());
+
+    let fixture_path = fixtures_dir().join("complete.ndjson");
+    let script_path = dir.path().join("mock.sh");
+    let content = format!(
+        concat!(
+            "#!/bin/bash\n",
+            "cat {fixture}\n",
+            "echo 'auto-push test' > change.txt\n",
+            "git -c user.name=test -c user.email=test@test.com add change.txt\n",
+            "git -c user.name=test -c user.email=test@test.com commit -m 'test commit'\n",
+            "touch .ralph-complete\n",
+        ),
+        fixture = fixture_path.display()
+    );
+    fs::write(&script_path, content).expect("write mock script");
+    fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755)).expect("chmod");
+
+    let output = ralph_cmd(&dir)
+        .env("RALPH_AUTO_PUSH", "true")
+        .args([
+            "--afk",
+            "--command",
+            script_path.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "should exit 0, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        output.status.code()
+    );
+
+    assert!(
+        stdout.contains("New commits detected, pushing..."),
+        "should detect new commits and push, got stdout:\n{stdout}"
+    );
+
+    let remote_log = run_git(&["log", "--oneline"], bare_dir.path());
+    let remote_log_str = String::from_utf8_lossy(&remote_log.stdout);
+    assert!(
+        remote_log_str.contains("test commit"),
+        "remote should contain the pushed commit, got:\n{remote_log_str}"
+    );
+}
+
+#[test]
+fn auto_push_disabled_does_not_push() {
+    let dir = setup_test_dir();
+
+    let fixture_path = fixtures_dir().join("complete.ndjson");
+    let script_path = dir.path().join("mock.sh");
+    let content = format!(
+        concat!(
+            "#!/bin/bash\n",
+            "cat {fixture}\n",
+            "echo 'no-push test' > change.txt\n",
+            "git -c user.name=test -c user.email=test@test.com add change.txt\n",
+            "git -c user.name=test -c user.email=test@test.com commit -m 'test commit'\n",
+            "touch .ralph-complete\n",
+        ),
+        fixture = fixture_path.display()
+    );
+    fs::write(&script_path, content).expect("write mock script");
+    fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755)).expect("chmod");
+
+    let output = ralph_cmd(&dir)
+        .args([
+            "--afk",
+            "--command",
+            script_path.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        output.status.success(),
+        "should exit 0, got: {:?}",
+        output.status.code()
+    );
+
+    assert!(
+        !stdout.contains("New commits detected, pushing..."),
+        "should NOT push when auto_push is false, got stdout:\n{stdout}"
+    );
+}
