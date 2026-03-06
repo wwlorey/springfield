@@ -1398,12 +1398,13 @@ fn afk_single_ctrlc_does_not_kill() {
 
     let (_mock_pn_dir, mock_path) = setup_mock_pn();
 
-    // Mock ralph that traps INT and exits 0 after 3s
+    // Mock ralph that does NOT trap INT — will die if SIGINT reaches it.
+    // With setsid isolation, SIGINT sent to sgf must NOT propagate to ralph.
     let mock_dir = TempDir::new().unwrap();
     let mock_ralph = create_mock_script(
         mock_dir.path(),
         "mock_ralph.sh",
-        "#!/bin/sh\ntrap '' INT\nsleep 3\nexit 0\n",
+        "#!/bin/sh\nsleep 3\nexit 0\n",
     );
 
     let child = sgf_cmd(tmp.path())
@@ -1421,7 +1422,7 @@ fn afk_single_ctrlc_does_not_kill() {
     // Wait for sgf to start and launch mock ralph
     std::thread::sleep(Duration::from_millis(500));
 
-    // Single SIGINT — should NOT kill in AFK mode
+    // Single SIGINT to sgf — must NOT reach ralph (setsid isolation)
     unsafe { libc::kill(pid, libc::SIGINT) };
 
     // Wait for mock ralph to finish naturally (3s total, ~2.5s remaining)
@@ -1429,7 +1430,7 @@ fn afk_single_ctrlc_does_not_kill() {
     assert_eq!(
         output.status.code(),
         Some(0),
-        "single Ctrl+C in AFK mode should NOT kill — ralph should exit 0, stderr: {}",
+        "single Ctrl+C in AFK mode should NOT kill ralph — setsid must isolate it, stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
 }
