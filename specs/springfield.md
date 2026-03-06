@@ -533,143 +533,16 @@ Issues are also logged by agents during any stage via `pn create`. The build loo
 
 Each workflow stage has a corresponding prompt template in `.sgf/prompts/`. These are the default contents that `sgf init` writes. The project owns these files after scaffolding — edit them freely.
 
-### spec.md
+| Template | Purpose |
+|----------|---------|
+| `spec.md` | Interactive spec discussion and implementation planning |
+| `build.md` | Claim one pn issue, implement it, apply backpressure, commit |
+| `verify.md` | Verify one spec against codebase, update verification report |
+| `test-plan.md` | Generate test items from specs using pn |
+| `test.md` | Claim one pn test item, execute it, apply backpressure |
+| `issues.md` | Interactive bug reporting session |
 
-```markdown
-Let's have a discussion and you can interview me about what I want to build (as needed).
-
-Read the spec(s) that are involved in these changes as I mention them (if applicable).
-
----
-
-After the discussion, produce the following deliverables:
-
-1. Write/update spec files (`specs/*.md`).
-  a. NOTE: Favor updating existing spec files over creating new ones unless doing so makes sense (e.g. we're making a brand new package).
-2. Update `specs/README.md` with any new entries in this format: `| Spec | Code | Purpose |`.
-   (Study `@.sgf/loom-specs-README.md` for the reference format.)
-3. Use `pn` to create implementation items which cite (1) the specification with lookups for the source code and (2) documentation that needs to be viewed/changed/added.
-
-The implementation plan should END with:
-1. Outstanding documentation tasks (README.md, etc. as appropriate).
-2. Integration test tasks that verify the feature works end-to-end.
-
-IMPORTANT:
-- **The spec should be designed so that the result can be end-to-end tested from the command line.** If more tools are required to achieve this, make that known.
-- Implementation items should be scoped to atomic changes—the smallest self-contained modifications to the codebase that can be implemented and tested independently.
-- **Commit your changes when finished.**
-```
-
-### build.md
-
-```markdown
-Follow the `pn` claim workflow to choose **ONE** best next issue to implement.
-
-IF there are no more issues:
-1. touch `.ralph-complete` and end.
-
-ELSE IF the claimed item is a **bug** (`issue_type == "bug"`):
-1. Study the codebase to understand the bug. Use subagents.
-2. Create fix task(s): `pn create -t task "fix: <description>" --fixes <bug-id> [--spec <stem>] [-p <priority>] [--dep <id>]`
-3. Comment lessons learned on the bug: `pn comment add <bug-id> "..."`
-4. Release the bug: `pn release <bug-id>`
-5. Commit with `[<bug-id>]` prefix.
-
-ELSE:
-1. implement the issue. Use subagents.
-
-NOTE:
-- Make sure if you change any build flags, etc., to work on Linux that you make the DEFAULT run on Mac (for instance: building with Metal enabled).
-- When implementing, build a tiny, end-to-end slice of the feature first, test and validate it, then expand out from there (cf. tracer bullets).
-- If **newly authored**, routine tests are **unreasonably slow**, consider using **fast params (or mock params, whichever is best, as long as our testing is solid)** and gate the slow production-param tests behind `#[ignore]` (See AGENTS.md).
-- If you come across build, lint, etc. errors that you did not cause, log them using `pn`.
-
-IMPORTANT:
-- **Assume NOT implemented.** Many specs describe planned features that may not yet exist in the codebase.
-- **Use specs as guidance.** When implementing a feature, follow the design patterns, types, and architecture defined in the relevant spec.
-- **Do not implement placeholder code.** We want full, real implementations.
-- **Author PROPERTY BASED TESTS and/or UNIT TESTS** (whichever is best).
-- **After making changes to the files apply FULL BACKPRESSURE to verify behavior.**
-- When the ONE issue is done:
-  * Close the `pn` issue or release it (for bugs).
-  * Commit your changes.
-  * Stop working.
-```
-
-### verify.md
-
-```markdown
-If `verification-report.md` exists, read it.
-
-If **ALL** specs listed in `specs/README.md` have been verified in the report (whether they match or are missing), `touch .ralph-complete` and stop.
-
-Otherwise, choose ONE unverified spec and investigate (a) whether it is actually implemented in the codebase and (b) how well it matches the spec.
-
-1. If it matches the spec, mark it as ✅ (Matches spec)
-2. If it is a partial match, mark it as ⚠️ (Partial match / minor discrepancies)
-3. If it is missing or very different, mark it as ❌ (Missing or significantly different)
-
-For any gaps or issues found, log them: `pn create "description" -t bug`
-
-Update `verification-report.md` with your findings and update the **Recommendations** section as appropriate.
-
-When the ONE spec has been verified, **commit the changes.**
-```
-
-### test-plan.md
-
-```markdown
-Study the specs and codebase. Generate a testing plan.
-
-For each test, create a pensa item:
-`pn create -t test --spec <stem> "test title" [-p <priority>] [--dep <id>]`
-
-IMPORTANT:
-- Tests must be automatable — they will be run by agents in loops.
-- Tests should be end-to-end testable from the command line.
-- Set dependencies between test items where order matters.
-- **Commit and push the changes when finished.**
-- When all test items have been created, `touch .ralph-complete` and stop.
-```
-
-### test.md
-
-```markdown
-Run `pn ready -t test --spec $SGF_SPEC --json`.
-
-If no test items are returned:
-1. Generate `test-report.md` — summarize all test results, pass/fail status, and any bugs logged.
-2. `touch .ralph-complete` and stop.
-
-Otherwise, claim ONE test item using the `pn` claim workflow.
-
-Execute the test. Use subagents.
-
-IMPORTANT:
-- **Use specs as guidance.** Follow the design patterns and expected behavior defined in the relevant spec.
-- **Author property based tests, unit tests, and/or integration tests.** (Whichever is best.)
-- If **newly authored**, routine tests are **unreasonably slow**, consider using **fast params (or mock params, whichever is best, as long as testing is solid)** and gate the slow production-param tests behind `#[ignore]`.
-- **After making changes, apply FULL BACKPRESSURE (see `BACKPRESSURE.md`) to verify behavior.**
-- If you come across bugs or failures, log them: `pn create "description" -t bug`
-```
-
-### issues.md
-
-```markdown
-Have a discussion and interview me about a new bug I want to report.
-
-Information I might provide includes screenshots, logs, and descriptions. Your role is to capture the bug with enough detail for another agent to understand and fix it.
-
-Ask clarifying questions:
-- Steps to reproduce
-- Expected vs actual behavior
-- Relevant context (which feature, which spec, error messages)
-
-When you have enough detail, log the bug:
-`pn create "descriptive title" -t bug [-p <priority>] [--description "detailed description"]`
-
-**Commit the changes.**
-```
+The canonical prompt templates live in `.sgf/prompts/` — do not duplicate their contents here. See `crates/springfield/src/init.rs` for the default template text that `sgf init` writes.
 
 ---
 
