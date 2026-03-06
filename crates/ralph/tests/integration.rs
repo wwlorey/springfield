@@ -1210,6 +1210,8 @@ fn prompt_files_default_entries_passed_when_unset() {
     cmd.env("RALPH_AUTO_PUSH", "false");
     cmd.env("RUST_LOG", "warn");
     cmd.env_remove("PROMPT_FILES");
+    // Isolate HOME to temp dir so $HOME/.MEMENTO.md won't resolve to host file
+    cmd.env("HOME", dir.path());
     cmd.args([
         "--afk",
         "--command",
@@ -1252,7 +1254,7 @@ fn prompt_files_default_entries_passed_when_unset() {
         asp_values.iter().any(|v| v.contains("specs/README.md")),
         "default PROMPT_FILES should include specs/README.md, got args: {asp_values:?}"
     );
-    // $HOME/.MEMENTO.md likely doesn't exist, so it should be skipped
+    // HOME is set to temp dir, so $HOME/.MEMENTO.md should not exist
     assert!(
         !asp_values.iter().any(|v| v.contains("MEMENTO.md")),
         "default should skip non-existent $HOME/.MEMENTO.md, got args: {asp_values:?}"
