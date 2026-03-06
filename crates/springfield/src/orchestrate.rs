@@ -1,4 +1,5 @@
 use std::io;
+use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
@@ -210,6 +211,14 @@ fn run_ralph(
         .stderr(Stdio::inherit());
     if let Some(stem) = spec {
         cmd.env("SGF_SPEC", stem);
+    }
+    if afk {
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::setsid();
+                Ok(())
+            });
+        }
     }
     let mut child = cmd
         .spawn()
