@@ -71,9 +71,6 @@ fn build_ralph_args(
     args.push("--loop-id".to_string());
     args.push(loop_id.to_string());
 
-    args.push("--template".to_string());
-    args.push("ralph-sandbox:latest".to_string());
-
     args.push("--auto-push".to_string());
     args.push(if config.no_push {
         "false".to_string()
@@ -235,7 +232,7 @@ fn run_ralph(
                 if terminated.load(Ordering::Relaxed) {
                     kill_child(&child);
                     let _ = child.wait();
-                    stop_sandbox();
+
                     return Ok(130);
                 }
 
@@ -245,7 +242,7 @@ fn run_ralph(
                     if count >= 2 {
                         kill_child(&child);
                         let _ = child.wait();
-                        stop_sandbox();
+
                         return Ok(130);
                     }
                     if count == 1 {
@@ -262,7 +259,7 @@ fn run_ralph(
                 } else if count >= 1 {
                     kill_child(&child);
                     let _ = child.wait();
-                    stop_sandbox();
+
                     return Ok(130);
                 }
 
@@ -278,15 +275,6 @@ fn kill_child(child: &std::process::Child) {
     unsafe {
         libc::kill(pid, libc::SIGTERM);
     }
-}
-
-fn stop_sandbox() {
-    let _ = Command::new("docker")
-        .args(["sandbox", "stop", "claude"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
 }
 
 #[cfg(test)]
@@ -387,8 +375,6 @@ mod tests {
                 "-a",
                 "--loop-id",
                 "build-auth-20260226T143000",
-                "--template",
-                "ralph-sandbox:latest",
                 "--auto-push",
                 "false",
                 "--max-iterations",
@@ -534,7 +520,7 @@ mod tests {
 
         let args_content = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
         assert!(args_content.contains("--loop-id"));
-        assert!(args_content.contains("--template ralph-sandbox:latest"));
+        assert!(!args_content.contains("--template"));
         assert!(args_content.contains("--auto-push true"));
         assert!(args_content.contains("--max-iterations 30"));
         assert!(args_content.contains("-a"));

@@ -613,7 +613,7 @@ fn no_loop_id_when_not_provided() {
 }
 
 #[test]
-fn default_template_in_banner() {
+fn agent_cmd_in_banner() {
     let dir = setup_test_dir();
     let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
 
@@ -631,8 +631,8 @@ fn default_template_in_banner() {
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     assert!(
-        stdout.contains("ralph-sandbox:latest"),
-        "startup banner should show default template ralph-sandbox:latest, got:\n{stdout}"
+        stdout.contains(&format!("Agent:       {}", mock.display())),
+        "startup banner should show agent command, got:\n{stdout}"
     );
 }
 
@@ -1512,61 +1512,36 @@ fn no_log_file_by_default() {
 }
 
 #[test]
-fn command_mode_does_not_create_daemon_url() {
+fn agent_cmd_required_without_command_override() {
     let dir = setup_test_dir();
-    let pensa_dir = dir.path().join(".pensa");
-    fs::create_dir_all(&pensa_dir).unwrap();
-    fs::write(pensa_dir.join("daemon.port"), "12345").unwrap();
 
-    let mock = create_mock_script_with_sentinel(&dir, "afk-session.ndjson");
     let output = ralph_cmd(&dir)
-        .args(["--afk", "--command", mock.to_str().unwrap(), "1"])
+        .env_remove("AGENT_CMD")
+        .env_remove("RALPH_COMMAND")
+        .args(["--afk", "1", "prompt.md"])
         .output()
         .expect("run ralph");
 
-    assert!(output.status.success());
-    assert!(
-        !pensa_dir.join("daemon.url").exists(),
-        "daemon.url should NOT be created in --command mode"
-    );
-}
-
-#[test]
-fn no_sandbox_already_exists_output_leak() {
-    let dir = setup_test_dir();
-    let mock = create_mock_script_with_sentinel(&dir, "afk-session.ndjson");
-
-    let output = ralph_cmd(&dir)
-        .args(["--afk", "--command", mock.to_str().unwrap(), "1"])
-        .output()
-        .expect("run ralph");
-
-    assert!(output.status.success());
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
 
-    assert!(
-        !stdout.contains("already exists"),
-        "stdout must not contain 'already exists' message, got:\n{stdout}"
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "should exit 1 when AGENT_CMD is not set and --command is not provided"
     );
     assert!(
-        !stderr.contains("already exists"),
-        "stderr must not contain 'already exists' message, got:\n{stderr}"
+        stderr.contains("AGENT_CMD not set"),
+        "stderr should mention AGENT_CMD not set, got:\n{stderr}"
     );
 }
 
 #[test]
-fn external_prompt_file_staged_into_workspace() {
-    let workspace = setup_test_dir();
-    let external_dir = TempDir::new().expect("create external temp dir");
-    let mock = create_arg_capturing_mock(&workspace, "complete.ndjson");
+fn agent_cmd_not_required_with_command_override() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
 
-    let memento_path = external_dir.path().join(".MEMENTO.md");
-    fs::write(&memento_path, "# Memento\npn cheat sheet here\n").expect("write memento");
-
-    let output = ralph_cmd(&workspace)
-        .env("PROMPT_FILES", memento_path.to_str().unwrap())
+    let output = ralph_cmd(&dir)
+        .env_remove("AGENT_CMD")
         .args([
             "--afk",
             "--command",
@@ -1576,78 +1551,9 @@ fn external_prompt_file_staged_into_workspace() {
         ])
         .output()
         .expect("run ralph");
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
 
     assert!(
         output.status.success(),
-        "should exit 0, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
-        output.status.code()
-    );
-
-    let staged = workspace.path().join(".sgf/prompts/.MEMENTO.md");
-    assert!(
-        staged.exists(),
-        "external file should be staged into .sgf/prompts/"
-    );
-    let content = fs::read_to_string(&staged).expect("read staged file");
-    assert!(
-        content.contains("pn cheat sheet here"),
-        "staged file should have original content"
-    );
-
-    let args =
-        fs::read_to_string(workspace.path().join("captured-args.txt")).expect("read captured args");
-    let arg_lines: Vec<&str> = args.lines().collect();
-    let asp_value: Option<&str> = arg_lines
-        .windows(2)
-        .find(|w| w[0] == "--append-system-prompt")
-        .map(|w| w[1]);
-
-    let study = asp_value.expect("should pass --append-system-prompt with study instructions");
-
-    assert!(
-        study.contains(".sgf/prompts/.MEMENTO.md"),
-        "should pass staged workspace path, not original external path, got: {study}"
-    );
-    assert!(
-        !study.contains(external_dir.path().to_str().unwrap()),
-        "should NOT pass original external path, got: {study}"
-    );
-}
-
-#[test]
-fn workspace_relative_files_not_staged() {
-    let workspace = setup_test_dir();
-    let mock = create_arg_capturing_mock(&workspace, "complete.ndjson");
-
-    fs::write(workspace.path().join("BACKPRESSURE.md"), "# BP\n").expect("write bp");
-
-    let bp_path = workspace.path().join("BACKPRESSURE.md");
-    let output = ralph_cmd(&workspace)
-        .env("PROMPT_FILES", bp_path.to_str().unwrap())
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
-
-    assert!(output.status.success());
-
-    let prompts_dir = workspace.path().join(".sgf/prompts");
-    let has_dotfiles = prompts_dir.exists()
-        && fs::read_dir(&prompts_dir).unwrap().any(|e| {
-            e.ok()
-                .and_then(|e| e.file_name().to_str().map(|s| s.starts_with('.')))
-                .unwrap_or(false)
-        });
-    assert!(
-        !has_dotfiles,
-        "no dotfiles should be staged for workspace-relative files"
+        "should exit 0 when --command is provided even without AGENT_CMD"
     );
 }

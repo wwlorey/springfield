@@ -5,7 +5,6 @@ use signal_hook::consts::{SIGINT, SIGTERM};
 use signal_hook::flag;
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
-use std::os::fd::{FromRawFd, OwnedFd};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -13,7 +12,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
-use tracing::{error, info, warn};
+use tracing::{error, warn};
 
 struct TeeWriter {
     log_file: Option<Mutex<fs::File>>,
@@ -61,148 +60,6 @@ const SENTINEL: &str = ".ralph-complete";
 const SENTINEL_MAX_DEPTH: usize = 2;
 const DING_SENTINEL: &str = ".ralph-ding";
 
-fn stop_sandbox() {
-    info!("stopping docker sandbox");
-    let _ = Command::new("docker")
-        .args(["sandbox", "stop", "claude"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-}
-
-fn write_daemon_url() {
-    let dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let port_file = dir.join(".pensa/daemon.port");
-    match fs::read_to_string(&port_file) {
-        Ok(contents) => match contents.trim().parse::<u16>() {
-            Ok(port) => {
-                let url_file = dir.join(".pensa/daemon.url");
-                let url = format!("http://localhost:{port}");
-                if let Err(e) = fs::write(&url_file, &url) {
-                    warn!(error = %e, "failed to write daemon.url");
-                } else {
-                    info!(url, "wrote .pensa/daemon.url");
-                }
-            }
-            Err(e) => warn!(error = %e, "failed to parse daemon.port"),
-        },
-        Err(e) => warn!(error = %e, "daemon.port not found, skipping daemon.url"),
-    }
-}
-
-fn remove_daemon_url() {
-    let dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let url_file = dir.join(".pensa/daemon.url");
-    if url_file.exists() {
-        let _ = fs::remove_file(&url_file);
-        info!("removed .pensa/daemon.url");
-    }
-}
-
-struct DaemonUrlGuard;
-impl Drop for DaemonUrlGuard {
-    fn drop(&mut self) {
-        remove_daemon_url();
-    }
-}
-
-fn sandbox_name() -> String {
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let workspace_name = cwd
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_else(|| "workspace".to_string());
-    format!("claude-{workspace_name}")
-}
-
-fn configure_sandbox_network() {
-    let sandbox_name = sandbox_name();
-    info!(sandbox = %sandbox_name, "configuring sandbox network proxy to allow localhost");
-    let status = Command::new("docker")
-        .args([
-            "sandbox",
-            "network",
-            "proxy",
-            &sandbox_name,
-            "--allow-host",
-            "localhost",
-            "--allow-host",
-            "host.docker.internal",
-        ])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-    match status {
-        Ok(s) if s.success() => info!("sandbox network proxy configured"),
-        Ok(s) => warn!(
-            status = s.code().unwrap_or(-1),
-            "sandbox network proxy config failed"
-        ),
-        Err(e) => warn!(error = %e, "failed to configure sandbox network proxy"),
-    }
-}
-
-fn sandbox_exists(name: &str) -> bool {
-    let output = Command::new("docker")
-        .args(["sandbox", "ls", "-q"])
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output();
-    match output {
-        Ok(o) if o.status.success() => {
-            let stdout = String::from_utf8_lossy(&o.stdout);
-            stdout.lines().any(|line| line.trim() == name)
-        }
-        Ok(o) => {
-            warn!(
-                status = o.status.code().unwrap_or(-1),
-                "docker sandbox ls -q failed, falling through to create"
-            );
-            false
-        }
-        Err(e) => {
-            warn!(error = %e, "failed to run docker sandbox ls -q, falling through to create");
-            false
-        }
-    }
-}
-
-fn ensure_sandbox(template: &str) {
-    let name = sandbox_name();
-    if sandbox_exists(&name) {
-        info!(sandbox = %name, "docker sandbox already exists, skipping create");
-        return;
-    }
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let workspace = cwd.to_string_lossy();
-    info!(template, %workspace, "creating docker sandbox");
-    let status = Command::new("docker")
-        .args([
-            "sandbox",
-            "create",
-            "--template",
-            template,
-            "claude",
-            &workspace,
-        ])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-    match status {
-        Ok(s) if s.success() => info!("docker sandbox ready"),
-        Ok(s) => {
-            warn!(
-                status = s.code().unwrap_or(-1),
-                "docker sandbox create exited with non-zero status"
-            );
-        }
-        Err(e) => warn!(error = %e, "failed to run docker sandbox create"),
-    }
-}
-
 fn find_sentinel(dir: &Path, max_depth: usize) -> Option<PathBuf> {
     let candidate = dir.join(SENTINEL);
     if candidate.exists() {
@@ -228,7 +85,7 @@ fn remove_sentinel() {
     }
 }
 
-/// Iterative Claude Code runner via Docker sandbox.
+/// Iterative Claude Code runner via direct $AGENT_CMD invocation.
 ///
 /// Runs Claude Code repeatedly against a prompt file, formatting NDJSON
 /// stream output for readable AFK execution.
@@ -251,10 +108,6 @@ struct Cli {
     #[arg(default_value = "prompt.md")]
     prompt: String,
 
-    /// Docker sandbox template image
-    #[arg(long, env = "RALPH_TEMPLATE", default_value = "ralph-sandbox:latest")]
-    template: String,
-
     /// Safety limit for iterations
     #[arg(long, env = "RALPH_MAX_ITERATIONS", default_value_t = 100)]
     max_iterations: u32,
@@ -263,7 +116,7 @@ struct Cli {
     #[arg(long, env = "RALPH_AUTO_PUSH", default_value = "true", value_parser = parse_bool, num_args = 1)]
     auto_push: bool,
 
-    /// Override: path to executable replacing docker invocation (for testing)
+    /// Override: path to executable replacing agent invocation (for testing)
     #[arg(long, env = "RALPH_COMMAND")]
     command: Option<String>,
 
@@ -287,6 +140,21 @@ fn parse_bool(s: &str) -> Result<bool, String> {
         other => Err(format!(
             "invalid boolean value '{other}': expected true/false, 1/0, or yes/no"
         )),
+    }
+}
+
+fn resolve_agent_cmd(cli: &Cli) -> String {
+    if let Some(ref cmd) = cli.command {
+        return cmd.clone();
+    }
+    match std::env::var("AGENT_CMD") {
+        Ok(val) if !val.is_empty() => val,
+        _ => {
+            error!(
+                "AGENT_CMD not set. Set AGENT_CMD to the path of the agent binary (e.g., AGENT_CMD=claude)."
+            );
+            std::process::exit(1);
+        }
     }
 }
 
@@ -328,61 +196,6 @@ fn resolve_prompt_files() -> Vec<String> {
     files
 }
 
-fn stage_external_files(files: Vec<String>) -> Vec<String> {
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let staging_dir = cwd.join(".sgf/prompts");
-
-    files
-        .into_iter()
-        .map(|f| {
-            let path = PathBuf::from(&f);
-            let abs = if path.is_absolute() {
-                path.clone()
-            } else {
-                cwd.join(&path)
-            };
-            let abs = abs.canonicalize().unwrap_or(abs);
-            let cwd_canon = cwd.canonicalize().unwrap_or_else(|_| cwd.clone());
-
-            if abs.starts_with(&cwd_canon) {
-                return f;
-            }
-
-            let filename = path
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string();
-            if filename.is_empty() {
-                return f;
-            }
-
-            if let Err(e) = fs::create_dir_all(&staging_dir) {
-                warn!(error = %e, "failed to create staging dir for prompt files");
-                return f;
-            }
-
-            let dest = staging_dir.join(&filename);
-            match fs::copy(&path, &dest) {
-                Ok(_) => {
-                    let relative = dest.strip_prefix(&cwd).unwrap_or(&dest);
-                    let staged = format!("./{}", relative.display());
-                    info!(
-                        original = %f,
-                        staged = %staged,
-                        "staged external prompt file into workspace"
-                    );
-                    staged
-                }
-                Err(e) => {
-                    warn!(path = %path.display(), error = %e, "failed to stage prompt file into workspace");
-                    f
-                }
-            }
-        })
-        .collect()
-}
-
 fn build_study_args(prompt_files: &[String]) -> Vec<String> {
     if prompt_files.is_empty() {
         return Vec::new();
@@ -415,7 +228,7 @@ fn collect_prompt_files(cli: &Cli) -> Vec<String> {
         files.push(path.clone());
     }
 
-    stage_external_files(files)
+    files
 }
 
 fn main() {
@@ -433,6 +246,8 @@ fn main() {
             std::process::exit(1);
         }
     };
+
+    let agent_cmd = resolve_agent_cmd(&cli);
 
     let sigint_count = Arc::new(AtomicUsize::new(0));
     let interrupted = Arc::new(AtomicBool::new(false));
@@ -468,19 +283,10 @@ fn main() {
         cli.iterations
     };
 
-    print_banner(&cli, iterations, is_file, &prompt_files, &tee);
+    print_banner(&cli, iterations, is_file, &prompt_files, &agent_cmd, &tee);
 
     remove_sentinel();
     let _ = fs::remove_file(DING_SENTINEL);
-
-    let _daemon_url_guard = if cli.command.is_none() {
-        ensure_sandbox(&cli.template);
-        write_daemon_url();
-        configure_sandbox_network();
-        Some(DaemonUrlGuard)
-    } else {
-        None
-    };
 
     for i in 1..=iterations {
         remove_sentinel();
@@ -499,6 +305,7 @@ fn main() {
 
         if cli.afk {
             run_afk(
+                &agent_cmd,
                 &cli,
                 is_file,
                 &prompt_files,
@@ -507,12 +314,11 @@ fn main() {
                 &tee,
             );
         } else {
-            run_interactive(&cli, is_file, &prompt_files);
+            run_interactive(&agent_cmd, &cli, is_file, &prompt_files);
         }
 
         if sigint_count.load(Ordering::Relaxed) >= 1 || interrupted.load(Ordering::Relaxed) {
             warn!("interrupted");
-            stop_sandbox();
             std::process::exit(130);
         }
 
@@ -538,7 +344,6 @@ fn main() {
 
         if sigint_count.load(Ordering::Relaxed) >= 1 || interrupted.load(Ordering::Relaxed) {
             warn!("interrupted");
-            stop_sandbox();
             std::process::exit(130);
         }
 
@@ -558,6 +363,7 @@ fn print_banner(
     iterations: u32,
     is_file: bool,
     prompt_files: &[String],
+    agent_cmd: &str,
     tee: &TeeWriter,
 ) {
     tee.writeln("⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣤⡴⣶⠖⡲⠒⡶⠒⣖⢲⡤⣄⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀");
@@ -605,7 +411,7 @@ fn print_banner(
         tee.writeln(&format!("Prompt:      {} (text)", display));
     }
     tee.writeln(&format!("Iterations:  {}", iterations));
-    tee.writeln(&format!("Sandbox:     {}", cli.template));
+    tee.writeln(&format!("Agent:       {}", agent_cmd));
     if let Some(ref id) = cli.loop_id {
         tee.writeln(&format!("Loop ID:     {}", id));
     }
@@ -631,7 +437,7 @@ fn ding_watcher(stop: &AtomicBool) {
     }
 }
 
-fn run_interactive(cli: &Cli, is_file: bool, prompt_files: &[String]) {
+fn run_interactive(agent_cmd: &str, cli: &Cli, is_file: bool, prompt_files: &[String]) {
     let stop = Arc::new(AtomicBool::new(false));
     let stop_clone = stop.clone();
     let watcher = thread::spawn(move || ding_watcher(&stop_clone));
@@ -644,34 +450,20 @@ fn run_interactive(cli: &Cli, is_file: bool, prompt_files: &[String]) {
 
     let study_args = build_study_args(prompt_files);
 
-    let result = if let Some(ref cmd) = cli.command {
-        let mut command = Command::new(cmd);
-        command.args(&study_args);
-        command
-            .arg(&prompt_arg)
-            .stdin(Stdio::inherit())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .status()
-    } else {
-        let mut cmd = Command::new("docker");
-        cmd.args([
-            "sandbox",
-            "run",
-            "claude",
-            "--",
-            "--verbose",
-            "--dangerously-skip-permissions",
-            "--settings",
-            r#"{"autoMemoryEnabled": false}"#,
-        ]);
-        cmd.args(&study_args);
-        cmd.arg(&prompt_arg)
-            .stdin(Stdio::inherit())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .status()
-    };
+    let mut command = Command::new(agent_cmd);
+    command.args([
+        "--verbose",
+        "--dangerously-skip-permissions",
+        "--settings",
+        r#"{"autoMemoryEnabled": false}"#,
+    ]);
+    command.args(&study_args);
+    let result = command
+        .arg(&prompt_arg)
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status();
 
     stop.store(true, Ordering::Relaxed);
     let _ = watcher.join();
@@ -691,6 +483,7 @@ fn run_interactive(cli: &Cli, is_file: bool, prompt_files: &[String]) {
 }
 
 fn run_afk(
+    agent_cmd: &str,
     cli: &Cli,
     is_file: bool,
     prompt_files: &[String],
@@ -703,8 +496,6 @@ fn run_afk(
         Ok(())
     };
 
-    let mut _pty_master: Option<OwnedFd> = None;
-
     let prompt_arg = if is_file {
         format!("@{}", cli.prompt)
     } else {
@@ -713,43 +504,23 @@ fn run_afk(
 
     let study_args = build_study_args(prompt_files);
 
-    let child = if let Some(ref cmd) = cli.command {
-        let mut command = Command::new(cmd);
-        command.args(&study_args);
-        unsafe {
-            command
-                .arg(&prompt_arg)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::inherit())
-                .pre_exec(setsid_hook)
-                .spawn()
-        }
-    } else {
-        let (master, slave_stdio) = create_pty_stdin();
-        _pty_master = Some(master);
-        let mut cmd = Command::new("docker");
-        cmd.args([
-            "sandbox",
-            "run",
-            "claude",
-            "--",
-            "--verbose",
-            "--print",
-            "--output-format",
-            "stream-json",
-            "--dangerously-skip-permissions",
-            "--settings",
-            r#"{"autoMemoryEnabled": false}"#,
-        ]);
-        cmd.args(&study_args);
-        unsafe {
-            cmd.arg(&prompt_arg)
-                .stdin(slave_stdio)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::inherit())
-                .pre_exec(setsid_hook)
-                .spawn()
-        }
+    let mut cmd = Command::new(agent_cmd);
+    cmd.args([
+        "--verbose",
+        "--print",
+        "--output-format",
+        "stream-json",
+        "--dangerously-skip-permissions",
+        "--settings",
+        r#"{"autoMemoryEnabled": false}"#,
+    ]);
+    cmd.args(&study_args);
+    let child = unsafe {
+        cmd.arg(&prompt_arg)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .pre_exec(setsid_hook)
+            .spawn()
     };
 
     let mut child = match child {
@@ -785,7 +556,6 @@ fn run_afk(
         if interrupted.load(Ordering::Relaxed) {
             let _ = child.kill();
             let _ = child.wait();
-            stop_sandbox();
             return;
         }
 
@@ -793,7 +563,6 @@ fn run_afk(
         if count >= 2 {
             let _ = child.kill();
             let _ = child.wait();
-            stop_sandbox();
             return;
         }
         if count == 1 {
@@ -826,27 +595,6 @@ fn run_afk(
 
     if let Err(e) = child.wait() {
         warn!(error = %e, "error waiting for child process");
-    }
-}
-
-fn create_pty_stdin() -> (OwnedFd, Stdio) {
-    let mut master: libc::c_int = 0;
-    let mut slave: libc::c_int = 0;
-    unsafe {
-        let ret = libc::openpty(
-            &mut master,
-            &mut slave,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-        );
-        if ret != 0 {
-            panic!("openpty failed: {}", std::io::Error::last_os_error());
-        }
-        (
-            OwnedFd::from_raw_fd(master),
-            Stdio::from(OwnedFd::from_raw_fd(slave)),
-        )
     }
 }
 
@@ -887,11 +635,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sandbox_name_uses_cwd_basename() {
-        let name = sandbox_name();
-        let cwd = std::env::current_dir().unwrap();
-        let expected_basename = cwd.file_name().unwrap().to_string_lossy();
-        assert_eq!(name, format!("claude-{expected_basename}"));
-        assert!(name.starts_with("claude-"));
+    fn find_sentinel_at_root() {
+        let dir = tempfile::TempDir::new().unwrap();
+        fs::write(dir.path().join(SENTINEL), "").unwrap();
+        assert!(find_sentinel(dir.path(), 2).is_some());
+    }
+
+    #[test]
+    fn find_sentinel_nested() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let sub = dir.path().join("sub");
+        fs::create_dir(&sub).unwrap();
+        fs::write(sub.join(SENTINEL), "").unwrap();
+        assert!(find_sentinel(dir.path(), 2).is_some());
+    }
+
+    #[test]
+    fn find_sentinel_too_deep() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let deep = dir.path().join("a").join("b").join("c");
+        fs::create_dir_all(&deep).unwrap();
+        fs::write(deep.join(SENTINEL), "").unwrap();
+        assert!(find_sentinel(dir.path(), 2).is_none());
     }
 }

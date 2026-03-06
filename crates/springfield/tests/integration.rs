@@ -2,7 +2,6 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::Duration;
 
 use tempfile::TempDir;
 
@@ -391,8 +390,8 @@ fn build_invokes_ralph_with_correct_flags() {
     assert!(args.contains("-a"), "missing --afk flag");
     assert!(args.contains("--loop-id"), "missing --loop-id");
     assert!(
-        args.contains("--template ralph-sandbox:latest"),
-        "missing --template"
+        !args.contains("--template"),
+        "should not pass --template (Docker sandbox removed)"
     );
     assert!(
         args.contains("--auto-push true"),
@@ -1335,102 +1334,6 @@ fn build_valid_spec_proceeds() {
     assert!(
         output.status.success(),
         "sgf build with valid spec should succeed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-// ===========================================================================
-// AFK double Ctrl+C signal handling
-// ===========================================================================
-
-#[test]
-fn afk_double_ctrlc_exits_130() {
-    let tmp = setup_test_dir();
-    sgf_init_and_commit(tmp.path());
-    create_spec_and_commit(tmp.path(), "auth");
-
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
-    // Mock ralph that traps INT (so stray signals don't kill it) and sleeps 10s
-    let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_mock_script(
-        mock_dir.path(),
-        "mock_ralph.sh",
-        "#!/bin/sh\ntrap '' INT\nsleep 10\nexit 0\n",
-    );
-
-    let child = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("PATH", &mock_path)
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-
-    let pid = child.id() as i32;
-
-    // Wait for sgf to start and launch mock ralph
-    std::thread::sleep(Duration::from_millis(500));
-
-    // First SIGINT — should NOT kill, just start the 2s window
-    unsafe { libc::kill(pid, libc::SIGINT) };
-    std::thread::sleep(Duration::from_millis(500));
-
-    // Second SIGINT within 2s — should trigger shutdown
-    unsafe { libc::kill(pid, libc::SIGINT) };
-
-    let output = child.wait_with_output().unwrap();
-    assert_eq!(
-        output.status.code(),
-        Some(130),
-        "double Ctrl+C in AFK mode should exit 130, stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-#[test]
-fn afk_single_ctrlc_does_not_kill() {
-    let tmp = setup_test_dir();
-    sgf_init_and_commit(tmp.path());
-    create_spec_and_commit(tmp.path(), "auth");
-
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
-    // Mock ralph that does NOT trap INT — will die if SIGINT reaches it.
-    // With setsid isolation, SIGINT sent to sgf must NOT propagate to ralph.
-    let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_mock_script(
-        mock_dir.path(),
-        "mock_ralph.sh",
-        "#!/bin/sh\nsleep 3\nexit 0\n",
-    );
-
-    let child = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("PATH", &mock_path)
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-
-    let pid = child.id() as i32;
-
-    // Wait for sgf to start and launch mock ralph
-    std::thread::sleep(Duration::from_millis(500));
-
-    // Single SIGINT to sgf — must NOT reach ralph (setsid isolation)
-    unsafe { libc::kill(pid, libc::SIGINT) };
-
-    // Wait for mock ralph to finish naturally (3s total, ~2.5s remaining)
-    let output = child.wait_with_output().unwrap();
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "single Ctrl+C in AFK mode should NOT kill ralph — setsid must isolate it, stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
 }

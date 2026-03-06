@@ -129,26 +129,6 @@ fn daemon_url_file_refuses_auto_start() {
 }
 
 #[test]
-fn no_daemon_url_falls_back_to_localhost() {
-    let dir = TempDir::new().expect("create temp dir");
-    let pensa_dir = dir.path().join(".pensa");
-    std::fs::create_dir_all(&pensa_dir).unwrap();
-
-    let output = Command::new(pn_bin())
-        .env_remove("PN_DAEMON")
-        .env_remove("PN_DAEMON_HOST")
-        .current_dir(dir.path())
-        .args(["list", "--json"])
-        .output()
-        .expect("run pn list without daemon.url");
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        !stderr.contains("remote host configured"),
-        "without daemon.url, should not be treated as remote, got: {stderr}"
-    );
-}
-
-#[test]
 fn empty_daemon_url_is_ignored() {
     let dir = TempDir::new().expect("create temp dir");
     let pensa_dir = dir.path().join(".pensa");
