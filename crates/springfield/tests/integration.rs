@@ -675,6 +675,7 @@ fn recovery_skips_when_live_pid() {
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
         .env("PATH", &mock_path)
         .output()
         .unwrap();

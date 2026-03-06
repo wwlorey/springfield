@@ -393,6 +393,8 @@ Before launching any loop, `sgf` runs pre-launch checks. The checks vary by stag
 
 Template pre-flight is skipped for interactive stages — no Docker image is needed. After pre-launch checks, `sgf` calls `$AGENT_CMD` directly with `--verbose @{prompt_path}`, inheriting stdio.
 
+**`SGF_SKIP_PREFLIGHT`** (env var) — When set, skips daemon startup and template pre-flight while still running recovery. This allows two-tier control: the `--skip-preflight` CLI flag disables all pre-launch checks (including recovery), while `SGF_SKIP_PREFLIGHT` disables only the infrastructure checks (daemon + template). Used by integration tests to exercise recovery logic without requiring Docker or a running pensa daemon.
+
 ### Daemon
 
 `sgf` starts the pensa daemon automatically before launching any loop (if not already running):
