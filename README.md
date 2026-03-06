@@ -56,7 +56,7 @@ sgf init
 
 This creates `.sgf/`, `.pensa/`, `specs/`, prompt templates, `MEMENTO.md`, `CLAUDE.md`, `BACKPRESSURE.md`, and merges entries into `.gitignore`, `.claude/settings.json`, and `.pre-commit-config.yaml`.
 
-`BACKPRESSURE.md` lives at the project root (not inside `.sgf/`) so it is discoverable by ralph's `--append-system-prompt-file` injection and `$AGENT_CMD` wrappers.
+`BACKPRESSURE.md` lives at the project root (not inside `.sgf/`) so it is discoverable by ralph's `study` instruction and `$AGENT_CMD` wrappers.
 
 Then install the git hooks:
 
@@ -103,15 +103,15 @@ springfield/
 
 **`pensa`** (Latin: "tasks", singular: pensum) — A Rust CLI that serves as the agent's persistent structured memory. Replaces markdown-based issue logging and implementation plan tracking. Inspired by [beads](https://github.com/steveyegge/beads) but built in Rust with tighter integration into the Springfield workflow. Stores issues with typed classification, dependencies, priorities, ownership, and status tracking. Uses SQLite locally with JSONL export for git portability. Why not [Dolt](https://github.com/dolthub/dolt)? SQLite + JSONL is simpler: SQLite is tiny, JSONL travels with git (no DoltHub remote needed), and `rusqlite` is mature. Dolt's strengths (table-level merges, branching) matter more in multi-user scenarios.
 
-**`ralph`** — The loop runner. Executes Claude Code iteratively against a prompt file inside Docker sandboxes. Supports interactive mode (terminal passthrough with notification sounds) and AFK mode (NDJSON stream parsing with formatted output). Standalone binary — `sgf` invokes it as a subprocess, passing prompt paths and environment variables. Ralph reads `PROMPT_FILES` and passes `--append-system-prompt-file` for each entry to Claude Code. Originally developed in the [buddy-ralph](../buddy-ralph/ralph/) project; copied into this workspace as a clean break with full ownership.
+**`ralph`** — The loop runner. Executes Claude Code iteratively against a prompt file inside Docker sandboxes. Supports interactive mode (terminal passthrough with notification sounds) and AFK mode (NDJSON stream parsing with formatted output). Standalone binary — `sgf` invokes it as a subprocess, passing prompt paths and environment variables. Ralph reads `PROMPT_FILES` and passes a `study @<file>` instruction via `--append-system-prompt` to Claude Code, ensuring the agent actively reads and processes context files. Originally developed in the [buddy-ralph](../buddy-ralph/ralph/) project; copied into this workspace as a clean break with full ownership.
 
 ### Prompt Delivery and System Prompt Injection
 
 sgf does not assemble or preprocess prompts. Templates in `.sgf/prompts/` are passed directly to ralph or `$AGENT_CMD`.
 
-**Automated stages** (`build`, `verify`, `test-plan`, `test`) go through ralph, which owns system prompt injection. Ralph reads the `PROMPT_FILES` env var (default: `$HOME/.MEMENTO.md:./BACKPRESSURE.md:./specs/README.md`) and passes `--append-system-prompt-file` for each entry to Claude Code inside the Docker sandbox.
+**Automated stages** (`build`, `verify`, `test-plan`, `test`) go through ralph, which owns system prompt injection. Ralph reads the `PROMPT_FILES` env var (default: `$HOME/.MEMENTO.md:./BACKPRESSURE.md:./specs/README.md`) and passes `--append-system-prompt` with a `study @<file>` instruction for each entry to Claude Code inside the Docker sandbox.
 
-**Interactive stages** (`spec`, `issues log`) call `$AGENT_CMD` directly — no ralph, no Docker. The `$AGENT_CMD` wrapper (default: `claude`) is responsible for system prompt injection (e.g., reading `PROMPT_FILES` and passing `--append-system-prompt-file` flags).
+**Interactive stages** (`spec`, `issues log`) call `$AGENT_CMD` directly — no ralph, no Docker. The `$AGENT_CMD` wrapper (default: `claude`) is responsible for system prompt injection (e.g., reading `PROMPT_FILES` and passing `--append-system-prompt` with `study` instructions).
 
 ### Sandboxing
 

@@ -384,6 +384,18 @@ fn stage_external_files(files: Vec<String>) -> Vec<String> {
         .collect()
 }
 
+fn build_study_args(system_files: &[String]) -> Vec<String> {
+    if system_files.is_empty() {
+        return Vec::new();
+    }
+    let instruction = system_files
+        .iter()
+        .map(|f| format!("study @{f}"))
+        .collect::<Vec<_>>()
+        .join(";");
+    vec!["--append-system-prompt".to_string(), instruction]
+}
+
 fn collect_system_files(cli: &Cli) -> Vec<String> {
     let mut files = resolve_prompt_files();
 
@@ -631,11 +643,11 @@ fn run_interactive(cli: &Cli, is_file: bool, system_files: &[String]) {
         cli.prompt.clone()
     };
 
+    let study_args = build_study_args(system_files);
+
     let result = if let Some(ref cmd) = cli.command {
         let mut command = Command::new(cmd);
-        for f in system_files {
-            command.args(["--append-system-prompt-file", f]);
-        }
+        command.args(&study_args);
         command
             .arg(&prompt_arg)
             .stdin(Stdio::inherit())
@@ -654,9 +666,7 @@ fn run_interactive(cli: &Cli, is_file: bool, system_files: &[String]) {
             "--settings",
             r#"{"autoMemoryEnabled": false}"#,
         ]);
-        for f in system_files {
-            cmd.args(["--append-system-prompt-file", f]);
-        }
+        cmd.args(&study_args);
         cmd.arg(&prompt_arg)
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
@@ -702,11 +712,11 @@ fn run_afk(
         cli.prompt.clone()
     };
 
+    let study_args = build_study_args(system_files);
+
     let child = if let Some(ref cmd) = cli.command {
         let mut command = Command::new(cmd);
-        for f in system_files {
-            command.args(["--append-system-prompt-file", f]);
-        }
+        command.args(&study_args);
         unsafe {
             command
                 .arg(&prompt_arg)
@@ -732,9 +742,7 @@ fn run_afk(
             "--settings",
             r#"{"autoMemoryEnabled": false}"#,
         ]);
-        for f in system_files {
-            cmd.args(["--append-system-prompt-file", f]);
-        }
+        cmd.args(&study_args);
         unsafe {
             cmd.arg(&prompt_arg)
                 .stdin(slave_stdio)

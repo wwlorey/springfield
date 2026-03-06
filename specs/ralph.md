@@ -7,7 +7,7 @@ CLI tool for iterative Claude Code execution. Replaces `scripts/ralph.sh` with a
 `ralph` provides:
 - **Iteration loop**: Run Claude Code repeatedly against a prompt file or inline text, up to N iterations
 - **Two modes**: Interactive (terminal passthrough) and AFK (formatted NDJSON stream)
-- **System prompt injection**: Read `PROMPT_FILES` env var and pass `--append-system-prompt-file` for each entry to Claude Code; optionally append spec files via `--spec`
+- **System prompt injection**: Read `PROMPT_FILES` env var and pass a `study @<file>` instruction via `--append-system-prompt` to Claude Code; optionally append spec files via `--spec`
 - **NDJSON formatting**: Compact, readable output from Claude's stream-json format
 - **Completion detection**: Exit early when Claude signals task completion by creating the `.ralph-complete` sentinel file
 - **Interactive notification**: Play a sound on the host when Claude needs user input (via `.ralph-ding` sentinel file)
@@ -95,9 +95,9 @@ The default value `prompt.md` is treated specially: if no explicit prompt is pro
 | `--max-iterations` | `RALPH_MAX_ITERATIONS` | `100` | Safety limit for iterations |
 | `--auto-push` | `RALPH_AUTO_PUSH` | `true` | Auto-push after new commits (requires explicit value: `true`/`false`/`yes`/`no`/`1`/`0`) |
 | `--command` | `RALPH_COMMAND` | — | Override: path to executable replacing docker invocation (for testing) |
-| `--spec` | `SGF_SPEC` | — | Spec stem — appends `./specs/<stem>.md` as a system prompt file. Fails with error if the spec file does not exist. |
-| `--system-file` | — | — | Additional system prompt file path (repeatable). Each is passed as `--append-system-prompt-file` to Claude. |
-| — | `PROMPT_FILES` | `$HOME/.MEMENTO.md:./BACKPRESSURE.md:./specs/README.md` | Colon-separated list of files to inject as system prompt files |
+| `--spec` | `SGF_SPEC` | — | Spec stem — adds `./specs/<stem>.md` to the study instruction. Fails with error if the spec file does not exist. |
+| `--system-file` | — | — | Additional system prompt file path (repeatable). Added to the study instruction passed via `--append-system-prompt`. |
+| — | `PROMPT_FILES` | `$HOME/.MEMENTO.md:./BACKPRESSURE.md:./specs/README.md` | Colon-separated list of files to include in the study instruction |
 | — | `SGF_DOCKER_CONTEXT` | auto-detect | Docker context to use for all docker commands |
 
 ### Exit Codes
@@ -126,7 +126,7 @@ ralph --system-file ./NOTES.md 5 prompt.md                 # Extra system prompt
 
 ## System Prompt Injection
 
-Ralph owns system prompt injection for all automated stages. It collects system files from three sources and passes each as `--append-system-prompt-file <path>` to the Claude Code invocation inside the Docker sandbox.
+Ralph owns system prompt injection for all automated stages. It collects system files from three sources, builds a semicolon-separated `study @<file>` instruction, and passes it as a single `--append-system-prompt` argument to the Claude Code invocation inside the Docker sandbox. This ensures the agent actively reads and processes the files rather than receiving them as passive system context.
 
 ### Sources (in order)
 
@@ -147,21 +147,18 @@ Staged files are dotfiles by convention (e.g., `.MEMENTO.md`). The gitignore pat
 
 ### Claude Invocation
 
-The collected (and staged) system files are inserted as `--append-system-prompt-file` arguments before the prompt argument in the `docker sandbox run claude` invocation:
+The collected (and staged) system files are combined into a single `--append-system-prompt` argument with `study @<file>` instructions, placed before the prompt argument in the `docker sandbox run claude` invocation:
 
 ```
 docker sandbox run claude -- \
   --verbose \
   --dangerously-skip-permissions \
   --settings '{"autoMemoryEnabled": false}' \
-  --append-system-prompt-file ./.sgf/prompts/.MEMENTO.md \
-  --append-system-prompt-file ./BACKPRESSURE.md \
-  --append-system-prompt-file ./specs/README.md \
-  --append-system-prompt-file ./specs/auth.md \
+  --append-system-prompt 'study @./.sgf/prompts/.MEMENTO.md;study @./BACKPRESSURE.md;study @./specs/README.md;study @./specs/auth.md' \
   @prompt.md
 ```
 
-When `--command` is set (testing mode), system file arguments are not passed (the mock command does not understand them).
+When `--command` is set (testing mode), the same `--append-system-prompt` argument is passed to the mock command.
 
 ## Sandbox Pensa Configuration
 
@@ -188,7 +185,7 @@ docker --context <CONTEXT> sandbox run \
   --verbose \
   --dangerously-skip-permissions \
   --settings '{"autoMemoryEnabled": false}' \
-  [--append-system-prompt-file <FILE>]...  # from PROMPT_FILES, --spec, --system-file
+  [--append-system-prompt 'study @<FILE>;...']  # from PROMPT_FILES, --spec, --system-file
   @<PROMPT_FILE>       # file prompt (@ prefix)
   # or: "<inline text>"  # inline text (no @ prefix)
 ```
@@ -214,7 +211,7 @@ docker --context <CONTEXT> sandbox run \
   --output-format stream-json \
   --dangerously-skip-permissions \
   --settings '{"autoMemoryEnabled": false}' \
-  [--append-system-prompt-file <FILE>]...  # from PROMPT_FILES, --spec, --system-file
+  [--append-system-prompt 'study @<FILE>;...']  # from PROMPT_FILES, --spec, --system-file
   @<PROMPT_FILE>       # file prompt (@ prefix)
   # or: "<inline text>"  # inline text (no @ prefix)
 ```
@@ -426,7 +423,7 @@ Prompt resolution (before the loop):
 - If explicit prompt provided and it is a path to an existing file → use as file prompt (`@` prefix)
 - If explicit prompt provided and it is not an existing file → use as inline text (no `@` prefix)
 
-The startup banner includes mode, prompt source, iteration count, execution target (sandbox template name), loop ID (if provided via `--loop-id`), and a list of all collected system prompt files (each on its own line, prefixed with `  - `).
+The startup banner includes mode, prompt source, iteration count, execution target (sandbox template name), loop ID (if provided via `--loop-id`), and a list of all collected system files (each on its own line, prefixed with `  - `).
 
 For each iteration `i` in `1..=iterations`:
 

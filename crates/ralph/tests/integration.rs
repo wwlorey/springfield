@@ -1118,20 +1118,21 @@ fn prompt_files_passed_as_append_system_prompt_file_args() {
         fs::read_to_string(dir.path().join("captured-args.txt")).expect("read captured args");
     let arg_lines: Vec<&str> = args.lines().collect();
 
-    // Collect all --append-system-prompt-file values
-    let asp_values: Vec<&str> = arg_lines
+    // Find the --append-system-prompt value containing study instructions
+    let asp_value: Option<&str> = arg_lines
         .windows(2)
-        .filter(|w| w[0] == "--append-system-prompt-file")
-        .map(|w| w[1])
-        .collect();
+        .find(|w| w[0] == "--append-system-prompt")
+        .map(|w| w[1]);
+
+    let study = asp_value.expect("should pass --append-system-prompt with study instructions");
 
     assert!(
-        asp_values.iter().any(|v| v.contains("BACKPRESSURE.md")),
-        "should pass BACKPRESSURE.md as --append-system-prompt-file, got args: {asp_values:?}"
+        study.contains("study @") && study.contains("BACKPRESSURE.md"),
+        "should include study @...BACKPRESSURE.md, got: {study}"
     );
     assert!(
-        asp_values.iter().any(|v| v.contains("NOTES.md")),
-        "should pass NOTES.md as --append-system-prompt-file, got args: {asp_values:?}"
+        study.contains("NOTES.md"),
+        "should include study @...NOTES.md, got: {study}"
     );
 }
 
@@ -1178,19 +1179,20 @@ fn prompt_files_missing_entries_not_passed_as_args() {
         fs::read_to_string(dir.path().join("captured-args.txt")).expect("read captured args");
     let arg_lines: Vec<&str> = args.lines().collect();
 
-    let asp_values: Vec<&str> = arg_lines
+    let asp_value: Option<&str> = arg_lines
         .windows(2)
-        .filter(|w| w[0] == "--append-system-prompt-file")
-        .map(|w| w[1])
-        .collect();
+        .find(|w| w[0] == "--append-system-prompt")
+        .map(|w| w[1]);
+
+    let study = asp_value.expect("should pass --append-system-prompt with study instructions");
 
     assert!(
-        asp_values.iter().any(|v| v.contains("EXISTS.md")),
-        "should pass EXISTS.md as --append-system-prompt-file, got args: {asp_values:?}"
+        study.contains("study @") && study.contains("EXISTS.md"),
+        "should include study @...EXISTS.md, got: {study}"
     );
     assert!(
-        !asp_values.iter().any(|v| v.contains("nonexistent")),
-        "should NOT pass nonexistent file as --append-system-prompt-file, got args: {asp_values:?}"
+        !study.contains("nonexistent"),
+        "should NOT include nonexistent file in study instruction, got: {study}"
     );
 }
 
@@ -1239,25 +1241,26 @@ fn prompt_files_default_entries_passed_when_unset() {
         fs::read_to_string(dir.path().join("captured-args.txt")).expect("read captured args");
     let arg_lines: Vec<&str> = args.lines().collect();
 
-    let asp_values: Vec<&str> = arg_lines
+    let asp_value: Option<&str> = arg_lines
         .windows(2)
-        .filter(|w| w[0] == "--append-system-prompt-file")
-        .map(|w| w[1])
-        .collect();
+        .find(|w| w[0] == "--append-system-prompt")
+        .map(|w| w[1]);
+
+    let study = asp_value.expect("should pass --append-system-prompt with study instructions");
 
     // Default includes ./BACKPRESSURE.md and ./specs/README.md which we created
     assert!(
-        asp_values.iter().any(|v| v.contains("BACKPRESSURE.md")),
-        "default PROMPT_FILES should include BACKPRESSURE.md, got args: {asp_values:?}"
+        study.contains("BACKPRESSURE.md"),
+        "default PROMPT_FILES should include BACKPRESSURE.md, got: {study}"
     );
     assert!(
-        asp_values.iter().any(|v| v.contains("specs/README.md")),
-        "default PROMPT_FILES should include specs/README.md, got args: {asp_values:?}"
+        study.contains("specs/README.md"),
+        "default PROMPT_FILES should include specs/README.md, got: {study}"
     );
     // HOME is set to temp dir, so $HOME/.MEMENTO.md should not exist
     assert!(
-        !asp_values.iter().any(|v| v.contains("MEMENTO.md")),
-        "default should skip non-existent $HOME/.MEMENTO.md, got args: {asp_values:?}"
+        !study.contains("MEMENTO.md"),
+        "default should skip non-existent $HOME/.MEMENTO.md, got: {study}"
     );
 }
 
@@ -1407,14 +1410,15 @@ fn spec_passes_append_system_prompt_file_arg() {
         fs::read_to_string(dir.path().join("captured-args.txt")).expect("read captured args");
     let arg_lines: Vec<&str> = args.lines().collect();
 
-    let asp_idx = arg_lines
-        .iter()
-        .position(|&a| a == "--append-system-prompt-file")
-        .expect("should contain --append-system-prompt-file flag");
-    assert_eq!(
-        arg_lines[asp_idx + 1],
-        "./specs/auth.md",
-        "--append-system-prompt-file should be followed by spec path"
+    let asp_value: Option<&str> = arg_lines
+        .windows(2)
+        .find(|w| w[0] == "--append-system-prompt")
+        .map(|w| w[1]);
+
+    let study = asp_value.expect("should pass --append-system-prompt with study instructions");
+    assert!(
+        study.contains("study @./specs/auth.md"),
+        "study instruction should include spec path, got: {study}"
     );
 }
 
@@ -1596,23 +1600,20 @@ fn external_prompt_file_staged_into_workspace() {
     let args =
         fs::read_to_string(workspace.path().join("captured-args.txt")).expect("read captured args");
     let arg_lines: Vec<&str> = args.lines().collect();
-    let asp_values: Vec<&str> = arg_lines
+    let asp_value: Option<&str> = arg_lines
         .windows(2)
-        .filter(|w| w[0] == "--append-system-prompt-file")
-        .map(|w| w[1])
-        .collect();
+        .find(|w| w[0] == "--append-system-prompt")
+        .map(|w| w[1]);
+
+    let study = asp_value.expect("should pass --append-system-prompt with study instructions");
 
     assert!(
-        asp_values
-            .iter()
-            .any(|v| v.contains(".sgf/prompts/.MEMENTO.md")),
-        "should pass staged workspace path, not original external path, got: {asp_values:?}"
+        study.contains(".sgf/prompts/.MEMENTO.md"),
+        "should pass staged workspace path, not original external path, got: {study}"
     );
     assert!(
-        !asp_values
-            .iter()
-            .any(|v| v.contains(external_dir.path().to_str().unwrap())),
-        "should NOT pass original external path, got: {asp_values:?}"
+        !study.contains(external_dir.path().to_str().unwrap()),
+        "should NOT pass original external path, got: {study}"
     );
 }
 
