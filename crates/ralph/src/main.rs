@@ -331,7 +331,7 @@ fn resolve_prompt_files() -> Vec<String> {
 
 fn stage_external_files(files: Vec<String>) -> Vec<String> {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let staging_dir = cwd.join(".sgf/prompts/.system");
+    let staging_dir = cwd.join(".sgf/prompts");
 
     files
         .into_iter()

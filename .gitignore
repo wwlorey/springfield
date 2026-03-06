@@ -8,6 +8,7 @@
 # Springfield
 .sgf/logs/
 .sgf/run/
+.sgf/prompts/.*
 node_modules/
 .svelte-kit/
 .env

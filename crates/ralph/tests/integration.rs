@@ -1582,12 +1582,10 @@ fn external_prompt_file_staged_into_workspace() {
         output.status.code()
     );
 
-    let staged = workspace
-        .path()
-        .join(".sgf/prompts/.system/.MEMENTO.md");
+    let staged = workspace.path().join(".sgf/prompts/.MEMENTO.md");
     assert!(
         staged.exists(),
-        "external file should be staged into .sgf/prompts/.system/"
+        "external file should be staged into .sgf/prompts/"
     );
     let content = fs::read_to_string(&staged).expect("read staged file");
     assert!(
@@ -1607,7 +1605,7 @@ fn external_prompt_file_staged_into_workspace() {
     assert!(
         asp_values
             .iter()
-            .any(|v| v.contains(".sgf/prompts/.system/.MEMENTO.md")),
+            .any(|v| v.contains(".sgf/prompts/.MEMENTO.md")),
         "should pass staged workspace path, not original external path, got: {asp_values:?}"
     );
     assert!(
@@ -1640,9 +1638,17 @@ fn workspace_relative_files_not_staged() {
 
     assert!(output.status.success());
 
-    let staging_dir = workspace.path().join(".sgf/prompts/.system");
+    let prompts_dir = workspace.path().join(".sgf/prompts");
+    let has_dotfiles = prompts_dir.exists()
+        && fs::read_dir(&prompts_dir)
+            .unwrap()
+            .any(|e| {
+                e.ok()
+                    .and_then(|e| e.file_name().to_str().map(|s| s.starts_with('.')))
+                    .unwrap_or(false)
+            });
     assert!(
-        !staging_dir.exists(),
-        "staging dir should not be created for workspace-relative files"
+        !has_dotfiles,
+        "no dotfiles should be staged for workspace-relative files"
     );
 }

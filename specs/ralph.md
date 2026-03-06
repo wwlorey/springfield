@@ -134,15 +134,27 @@ Ralph owns system prompt injection for all automated stages. It collects system 
 2. **`--spec <stem>`** — If provided, appends `./specs/<stem>.md`. Fails with exit code 1 and a clear error (e.g., `spec file not found: specs/auth.md`) if the file does not exist.
 3. **`--system-file <path>`** (repeatable) — Additional explicit files. Missing files are a fatal error (exit code 1).
 
+### External File Staging
+
+Files outside the workspace (e.g., `$HOME/.MEMENTO.md`) are not accessible inside the Docker sandbox. After collecting all system files, ralph stages external files into the workspace:
+
+1. For each collected file, canonicalize its path and check if it falls outside the workspace directory.
+2. If external, copy it to `.sgf/prompts/<filename>` inside the workspace (e.g., `.MEMENTO.md` stays as a dotfile).
+3. Rewrite the path to the workspace-relative copy (e.g., `./.sgf/prompts/.MEMENTO.md`).
+4. Workspace-relative files (e.g., `./BACKPRESSURE.md`, `./specs/README.md`) are passed through unchanged.
+
+Staged files are dotfiles by convention (e.g., `.MEMENTO.md`). The gitignore pattern `.sgf/prompts/.*` excludes them while keeping regular prompt templates tracked. Files are overwritten on each run.
+
 ### Claude Invocation
 
-The collected system files are inserted as `--append-system-prompt-file` arguments before the prompt argument in the `docker sandbox run claude` invocation:
+The collected (and staged) system files are inserted as `--append-system-prompt-file` arguments before the prompt argument in the `docker sandbox run claude` invocation:
 
 ```
 docker sandbox run claude -- \
   --verbose \
   --dangerously-skip-permissions \
   --settings '{"autoMemoryEnabled": false}' \
+  --append-system-prompt-file ./.sgf/prompts/.MEMENTO.md \
   --append-system-prompt-file ./BACKPRESSURE.md \
   --append-system-prompt-file ./specs/README.md \
   --append-system-prompt-file ./specs/auth.md \
