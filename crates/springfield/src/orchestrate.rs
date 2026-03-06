@@ -37,8 +37,12 @@ fn resolve_ralph_binary(config: &LoopConfig) -> String {
 }
 
 fn resolve_agent_cmd() -> io::Result<String> {
-    match std::env::var("AGENT_CMD") {
-        Ok(val) if !val.is_empty() => Ok(val),
+    resolve_agent_cmd_from(std::env::var("AGENT_CMD").ok())
+}
+
+fn resolve_agent_cmd_from(val: Option<String>) -> io::Result<String> {
+    match val {
+        Some(v) if !v.is_empty() => Ok(v),
         _ => Err(io::Error::other(
             "AGENT_CMD not set. Set AGENT_CMD to the path of the agent binary (e.g., AGENT_CMD=claude).",
         )),
@@ -356,50 +360,25 @@ mod tests {
 
     #[test]
     fn resolve_agent_cmd_missing() {
-        let prev = std::env::var("AGENT_CMD").ok();
-        unsafe { std::env::remove_var("AGENT_CMD") };
-
-        let result = resolve_agent_cmd();
+        let result = resolve_agent_cmd_from(None);
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(
             err_msg.contains("AGENT_CMD not set"),
             "expected AGENT_CMD error, got: {err_msg}"
         );
-
-        if let Some(val) = prev {
-            unsafe { std::env::set_var("AGENT_CMD", val) };
-        }
     }
 
     #[test]
     fn resolve_agent_cmd_empty() {
-        let prev = std::env::var("AGENT_CMD").ok();
-        unsafe { std::env::set_var("AGENT_CMD", "") };
-
-        let result = resolve_agent_cmd();
+        let result = resolve_agent_cmd_from(Some(String::new()));
         assert!(result.is_err());
-
-        if let Some(val) = prev {
-            unsafe { std::env::set_var("AGENT_CMD", val) };
-        } else {
-            unsafe { std::env::remove_var("AGENT_CMD") };
-        }
     }
 
     #[test]
     fn resolve_agent_cmd_set() {
-        let prev = std::env::var("AGENT_CMD").ok();
-        unsafe { std::env::set_var("AGENT_CMD", "my-agent") };
-
-        let result = resolve_agent_cmd();
+        let result = resolve_agent_cmd_from(Some("my-agent".to_string()));
         assert_eq!(result.unwrap(), "my-agent");
-
-        if let Some(val) = prev {
-            unsafe { std::env::set_var("AGENT_CMD", val) };
-        } else {
-            unsafe { std::env::remove_var("AGENT_CMD") };
-        }
     }
 
     #[test]
