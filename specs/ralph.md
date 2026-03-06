@@ -1,12 +1,13 @@
 # ralph Specification
 
-CLI tool for iterative Claude Code execution. Replaces `scripts/ralph.sh` with a Rust binary that provides clean NDJSON stream formatting, sentinel file completion detection, and git auto-push.
+CLI tool for iterative Claude Code execution. Invokes `$AGENT_CMD` directly (no Docker sandbox) with clean NDJSON stream formatting, sentinel file completion detection, and git auto-push.
 
 ## Overview
 
 `ralph` provides:
 - **Iteration loop**: Run Claude Code repeatedly against a prompt file or inline text, up to N iterations
 - **Two modes**: Interactive (terminal passthrough) and AFK (formatted NDJSON stream)
+- **Direct agent invocation**: Runs `$AGENT_CMD` as a child process — no Docker, no Mutagen, no sandbox lifecycle. `$AGENT_CMD` must be set; ralph fails immediately if the env var is missing or empty.
 - **System prompt injection**: Read `PROMPT_FILES` env var and pass a `study @<file>` instruction via `--append-system-prompt` to Claude Code; optionally append spec files via `--spec`
 - **NDJSON formatting**: Compact, readable output from Claude's stream-json format
 - **Completion detection**: Exit early when Claude signals task completion by creating the `.ralph-complete` sentinel file
@@ -17,19 +18,19 @@ CLI tool for iterative Claude Code execution. Replaces `scripts/ralph.sh` with a
 ## Design Goals
 
 1. **Readable AFK output**: Tool calls shown as compact one-liners, not raw JSON argument dumps
-2. **Drop-in replacement**: Same CLI interface and environment variables as `scripts/ralph.sh`
-3. **Testable**: NDJSON formatting is a pure function testable without Docker; full binary testable via command override
-4. **Minimal dependencies**: Only `clap`, `serde`, `serde_json` — no async runtime needed
+2. **Testable**: NDJSON formatting is a pure function; full binary testable via command override
+3. **Minimal dependencies**: Only `clap`, `serde`, `serde_json` — no async runtime needed
+4. **No implicit agent binary**: `$AGENT_CMD` is required. Never fall back to a hardcoded binary name.
 
 ## Architecture
 
 ```
 ralph/
 ├── src/
-│   ├── main.rs      # CLI, startup banner (mode, prompt, iterations, sandbox, loop-id), iteration loop, docker invocation, git operations
+│   ├── main.rs      # CLI, startup banner (mode, prompt, iterations, loop-id), iteration loop, agent invocation, git operations
 │   └── format.rs    # NDJSON parsing, tool call formatting, completion detection
 ├── tests/
-│   ├── integration.rs           # Binary-level E2E tests with mocked docker
+│   ├── integration.rs           # Binary-level E2E tests with mock agent
 │   └── fixtures/
 │       ├── prompt.md            # Dummy prompt for tests
 │       ├── afk-session.ndjson   # Fixture: normal AFK session with text + tool calls
@@ -66,7 +67,7 @@ ralph [OPTIONS] [ITERATIONS] [PROMPT]
 When invoked by `sgf`, the full command looks like:
 
 ```
-SGF_SPEC=auth ralph [-a] [--loop-id ID] [--template T] [--auto-push BOOL] [--max-iterations N] [--spec auth] ITERATIONS PROMPT
+SGF_SPEC=auth ralph [-a] [--loop-id ID] [--auto-push BOOL] [--max-iterations N] [--spec auth] ITERATIONS PROMPT
 ```
 
 ### Arguments
@@ -91,14 +92,13 @@ The default value `prompt.md` is treated specially: if no explicit prompt is pro
 |-------------|---------|---------|-------------|
 | `-a`, `--afk` | — | `false` | Run in AFK mode (non-interactive) |
 | `--loop-id` | — | — | Loop identifier (sgf-generated, included in banner output) |
-| `--template` | `RALPH_TEMPLATE` | `ralph-sandbox:latest` | Docker sandbox template image |
 | `--max-iterations` | `RALPH_MAX_ITERATIONS` | `100` | Safety limit for iterations |
 | `--auto-push` | `RALPH_AUTO_PUSH` | `true` | Auto-push after new commits (requires explicit value: `true`/`false`/`yes`/`no`/`1`/`0`) |
-| `--command` | `RALPH_COMMAND` | — | Override: path to executable replacing docker invocation (for testing) |
+| `--command` | `RALPH_COMMAND` | — | Override: path to executable replacing agent invocation (for testing) |
 | `--spec` | `SGF_SPEC` | — | Spec stem — adds `./specs/<stem>.md` to the study instruction. Fails with error if the spec file does not exist. |
 | `--prompt-file` | — | — | Additional prompt file path (repeatable). Added to the study instruction passed via `--append-system-prompt`. |
+| — | `AGENT_CMD` | **(required)** | Path to the agent binary (e.g., `claude`). Ralph fails immediately with exit code 1 if this is unset or empty. |
 | — | `PROMPT_FILES` | `$HOME/.MEMENTO.md:./BACKPRESSURE.md:./specs/README.md` | Colon-separated list of files to include in the study instruction |
-| — | `SGF_DOCKER_CONTEXT` | auto-detect | Docker context to use for all docker commands |
 
 ### Exit Codes
 
@@ -112,21 +112,30 @@ The default value `prompt.md` is treated specially: if no explicit prompt is pro
 ### Examples
 
 ```bash
-ralph 10                              # Interactive, 10 iterations, prompt.md
-ralph -a 5                            # AFK mode, 5 iterations
-ralph 10 my-task.md                   # Custom prompt file
-ralph 5 "fix the login bug"           # Inline text prompt
-ralph -a 3 "refactor auth module"     # AFK mode with inline text
-RALPH_TEMPLATE=custom:v2 ralph -a 3   # Custom docker template
-RALPH_AUTO_PUSH=false ralph -a 10     # Disable auto-push
-ralph -a --loop-id build-auth-20260226T143000 10 prompt.md  # With loop ID (sgf passes this)
-ralph -a --spec auth 10 .sgf/prompts/build.md              # With spec (injects specs/auth.md as system prompt)
-ralph --prompt-file ./NOTES.md 5 prompt.md                  # Extra prompt file
+AGENT_CMD=claude ralph 10                              # Interactive, 10 iterations, prompt.md
+AGENT_CMD=claude ralph -a 5                            # AFK mode, 5 iterations
+AGENT_CMD=claude ralph 10 my-task.md                   # Custom prompt file
+AGENT_CMD=claude ralph 5 "fix the login bug"           # Inline text prompt
+AGENT_CMD=claude ralph -a 3 "refactor auth module"     # AFK mode with inline text
+RALPH_AUTO_PUSH=false AGENT_CMD=claude ralph -a 10     # Disable auto-push
+AGENT_CMD=claude ralph -a --loop-id build-auth-20260226T143000 10 prompt.md  # With loop ID
+AGENT_CMD=claude ralph -a --spec auth 10 .sgf/prompts/build.md              # With spec
+AGENT_CMD=claude ralph --prompt-file ./NOTES.md 5 prompt.md                  # Extra prompt file
 ```
+
+## Agent Binary Resolution
+
+Ralph requires the `AGENT_CMD` environment variable to be set to a non-empty value. This is the path or name of the agent binary (e.g., `claude`). Ralph **never** falls back to a hardcoded binary name — if `AGENT_CMD` is unset or empty, ralph prints an error and exits with code 1 immediately.
+
+```
+AGENT_CMD not set. Set AGENT_CMD to the path of the agent binary (e.g., AGENT_CMD=claude).
+```
+
+When `--command` is set (testing mode), `AGENT_CMD` is not required — the command override takes precedence.
 
 ## System Prompt Injection
 
-Ralph owns system prompt injection for all automated stages. It collects prompt files from three sources, builds a semicolon-separated `study @<file>` instruction, and passes it as a single `--append-system-prompt` argument to the Claude Code invocation inside the Docker sandbox. This ensures the agent actively reads and processes the files rather than receiving them as passive system context.
+Ralph owns system prompt injection for all automated stages. It collects prompt files from three sources, builds a semicolon-separated `study @<file>` instruction, and passes it as a single `--append-system-prompt` argument to the agent binary invocation. This ensures the agent actively reads and processes the files rather than receiving them as passive system context.
 
 ### Sources (in order)
 
@@ -134,54 +143,31 @@ Ralph owns system prompt injection for all automated stages. It collects prompt 
 2. **`--spec <stem>`** — If provided, appends `./specs/<stem>.md`. Fails with exit code 1 and a clear error (e.g., `spec file not found: specs/auth.md`) if the file does not exist.
 3. **`--prompt-file <path>`** (repeatable) — Additional explicit files. Missing files are a fatal error (exit code 1).
 
-### External File Staging
+### Agent Invocation
 
-Files outside the workspace (e.g., `$HOME/.MEMENTO.md`) are not accessible inside the Docker sandbox. After collecting all prompt files, ralph stages external files into the workspace:
-
-1. For each collected file, canonicalize its path and check if it falls outside the workspace directory.
-2. If external, copy it to `.sgf/prompts/<filename>` inside the workspace (e.g., `.MEMENTO.md` stays as a dotfile).
-3. Rewrite the path to the workspace-relative copy (e.g., `./.sgf/prompts/.MEMENTO.md`).
-4. Workspace-relative files (e.g., `./BACKPRESSURE.md`, `./specs/README.md`) are passed through unchanged.
-
-Staged files are dotfiles by convention (e.g., `.MEMENTO.md`). The gitignore pattern `.sgf/prompts/.*` excludes them while keeping regular prompt templates tracked. Files are overwritten on each run.
-
-### Claude Invocation
-
-The collected (and staged) prompt files are combined into a single `--append-system-prompt` argument with `study @<file>` instructions, placed before the prompt argument in the `docker sandbox run claude` invocation:
+The collected prompt files are combined into a single `--append-system-prompt` argument with `study @<file>` instructions, placed before the prompt argument in the agent invocation:
 
 ```
-docker sandbox run claude -- \
+$AGENT_CMD \
   --verbose \
   --dangerously-skip-permissions \
   --settings '{"autoMemoryEnabled": false}' \
-  --append-system-prompt 'study @./.sgf/prompts/.MEMENTO.md;study @./BACKPRESSURE.md;study @./specs/README.md;study @./specs/auth.md' \
+  --append-system-prompt 'study @$HOME/.MEMENTO.md;study @./BACKPRESSURE.md;study @./specs/README.md;study @./specs/auth.md' \
   @prompt.md
 ```
 
+Since the agent runs directly on the host filesystem, all paths (including `$HOME/.MEMENTO.md`) are accessible without staging. The external file staging step is no longer needed.
+
 When `--command` is set (testing mode), the same `--append-system-prompt` argument is passed to the mock command.
-
-## Sandbox Pensa Configuration
-
-Ralph ensures sandbox-side `pn` connects to the host daemon rather than auto-starting a local one:
-
-1. **Write `daemon.url`**: After `ensure_sandbox()`, ralph reads `.pensa/daemon.port` and writes `.pensa/daemon.url` containing `http://localhost:<port>`. This file tells `pn` inside the sandbox to treat the daemon as remote (no auto-start). The `pn` client detects it is running inside a Docker container (via `/.dockerenv`) and rewrites `localhost` to `host.docker.internal` so the request reaches the host daemon.
-2. **Configure network proxy**: Ralph runs `docker sandbox network proxy <name> --allow-host localhost --allow-host host.docker.internal` to allow the sandbox's HTTP proxy to route requests back to the host. The sandbox name is `claude-<workspace_dir_basename>`.
-3. **Cleanup**: Ralph removes `.pensa/daemon.url` on exit (via Drop guard) to prevent stale files from confusing host-side `pn`.
-
-Both steps are skipped when `--command` is set (test mode — no sandbox).
 
 ## Modes
 
 ### Interactive Mode (default)
 
-Spawns Claude with full terminal passthrough (stdin/stdout/stderr inherited).
-
-**Sandboxed (default):**
+Spawns the agent with full terminal passthrough (stdin/stdout/stderr inherited).
 
 ```
-docker --context <CONTEXT> sandbox run \
-  claude \
-  -- \
+$AGENT_CMD \
   --verbose \
   --dangerously-skip-permissions \
   --settings '{"autoMemoryEnabled": false}' \
@@ -190,22 +176,16 @@ docker --context <CONTEXT> sandbox run \
   # or: "<inline text>"  # inline text (no @ prefix)
 ```
 
-If `SGF_DOCKER_CONTEXT` is set, its value is used as `<CONTEXT>`. Otherwise, the context active at ralph startup (`docker context show`) is captured and passed explicitly to all docker commands.
-
-No output processing. The user interacts with Claude directly. After each iteration, ralph checks for the `.ralph-complete` sentinel file to detect task completion.
+No output processing. The user interacts with the agent directly. After each iteration, ralph checks for the `.ralph-complete` sentinel file to detect task completion.
 
 In interactive mode, ralph also runs a **notification watcher thread** that monitors for the `.ralph-ding` sentinel file. When detected, ralph plays a notification sound on the host machine to alert the user that Claude needs input. See [Interactive Notification](#interactive-notification).
 
 ### AFK Mode (`--afk`)
 
-Spawns Claude with piped stdout, stderr inherited.
-
-**Sandboxed (default):**
+Spawns the agent with piped stdout, stderr inherited.
 
 ```
-docker --context <CONTEXT> sandbox run \
-  claude \
-  -- \
+$AGENT_CMD \
   --verbose \
   --print \
   --output-format stream-json \
@@ -216,7 +196,7 @@ docker --context <CONTEXT> sandbox run \
   # or: "<inline text>"  # inline text (no @ prefix)
 ```
 
-Stdout is read line-by-line via `BufRead`, parsed as NDJSON, and formatted for human readability. Lines not starting with `{` are skipped silently (handles Docker/verbose debug output). Each output line is prefixed with `\r\x1b[2K` (carriage return + ANSI clear-line) to counteract Docker sandbox spinner/progress writes to `/dev/tty`, which move the cursor to unpredictable columns. This prefix is applied per line (not per block) because text content from Claude contains embedded newlines. After the process exits, ralph checks for the `.ralph-complete` sentinel file to determine if the task is complete.
+Stdout is read line-by-line via `BufRead`, parsed as NDJSON, and formatted for human readability. Lines not starting with `{` are skipped silently (handles verbose debug output). Each output line is prefixed with `\r\x1b[2K` (carriage return + ANSI clear-line). This prefix is applied per line (not per block) because text content from the agent contains embedded newlines. After the process exits, ralph checks for the `.ralph-complete` sentinel file to determine if the task is complete.
 
 ## Signal Handling
 
@@ -246,13 +226,11 @@ In AFK mode, ralph requires two Ctrl+C presses to abort, similar to Claude Code'
 
 **Why stdout-only for the message:** The "press again" prompt is an interactive terminal cue, not an application event. It should not appear in `--log-file` output or structured logs.
 
-### PTY and Session Isolation (AFK mode)
+### Session Isolation (AFK mode)
 
-In sandboxed AFK mode, two defenses keep Ctrl+C working:
+In AFK mode, `setsid()` in `pre_exec` creates a new session, detaching the agent child process from ralph's session. This prevents the child from becoming the foreground process group and stealing SIGINT delivery. With `setsid`, the agent is in a different session and `tcsetpgrp()` on ralph's terminal fails.
 
-1. **PTY for docker's stdin**: Docker puts its stdin terminal into raw mode via `tcsetattr()`, which disables Ctrl+C signal generation on that terminal. By creating a PTY pair (`openpty()`) and giving docker the slave end as stdin, raw mode only affects the PTY — ralph's terminal stays in cooked mode and Ctrl+C generates SIGINT normally. Docker requires `isatty(0) == true`, so `Stdio::null()` cannot be used. The master end of the PTY is held alive until the child exits.
-
-2. **`setsid()` in `pre_exec`**: Creates a new session, detaching docker from ralph's session. Without this, docker could call `tcsetpgrp()` on the inherited stderr fd (which points to ralph's terminal) to become the foreground process group, stealing SIGINT delivery. With `setsid`, docker is in a different session and `tcsetpgrp()` on ralph's terminal fails.
+No PTY pair is needed since the agent runs directly (no Docker wrapper that forces raw mode on stdin). AFK mode uses `Stdio::piped()` for stdout and `Stdio::inherit()` for stderr.
 
 ### Stdout Reading and Interrupt Polling
 
@@ -260,32 +238,23 @@ Stdout is read on a dedicated thread that sends lines through an `mpsc` channel.
 
 1. The child process is killed via `child.kill()`
 2. `child.wait()` reaps the process
-3. `docker sandbox stop claude` is run to ensure the Docker sandbox is stopped (fire-and-forget, stdout/stderr suppressed)
-4. Control returns to the main loop, which detects the flag and exits with code 130
+3. Control returns to the main loop, which detects the flag and exits with code 130
 
 The 2-second sleep between iterations is also interruptible (polled in 100ms increments), using single-press semantics.
 
-In interactive mode, SIGINT is delivered to the entire foreground process group. The docker child receives it directly (stdin is inherited), handles it, and eventually exits. Ralph's `.status()` call returns, the flag is checked, and ralph exits with code 130.
-
-### Sandbox Cleanup on Interrupt
-
-Killing the `docker` CLI process does not guarantee the Docker sandbox container stops — the container may continue running in the background. To prevent orphaned containers, ralph calls `docker sandbox stop claude` on every interrupt path:
-
-- After `child.kill()` + `child.wait()` in `run_afk`
-- At both between-iteration interrupt checks in the main loop
-
-The `stop_sandbox()` call is fire-and-forget: stdin/stdout/stderr are null, and failures are silently ignored (the sandbox may already be stopped). This is a belt-and-suspenders measure — sgf's orchestrate layer also calls `docker sandbox stop claude` after killing ralph, so cleanup happens even if ralph is hard-killed.
+In interactive mode, SIGINT is delivered to the entire foreground process group. The agent child receives it directly (stdin is inherited), handles it, and eventually exits. Ralph's `.status()` call returns, the flag is checked, and ralph exits with code 130.
 
 ## Interactive Notification
 
-In interactive mode, ralph plays a host-side notification sound when Claude finishes its turn and needs user input. This uses a sentinel file mechanism that bridges the Docker sandbox and the host.
+In interactive mode, ralph plays a notification sound when Claude finishes its turn and needs user input.
 
 ### Mechanism
 
-1. **Claude Code hooks** (configured in project-level `.claude/settings.local.json`) run `touch .ralph-ding` on `Notification` and `Stop` events inside the sandbox
-2. The Docker sandbox syncs files bidirectionally, so `.ralph-ding` appears on the host filesystem
-3. **Ralph's watcher thread** polls for `.ralph-ding` every ~100ms
-4. On detection: delete the file, spawn `afplay /System/Library/Sounds/Blow.aiff` in the background (non-blocking)
+1. **Claude Code hooks** (configured in project-level `.claude/settings.local.json`) run `touch .ralph-ding` on `Notification` and `Stop` events
+2. **Ralph's watcher thread** polls for `.ralph-ding` every ~100ms
+3. On detection: delete the file, spawn `afplay /System/Library/Sounds/Blow.aiff` in the background (non-blocking)
+
+Since the agent runs directly on the host, the hooks' `afplay` command also works directly — the `touch .ralph-ding` is a belt-and-suspenders mechanism for environments where `afplay` is not available.
 
 ### Hooks Configuration
 
@@ -315,12 +284,6 @@ The following hooks must be present in `.claude/settings.local.json` (project-le
 }
 ```
 
-Both `afplay` and `touch .ralph-ding` are included so the hooks work in both contexts:
-- **On the host** (normal Claude usage): `afplay` plays the sound directly, `.ralph-ding` is ignored (nobody watching)
-- **In the sandbox** (ralph usage): `afplay` fails silently (not available in container), `.ralph-ding` is synced to host where ralph's watcher picks it up
-
-Hook event keys in `settings.local.json` **replace** (not merge with) the same keys from user-level `~/.claude/settings.json`. This is why `afplay` must be duplicated here if it also exists in user-level settings.
-
 ### Watcher Thread
 
 The watcher runs only in interactive mode (AFK mode has no user interaction). It is a background thread that:
@@ -329,7 +292,7 @@ The watcher runs only in interactive mode (AFK mode has no user interaction). It
 2. On detection: `fs::remove_file(".ralph-ding")`, then `Command::new("afplay").arg("/System/Library/Sounds/Blow.aiff").spawn()` (fire-and-forget)
 3. Continues polling until signaled to stop (via `AtomicBool`)
 
-The watcher thread is started before spawning the docker process and stopped after it exits. Stale `.ralph-ding` files are cleaned up at ralph startup alongside `.ralph-complete`.
+The watcher thread is started before spawning the agent process and stopped after it exits. Stale `.ralph-ding` files are cleaned up at ralph startup alongside `.ralph-complete`.
 
 ### Gitignore
 
@@ -414,23 +377,23 @@ Returns formatted text to print, or `None` if the line should be skipped. Comple
 ## Main Loop
 
 Before the loop:
+- Resolve `AGENT_CMD` from environment. If unset or empty and `--command` is not set, exit 1 with error.
 - Search for and delete any stale `.ralph-complete` sentinel file (from a previous crashed/killed run), searching recursively up to depth 2
 - Delete stale `.ralph-ding` sentinel file if present
-- If sandboxed: ensure the sandbox exists by first checking `docker sandbox ls -q` for the expected sandbox name (`claude-<workspace_dir_basename>`). If the name is not found, run `docker --context <CONTEXT> sandbox create --template <TEMPLATE> claude <WORKSPACE>` to create it (stdout/stderr suppressed). If the name is already present, skip the `create` call entirely. `<WORKSPACE>` is the current working directory. Note: `--template` must precede the agent subcommand.
 
 Prompt resolution (before the loop):
 - If no explicit prompt provided and `prompt.md` does not exist → exit 1 with error
 - If explicit prompt provided and it is a path to an existing file → use as file prompt (`@` prefix)
 - If explicit prompt provided and it is not an existing file → use as inline text (no `@` prefix)
 
-The startup banner includes mode, prompt source, iteration count, execution target (sandbox template name), loop ID (if provided via `--loop-id`), and a list of all collected prompt files (each on its own line, prefixed with `  - `).
+The startup banner includes mode, prompt source, iteration count, agent binary path, loop ID (if provided via `--loop-id`), and a list of all collected prompt files (each on its own line, prefixed with `  - `).
 
 For each iteration `i` in `1..=iterations`:
 
-1. Remove any stale `.ralph-complete` sentinel (guards against late-arriving Mutagen syncs between iterations)
+1. Remove any stale `.ralph-complete` sentinel
 2. Print iteration banner (includes loop ID if provided)
 3. Record `git rev-parse HEAD` as `head_before`
-4. Execute Claude via Docker (or `--command` override):
+4. Execute agent via `$AGENT_CMD` (or `--command` override):
    - Interactive: start notification watcher thread, `.status()` with inherited stdio, stop watcher thread
    - AFK: `.spawn()` with piped stdout, read lines via reader thread + channel through `format_line()`
 5. If interrupted: log warning, exit 130
@@ -471,9 +434,9 @@ If all iterations complete without the sentinel file appearing, ralph exits with
 
 ## Command Override (`--command`)
 
-When `--command` (or `RALPH_COMMAND`) is set, ralph runs the specified executable instead of `docker`. The override executable is invoked with no arguments and must write NDJSON (AFK mode) or interactive output to stdout.
+When `--command` (or `RALPH_COMMAND`) is set, ralph runs the specified executable instead of `$AGENT_CMD`. The override executable is invoked with the same arguments and must write NDJSON (AFK mode) or interactive output to stdout.
 
-This enables integration testing without Docker. Tests create a mock script that emits fixture NDJSON. For completion detection tests, the mock script also creates the `.ralph-complete` sentinel file.
+This enables integration testing without a real agent binary. Tests create a mock script that emits fixture NDJSON. For completion detection tests, the mock script also creates the `.ralph-complete` sentinel file. When `--command` is set, `AGENT_CMD` is not required.
 
 ## Error Handling
 
@@ -481,21 +444,20 @@ No custom error types. Fail loudly, continue when sensible:
 
 | Scenario | Behavior |
 |----------|----------|
+| `AGENT_CMD` not set (no `--command`) | `tracing::error!` + exit 1 (before loop starts) |
 | Default prompt file missing | `tracing::error!` + exit 1 (before loop starts, only when no explicit prompt provided) |
 | Spec file missing (`--spec`) | `tracing::error!` + exit 1 (e.g., `spec file not found: specs/auth.md`) |
 | Prompt file missing (`--prompt-file`) | `tracing::error!` + exit 1 |
 | `PROMPT_FILES` entry missing | `tracing::warn!` to stderr, skip the file (non-fatal) |
-| Sandbox `ls -q` check failure | `tracing::warn!`, fall through to `create` |
-| Sandbox `create` failure | `tracing::warn!`, continue (sandbox may need manual cleanup) |
-| Docker/command spawn failure | `tracing::warn!`, continue to next iteration |
+| Agent/command spawn failure | `tracing::warn!`, continue to next iteration |
 | NDJSON parse error (line starts with `{`) | Skip line, log at debug level |
-| Non-JSON line (no `{` prefix) | Skip line silently (expected Docker/verbose debug output) |
+| Non-JSON line (no `{` prefix) | Skip line silently (expected verbose debug output) |
 | stdout read error | `tracing::warn!`, continue reading |
 | Git `rev-parse` failure | Return `None`, skip push check |
 | Git push failure | `tracing::warn!`, continue |
-| SIGINT received (AFK mode) | First press: print "Press Ctrl+C again to stop" to stdout, start 2s timeout. Second press: kill child, stop sandbox, `tracing::warn!`, exit 130. Timeout: reset counter, continue. |
-| SIGINT received (interactive / between iterations) | Kill child process, stop sandbox, `tracing::warn!`, exit 130 |
-| SIGTERM received | Kill child process (AFK), stop sandbox, `tracing::warn!`, exit 130 (immediate, single signal) |
+| SIGINT received (AFK mode) | First press: print "Press Ctrl+C again to stop" to stdout, start 2s timeout. Second press: kill child, `tracing::warn!`, exit 130. Timeout: reset counter, continue. |
+| SIGINT received (interactive / between iterations) | Kill child process, `tracing::warn!`, exit 130 |
+| SIGTERM received | Kill child process (AFK), `tracing::warn!`, exit 130 (immediate, single signal) |
 
 ## Testing
 
@@ -521,7 +483,7 @@ Binary-level E2E tests using `cargo test -p ralph`. Each test:
 2. Initializes a git repo in the temp directory
 3. Creates a mock script that emits fixture NDJSON
 4. Runs the `ralph` binary via `std::process::Command` with:
-   - `RALPH_COMMAND` set to the mock script path
+   - `RALPH_COMMAND` set to the mock script path (bypasses `AGENT_CMD` requirement)
    - `RALPH_AUTO_PUSH=false` (no remote to push to)
    - Working directory set to the temp directory
 5. Asserts on exit code and stdout content
@@ -593,5 +555,5 @@ Key differences from old `scripts/ralph.sh` output:
 
 ## Related Specifications
 
-- [scripts/ralph.sh](../scripts/ralph.sh) — Bash predecessor (to be deleted after implementation)
-- [scripts/README.md](../scripts/README.md) — Docker sandbox setup documentation
+- [springfield](springfield.md) — CLI entry point that orchestrates ralph
+- [pensa](pensa.md) — Agent persistent memory, used by the agent inside ralph iterations

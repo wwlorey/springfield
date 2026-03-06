@@ -26,7 +26,6 @@ sgf test [spec] [-a] [--no-push] [N]   — run test execution loop
 sgf issues log                         — interactive session for logging bugs
 sgf status                             — show project state (future work)
 sgf logs <loop-id>                     — tail a running loop's output
-sgf template build                     — rebuild Docker sandbox template
 ```
 
 ### Common Flags
@@ -229,7 +228,7 @@ specs/
 
 **`PROMPT_FILES`** (env var) — Colon-separated list of files to include in `study` instructions. Default: `$HOME/.MEMENTO.md:./BACKPRESSURE.md:./specs/README.md`. Ralph reads this variable for automated stages and passes it as `--append-system-prompt 'study @<file>;...'`; `$AGENT_CMD` wrappers read it for interactive stages. sgf does not read `PROMPT_FILES`. `~` is expanded to `$HOME`; `./` paths are resolved relative to the project root. Missing files emit a warning to stderr. If `PROMPT_FILES` is not set, a warning is emitted and the default is used.
 
-**`AGENT_CMD`** (env var) — Command used for interactive Claude sessions. Default: `claude`. Interactive stages call `$AGENT_CMD` directly with `--verbose @{prompt_path}`, inheriting stdio. The wrapper is responsible for system prompt injection (e.g., reading `PROMPT_FILES` and passing `--append-system-prompt` with `study` instructions). sgf does not inject prompt files for interactive stages.
+**`AGENT_CMD`** (env var, **required**) — Path or name of the agent binary (e.g., `claude`). Used by both interactive stages (sgf calls `$AGENT_CMD` directly) and automated stages (sgf passes `AGENT_CMD` through to ralph's environment). **There is no default fallback** — if `AGENT_CMD` is unset or empty, sgf and ralph fail immediately with a clear error. This prevents accidental invocation of a wrong or nonexistent binary.
 
 **`SGF_SPEC`** (env var) — Spec stem for build/test stages. Set by sgf in ralph's environment (e.g., `SGF_SPEC=auth`). Ralph includes `./specs/${SGF_SPEC}.md` in its `study` instruction. Prompt templates reference this env var instead of `{{spec}}` template variables.
 
@@ -250,7 +249,7 @@ sgf does not assemble, transform, or preprocess prompt templates. Templates in `
 
 ### System Prompt Injection
 
-**Automated stages (ralph):** Ralph owns system prompt injection. It reads `PROMPT_FILES`, resolves paths, builds a semicolon-separated `study @<file>` instruction, and passes it as `--append-system-prompt` to the Claude Code invocation inside the Docker sandbox. This ensures the agent actively reads and processes the files rather than receiving them as passive system context. When `SGF_SPEC` is set, ralph also includes `./specs/${SGF_SPEC}.md` in the study instruction.
+**Automated stages (ralph):** Ralph owns system prompt injection. It reads `PROMPT_FILES`, resolves paths, builds a semicolon-separated `study @<file>` instruction, and passes it as `--append-system-prompt` to the `$AGENT_CMD` invocation. This ensures the agent actively reads and processes the files rather than receiving them as passive system context. When `SGF_SPEC` is set, ralph also includes `./specs/${SGF_SPEC}.md` in the study instruction. Since the agent runs directly on the host filesystem, all paths (including `$HOME/.MEMENTO.md`) are accessible without staging.
 
 **Interactive stages (`$AGENT_CMD`):** The user-configured `$AGENT_CMD` wrapper handles system prompt injection. sgf does not inject prompt files for interactive stages. Users must configure their wrapper to read `PROMPT_FILES` and pass `--append-system-prompt` with `study` instructions (or equivalent).
 
@@ -272,7 +271,7 @@ Run `pn ready --spec $SGF_SPEC --json`.
 ### Invocation
 
 ```
-[SGF_SPEC=<stem>] sgf → ralph [-a] [--loop-id ID] [--template T] [--auto-push BOOL] [--max-iterations N] [--spec STEM] ITERATIONS PROMPT
+[SGF_SPEC=<stem>] [AGENT_CMD=<path>] sgf → ralph [-a] [--loop-id ID] [--auto-push BOOL] [--max-iterations N] [--spec STEM] ITERATIONS PROMPT
 ```
 
 `sgf` translates its own flags and hardcoded defaults into ralph CLI flags. Ralph does not read config files — all configuration arrives via flags and environment variables.
@@ -283,7 +282,6 @@ Run `pn ready --spec $SGF_SPEC --json`.
 |------|------|--------|-------------|
 | `-a` / `--afk` | bool | sgf command (e.g., `sgf build -a`) | AFK mode |
 | `--loop-id` | string | sgf-generated | Unique loop identifier |
-| `--template` | string | hardcoded: `ralph-sandbox:latest` | Docker sandbox template |
 | `--auto-push` | bool | `true` unless `--no-push` passed to sgf | Auto-push after commits |
 | `--max-iterations` | u32 | hardcoded: `30` | Safety limit |
 | `--spec` | string | spec positional arg from sgf (optional) | Spec stem — ralph includes `./specs/<stem>.md` in its study instruction. Omitted when no spec is given. |
@@ -295,19 +293,20 @@ Run `pn ready --spec $SGF_SPEC --json`.
 | Variable | Source | Description |
 |----------|--------|-------------|
 | `SGF_SPEC` | sgf | Spec stem (e.g., `auth`). Set only when a spec is provided to `build` or `test`. Not set when no spec is given. |
+| `AGENT_CMD` | inherited | Path to the agent binary. sgf validates this is set before launching ralph. |
 
 ### Execution Model by Stage
 
 | Stage | Execution | Description |
 |-------|-----------|-------------|
 | `spec` | `$AGENT_CMD` directly | Interactive interview; calls `$AGENT_CMD --verbose @{prompt_path}`, inheriting stdio |
-| `build` | ralph (Docker) | Autonomous execution; sandbox provides isolation |
-| `verify` | ralph (Docker) | Autonomous execution |
-| `test-plan` | ralph (Docker) | Autonomous execution |
-| `test` | ralph (Docker) | Autonomous execution |
+| `build` | ralph | Autonomous execution; ralph invokes `$AGENT_CMD` with `--dangerously-skip-permissions` |
+| `verify` | ralph | Autonomous execution |
+| `test-plan` | ralph | Autonomous execution |
+| `test` | ralph | Autonomous execution |
 | `issues log` | `$AGENT_CMD` directly | Interactive interview; calls `$AGENT_CMD --verbose @{prompt_path}`, inheriting stdio |
 
-Interactive stages (`spec`, `issues log`) call `$AGENT_CMD` directly. No PID file, no log tee, no loop ID. The wrapper (configured by the user) handles prompt file injection via `PROMPT_FILES`. Automated stages (`build`, `verify`, `test-plan`, `test`) go through ralph, which handles prompt file injection via `--append-system-prompt` with `study` instructions and always runs in Docker sandboxes.
+Interactive stages (`spec`, `issues log`) call `$AGENT_CMD` directly. No PID file, no log tee, no loop ID. The wrapper (configured by the user) handles prompt file injection via `PROMPT_FILES`. Automated stages (`build`, `verify`, `test-plan`, `test`) go through ralph, which handles prompt file injection via `--append-system-prompt` with `study` instructions and invokes `$AGENT_CMD` directly on the host.
 
 ### Exit Codes
 
@@ -320,11 +319,9 @@ Interactive stages (`spec`, `issues log`) call `$AGENT_CMD` directly. No PID fil
 
 On interrupt, sgf's behavior depends on the stage type:
 
-**AFK loops** (`-a` flag): sgf spawns ralph in its own process group (`setsid()` via `pre_exec`) so that terminal SIGINT is delivered only to sgf, not to ralph. sgf independently implements double Ctrl+C semantics. SIGINT increments an `AtomicUsize` counter (`sigint_count`). First press: print "sgf: press Ctrl+C again to stop" and start a 2-second confirmation window. Second press within 2 seconds: send SIGTERM to the ralph child process, wait for it to exit, then run `docker sandbox stop claude`. If no second press arrives within 2 seconds, sgf resets its counter to 0. SIGTERM always triggers immediate shutdown (single signal). Signal handlers are registered just before spawning the ralph child — during pre-launch checks, daemon startup, and other phases before handler registration, default signal behavior applies (single SIGINT exits).
+**AFK loops** (`-a` flag): sgf spawns ralph in its own process group (`setsid()` via `pre_exec`) so that terminal SIGINT is delivered only to sgf, not to ralph. sgf independently implements double Ctrl+C semantics. SIGINT increments an `AtomicUsize` counter (`sigint_count`). First press: print "sgf: press Ctrl+C again to stop" and start a 2-second confirmation window. Second press within 2 seconds: send SIGTERM to the ralph child process, wait for it to exit. If no second press arrives within 2 seconds, sgf resets its counter to 0. SIGTERM always triggers immediate shutdown (single signal). Signal handlers are registered just before spawning the ralph child — during pre-launch checks, daemon startup, and other phases before handler registration, default signal behavior applies (single SIGINT exits).
 
-**Non-AFK loops and interactive stages**: A single SIGINT triggers immediate shutdown — send SIGTERM to the child process, wait for exit, stop sandbox, clean up.
-
-This is belt-and-suspenders with ralph's own sandbox cleanup — even if ralph is hard-killed, sgf ensures no orphaned containers remain.
+**Non-AFK loops and interactive stages**: A single SIGINT triggers immediate shutdown — send SIGTERM to the child process, wait for exit, clean up.
 
 Claude Code crashes and push failures are handled within ralph as warnings — they do not produce distinct exit codes. Ralph logs the failure and continues to the next iteration without cleanup. The next iteration's agent inherits whatever state exists and proceeds via forward correction. Stale claims and dirty working trees accumulate within a ralph run and are cleared by sgf's pre-launch recovery before the next run.
 
@@ -385,21 +382,14 @@ Before launching ralph, `sgf` scans all PID files in `.sgf/run/`:
 
 Before launching any loop, `sgf` runs pre-launch checks. The checks vary by stage:
 
-**Sandboxed stages** (build, verify, test-plan, test):
-
-1. **Recovery** — clean up stale state from crashed iterations (see Recovery)
-2. **Daemon** — start the pensa daemon if not already running
-3. **Template** — ensure the Docker sandbox template exists and is current
-4. **Pensa export** — run `pn export` to sync SQLite → JSONL before the sandbox launches (the sandbox daemon auto-imports from JSONL on first start)
-
-**Interactive stages** (spec, issues log):
+**All stages** (build, verify, test-plan, test, spec, issues log):
 
 1. **Recovery** — clean up stale state from crashed iterations (see Recovery)
 2. **Daemon** — start the pensa daemon if not already running
 
-Template pre-flight is skipped for interactive stages — no Docker image is needed. After pre-launch checks, `sgf` calls `$AGENT_CMD` directly with `--verbose @{prompt_path}`, inheriting stdio.
+After pre-launch checks, automated stages launch ralph; interactive stages call `$AGENT_CMD` directly with `--verbose @{prompt_path}`, inheriting stdio.
 
-**`SGF_SKIP_PREFLIGHT`** (env var) — When set, skips daemon startup and template pre-flight while still running recovery. This allows two-tier control: the `--skip-preflight` CLI flag disables all pre-launch checks (including recovery), while `SGF_SKIP_PREFLIGHT` disables only the infrastructure checks (daemon + template). Used by integration tests to exercise recovery logic without requiring Docker or a running pensa daemon.
+**`SGF_SKIP_PREFLIGHT`** (env var) — When set, skips daemon startup while still running recovery. This allows two-tier control: the `--skip-preflight` CLI flag disables all pre-launch checks (including recovery), while `SGF_SKIP_PREFLIGHT` disables only the infrastructure checks (daemon). Used by integration tests to exercise recovery logic without requiring a running pensa daemon.
 
 ### Daemon
 
@@ -412,28 +402,13 @@ Template pre-flight is skipped for interactive stages — no Docker image is nee
 
 The daemon runs for the duration of the `sgf` session. It stops on SIGTERM or when `sgf` shuts down.
 
-### Template Pre-flight
-
-`sgf` checks the Docker sandbox template before launching any loop:
-
-1. Resolve Docker context: use `SGF_DOCKER_CONTEXT` env var if set, otherwise capture current context via `docker context show`. Pass `--context <resolved>` on all subsequent docker commands.
-2. Run `docker --context <CONTEXT> image inspect ralph-sandbox:latest` to check if the image exists
-3. If the image does not exist, auto-build it (runs `sgf template build` logic internally). Print a heads-up before building — the first build takes several minutes.
-4. If the image exists, check staleness by comparing Docker image labels against current values:
-   - `pn_hash` — SHA-256 of the pensa crate source (Cargo.toml + src/*.rs)
-   - `dockerfile_hash` — SHA-256 of the embedded Dockerfile content
-5. If stale, auto-rebuild it (same as step 3). Print the reason (e.g., "rebuilding ralph-sandbox:latest (pensa source has changed)...").
-6. If fresh, proceed silently.
-
-Auto-build failure is a hard error — the loop cannot proceed without a template.
-
 ---
 
 ## Workflow Stages
 
 **Stage transitions are human-initiated.** The developer decides when to move between stages. Suggested heuristics: run verify when `pn ready --spec <stem>` returns nothing (all tasks for a spec are done); run test-plan after verify passes; run test after test-plan produces test items. These are guidelines, not gates.
 
-**Concurrency model**: Multiple loops (e.g., multiple `sgf build` instances) can run concurrently on the same branch. The pensa daemon serializes all database access, providing atomic claims via `pn update --claim` (fails with `already_claimed` if another agent got there first). `pn export` runs at commit time via the pre-commit hook. Concurrent sandboxes share the same git history via Mutagen file sync — push conflicts don't arise because each sandbox sees the other's commits within seconds. **Stop build loops before running `sgf spec`** to avoid task-supersession race conditions.
+**Concurrency model**: Multiple loops (e.g., multiple `sgf build` instances) can run concurrently on the same branch. The pensa daemon serializes all database access, providing atomic claims via `pn update --claim` (fails with `already_claimed` if another agent got there first). `pn export` runs at commit time via the pre-commit hook. Concurrent agents share the same filesystem and git history. **Stop build loops before running `sgf spec`** to avoid task-supersession race conditions.
 
 ### Standard Loop Iteration
 
@@ -657,140 +632,6 @@ Loom's integrated observability platform: analytics, crash tracking, cron monito
 
 ---
 
-## Docker Sandbox Template
-
-All loops run inside Docker Desktop sandboxes. A single universal template is used for all project types.
-
-### Template Name
-
-`ralph-sandbox:latest`
-
-### Dockerfile
-
-The Dockerfile source lives in the Springfield repo at `.docker/sandbox-templates/ralph/Dockerfile`:
-
-```dockerfile
-FROM docker/sandbox-templates:claude-code
-
-USER root
-
-# System dependencies for Tauri development and general builds
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    pkg-config \
-    libwebkit2gtk-4.1-dev \
-    webkit2gtk-driver \
-    libgtk-3-dev \
-    libayatana-appindicator3-dev \
-    librsvg2-dev \
-    libssl-dev \
-    curl \
-    wget \
-    file \
-    libxdo-dev \
-    # Playwright browser dependencies (--with-deps fails on this Ubuntu version)
-    libnss3 \
-    libnspr4 \
-    libatk1.0-0t64 \
-    libatk-bridge2.0-0t64 \
-    libcups2t64 \
-    libdrm2 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxrandr2 \
-    libgbm1 \
-    libpango-1.0-0 \
-    libcairo2 \
-    libasound2t64 \
-    libxshmfence1 \
-    libglib2.0-0t64 \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Rust
-USER agent
-ENV RUSTUP_HOME=/home/agent/.rustup
-ENV CARGO_HOME=/home/agent/.cargo
-ENV PATH="/home/agent/.cargo/bin:${PATH}"
-
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
-    && . "$CARGO_HOME/env" \
-    && rustup default stable \
-    && rustup component add rustfmt clippy
-
-# Install Tauri CLI, cargo-geiger (unsafe code auditing), and prek (git hook manager)
-RUN . "$CARGO_HOME/env" && cargo install tauri-cli cargo-geiger prek
-
-# Enable pnpm and yarn
-USER root
-RUN corepack enable && corepack prepare pnpm@latest --activate && corepack prepare yarn@stable --activate
-
-# Install global JS tools
-USER agent
-ENV PNPM_HOME="/home/agent/.local/share/pnpm"
-ENV PATH="${PNPM_HOME}:${PATH}"
-ENV SHELL="/bin/bash"
-
-RUN pnpm setup && \
-    pnpm add -g \
-    typescript \
-    @tauri-apps/cli \
-    playwright \
-    madge \
-    knip \
-    type-coverage
-
-# Install Playwright browsers
-USER root
-RUN npm install -g playwright && npx playwright install
-
-# Install gitleaks (secrets scanner)
-RUN GITLEAKS_VERSION=$(curl -s https://api.github.com/repos/gitleaks/gitleaks/releases/latest | grep '"tag_name"' | sed 's/.*"v\(.*\)".*/\1/') && \
-    curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_amd64.tar.gz" | tar xz -C /usr/local/bin gitleaks
-
-USER agent
-
-# Install pensa CLI from source
-USER agent
-COPY --chown=agent:agent pensa-src /tmp/pensa-src
-RUN . "$CARGO_HOME/env" && cargo install --path /tmp/pensa-src && rm -rf /tmp/pensa-src
-
-ENV CARGO_TARGET_DIR="/home/agent/target"
-
-# Ensure agent owns their home directory
-RUN chown -R agent:agent /home/agent
-
-USER agent
-WORKDIR /home/agent
-
-# Verify installations
-RUN rustc --version && cargo --version && cargo geiger --version && prek --version && node --version && pnpm --version && yarn --version && npx playwright --version && gitleaks version && madge --version && knip --version && pn --help
-```
-
-### sgf template build
-
-Builds the `ralph-sandbox:latest` Docker image:
-
-1. Locate the pensa crate source (at `crates/pensa/` relative to the springfield workspace, resolved via `CARGO_MANIFEST_DIR`)
-2. Create a temporary build context directory
-3. Write the Dockerfile (embedded in the sgf binary at compile time via `include_str!`)
-4. Copy the pensa crate source into the build context as `pensa-src/`, inlining workspace `Cargo.toml` fields (`version`, `edition`, `license`) so it builds standalone
-5. Compute SHA-256 hashes of the pensa source (Cargo.toml + all `src/*.rs` files, sorted) and Dockerfile content
-6. Run `docker --context <CONTEXT> build -t ralph-sandbox:latest --label pn_hash=<sha256> --label dockerfile_hash=<sha256> .`
-7. Clean up the temporary directory
-
-The `pn` binary is compiled from source inside the Docker container via `cargo install --path`, ensuring the binary matches the container's architecture (no cross-compilation required on the host).
-
-The labels enable pre-flight staleness detection. After updating pensa source or the Dockerfile, `sgf template build` bakes the new hashes into the image. The pre-flight check compares these labels against current values on every loop launch.
-
-### Sandbox Behavior
-
-- **File sync**: Workspace directory syncs bidirectionally between host and sandbox at the same absolute path via Mutagen. Changes the agent makes sync back to the host.
-- **Credentials**: Docker Desktop automatically injects API keys from the host into the sandbox. Keys never enter the sandbox filesystem.
-- **Agent user**: The agent runs as non-root `agent` user with `sudo` access inside the sandbox.
-- **Pensa access**: Ralph writes `.pensa/daemon.url` before sandbox launch, containing `http://localhost:<port>` (read from `.pensa/daemon.port`). It also runs `docker sandbox network proxy <name> --allow-host localhost` to allow the sandbox's HTTP proxy to route `localhost` requests back to the host. When `pn` inside the sandbox finds `daemon.url`, it treats the daemon as remote (no auto-start) and forces HTTP traffic through the proxy (ignoring `no_proxy=localhost`). This ensures all sandbox instances share the same host daemon and database — no stale copies, atomic claims work across sandboxes.
-- **Cargo target directory**: `CARGO_TARGET_DIR` is set to `/home/agent/target` (container-local) to avoid Mutagen sync corrupting compiled artifacts. Without this, rustc encounters SIGBUS errors when Mutagen partially syncs `.rlib`/`.rmeta` files mid-compilation.
-
 ---
 
 ## Hardcoded Defaults
@@ -799,8 +640,6 @@ The labels enable pre-flight staleness detection. After updating pensa source or
 |---------|-------|----------|
 | Iterations | `30` | Positional arg: `sgf build auth 10` |
 | Auto-push | `true` | `--no-push` flag |
-| Docker template | `ralph-sandbox:latest` | None (constant) |
-| Docker context | auto-detect | `SGF_DOCKER_CONTEXT` env var |
 | Pensa daemon port | per-project derived | `--port` flag on `pn daemon` |
 
 ---
@@ -825,7 +664,7 @@ The labels enable pre-flight staleness detection. After updating pensa source or
 
 **Decentralized projects**: Springfield is project-aware — it reads `.sgf/` from the current working directory. No global registry. Each project is self-contained.
 
-**Sandboxed by default**: Automated stages (build, verify, test-plan, test) run inside Docker sandboxes via ralph for filesystem isolation. Interactive stages (spec, issues log) call `$AGENT_CMD` directly — no ralph, no Docker — so the agent can access files outside the repo. The wrapper never uses `--dangerously-skip-permissions` — without sandbox isolation, Claude's normal permission prompts are the safety boundary.
+**Direct execution**: All stages invoke `$AGENT_CMD` on the host — no Docker sandboxes, no Mutagen sync. Automated stages (build, verify, test-plan, test) go through ralph with `--dangerously-skip-permissions`. Interactive stages (spec, issues log) call `$AGENT_CMD` directly without `--dangerously-skip-permissions` — Claude's normal permission prompts are the safety boundary. Claude Code's native sandbox (Seatbelt on macOS, bubblewrap on Linux) can optionally provide OS-level filesystem and network isolation via `.claude/settings.json` sandbox configuration.
 
 ---
 
@@ -833,6 +672,7 @@ The labels enable pre-flight staleness detection. After updating pensa source or
 
 - **Context-efficient backpressure**: Swallow all build/test/lint output on success (show only a checkmark), dump full output only on failure. Preserves context window budget. See HumanLayer's `run_silent()` pattern.
 - **Claude Code hooks for enforcement**: Use `PreToolUse` / `PostToolUse` hooks to enforce backpressure at the framework level — auto-run linters after file edits, block destructive commands. Could be scaffolded by `sgf init`.
+- **Native sandbox configuration**: Scaffold `.claude/settings.json` sandbox config via `sgf init` — define filesystem write boundaries, network allowlists, etc. for Claude Code's built-in sandboxing.
 - **TUI**: CLI-first for now. TUI can be added later as a view layer. Desired feel: Neovim-like (modal, keyboard-driven, information-dense, panes for multiple loops).
 - **Multi-project monitoring**: Deferred with TUI. For now, multiple terminals.
 - **`sgf status` output spec**: Define what `sgf status` shows (running loops, pensa summary, recent activity). Specify after real usage reveals what's needed.

@@ -12,13 +12,13 @@ Pensa lives at `crates/pensa/` in the Springfield workspace. It produces one bin
 
 Dual-layer storage:
 
-- **`~/.local/share/pensa/<project-hash>/db.sqlite`** — the working database, stored outside the workspace to avoid Docker Mutagen sync corruption. Lives on the host, owned by the pensa daemon. Rebuilt from JSONL on clone. The `<project-hash>` is a 16-hex-char hash of the canonical project directory path.
+- **`~/.local/share/pensa/<project-hash>/db.sqlite`** — the working database, stored outside the workspace to keep binary files out of git. Lives on the host, owned by the pensa daemon. Rebuilt from JSONL on clone. The `<project-hash>` is a 16-hex-char hash of the canonical project directory path.
 - **`.pensa/*.jsonl`** — the git-committed exports. Separate files per entity: `issues.jsonl`, `deps.jsonl`, `comments.jsonl`. Events are not exported (derivable from issue history, avoids monotonic file growth). Human-readable, diffs cleanly. JSONL files are never read at runtime — they capture a snapshot at commit time via `pn export` and are only used to rebuild SQLite on clone or post-merge via `pn import`.
 
 Transient files (gitignored):
 
 - **`.pensa/daemon.port`** — written by the daemon on startup, contains the port number.
-- **`.pensa/daemon.url`** — written by ralph before sandbox launch, contains `http://localhost:<port>`. Tells `pn` to treat the daemon as remote (no auto-start). Inside a Docker container, `pn` detects `/.dockerenv` and rewrites `localhost` to `host.docker.internal` to reach the host daemon. Cleaned up by ralph on exit.
+- **`.pensa/daemon.url`** — optional override for daemon address. If present, `pn` treats the daemon as remote (no auto-start). Typically not needed when the agent runs directly on the host.
 
 Git sync is automated via prek (git hooks):
 
@@ -33,7 +33,7 @@ Pensa uses a client/daemon model. The daemon runs on the host, owns the SQLite d
 
 ### Why a daemon?
 
-SQLite needs serialized write access. The daemon keeps all reads and writes behind a single process, avoiding concurrent SQLite writers. On the host, this prevents conflicts when multiple CLI invocations run simultaneously. Inside Docker sandboxes, each sandbox runs its own daemon against the Mutagen-synced database files. The JSONL export/import cycle bridges state between host and sandbox: the host exports before sandbox launch, and the sandbox daemon auto-imports on first start.
+SQLite needs serialized write access. The daemon keeps all reads and writes behind a single process, avoiding concurrent SQLite writers. This prevents conflicts when multiple CLI invocations or concurrent agent loops run simultaneously.
 
 ### Daemon (`pn daemon`)
 
@@ -48,11 +48,8 @@ SQLite needs serialized write access. The daemon keeps all reads and writes behi
 ### CLI client
 
 - Every `pn` command (create, list, ready, close, etc.) sends an HTTP request to the daemon.
-- The CLI discovers the daemon address via env vars and port discovery. Resolution order: (1) if `PN_DAEMON_HOST` is set and non-empty, use `http://<host>:<port>` with port from discovery; (2) if `PN_DAEMON` is set, use it as the full URL; (3) if `.pensa/daemon.url` exists and contains a non-empty URL, use it (with container rewrite — see below); (4) otherwise use `http://localhost:<port>`. Port discovery checks `.pensa/daemon.port` (written by the daemon on startup), falling back to SHA-256 derivation of the project directory.
+- The CLI discovers the daemon address via env vars and port discovery. Resolution order: (1) if `PN_DAEMON_HOST` is set and non-empty, use `http://<host>:<port>` with port from discovery; (2) if `PN_DAEMON` is set, use it as the full URL; (3) if `.pensa/daemon.url` exists and contains a non-empty URL, use it; (4) otherwise use `http://localhost:<port>`. Port discovery checks `.pensa/daemon.port` (written by the daemon on startup), falling back to SHA-256 derivation of the project directory.
 - If the daemon is unreachable and a remote host is configured — `PN_DAEMON_HOST` is set to something other than empty/`localhost`/`127.0.0.1`/`::1`, `PN_DAEMON` is explicitly set, or `.pensa/daemon.url` exists with content — the CLI prints an error and exits (exit code 1). It never auto-starts a daemon when a remote daemon address is configured. Otherwise (local host), the CLI auto-starts it (spawning `pn daemon` in the background with the current working directory as `--project-dir`), waits up to 5 seconds for it to become ready, then proceeds. If the daemon still isn't reachable after 5 seconds, the command continues anyway (the HTTP call will fail with a clear error). The `daemon` and `where` subcommands skip auto-start.
-- When the daemon URL comes from `PN_DAEMON` or `.pensa/daemon.url`, and `HTTP_PROXY` or `http_proxy` is set, the CLI builds the reqwest client with an explicit proxy and empty `no_proxy` list. This forces localhost traffic through the sandbox's HTTP proxy, bypassing the default `no_proxy=localhost` behavior.
-- **Docker container detection**: When the daemon URL comes from `.pensa/daemon.url`, the CLI checks for `/.dockerenv` to detect if it is running inside a Docker container. If so, it rewrites `localhost` and `127.0.0.1` in the URL to `host.docker.internal` so the request reaches the host machine rather than the container's own loopback. This rewrite happens transparently — ralph writes `http://localhost:<port>` to `daemon.url` (keeping the file host-compatible), and the container-side client adjusts at connect time.
-- **Docker sandbox strategy**: Ralph writes `.pensa/daemon.url` containing `http://localhost:<port>` (read from `.pensa/daemon.port`) before launching the sandbox. When `pn` finds this file, it treats the daemon as remote (no auto-start), detects the container environment, rewrites `localhost` to `host.docker.internal`, and forces HTTP traffic through the sandbox's HTTP proxy (ignoring `no_proxy=localhost`). Ralph configures the sandbox network policy via `docker sandbox network proxy <name> --allow-host localhost --allow-host host.docker.internal`. This ensures all sandbox instances share the same daemon and database — no stale copies, atomic claims work across sandboxes.
 
 ### Technology choices
 
