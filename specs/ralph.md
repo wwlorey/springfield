@@ -96,7 +96,7 @@ The default value `prompt.md` is treated specially: if no explicit prompt is pro
 | `--auto-push` | `RALPH_AUTO_PUSH` | `true` | Auto-push after new commits (requires explicit value: `true`/`false`/`yes`/`no`/`1`/`0`) |
 | `--command` | `RALPH_COMMAND` | — | Override: path to executable replacing docker invocation (for testing) |
 | `--spec` | `SGF_SPEC` | — | Spec stem — adds `./specs/<stem>.md` to the study instruction. Fails with error if the spec file does not exist. |
-| `--system-file` | — | — | Additional system prompt file path (repeatable). Added to the study instruction passed via `--append-system-prompt`. |
+| `--prompt-file` | — | — | Additional prompt file path (repeatable). Added to the study instruction passed via `--append-system-prompt`. |
 | — | `PROMPT_FILES` | `$HOME/.MEMENTO.md:./BACKPRESSURE.md:./specs/README.md` | Colon-separated list of files to include in the study instruction |
 | — | `SGF_DOCKER_CONTEXT` | auto-detect | Docker context to use for all docker commands |
 
@@ -121,22 +121,22 @@ RALPH_TEMPLATE=custom:v2 ralph -a 3   # Custom docker template
 RALPH_AUTO_PUSH=false ralph -a 10     # Disable auto-push
 ralph -a --loop-id build-auth-20260226T143000 10 prompt.md  # With loop ID (sgf passes this)
 ralph -a --spec auth 10 .sgf/prompts/build.md              # With spec (injects specs/auth.md as system prompt)
-ralph --system-file ./NOTES.md 5 prompt.md                 # Extra system prompt file
+ralph --prompt-file ./NOTES.md 5 prompt.md                  # Extra prompt file
 ```
 
 ## System Prompt Injection
 
-Ralph owns system prompt injection for all automated stages. It collects system files from three sources, builds a semicolon-separated `study @<file>` instruction, and passes it as a single `--append-system-prompt` argument to the Claude Code invocation inside the Docker sandbox. This ensures the agent actively reads and processes the files rather than receiving them as passive system context.
+Ralph owns system prompt injection for all automated stages. It collects prompt files from three sources, builds a semicolon-separated `study @<file>` instruction, and passes it as a single `--append-system-prompt` argument to the Claude Code invocation inside the Docker sandbox. This ensures the agent actively reads and processes the files rather than receiving them as passive system context.
 
 ### Sources (in order)
 
 1. **`PROMPT_FILES` env var** — Colon-separated list of files. Default: `$HOME/.MEMENTO.md:./BACKPRESSURE.md:./specs/README.md`. Path resolution: `~` and `$HOME` expand to the home directory; `./` paths resolve relative to cwd. Missing files emit a warning to stderr and are skipped. If `PROMPT_FILES` is not set, a warning is emitted and the default is used.
 2. **`--spec <stem>`** — If provided, appends `./specs/<stem>.md`. Fails with exit code 1 and a clear error (e.g., `spec file not found: specs/auth.md`) if the file does not exist.
-3. **`--system-file <path>`** (repeatable) — Additional explicit files. Missing files are a fatal error (exit code 1).
+3. **`--prompt-file <path>`** (repeatable) — Additional explicit files. Missing files are a fatal error (exit code 1).
 
 ### External File Staging
 
-Files outside the workspace (e.g., `$HOME/.MEMENTO.md`) are not accessible inside the Docker sandbox. After collecting all system files, ralph stages external files into the workspace:
+Files outside the workspace (e.g., `$HOME/.MEMENTO.md`) are not accessible inside the Docker sandbox. After collecting all prompt files, ralph stages external files into the workspace:
 
 1. For each collected file, canonicalize its path and check if it falls outside the workspace directory.
 2. If external, copy it to `.sgf/prompts/<filename>` inside the workspace (e.g., `.MEMENTO.md` stays as a dotfile).
@@ -147,7 +147,7 @@ Staged files are dotfiles by convention (e.g., `.MEMENTO.md`). The gitignore pat
 
 ### Claude Invocation
 
-The collected (and staged) system files are combined into a single `--append-system-prompt` argument with `study @<file>` instructions, placed before the prompt argument in the `docker sandbox run claude` invocation:
+The collected (and staged) prompt files are combined into a single `--append-system-prompt` argument with `study @<file>` instructions, placed before the prompt argument in the `docker sandbox run claude` invocation:
 
 ```
 docker sandbox run claude -- \
@@ -185,7 +185,7 @@ docker --context <CONTEXT> sandbox run \
   --verbose \
   --dangerously-skip-permissions \
   --settings '{"autoMemoryEnabled": false}' \
-  [--append-system-prompt 'study @<FILE>;...']  # from PROMPT_FILES, --spec, --system-file
+  [--append-system-prompt 'study @<FILE>;...']  # from PROMPT_FILES, --spec, --prompt-file
   @<PROMPT_FILE>       # file prompt (@ prefix)
   # or: "<inline text>"  # inline text (no @ prefix)
 ```
@@ -211,7 +211,7 @@ docker --context <CONTEXT> sandbox run \
   --output-format stream-json \
   --dangerously-skip-permissions \
   --settings '{"autoMemoryEnabled": false}' \
-  [--append-system-prompt 'study @<FILE>;...']  # from PROMPT_FILES, --spec, --system-file
+  [--append-system-prompt 'study @<FILE>;...']  # from PROMPT_FILES, --spec, --prompt-file
   @<PROMPT_FILE>       # file prompt (@ prefix)
   # or: "<inline text>"  # inline text (no @ prefix)
 ```
@@ -423,7 +423,7 @@ Prompt resolution (before the loop):
 - If explicit prompt provided and it is a path to an existing file → use as file prompt (`@` prefix)
 - If explicit prompt provided and it is not an existing file → use as inline text (no `@` prefix)
 
-The startup banner includes mode, prompt source, iteration count, execution target (sandbox template name), loop ID (if provided via `--loop-id`), and a list of all collected system files (each on its own line, prefixed with `  - `).
+The startup banner includes mode, prompt source, iteration count, execution target (sandbox template name), loop ID (if provided via `--loop-id`), and a list of all collected prompt files (each on its own line, prefixed with `  - `).
 
 For each iteration `i` in `1..=iterations`:
 
@@ -483,7 +483,7 @@ No custom error types. Fail loudly, continue when sensible:
 |----------|----------|
 | Default prompt file missing | `tracing::error!` + exit 1 (before loop starts, only when no explicit prompt provided) |
 | Spec file missing (`--spec`) | `tracing::error!` + exit 1 (e.g., `spec file not found: specs/auth.md`) |
-| System file missing (`--system-file`) | `tracing::error!` + exit 1 |
+| Prompt file missing (`--prompt-file`) | `tracing::error!` + exit 1 |
 | `PROMPT_FILES` entry missing | `tracing::warn!` to stderr, skip the file (non-fatal) |
 | Sandbox `ls -q` check failure | `tracing::warn!`, fall through to `create` |
 | Sandbox `create` failure | `tracing::warn!`, continue (sandbox may need manual cleanup) |

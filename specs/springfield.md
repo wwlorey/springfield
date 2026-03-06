@@ -229,7 +229,7 @@ specs/
 
 **`PROMPT_FILES`** (env var) — Colon-separated list of files to include in `study` instructions. Default: `$HOME/.MEMENTO.md:./BACKPRESSURE.md:./specs/README.md`. Ralph reads this variable for automated stages and passes it as `--append-system-prompt 'study @<file>;...'`; `$AGENT_CMD` wrappers read it for interactive stages. sgf does not read `PROMPT_FILES`. `~` is expanded to `$HOME`; `./` paths are resolved relative to the project root. Missing files emit a warning to stderr. If `PROMPT_FILES` is not set, a warning is emitted and the default is used.
 
-**`AGENT_CMD`** (env var) — Command used for interactive Claude sessions. Default: `claude`. Interactive stages call `$AGENT_CMD` directly with `--verbose @{prompt_path}`, inheriting stdio. The wrapper is responsible for system prompt injection (e.g., reading `PROMPT_FILES` and passing `--append-system-prompt` with `study` instructions). sgf does not inject system files for interactive stages.
+**`AGENT_CMD`** (env var) — Command used for interactive Claude sessions. Default: `claude`. Interactive stages call `$AGENT_CMD` directly with `--verbose @{prompt_path}`, inheriting stdio. The wrapper is responsible for system prompt injection (e.g., reading `PROMPT_FILES` and passing `--append-system-prompt` with `study` instructions). sgf does not inject prompt files for interactive stages.
 
 **`SGF_SPEC`** (env var) — Spec stem for build/test stages. Set by sgf in ralph's environment (e.g., `SGF_SPEC=auth`). Ralph includes `./specs/${SGF_SPEC}.md` in its `study` instruction. Prompt templates reference this env var instead of `{{spec}}` template variables.
 
@@ -252,7 +252,7 @@ sgf does not assemble, transform, or preprocess prompt templates. Templates in `
 
 **Automated stages (ralph):** Ralph owns system prompt injection. It reads `PROMPT_FILES`, resolves paths, builds a semicolon-separated `study @<file>` instruction, and passes it as `--append-system-prompt` to the Claude Code invocation inside the Docker sandbox. This ensures the agent actively reads and processes the files rather than receiving them as passive system context. When `SGF_SPEC` is set, ralph also includes `./specs/${SGF_SPEC}.md` in the study instruction.
 
-**Interactive stages (`$AGENT_CMD`):** The user-configured `$AGENT_CMD` wrapper handles system prompt injection. sgf does not inject system files for interactive stages. Users must configure their wrapper to read `PROMPT_FILES` and pass `--append-system-prompt` with `study` instructions (or equivalent).
+**Interactive stages (`$AGENT_CMD`):** The user-configured `$AGENT_CMD` wrapper handles system prompt injection. sgf does not inject prompt files for interactive stages. Users must configure their wrapper to read `PROMPT_FILES` and pass `--append-system-prompt` with `study` instructions (or equivalent).
 
 ### Prompt Templates
 
@@ -307,7 +307,7 @@ Run `pn ready --spec $SGF_SPEC --json`.
 | `test` | ralph (Docker) | Autonomous execution |
 | `issues log` | `$AGENT_CMD` directly | Interactive interview; calls `$AGENT_CMD --verbose @{prompt_path}`, inheriting stdio |
 
-Interactive stages (`spec`, `issues log`) call `$AGENT_CMD` directly. No PID file, no log tee, no loop ID. The wrapper (configured by the user) handles system prompt injection via `PROMPT_FILES`. Automated stages (`build`, `verify`, `test-plan`, `test`) go through ralph, which handles system prompt injection via `--append-system-prompt` with `study` instructions and always runs in Docker sandboxes.
+Interactive stages (`spec`, `issues log`) call `$AGENT_CMD` directly. No PID file, no log tee, no loop ID. The wrapper (configured by the user) handles prompt file injection via `PROMPT_FILES`. Automated stages (`build`, `verify`, `test-plan`, `test`) go through ralph, which handles prompt file injection via `--append-system-prompt` with `study` instructions and always runs in Docker sandboxes.
 
 ### Exit Codes
 
@@ -439,7 +439,7 @@ Auto-build failure is a hard error — the loop cannot proceed without a templat
 
 Build, Test, and Issues Plan stages share a common iteration pattern. Each iteration:
 
-1. **Orient** — system files from `PROMPT_FILES` are actively read by the agent (via ralph's `study` instruction for automated stages, or by the wrapper for interactive stages).
+1. **Orient** — prompt files from `PROMPT_FILES` are actively read by the agent (via ralph's `study` instruction for automated stages, or by the wrapper for interactive stages).
 2. **Query** — find work items via pensa (stage-specific query). If none, write `.ralph-complete` and exit.
 3. **Choose & Claim** — pick a task from the results, then `pn update <id> --claim`. If the claim fails (`already_claimed`), re-query and pick another.
 4. **Work** — stage-specific implementation
