@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 
-/// CLI entry point for Springfield — scaffolding, prompt assembly, loop orchestration.
+/// CLI entry point for Springfield — scaffolding, prompt delivery, loop orchestration.
 #[derive(Parser)]
 #[command(name = "sgf")]
 struct Cli {

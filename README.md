@@ -70,13 +70,12 @@ The Docker sandbox template (`ralph-sandbox:latest`) is built automatically the 
 
 ```sh
 sgf spec                    # generate specs and implementation plan (interactive)
-sgf build <spec>            # run build loop (interactive)
-sgf build <spec> -a         # run build loop in AFK mode (unattended)
+sgf build [spec]            # run build loop (interactive)
+sgf build [spec] -a         # run build loop in AFK mode (unattended)
 sgf verify                  # verify codebase against specs
 sgf test-plan               # generate test items
-sgf test <spec>             # execute test items
+sgf test [spec]             # execute test items
 sgf issues log              # log bugs interactively
-sgf issues plan             # plan fixes from open bugs
 sgf logs <loop-id>          # tail a running loop's output
 ```
 
