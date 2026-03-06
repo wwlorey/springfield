@@ -1,6 +1,6 @@
 # ralph
 
-Iterative Claude Code runner via Docker sandbox. Runs Claude Code repeatedly against a prompt, up to N iterations, with automatic completion detection and git auto-push.
+Iterative Claude Code runner via direct `$AGENT_CMD` invocation. Runs Claude Code repeatedly against a prompt, up to N iterations, with automatic completion detection and git auto-push.
 
 ## Usage
 
@@ -11,7 +11,7 @@ ralph [OPTIONS] [ITERATIONS] [PROMPT]
 When invoked by `sgf`, the full command looks like:
 
 ```
-ralph [-a] [--loop-id ID] [--template T] [--auto-push BOOL] [--max-iterations N] ITERATIONS PROMPT
+ralph [-a] [--loop-id ID] [--auto-push BOOL] [--max-iterations N] ITERATIONS PROMPT
 ```
 
 ### Arguments
@@ -27,10 +27,19 @@ ralph [-a] [--loop-id ID] [--template T] [--auto-push BOOL] [--max-iterations N]
 |-------------|---------|---------|-------------|
 | `-a`, `--afk` | — | `false` | Run in AFK mode (non-interactive) |
 | `--loop-id` | — | — | Loop identifier (sgf-generated, included in banner output) |
-| `--template` | `RALPH_TEMPLATE` | `ralph-sandbox:latest` | Docker sandbox template image |
 | `--max-iterations` | `RALPH_MAX_ITERATIONS` | `100` | Safety limit for iterations |
 | `--auto-push` | `RALPH_AUTO_PUSH` | `true` | Auto-push after new commits |
-| `--command` | `RALPH_COMMAND` | — | Override: path to executable replacing docker invocation (for testing) |
+| `--command` | `RALPH_COMMAND` | — | Override: path to executable replacing agent invocation (for testing) |
+| `--spec` | `SGF_SPEC` | — | Spec stem — appends ./specs/<stem>.md as a system prompt file |
+| `--prompt-file` | — | — | Additional prompt file path (repeatable) |
+| `--log-file` | — | — | Path to log file — ralph tees its output here |
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `AGENT_CMD` | Path to the agent binary (e.g., `claude`). Required unless `--command` is set. |
+| `PROMPT_FILES` | Colon-separated list of prompt files to pass as `--append-system-prompt` study instructions. Supports `$HOME` and `~` expansion. |
 
 ### Examples
 
@@ -40,7 +49,6 @@ ralph -a 5                            # AFK mode, 5 iterations
 ralph 10 my-task.md                   # Custom prompt file
 ralph 5 "fix the login bug"           # Inline text prompt
 ralph -a 3 "refactor auth module"     # AFK mode with inline text
-RALPH_TEMPLATE=custom:v2 ralph -a 3   # Custom docker template
 RALPH_AUTO_PUSH=false ralph -a 10     # Disable auto-push
 ralph -a --loop-id build-auth-20260226T143000 10 prompt.md  # With loop ID
 ```
@@ -49,18 +57,18 @@ ralph -a --loop-id build-auth-20260226T143000 10 prompt.md  # With loop ID
 
 ### Interactive (default)
 
-Spawns Docker with full terminal passthrough (stdin/stdout/stderr inherited). The user interacts with Claude directly. A background watcher thread monitors for the `.ralph-ding` sentinel file and plays a notification sound when Claude needs input.
+Spawns the agent with full terminal passthrough (stdin/stdout/stderr inherited). The user interacts with Claude directly. A background watcher thread monitors for the `.ralph-ding` sentinel file and plays a notification sound when Claude needs input.
 
 ### AFK (`--afk`)
 
-Spawns Docker with piped stdout. Output is read line-by-line as NDJSON and formatted for human readability. Tool calls are shown as compact one-liners instead of raw JSON.
+Spawns the agent with piped stdout. Output is read line-by-line as NDJSON and formatted for human readability. Tool calls are shown as compact one-liners instead of raw JSON.
 
 ## Exit Codes
 
 | Code | Meaning |
 |------|---------|
 | `0` | Completion file `.ralph-complete` detected |
-| `1` | Error (prompt file missing, etc.) |
+| `1` | Error (prompt file missing, AGENT_CMD not set, etc.) |
 | `2` | Iterations exhausted without completion |
 | `130` | Interrupted by SIGINT (Ctrl+C) or SIGTERM |
 
@@ -89,8 +97,8 @@ cargo clippy -p ralph -- -D warnings  # Lint
 cargo fmt -p ralph -- --check # Format check
 ```
 
-Integration tests use `--command` to substitute a mock script for Docker, enabling E2E testing without containers.
+Integration tests use `--command` to substitute a mock script for the agent binary, enabling E2E testing without running a real agent.
 
 ## Relationship to sgf
 
-`ralph` is invoked by `sgf` commands (`sgf build`, `sgf test`, etc.). `sgf` handles prompt templating, recovery, and lifecycle management, then delegates iteration execution to `ralph` with the appropriate CLI flags. Ralph does not read config files — all configuration arrives via flags.
+`ralph` is invoked by `sgf` commands (`sgf build`, `sgf test`, etc.). `sgf` handles prompt templating, recovery, and lifecycle management, then delegates iteration execution to `ralph` with the appropriate CLI flags. Ralph does not read config files — all configuration arrives via flags and environment variables.
