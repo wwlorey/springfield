@@ -22,7 +22,7 @@ enum Commands {
     /// Run build loop
     Build {
         /// Spec stem to build
-        spec: String,
+        spec: Option<String>,
 
         #[command(flatten)]
         opts: LoopOpts,
@@ -43,7 +43,7 @@ enum Commands {
     /// Run test execution loop
     Test {
         /// Spec stem to test
-        spec: String,
+        spec: Option<String>,
 
         #[command(flatten)]
         opts: LoopOpts,
@@ -147,7 +147,7 @@ fn main() {
             run_loop("spec", None, &opts, None, true);
         }
         Commands::Build { spec, opts } => {
-            run_loop("build", Some(&spec), &opts, None, false);
+            run_loop("build", spec.as_deref(), &opts, None, false);
         }
         Commands::Verify { opts } => {
             run_loop("verify", None, &opts, None, false);
@@ -156,7 +156,7 @@ fn main() {
             run_loop("test-plan", None, &opts, None, false);
         }
         Commands::Test { spec, opts } => {
-            run_loop("test", Some(&spec), &opts, None, false);
+            run_loop("test", spec.as_deref(), &opts, None, false);
         }
         Commands::Issues { subcmd } => match subcmd {
             IssuesSubcommand::Log => {
