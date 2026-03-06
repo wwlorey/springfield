@@ -284,6 +284,154 @@ fn init_merges_existing_settings_json() {
 }
 
 // ===========================================================================
+// Sandbox config scaffolding (E2E via sgf binary)
+// ===========================================================================
+
+#[test]
+fn init_sandbox_config_scaffolded() {
+    let tmp = setup_test_dir();
+    sgf_cmd(tmp.path()).arg("init").output().unwrap();
+
+    let content = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+    assert_eq!(doc["sandbox"]["enabled"], true, "sandbox.enabled");
+    assert_eq!(
+        doc["sandbox"]["autoAllowBashIfSandboxed"], true,
+        "sandbox.autoAllowBashIfSandboxed"
+    );
+    assert_eq!(
+        doc["sandbox"]["allowUnsandboxedCommands"], true,
+        "sandbox.allowUnsandboxedCommands"
+    );
+    assert_eq!(
+        doc["sandbox"]["network"]["allowLocalBinding"], true,
+        "sandbox.network.allowLocalBinding"
+    );
+
+    let allow_write = doc["sandbox"]["filesystem"]["allowWrite"]
+        .as_array()
+        .expect("allowWrite should be an array");
+    assert!(
+        allow_write.contains(&serde_json::json!("~/.cargo")),
+        "allowWrite should include ~/.cargo"
+    );
+
+    let domains = doc["sandbox"]["network"]["allowedDomains"]
+        .as_array()
+        .expect("allowedDomains should be an array");
+    for expected in ["localhost", "github.com", "crates.io"] {
+        assert!(
+            domains.contains(&serde_json::json!(expected)),
+            "allowedDomains missing: {expected}"
+        );
+    }
+}
+
+#[test]
+fn init_sandbox_no_duplicates_on_rerun() {
+    let tmp = setup_test_dir();
+    sgf_cmd(tmp.path()).arg("init").output().unwrap();
+
+    let first = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
+    let doc1: serde_json::Value = serde_json::from_str(&first).unwrap();
+
+    sgf_cmd(tmp.path()).arg("init").output().unwrap();
+
+    let second = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
+    let doc2: serde_json::Value = serde_json::from_str(&second).unwrap();
+
+    assert_eq!(
+        doc1["sandbox"]["filesystem"]["allowWrite"]
+            .as_array()
+            .unwrap()
+            .len(),
+        doc2["sandbox"]["filesystem"]["allowWrite"]
+            .as_array()
+            .unwrap()
+            .len(),
+        "allowWrite duplicated on rerun"
+    );
+    assert_eq!(
+        doc1["sandbox"]["network"]["allowedDomains"]
+            .as_array()
+            .unwrap()
+            .len(),
+        doc2["sandbox"]["network"]["allowedDomains"]
+            .as_array()
+            .unwrap()
+            .len(),
+        "allowedDomains duplicated on rerun"
+    );
+    assert_eq!(first, second, "settings.json changed on rerun");
+}
+
+#[test]
+fn init_sandbox_preserves_custom_config() {
+    let tmp = setup_test_dir();
+    fs::create_dir_all(tmp.path().join(".claude")).unwrap();
+    fs::write(
+        tmp.path().join(".claude/settings.json"),
+        r#"{
+  "sandbox": {
+    "enabled": false,
+    "filesystem": { "allowWrite": ["~/.npm"] },
+    "network": { "allowedDomains": ["custom.example.com"], "allowLocalBinding": false }
+  }
+}"#,
+    )
+    .unwrap();
+
+    sgf_cmd(tmp.path()).arg("init").output().unwrap();
+
+    let content = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+    // Scalars already present should NOT be overwritten
+    assert_eq!(
+        doc["sandbox"]["enabled"], false,
+        "existing enabled=false should be preserved"
+    );
+    assert_eq!(
+        doc["sandbox"]["network"]["allowLocalBinding"], false,
+        "existing allowLocalBinding=false should be preserved"
+    );
+
+    // Custom array entries should be preserved
+    let allow_write = doc["sandbox"]["filesystem"]["allowWrite"]
+        .as_array()
+        .unwrap();
+    assert!(
+        allow_write.contains(&serde_json::json!("~/.npm")),
+        "custom allowWrite entry lost"
+    );
+    assert!(
+        allow_write.contains(&serde_json::json!("~/.cargo")),
+        "default allowWrite entry not added"
+    );
+
+    let domains = doc["sandbox"]["network"]["allowedDomains"]
+        .as_array()
+        .unwrap();
+    assert!(
+        domains.contains(&serde_json::json!("custom.example.com")),
+        "custom domain lost"
+    );
+    assert!(
+        domains.contains(&serde_json::json!("localhost")),
+        "default domain not added"
+    );
+    assert!(
+        domains.contains(&serde_json::json!("github.com")),
+        "default domain not added"
+    );
+    assert!(
+        domains.contains(&serde_json::json!("crates.io")),
+        "default domain not added"
+    );
+}
+
+// ===========================================================================
 // Prompt validation (library-level, called from integration test context)
 // ===========================================================================
 
