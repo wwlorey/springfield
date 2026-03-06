@@ -108,13 +108,17 @@ impl Drop for DaemonUrlGuard {
     }
 }
 
-fn configure_sandbox_network() {
+fn sandbox_name() -> String {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let workspace_name = cwd
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "workspace".to_string());
-    let sandbox_name = format!("claude-{workspace_name}");
+    format!("claude-{workspace_name}")
+}
+
+fn configure_sandbox_network() {
+    let sandbox_name = sandbox_name();
     info!(sandbox = %sandbox_name, "configuring sandbox network proxy to allow localhost");
     let status = docker_command()
         .args([
@@ -133,7 +137,10 @@ fn configure_sandbox_network() {
         .status();
     match status {
         Ok(s) if s.success() => info!("sandbox network proxy configured"),
-        Ok(s) => warn!(status = s.code().unwrap_or(-1), "sandbox network proxy config failed"),
+        Ok(s) => warn!(
+            status = s.code().unwrap_or(-1),
+            "sandbox network proxy config failed"
+        ),
         Err(e) => warn!(error = %e, "failed to configure sandbox network proxy"),
     }
 }
@@ -766,5 +773,19 @@ fn auto_push_if_changed(cli: &Cli, head_before: &Option<String>, tee: &TeeWriter
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sandbox_name_uses_cwd_basename() {
+        let name = sandbox_name();
+        let cwd = std::env::current_dir().unwrap();
+        let expected_basename = cwd.file_name().unwrap().to_string_lossy();
+        assert_eq!(name, format!("claude-{expected_basename}"));
+        assert!(name.starts_with("claude-"));
     }
 }
