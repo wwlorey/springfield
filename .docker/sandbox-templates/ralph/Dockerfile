@@ -67,7 +67,7 @@ RUN pnpm setup && \
 
 # Install Playwright browsers
 USER root
-RUN npx playwright install
+RUN npm install -g playwright && npx playwright install
 USER agent
 
 # Install pensa CLI from source

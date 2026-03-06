@@ -195,19 +195,16 @@ Additionally, verify.md and test-plan.md have `Read \`specs/README.md\`.` as a s
 **Spec** (springfield.md §Docker Sandbox Template — Dockerfile): Includes Playwright installation:
 ```dockerfile
 # Install Playwright browsers
-RUN pnpm exec playwright install --with-deps
+USER root
+RUN npm install -g playwright && npx playwright install
+USER agent
 ```
-And the verify line includes `pnpm exec playwright --version`:
+And the verify line includes `npx playwright --version`:
 ```dockerfile
-RUN rustc --version && cargo --version && node --version && pnpm --version && pnpm exec playwright --version && pn --help
+RUN rustc --version && cargo --version && cargo geiger --version && prek --version && node --version && pnpm --version && npx playwright --version && pn --help
 ```
 
-**Code**: `.docker/sandbox-templates/ralph/Dockerfile` is missing the Playwright install section entirely (between lines 47 and 49). The verify line (line 61) does not include `pnpm exec playwright --version`.
-
-**Changes needed**:
-- `.docker/sandbox-templates/ralph/Dockerfile` — Add `RUN pnpm exec playwright install --with-deps` between the pnpm global tools install and the pensa CLI install
-- `.docker/sandbox-templates/ralph/Dockerfile` — Add `pnpm exec playwright --version` to the verify line
-- `crates/springfield/src/template.rs` — Update tests that assert on Dockerfile content if needed (current tests at lines 223–244 don't check for Playwright, but adding a test would catch future regressions)
+**Status**: DONE — Playwright is installed globally via both pnpm (`pnpm add -g playwright`) and npm (`npm install -g playwright`). The npm global install ensures `npx` can resolve Playwright without downloading it on the fly.
 
 ---
 
