@@ -545,6 +545,8 @@ fn run_interactive(cli: &Cli, is_file: bool, system_files: &[String]) {
             "--",
             "--verbose",
             "--dangerously-skip-permissions",
+            "--settings",
+            r#"{"autoMemoryEnabled": false}"#,
         ]);
         for f in system_files {
             cmd.args(["--append-system-prompt-file", f]);
@@ -621,6 +623,8 @@ fn run_afk(
             "--output-format",
             "stream-json",
             "--dangerously-skip-permissions",
+            "--settings",
+            r#"{"autoMemoryEnabled": false}"#,
         ]);
         for f in system_files {
             cmd.args(["--append-system-prompt-file", f]);
