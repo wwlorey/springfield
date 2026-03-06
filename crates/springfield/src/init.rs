@@ -134,6 +134,16 @@ const CLAUDE_SETTINGS_DENY_RULES: &[&str] = &[
     "Bash mv .sgf/**",
 ];
 
+const SANDBOX_ALLOW_WRITE: &[&str] = &["~/.cargo"];
+
+const SANDBOX_ALLOWED_DOMAINS: &[&str] = &[
+    "localhost",
+    "github.com",
+    "*.githubusercontent.com",
+    "crates.io",
+    "*.crates.io",
+];
+
 const PRE_COMMIT_YAML_FULL: &str = "\
 repos:
   - repo: local
@@ -224,6 +234,71 @@ fn merge_claude_settings(root: &Path) -> io::Result<()> {
             deny_arr.push(rule_val);
         }
     }
+
+    let root_obj = doc.as_object_mut().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "settings.json root is not an object",
+        )
+    })?;
+
+    let sandbox = root_obj
+        .entry("sandbox")
+        .or_insert_with(|| serde_json::json!({}));
+    let sandbox_obj = sandbox
+        .as_object_mut()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "sandbox is not an object"))?;
+
+    sandbox_obj
+        .entry("enabled")
+        .or_insert(serde_json::json!(true));
+    sandbox_obj
+        .entry("autoAllowBashIfSandboxed")
+        .or_insert(serde_json::json!(true));
+    sandbox_obj
+        .entry("allowUnsandboxedCommands")
+        .or_insert(serde_json::json!(true));
+
+    let filesystem = sandbox_obj
+        .entry("filesystem")
+        .or_insert_with(|| serde_json::json!({}));
+    let fs_obj = filesystem
+        .as_object_mut()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "filesystem is not an object"))?;
+    let allow_write = fs_obj
+        .entry("allowWrite")
+        .or_insert_with(|| serde_json::json!([]));
+    let allow_write_arr = allow_write
+        .as_array_mut()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "allowWrite is not an array"))?;
+    for entry in SANDBOX_ALLOW_WRITE {
+        let val = Value::String(entry.to_string());
+        if !allow_write_arr.contains(&val) {
+            allow_write_arr.push(val);
+        }
+    }
+
+    let network = sandbox_obj
+        .entry("network")
+        .or_insert_with(|| serde_json::json!({}));
+    let net_obj = network
+        .as_object_mut()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "network is not an object"))?;
+    let allowed_domains = net_obj
+        .entry("allowedDomains")
+        .or_insert_with(|| serde_json::json!([]));
+    let domains_arr = allowed_domains.as_array_mut().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidData, "allowedDomains is not an array")
+    })?;
+    for domain in SANDBOX_ALLOWED_DOMAINS {
+        let val = Value::String(domain.to_string());
+        if !domains_arr.contains(&val) {
+            domains_arr.push(val);
+        }
+    }
+    net_obj
+        .entry("allowLocalBinding")
+        .or_insert(serde_json::json!(true));
 
     let formatted = serde_json::to_string_pretty(&doc).map_err(io::Error::other)?;
     fs::write(&path, format!("{formatted}\n"))
@@ -762,6 +837,31 @@ mod tests {
             );
         }
         assert_eq!(deny.len(), 4);
+
+        assert_eq!(doc["sandbox"]["enabled"], true);
+        assert_eq!(doc["sandbox"]["autoAllowBashIfSandboxed"], true);
+        assert_eq!(doc["sandbox"]["allowUnsandboxedCommands"], true);
+        assert_eq!(doc["sandbox"]["network"]["allowLocalBinding"], true);
+
+        let allow_write = doc["sandbox"]["filesystem"]["allowWrite"]
+            .as_array()
+            .unwrap();
+        for entry in SANDBOX_ALLOW_WRITE {
+            assert!(
+                allow_write.contains(&Value::String(entry.to_string())),
+                "missing allowWrite entry: {entry}"
+            );
+        }
+
+        let domains = doc["sandbox"]["network"]["allowedDomains"]
+            .as_array()
+            .unwrap();
+        for domain in SANDBOX_ALLOWED_DOMAINS {
+            assert!(
+                domains.contains(&Value::String(domain.to_string())),
+                "missing allowedDomains entry: {domain}"
+            );
+        }
     }
 
     #[test]
@@ -771,7 +871,7 @@ mod tests {
         fs::create_dir_all(tmp.path().join(".claude")).unwrap();
         fs::write(
             tmp.path().join(".claude/settings.json"),
-            r#"{"permissions":{"deny":["Bash rm -rf /"]}}"#,
+            r#"{"permissions":{"deny":["Bash rm -rf /"]},"sandbox":{"enabled":false,"filesystem":{"allowWrite":["~/.npm"]},"network":{"allowedDomains":["registry.npmjs.org"],"allowLocalBinding":false}}}"#,
         )
         .unwrap();
 
@@ -792,6 +892,43 @@ mod tests {
             );
         }
         assert_eq!(deny.len(), 5);
+
+        assert_eq!(
+            doc["sandbox"]["enabled"], false,
+            "scalar should not be overwritten"
+        );
+        assert_eq!(
+            doc["sandbox"]["network"]["allowLocalBinding"], false,
+            "scalar should not be overwritten"
+        );
+
+        let allow_write = doc["sandbox"]["filesystem"]["allowWrite"]
+            .as_array()
+            .unwrap();
+        assert!(
+            allow_write.contains(&Value::String("~/.npm".to_string())),
+            "custom allowWrite lost"
+        );
+        for entry in SANDBOX_ALLOW_WRITE {
+            assert!(
+                allow_write.contains(&Value::String(entry.to_string())),
+                "missing allowWrite after merge: {entry}"
+            );
+        }
+
+        let domains = doc["sandbox"]["network"]["allowedDomains"]
+            .as_array()
+            .unwrap();
+        assert!(
+            domains.contains(&Value::String("registry.npmjs.org".to_string())),
+            "custom domain lost"
+        );
+        for domain in SANDBOX_ALLOWED_DOMAINS {
+            assert!(
+                domains.contains(&Value::String(domain.to_string())),
+                "missing domain after merge: {domain}"
+            );
+        }
     }
 
     #[test]
@@ -806,6 +943,24 @@ mod tests {
         let doc: Value = serde_json::from_str(&content).unwrap();
         let deny = doc["permissions"]["deny"].as_array().unwrap();
         assert_eq!(deny.len(), 4, "deny rules duplicated on rerun");
+
+        let allow_write = doc["sandbox"]["filesystem"]["allowWrite"]
+            .as_array()
+            .unwrap();
+        assert_eq!(
+            allow_write.len(),
+            SANDBOX_ALLOW_WRITE.len(),
+            "allowWrite duplicated on rerun"
+        );
+
+        let domains = doc["sandbox"]["network"]["allowedDomains"]
+            .as_array()
+            .unwrap();
+        assert_eq!(
+            domains.len(),
+            SANDBOX_ALLOWED_DOMAINS.len(),
+            "allowedDomains duplicated on rerun"
+        );
     }
 
     // --- .pre-commit-config.yaml tests ---
@@ -1022,6 +1177,94 @@ repos:
         assert!(
             err.to_string().contains("untracked"),
             "expected untracked error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn sandbox_scalars_not_overwritten_when_present() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+        fs::create_dir_all(tmp.path().join(".claude")).unwrap();
+        fs::write(
+            tmp.path().join(".claude/settings.json"),
+            r#"{"sandbox":{"enabled":false,"autoAllowBashIfSandboxed":false,"allowUnsandboxedCommands":false,"network":{"allowLocalBinding":false}}}"#,
+        )
+        .unwrap();
+
+        merge_claude_settings(tmp.path()).unwrap();
+
+        let content = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
+        let doc: Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(doc["sandbox"]["enabled"], false);
+        assert_eq!(doc["sandbox"]["autoAllowBashIfSandboxed"], false);
+        assert_eq!(doc["sandbox"]["allowUnsandboxedCommands"], false);
+        assert_eq!(doc["sandbox"]["network"]["allowLocalBinding"], false);
+    }
+
+    #[test]
+    fn sandbox_arrays_merge_additively() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+        fs::create_dir_all(tmp.path().join(".claude")).unwrap();
+        fs::write(
+            tmp.path().join(".claude/settings.json"),
+            r#"{"sandbox":{"filesystem":{"allowWrite":["~/.npm","~/.cargo"]},"network":{"allowedDomains":["custom.example.com"]}}}"#,
+        )
+        .unwrap();
+
+        merge_claude_settings(tmp.path()).unwrap();
+
+        let content = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
+        let doc: Value = serde_json::from_str(&content).unwrap();
+
+        let allow_write = doc["sandbox"]["filesystem"]["allowWrite"]
+            .as_array()
+            .unwrap();
+        assert!(allow_write.contains(&Value::String("~/.npm".to_string())));
+        assert!(allow_write.contains(&Value::String("~/.cargo".to_string())));
+        assert_eq!(allow_write.len(), 2, "~/.cargo should not be duplicated");
+
+        let domains = doc["sandbox"]["network"]["allowedDomains"]
+            .as_array()
+            .unwrap();
+        assert!(domains.contains(&Value::String("custom.example.com".to_string())));
+        for domain in SANDBOX_ALLOWED_DOMAINS {
+            assert!(
+                domains.contains(&Value::String(domain.to_string())),
+                "missing domain: {domain}"
+            );
+        }
+        assert_eq!(domains.len(), SANDBOX_ALLOWED_DOMAINS.len() + 1);
+    }
+
+    #[test]
+    fn sandbox_empty_existing_file() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+        fs::create_dir_all(tmp.path().join(".claude")).unwrap();
+        fs::write(tmp.path().join(".claude/settings.json"), "{}").unwrap();
+
+        merge_claude_settings(tmp.path()).unwrap();
+
+        let content = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
+        let doc: Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(doc["sandbox"]["enabled"], true);
+        assert_eq!(doc["sandbox"]["autoAllowBashIfSandboxed"], true);
+        assert_eq!(doc["sandbox"]["allowUnsandboxedCommands"], true);
+        assert_eq!(doc["sandbox"]["network"]["allowLocalBinding"], true);
+        assert_eq!(
+            doc["sandbox"]["filesystem"]["allowWrite"]
+                .as_array()
+                .unwrap()
+                .len(),
+            SANDBOX_ALLOW_WRITE.len()
+        );
+        assert_eq!(
+            doc["sandbox"]["network"]["allowedDomains"]
+                .as_array()
+                .unwrap()
+                .len(),
+            SANDBOX_ALLOWED_DOMAINS.len()
         );
     }
 
