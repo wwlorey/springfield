@@ -13,6 +13,12 @@ cargo install --path crates/ralph
 cargo install --path crates/springfield
 ```
 
+## Sandbox Template Building
+
+```
+sgf template build
+```
+
 ## Code Style
 
 - **Async:** Tokio runtime. Use `async-trait` for async trait methods.
