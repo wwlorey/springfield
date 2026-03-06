@@ -1147,12 +1147,10 @@ dependencies = [
 name = "pensa"
 version = "0.1.0"
 dependencies = [
- "assert_cmd",
  "axum",
  "chrono",
  "clap",
  "portpicker",
- "predicates",
  "proptest",
  "reqwest",
  "rusqlite",
