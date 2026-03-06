@@ -221,6 +221,14 @@ fn is_remote_host() -> bool {
     if std::env::var("PN_DAEMON").is_ok() {
         return true;
     }
+    if let Ok(dir) = std::env::current_dir() {
+        let url_file = dir.join(".pensa/daemon.url");
+        if let Ok(contents) = std::fs::read_to_string(&url_file)
+            && !contents.trim().is_empty()
+        {
+            return true;
+        }
+    }
     false
 }
 

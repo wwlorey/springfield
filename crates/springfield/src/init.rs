@@ -91,6 +91,7 @@ const GITIGNORE_FULL: &str = "\
 .ralph-complete
 .ralph-ding
 **/.pensa/daemon.port
+**/.pensa/daemon.url
 
 # Rust
 /target
@@ -116,6 +117,7 @@ const GITIGNORE_ENTRIES: &[&str] = &[
     ".ralph-complete",
     ".ralph-ding",
     "**/.pensa/daemon.port",
+    "**/.pensa/daemon.url",
     "/target",
     "node_modules/",
     ".svelte-kit/",

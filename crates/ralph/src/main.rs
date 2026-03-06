@@ -72,6 +72,70 @@ fn stop_sandbox() {
         .status();
 }
 
+fn write_daemon_url() {
+    let dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let port_file = dir.join(".pensa/daemon.port");
+    match fs::read_to_string(&port_file) {
+        Ok(contents) => match contents.trim().parse::<u16>() {
+            Ok(port) => {
+                let url_file = dir.join(".pensa/daemon.url");
+                let url = format!("http://localhost:{port}");
+                if let Err(e) = fs::write(&url_file, &url) {
+                    warn!(error = %e, "failed to write daemon.url");
+                } else {
+                    info!(url, "wrote .pensa/daemon.url");
+                }
+            }
+            Err(e) => warn!(error = %e, "failed to parse daemon.port"),
+        },
+        Err(e) => warn!(error = %e, "daemon.port not found, skipping daemon.url"),
+    }
+}
+
+fn remove_daemon_url() {
+    let dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let url_file = dir.join(".pensa/daemon.url");
+    if url_file.exists() {
+        let _ = fs::remove_file(&url_file);
+        info!("removed .pensa/daemon.url");
+    }
+}
+
+struct DaemonUrlGuard;
+impl Drop for DaemonUrlGuard {
+    fn drop(&mut self) {
+        remove_daemon_url();
+    }
+}
+
+fn configure_sandbox_network() {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let workspace_name = cwd
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "workspace".to_string());
+    let sandbox_name = format!("claude-{workspace_name}");
+    info!(sandbox = %sandbox_name, "configuring sandbox network proxy to allow localhost");
+    let status = docker_command()
+        .args([
+            "sandbox",
+            "network",
+            "proxy",
+            &sandbox_name,
+            "--allow-host",
+            "localhost",
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    match status {
+        Ok(s) if s.success() => info!("sandbox network proxy configured"),
+        Ok(s) => warn!(status = s.code().unwrap_or(-1), "sandbox network proxy config failed"),
+        Err(e) => warn!(error = %e, "failed to configure sandbox network proxy"),
+    }
+}
+
 fn ensure_sandbox(template: &str) {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let workspace = cwd.to_string_lossy();
@@ -302,9 +366,14 @@ fn main() {
     remove_sentinel();
     let _ = fs::remove_file(DING_SENTINEL);
 
-    if cli.command.is_none() {
+    let _daemon_url_guard = if cli.command.is_none() {
         ensure_sandbox(&cli.template);
-    }
+        write_daemon_url();
+        configure_sandbox_network();
+        Some(DaemonUrlGuard)
+    } else {
+        None
+    };
 
     for i in 1..=iterations {
         remove_sentinel();

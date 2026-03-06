@@ -1504,3 +1504,23 @@ fn no_log_file_by_default() {
         "no log file should be created by default"
     );
 }
+
+#[test]
+fn command_mode_does_not_create_daemon_url() {
+    let dir = setup_test_dir();
+    let pensa_dir = dir.path().join(".pensa");
+    fs::create_dir_all(&pensa_dir).unwrap();
+    fs::write(pensa_dir.join("daemon.port"), "12345").unwrap();
+
+    let mock = create_mock_script_with_sentinel(&dir, "afk-session.ndjson");
+    let output = ralph_cmd(&dir)
+        .args(["--afk", "--command", mock.to_str().unwrap(), "1"])
+        .output()
+        .expect("run ralph");
+
+    assert!(output.status.success());
+    assert!(
+        !pensa_dir.join("daemon.url").exists(),
+        "daemon.url should NOT be created in --command mode"
+    );
+}

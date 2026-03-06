@@ -121,6 +121,8 @@ If `.pre-commit-config.yaml` already exists, `sgf init` appends the pensa hooks 
 ```gitignore
 # Springfield
 .pensa/db.sqlite
+**/.pensa/daemon.port
+**/.pensa/daemon.url
 .sgf/logs/
 .sgf/run/
 .ralph-complete
@@ -737,10 +739,6 @@ USER agent
 COPY --chown=agent:agent pensa-src /tmp/pensa-src
 RUN . "$CARGO_HOME/env" && cargo install --path /tmp/pensa-src && rm -rf /tmp/pensa-src
 
-# Override base image's PN_DAEMON_HOST (points to host.docker.internal, which
-# is unreachable due to sandbox network policy). With this unset, pn auto-starts
-# a local daemon that reads/writes the Mutagen-synced .pensa/db.sqlite.
-ENV PN_DAEMON_HOST=
 ENV CARGO_TARGET_DIR="/home/agent/target"
 
 # Ensure agent owns their home directory
@@ -774,7 +772,7 @@ The labels enable pre-flight staleness detection. After updating pensa source or
 - **File sync**: Workspace directory syncs bidirectionally between host and sandbox at the same absolute path via Mutagen. Changes the agent makes sync back to the host.
 - **Credentials**: Docker Desktop automatically injects API keys from the host into the sandbox. Keys never enter the sandbox filesystem.
 - **Agent user**: The agent runs as non-root `agent` user with `sudo` access inside the sandbox.
-- **Pensa access**: Docker sandbox network policy blocks connections from the container to the host, so `pn` cannot reach the host daemon. Instead, the sandbox template clears `PN_DAEMON_HOST` (set by the base image to `host.docker.internal`), allowing `pn` to auto-start a local daemon inside the sandbox. This daemon reads/writes the Mutagen-synced `.pensa/db.sqlite` via auto-import from JSONL on first launch. `sgf` runs `pn export` before launching the sandbox to ensure JSONL files are current.
+- **Pensa access**: Ralph writes `.pensa/daemon.url` before sandbox launch, containing `http://localhost:<port>` (read from `.pensa/daemon.port`). It also runs `docker sandbox network proxy <name> --allow-host localhost` to allow the sandbox's HTTP proxy to route `localhost` requests back to the host. When `pn` inside the sandbox finds `daemon.url`, it treats the daemon as remote (no auto-start) and forces HTTP traffic through the proxy (ignoring `no_proxy=localhost`). This ensures all sandbox instances share the same host daemon and database — no stale copies, atomic claims work across sandboxes.
 - **Cargo target directory**: `CARGO_TARGET_DIR` is set to `/home/agent/target` (container-local) to avoid Mutagen sync corrupting compiled artifacts. Without this, rustc encounters SIGBUS errors when Mutagen partially syncs `.rlib`/`.rmeta` files mid-compilation.
 
 ---

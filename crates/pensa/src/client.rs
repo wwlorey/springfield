@@ -4,6 +4,14 @@ use serde_json::Value;
 use crate::error::{ErrorResponse, PensaError};
 use crate::types::{CreateIssueParams, ListFilters};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UrlSource {
+    DaemonHost,
+    DaemonEnv,
+    DaemonFile,
+    LocalhostFallback,
+}
+
 pub struct Client {
     http: HttpClient,
     base_url: String,
@@ -17,19 +25,52 @@ impl Default for Client {
 
 impl Client {
     pub fn new() -> Self {
-        let base_url = if let Ok(host) = std::env::var("PN_DAEMON_HOST")
+        let (base_url, source) = Self::resolve_url();
+        let http = Self::build_http_client(source);
+        Client { http, base_url }
+    }
+
+    fn resolve_url() -> (String, UrlSource) {
+        if let Ok(host) = std::env::var("PN_DAEMON_HOST")
             && !host.trim().is_empty()
         {
             let port = Self::discover_port();
-            format!("http://{host}:{port}")
-        } else if let Ok(url) = std::env::var("PN_DAEMON") {
-            url
-        } else {
-            let port = Self::discover_port();
-            format!("http://localhost:{port}")
-        };
-        let http = HttpClient::new();
-        Client { http, base_url }
+            return (format!("http://{host}:{port}"), UrlSource::DaemonHost);
+        }
+        if let Ok(url) = std::env::var("PN_DAEMON") {
+            return (url, UrlSource::DaemonEnv);
+        }
+        if let Ok(url) = Self::read_daemon_url() {
+            return (url, UrlSource::DaemonFile);
+        }
+        let port = Self::discover_port();
+        (format!("http://localhost:{port}"), UrlSource::LocalhostFallback)
+    }
+
+    fn read_daemon_url() -> Result<String, ()> {
+        let dir = std::env::current_dir().map_err(|_| ())?;
+        let url_file = dir.join(".pensa/daemon.url");
+        let contents = std::fs::read_to_string(&url_file).map_err(|_| ())?;
+        let trimmed = contents.trim().to_string();
+        if trimmed.is_empty() {
+            return Err(());
+        }
+        Ok(trimmed)
+    }
+
+    fn build_http_client(source: UrlSource) -> HttpClient {
+        if matches!(source, UrlSource::DaemonEnv | UrlSource::DaemonFile)
+            && let Ok(proxy_url) = std::env::var("HTTP_PROXY")
+                .or_else(|_| std::env::var("http_proxy"))
+            && !proxy_url.is_empty()
+            && let Ok(proxy) = reqwest::Proxy::all(&proxy_url)
+        {
+            let proxy = proxy.no_proxy(reqwest::NoProxy::from_string(""));
+            if let Ok(client) = HttpClient::builder().proxy(proxy).build() {
+                return client;
+            }
+        }
+        HttpClient::new()
     }
 
     fn discover_port() -> u16 {

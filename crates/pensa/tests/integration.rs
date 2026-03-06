@@ -1080,3 +1080,129 @@ fn dep_tree_structure() {
         "tree up from C should include A"
     );
 }
+
+// --- daemon.url tests ---
+
+#[test]
+fn daemon_url_file_refuses_auto_start() {
+    let port = portpicker::pick_unused_port().expect("no free port");
+    let dir = TempDir::new().expect("create temp dir");
+    let pensa_dir = dir.path().join(".pensa");
+    std::fs::create_dir_all(&pensa_dir).unwrap();
+    std::fs::write(
+        pensa_dir.join("daemon.url"),
+        format!("http://localhost:{port}"),
+    )
+    .unwrap();
+
+    let output = Command::new(pn_bin())
+        .env_remove("PN_DAEMON")
+        .env_remove("PN_DAEMON_HOST")
+        .current_dir(dir.path())
+        .args(["list", "--json"])
+        .output()
+        .expect("run pn list with daemon.url");
+    assert!(
+        !output.status.success(),
+        "should fail when daemon.url points to unreachable daemon"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("daemon unreachable") && stderr.contains("remote host configured"),
+        "should treat daemon.url as remote, got: {stderr}"
+    );
+}
+
+#[test]
+fn daemon_url_connects_to_running_daemon() {
+    let daemon = start_daemon();
+    let dir = TempDir::new().expect("create temp dir");
+    let pensa_dir = dir.path().join(".pensa");
+    std::fs::create_dir_all(&pensa_dir).unwrap();
+    std::fs::write(
+        pensa_dir.join("daemon.url"),
+        format!("http://localhost:{}", daemon.port),
+    )
+    .unwrap();
+
+    let output = Command::new(pn_bin())
+        .env_remove("PN_DAEMON")
+        .env_remove("PN_DAEMON_HOST")
+        .current_dir(dir.path())
+        .args(["list", "--json"])
+        .output()
+        .expect("run pn list via daemon.url");
+    assert!(
+        output.status.success(),
+        "should succeed when daemon.url points to running daemon, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn pn_daemon_env_takes_priority_over_daemon_url() {
+    let daemon = start_daemon();
+    let dir = TempDir::new().expect("create temp dir");
+    let pensa_dir = dir.path().join(".pensa");
+    std::fs::create_dir_all(&pensa_dir).unwrap();
+    let bad_port = portpicker::pick_unused_port().expect("no free port");
+    std::fs::write(
+        pensa_dir.join("daemon.url"),
+        format!("http://localhost:{bad_port}"),
+    )
+    .unwrap();
+
+    let output = Command::new(pn_bin())
+        .env("PN_DAEMON", format!("http://localhost:{}", daemon.port))
+        .env_remove("PN_DAEMON_HOST")
+        .current_dir(dir.path())
+        .args(["list", "--json"])
+        .output()
+        .expect("run pn list with PN_DAEMON overriding daemon.url");
+    assert!(
+        output.status.success(),
+        "PN_DAEMON should take priority over daemon.url, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn no_daemon_url_falls_back_to_localhost() {
+    let dir = TempDir::new().expect("create temp dir");
+    let pensa_dir = dir.path().join(".pensa");
+    std::fs::create_dir_all(&pensa_dir).unwrap();
+
+    let output = Command::new(pn_bin())
+        .env_remove("PN_DAEMON")
+        .env_remove("PN_DAEMON_HOST")
+        .current_dir(dir.path())
+        .args(["list", "--json"])
+        .output()
+        .expect("run pn list without daemon.url");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("remote host configured"),
+        "without daemon.url, should not be treated as remote, got: {stderr}"
+    );
+}
+
+#[test]
+fn empty_daemon_url_is_ignored() {
+    let dir = TempDir::new().expect("create temp dir");
+    let pensa_dir = dir.path().join(".pensa");
+    std::fs::create_dir_all(&pensa_dir).unwrap();
+    std::fs::write(pensa_dir.join("daemon.url"), "  \n").unwrap();
+
+    let output = Command::new(pn_bin())
+        .env_remove("PN_DAEMON")
+        .env_remove("PN_DAEMON_HOST")
+        .current_dir(dir.path())
+        .args(["list", "--json"])
+        .output()
+        .expect("run pn list with empty daemon.url");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("remote host configured"),
+        "empty daemon.url should be ignored, got: {stderr}"
+    );
+}
