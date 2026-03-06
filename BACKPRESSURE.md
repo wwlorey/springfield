@@ -138,6 +138,17 @@ Component tests use `@testing-library/react-native` to render components in isol
 
 E2E tests run against simulators and emulators only — no real devices required. An iOS Simulator (macOS only) or Android Emulator (macOS and Linux) must be booted before running these commands. Maestro auto-detects the running simulator.
 
+- **E2E all flows (Android):** `maestro test e2e/` (run with Android Emulator active)
+- **E2E single flow:** `maestro test e2e/<flow>.yaml` (e.g., `maestro test e2e/create_todo.yaml`)
+
+> **Platform note:** Android Emulator runs on both macOS and Linux. On Linux CI, only Android e2e tests are executable.
+
+---
+
+### E2E Tests (Maestro)
+
+E2E tests run against simulators and emulators only — no real devices required. An iOS Simulator (macOS only) or Android Emulator (macOS and Linux) must be booted before running these commands. Maestro auto-detects the running simulator.
+
 - **E2E all flows (iOS):** `maestro test e2e/` (run with iOS Simulator active)
 - **E2E all flows (Android):** `maestro test e2e/` (run with Android Emulator active)
 - **E2E single flow:** `maestro test e2e/<flow>.yaml` (e.g., `maestro test e2e/create_todo.yaml`)
