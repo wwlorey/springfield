@@ -42,7 +42,7 @@ crates/springfield/
 
 ### Key Flows
 
-**Scaffolding** (`sgf init`): Creates `.sgf/`, `.pensa/`, `specs/`, prompt templates, `memento.md`, `CLAUDE.md`, `specs/README.md`. Merges `.gitignore` entries, `.claude/settings.json` deny rules, and `.pre-commit-config.yaml` hooks idempotently.
+**Scaffolding** (`sgf init`): Creates `.sgf/`, `.pensa/`, `specs/`, prompt templates, `memento.md`, `CLAUDE.md`, `specs/README.md`. Merges `.gitignore` entries, `.claude/settings.json` deny rules and native sandbox configuration, and `.pre-commit-config.yaml` hooks idempotently.
 
 **Prompt delivery**: Validates that `.sgf/prompts/<stage>.md` exists and, for spec-dependent stages, that `specs/<spec>.md` exists. Passes the raw template path directly to ralph or `$AGENT_CMD` — no assembly or preprocessing.
 

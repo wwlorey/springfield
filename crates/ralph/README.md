@@ -63,6 +63,12 @@ Spawns the agent with full terminal passthrough (stdin/stdout/stderr inherited).
 
 Spawns the agent with piped stdout. Output is read line-by-line as NDJSON and formatted for human readability. Tool calls are shown as compact one-liners instead of raw JSON.
 
+## Sandbox
+
+Ralph operates within Claude Code's native OS-level sandbox (Seatbelt on macOS, bubblewrap on Linux/WSL2). Project-level sandbox settings are scaffolded by `sgf init` in `.claude/settings.json`.
+
+In both interactive and AFK modes, ralph passes `--settings '{"sandbox": {"allowUnsandboxedCommands": false}}'` to prevent the agent from escaping the sandbox. Combined with `--dangerously-skip-permissions`, this means automated agents operate freely within sandbox bounds but cannot break out.
+
 ## Exit Codes
 
 | Code | Meaning |
