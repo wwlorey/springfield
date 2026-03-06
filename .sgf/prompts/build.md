@@ -28,4 +28,4 @@ IMPORTANT:
 - When the ONE issue is done:
   * Close the `pn` issue or release it (for bugs).
   * Commit your changes.
-  * End.
+  * Stop working.
