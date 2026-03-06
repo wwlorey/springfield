@@ -180,7 +180,7 @@ fn main() {
         }
         Commands::Template { subcmd } => match subcmd {
             TemplateSubcommand::Build => {
-                if let Err(e) = springfield::template::build_template() {
+                if let Err(e) = springfield::template::ensure_template() {
                     eprintln!("sgf template build: {e}");
                     std::process::exit(1);
                 }
