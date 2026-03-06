@@ -272,7 +272,7 @@ Run `pn ready --spec $SGF_SPEC --json`.
 ### Invocation
 
 ```
-SGF_SPEC=<stem> sgf → ralph [-a] [--loop-id ID] [--template T] [--auto-push BOOL] [--max-iterations N] [--spec STEM] ITERATIONS PROMPT
+[SGF_SPEC=<stem>] sgf → ralph [-a] [--loop-id ID] [--template T] [--auto-push BOOL] [--max-iterations N] [--spec STEM] ITERATIONS PROMPT
 ```
 
 `sgf` translates its own flags and hardcoded defaults into ralph CLI flags. Ralph does not read config files — all configuration arrives via flags and environment variables.
@@ -286,7 +286,7 @@ SGF_SPEC=<stem> sgf → ralph [-a] [--loop-id ID] [--template T] [--auto-push BO
 | `--template` | string | hardcoded: `ralph-sandbox:latest` | Docker sandbox template |
 | `--auto-push` | bool | `true` unless `--no-push` passed to sgf | Auto-push after commits |
 | `--max-iterations` | u32 | hardcoded: `30` | Safety limit |
-| `--spec` | string | spec positional arg from sgf | Spec stem — ralph appends `./specs/<stem>.md` as system prompt file |
+| `--spec` | string | spec positional arg from sgf (optional) | Spec stem — ralph appends `./specs/<stem>.md` as system prompt file. Omitted when no spec is given. |
 | `ITERATIONS` | u32 | positional arg or default `30` | Number of iterations |
 | `PROMPT` | path | `.sgf/prompts/<stage>.md` | Raw prompt template file |
 
@@ -294,7 +294,7 @@ SGF_SPEC=<stem> sgf → ralph [-a] [--loop-id ID] [--template T] [--auto-push BO
 
 | Variable | Source | Description |
 |----------|--------|-------------|
-| `SGF_SPEC` | sgf | Spec stem (e.g., `auth`). Set for `build` and `test` stages. |
+| `SGF_SPEC` | sgf | Spec stem (e.g., `auth`). Set only when a spec is provided to `build` or `test`. Not set when no spec is given. |
 
 ### Execution Model by Stage
 
