@@ -318,7 +318,13 @@ Interactive stages (`spec`, `issues log`) call `$AGENT_CMD` directly. No PID fil
 | `2` | Iterations exhausted — may have remaining work | Developer decides: re-launch or stop |
 | `130` | Interrupted (SIGINT/SIGTERM) | Log interruption, stop sandbox, clean up |
 
-On interrupt (SIGINT/SIGTERM), sgf sends SIGTERM to the ralph child process, waits for it to exit, then runs `docker sandbox stop claude` to ensure the Docker sandbox container is stopped. This is belt-and-suspenders with ralph's own sandbox cleanup — even if ralph is hard-killed, sgf ensures no orphaned containers remain.
+On interrupt, sgf's behavior depends on the stage type:
+
+**AFK loops** (`-a` flag): sgf mirrors ralph's double Ctrl+C semantics. SIGINT increments an `AtomicUsize` counter (`sigint_count`). First press: do nothing — ralph handles it internally (prints "Press Ctrl+C again to stop" and starts its 2-second confirmation window). Second press within 2 seconds: send SIGTERM to the ralph child process, wait for it to exit, then run `docker sandbox stop claude`. If no second press arrives within 2 seconds, sgf resets its counter to 0 (matching ralph's reset). SIGTERM always triggers immediate shutdown (single signal). The double-press counter is only active while the ralph child process is running — between pre-launch checks, daemon startup, and other non-loop phases, a single SIGINT triggers immediate exit.
+
+**Non-AFK loops and interactive stages**: A single SIGINT triggers immediate shutdown — send SIGTERM to the child process, wait for exit, stop sandbox, clean up.
+
+This is belt-and-suspenders with ralph's own sandbox cleanup — even if ralph is hard-killed, sgf ensures no orphaned containers remain.
 
 Claude Code crashes and push failures are handled within ralph as warnings — they do not produce distinct exit codes. Ralph logs the failure and continues to the next iteration without cleanup. The next iteration's agent inherits whatever state exists and proceeds via forward correction. Stale claims and dirty working trees accumulate within a ralph run and are cleared by sgf's pre-launch recovery before the next run.
 
