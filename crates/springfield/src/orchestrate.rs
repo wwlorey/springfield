@@ -2,7 +2,8 @@ use std::io;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 
 use signal_hook::consts::{SIGINT, SIGTERM};
 use signal_hook::flag;
@@ -146,15 +147,30 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
 
     let args = build_ralph_args(config, &loop_id, &prompt_path, log_path.as_deref());
 
-    let interrupted = Arc::new(AtomicBool::new(false));
-    flag::register(SIGINT, Arc::clone(&interrupted))
+    let sigint_count = Arc::new(AtomicUsize::new(0));
+    {
+        let sigint_count = sigint_count.clone();
+        unsafe {
+            signal_hook::low_level::register(SIGINT, move || {
+                sigint_count.fetch_add(1, Ordering::SeqCst);
+            })
+        }
         .map_err(|e| io::Error::other(format!("failed to register SIGINT handler: {e}")))?;
-    flag::register(SIGTERM, Arc::clone(&interrupted))
+    }
+    let terminated = Arc::new(AtomicBool::new(false));
+    flag::register(SIGTERM, Arc::clone(&terminated))
         .map_err(|e| io::Error::other(format!("failed to register SIGTERM handler: {e}")))?;
 
     eprintln!("sgf: launching ralph [{loop_id}]");
 
-    let exit_code = run_ralph(&binary, &args, config.spec.as_deref(), &interrupted)?;
+    let exit_code = run_ralph(
+        &binary,
+        &args,
+        config.spec.as_deref(),
+        config.afk,
+        &sigint_count,
+        &terminated,
+    )?;
 
     loop_mgmt::remove_pid_file(root, &loop_id);
 
@@ -183,7 +199,9 @@ fn run_ralph(
     binary: &str,
     args: &[String],
     spec: Option<&str>,
-    interrupted: &AtomicBool,
+    afk: bool,
+    sigint_count: &AtomicUsize,
+    terminated: &AtomicBool,
 ) -> io::Result<i32> {
     let mut cmd = Command::new(binary);
     cmd.args(args)
@@ -197,19 +215,49 @@ fn run_ralph(
         .spawn()
         .map_err(|e| io::Error::other(format!("failed to spawn ralph: {e}")))?;
 
+    let mut first_sigint_at: Option<Instant> = None;
+
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
                 return Ok(status.code().unwrap_or(1));
             }
             Ok(None) => {
-                if interrupted.load(Ordering::Relaxed) {
+                if terminated.load(Ordering::Relaxed) {
                     kill_child(&child);
                     let _ = child.wait();
                     stop_sandbox();
                     return Ok(130);
                 }
-                std::thread::sleep(std::time::Duration::from_millis(50));
+
+                let count = sigint_count.load(Ordering::Relaxed);
+
+                if afk {
+                    if count >= 2 {
+                        kill_child(&child);
+                        let _ = child.wait();
+                        stop_sandbox();
+                        return Ok(130);
+                    }
+                    if count == 1 {
+                        if let Some(first_at) = first_sigint_at {
+                            if first_at.elapsed() >= Duration::from_secs(2) {
+                                sigint_count.store(0, Ordering::Relaxed);
+                                first_sigint_at = None;
+                            }
+                        } else {
+                            eprintln!("\nsgf: press Ctrl+C again to stop\n");
+                            first_sigint_at = Some(Instant::now());
+                        }
+                    }
+                } else if count >= 1 {
+                    kill_child(&child);
+                    let _ = child.wait();
+                    stop_sandbox();
+                    return Ok(130);
+                }
+
+                std::thread::sleep(Duration::from_millis(50));
             }
             Err(e) => return Err(e),
         }
