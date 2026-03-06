@@ -1,4 +1,5 @@
-Run `pn ready -t test --spec $SGF_SPEC --json`.
+If `$SGF_SPEC` is set, run `pn ready -t test --spec $SGF_SPEC --json`.
+Otherwise, run `pn ready -t test --json`.
 
 If no test items are returned:
 1. Generate `test-report.md` — summarize all test results, pass/fail status, and any bugs logged.
