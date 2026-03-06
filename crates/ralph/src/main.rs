@@ -455,7 +455,7 @@ fn run_interactive(agent_cmd: &str, cli: &Cli, is_file: bool, prompt_files: &[St
         "--verbose",
         "--dangerously-skip-permissions",
         "--settings",
-        r#"{"autoMemoryEnabled": false}"#,
+        r#"{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}"#,
     ]);
     command.args(&study_args);
     let result = command
@@ -512,7 +512,7 @@ fn run_afk(
         "stream-json",
         "--dangerously-skip-permissions",
         "--settings",
-        r#"{"autoMemoryEnabled": false}"#,
+        r#"{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}"#,
     ]);
     cmd.args(&study_args);
     let child = unsafe {
