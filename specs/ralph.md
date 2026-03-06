@@ -151,7 +151,7 @@ The collected prompt files are combined into a single `--append-system-prompt` a
 $AGENT_CMD \
   --verbose \
   --dangerously-skip-permissions \
-  --settings '{"autoMemoryEnabled": false}' \
+  --settings '{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}' \
   --append-system-prompt 'study @$HOME/.MEMENTO.md;study @./BACKPRESSURE.md;study @./specs/README.md;study @./specs/auth.md' \
   @prompt.md
 ```
@@ -170,7 +170,7 @@ Spawns the agent with full terminal passthrough (stdin/stdout/stderr inherited).
 $AGENT_CMD \
   --verbose \
   --dangerously-skip-permissions \
-  --settings '{"autoMemoryEnabled": false}' \
+  --settings '{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}' \
   [--append-system-prompt 'study @<FILE>;...']  # from PROMPT_FILES, --spec, --prompt-file
   @<PROMPT_FILE>       # file prompt (@ prefix)
   # or: "<inline text>"  # inline text (no @ prefix)
@@ -190,7 +190,7 @@ $AGENT_CMD \
   --print \
   --output-format stream-json \
   --dangerously-skip-permissions \
-  --settings '{"autoMemoryEnabled": false}' \
+  --settings '{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}' \
   [--append-system-prompt 'study @<FILE>;...']  # from PROMPT_FILES, --spec, --prompt-file
   @<PROMPT_FILE>       # file prompt (@ prefix)
   # or: "<inline text>"  # inline text (no @ prefix)

@@ -66,9 +66,9 @@ specs/
 └── README.md                          (empty spec index)
 ```
 
-### Claude deny settings
+### Claude settings
 
-`sgf init` creates or updates `.claude/settings.json` with deny rules protecting `.sgf/` from agent modification:
+`sgf init` creates or updates `.claude/settings.json` with deny rules protecting `.sgf/` from agent modification and native sandbox configuration:
 
 ```json
 {
@@ -79,11 +79,50 @@ specs/
       "Bash rm .sgf/**",
       "Bash mv .sgf/**"
     ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true,
+    "allowUnsandboxedCommands": true,
+    "filesystem": {
+      "allowWrite": [
+        "~/.cargo"
+      ]
+    },
+    "network": {
+      "allowedDomains": [
+        "localhost",
+        "github.com",
+        "*.githubusercontent.com",
+        "crates.io",
+        "*.crates.io"
+      ],
+      "allowLocalBinding": true
+    }
   }
 }
 ```
 
-If `.claude/settings.json` already exists, `sgf init` merges deny rules into the existing `permissions.deny` array without duplicating entries or removing existing rules.
+If `.claude/settings.json` already exists, `sgf init` merges both deny rules and sandbox settings into the existing file without duplicating entries or removing existing rules. Array fields (`permissions.deny`, `sandbox.filesystem.allowWrite`, `sandbox.network.allowedDomains`) are merged additively — existing entries are preserved, new entries are appended if not already present. Scalar fields (`sandbox.enabled`, `sandbox.autoAllowBashIfSandboxed`, etc.) are set only if not already present in the file.
+
+#### Sandbox configuration
+
+Claude Code's native sandbox provides OS-level filesystem and network isolation using Seatbelt (macOS) and bubblewrap (Linux/WSL2). The scaffolded configuration enables sandbox for all sessions — both interactive and automated.
+
+| Setting | Value | Rationale |
+|---------|-------|-----------|
+| `sandbox.enabled` | `true` | OS-level enforcement for all sessions |
+| `sandbox.autoAllowBashIfSandboxed` | `true` | Bash commands auto-approved within sandbox bounds, reducing prompt fatigue |
+| `sandbox.allowUnsandboxedCommands` | `true` | Interactive sessions can escape sandbox with user approval when needed |
+| `sandbox.filesystem.allowWrite` | `["~/.cargo"]` | Cargo needs to download and cache crate dependencies |
+| `sandbox.network.allowedDomains` | `["localhost", "github.com", "*.githubusercontent.com", "crates.io", "*.crates.io"]` | `localhost` for pensa daemon access; GitHub for git operations; crates.io for cargo |
+| `sandbox.network.allowLocalBinding` | `true` | Allows test servers (e.g., `cargo test`) to bind localhost ports |
+
+**Automated stages (ralph):** Ralph overrides `sandbox.allowUnsandboxedCommands` to `false` via `--settings`, preventing the agent from escaping the sandbox. Combined with `--dangerously-skip-permissions`, this means automated agents operate freely within sandbox bounds but cannot break out.
+
+**Interactive stages:** Use project settings as-is. The sandbox is active but `allowUnsandboxedCommands: true` means the developer can approve out-of-sandbox commands when needed (e.g., reading files from a sibling repo via bash).
+
+**Extending for other stacks:** The default domains cover Rust development. Developers add domains for their stack (e.g., `registry.npmjs.org`, `registry.yarnpkg.com` for Node; `pypi.org` for Python) by editing `.claude/settings.json`. Additional filesystem write paths (e.g., `~/.npm`, `~/.cache`) follow the same pattern.
 
 ### Prek hooks
 
@@ -664,7 +703,7 @@ Loom's integrated observability platform: analytics, crash tracking, cron monito
 
 **Decentralized projects**: Springfield is project-aware — it reads `.sgf/` from the current working directory. No global registry. Each project is self-contained.
 
-**Direct execution**: All stages invoke `$AGENT_CMD` on the host — no Docker sandboxes, no Mutagen sync. Automated stages (build, verify, test-plan, test) go through ralph with `--dangerously-skip-permissions`. Interactive stages (spec, issues log) call `$AGENT_CMD` directly without `--dangerously-skip-permissions` — Claude's normal permission prompts are the safety boundary. Claude Code's native sandbox (Seatbelt on macOS, bubblewrap on Linux) can optionally provide OS-level filesystem and network isolation via `.claude/settings.json` sandbox configuration.
+**Direct execution with native sandbox**: All stages invoke `$AGENT_CMD` on the host — no Docker sandboxes, no Mutagen sync. Claude Code's native sandbox (Seatbelt on macOS, bubblewrap on Linux) provides OS-level filesystem and network isolation, enabled by default via `.claude/settings.json`. Automated stages go through ralph with `--dangerously-skip-permissions` and `sandbox.allowUnsandboxedCommands: false` — agents operate freely within sandbox bounds but cannot escape. Interactive stages use the sandbox with `allowUnsandboxedCommands: true` so developers can approve out-of-sandbox commands when needed.
 
 ---
 
@@ -672,7 +711,6 @@ Loom's integrated observability platform: analytics, crash tracking, cron monito
 
 - **Context-efficient backpressure**: Swallow all build/test/lint output on success (show only a checkmark), dump full output only on failure. Preserves context window budget. See HumanLayer's `run_silent()` pattern.
 - **Claude Code hooks for enforcement**: Use `PreToolUse` / `PostToolUse` hooks to enforce backpressure at the framework level — auto-run linters after file edits, block destructive commands. Could be scaffolded by `sgf init`.
-- **Native sandbox configuration**: Scaffold `.claude/settings.json` sandbox config via `sgf init` — define filesystem write boundaries, network allowlists, etc. for Claude Code's built-in sandboxing.
 - **TUI**: CLI-first for now. TUI can be added later as a view layer. Desired feel: Neovim-like (modal, keyboard-driven, information-dense, panes for multiple loops).
 - **Multi-project monitoring**: Deferred with TUI. For now, multiple terminals.
 - **`sgf status` output spec**: Define what `sgf status` shows (running loops, pensa summary, recent activity). Specify after real usage reveals what's needed.
