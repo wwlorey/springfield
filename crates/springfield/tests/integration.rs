@@ -1161,6 +1161,122 @@ fn init_force_restores_templates_matching_spec() {
     );
 }
 
+// ===========================================================================
+// End-to-end: sgf build without spec argument
+// ===========================================================================
+
+#[test]
+fn build_without_spec_omits_spec_flag_and_env() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    let mock_dir = TempDir::new().unwrap();
+    let args_file = mock_dir.path().join("ralph_args.txt");
+    let env_file = mock_dir.path().join("ralph_env.txt");
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph.sh",
+        &format!(
+            "#!/bin/sh\necho \"$@\" > \"{}\"\necho \"SGF_SPEC=${{SGF_SPEC:-}}\" > \"{}\"\nexit 0\n",
+            args_file.display(),
+            env_file.display()
+        ),
+    );
+
+    let output = sgf_cmd(tmp.path())
+        .args(["build", "-a"])
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("PATH", &mock_path)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "sgf build without spec should succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let args = fs::read_to_string(&args_file).unwrap();
+    assert!(
+        !args.contains("--spec"),
+        "should NOT pass --spec flag when no spec given, got: {args}"
+    );
+    assert!(
+        args.contains(".sgf/prompts/build.md"),
+        "should still pass raw prompt path, got: {args}"
+    );
+
+    let env = fs::read_to_string(&env_file).unwrap();
+    assert!(
+        env.contains("SGF_SPEC="),
+        "SGF_SPEC line should exist in env capture"
+    );
+    assert!(
+        !env.contains("SGF_SPEC=a") && !env.contains("SGF_SPEC=b"),
+        "SGF_SPEC should be empty when no spec given, got: {env}"
+    );
+    // More precise: SGF_SPEC should be unset (empty after :-})
+    let spec_val = env
+        .lines()
+        .find(|l| l.starts_with("SGF_SPEC="))
+        .unwrap_or("SGF_SPEC=");
+    assert_eq!(
+        spec_val, "SGF_SPEC=",
+        "SGF_SPEC should be empty/unset, got: {spec_val}"
+    );
+}
+
+#[test]
+fn build_with_spec_still_passes_spec_flag_and_env() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    let mock_dir = TempDir::new().unwrap();
+    let args_file = mock_dir.path().join("ralph_args.txt");
+    let env_file = mock_dir.path().join("ralph_env.txt");
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph.sh",
+        &format!(
+            "#!/bin/sh\necho \"$@\" > \"{}\"\necho \"SGF_SPEC=${{SGF_SPEC:-}}\" > \"{}\"\nexit 0\n",
+            args_file.display(),
+            env_file.display()
+        ),
+    );
+
+    let output = sgf_cmd(tmp.path())
+        .args(["build", "auth", "-a"])
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("PATH", &mock_path)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "sgf build with spec should succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let args = fs::read_to_string(&args_file).unwrap();
+    assert!(
+        args.contains("--spec auth"),
+        "should pass --spec auth, got: {args}"
+    );
+
+    let env = fs::read_to_string(&env_file).unwrap();
+    assert!(
+        env.contains("SGF_SPEC=auth"),
+        "should set SGF_SPEC=auth, got: {env}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Spec validation (CLI-level)
 // ---------------------------------------------------------------------------
