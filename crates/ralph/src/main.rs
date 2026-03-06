@@ -145,6 +145,31 @@ fn configure_sandbox_network() {
     }
 }
 
+fn sandbox_exists(name: &str) -> bool {
+    let output = docker_command()
+        .args(["sandbox", "ls", "-q"])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output();
+    match output {
+        Ok(o) if o.status.success() => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            stdout.lines().any(|line| line.trim() == name)
+        }
+        Ok(o) => {
+            warn!(
+                status = o.status.code().unwrap_or(-1),
+                "docker sandbox ls -q failed, falling through to create"
+            );
+            false
+        }
+        Err(e) => {
+            warn!(error = %e, "failed to run docker sandbox ls -q, falling through to create");
+            false
+        }
+    }
+}
+
 fn ensure_sandbox(template: &str) {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let workspace = cwd.to_string_lossy();
