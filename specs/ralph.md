@@ -142,6 +142,7 @@ The collected system files are inserted as `--append-system-prompt-file` argumen
 docker sandbox run claude -- \
   --verbose \
   --dangerously-skip-permissions \
+  --settings '{"autoMemoryEnabled": false}' \
   --append-system-prompt-file ./BACKPRESSURE.md \
   --append-system-prompt-file ./specs/README.md \
   --append-system-prompt-file ./specs/auth.md \
@@ -174,6 +175,7 @@ docker --context <CONTEXT> sandbox run \
   -- \
   --verbose \
   --dangerously-skip-permissions \
+  --settings '{"autoMemoryEnabled": false}' \
   [--append-system-prompt-file <FILE>]...  # from PROMPT_FILES, --spec, --system-file
   @<PROMPT_FILE>       # file prompt (@ prefix)
   # or: "<inline text>"  # inline text (no @ prefix)
@@ -199,6 +201,7 @@ docker --context <CONTEXT> sandbox run \
   --print \
   --output-format stream-json \
   --dangerously-skip-permissions \
+  --settings '{"autoMemoryEnabled": false}' \
   [--append-system-prompt-file <FILE>]...  # from PROMPT_FILES, --spec, --system-file
   @<PROMPT_FILE>       # file prompt (@ prefix)
   # or: "<inline text>"  # inline text (no @ prefix)
@@ -404,7 +407,7 @@ Returns formatted text to print, or `None` if the line should be skipped. Comple
 Before the loop:
 - Search for and delete any stale `.ralph-complete` sentinel file (from a previous crashed/killed run), searching recursively up to depth 2
 - Delete stale `.ralph-ding` sentinel file if present
-- If sandboxed: run `docker --context <CONTEXT> sandbox create --template <TEMPLATE> claude <WORKSPACE>` to ensure the sandbox exists (idempotent — non-zero exit codes are logged as warnings since the sandbox may already exist from a previous run). `<WORKSPACE>` is the current working directory. Note: `--template` must precede the agent subcommand.
+- If sandboxed: ensure the sandbox exists by first checking `docker sandbox ls -q` for the expected sandbox name (`claude-<workspace_dir_basename>`). If the name is not found, run `docker --context <CONTEXT> sandbox create --template <TEMPLATE> claude <WORKSPACE>` to create it (stdout/stderr suppressed). If the name is already present, skip the `create` call entirely. `<WORKSPACE>` is the current working directory. Note: `--template` must precede the agent subcommand.
 
 Prompt resolution (before the loop):
 - If no explicit prompt provided and `prompt.md` does not exist → exit 1 with error
@@ -473,6 +476,8 @@ No custom error types. Fail loudly, continue when sensible:
 | Spec file missing (`--spec`) | `tracing::error!` + exit 1 (e.g., `spec file not found: specs/auth.md`) |
 | System file missing (`--system-file`) | `tracing::error!` + exit 1 |
 | `PROMPT_FILES` entry missing | `tracing::warn!` to stderr, skip the file (non-fatal) |
+| Sandbox `ls -q` check failure | `tracing::warn!`, fall through to `create` |
+| Sandbox `create` failure | `tracing::warn!`, continue (sandbox may need manual cleanup) |
 | Docker/command spawn failure | `tracing::warn!`, continue to next iteration |
 | NDJSON parse error (line starts with `{`) | Skip line, log at debug level |
 | Non-JSON line (no `{` prefix) | Skip line silently (expected Docker/verbose debug output) |
