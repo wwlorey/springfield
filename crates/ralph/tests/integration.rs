@@ -1612,7 +1612,9 @@ fn afk_invocation_passes_correct_flags() {
         "should pass --settings, got args:\n{args}"
     );
     assert!(
-        arg_lines.contains(&r#"{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}"#),
+        arg_lines.contains(
+            &r#"{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}"#
+        ),
         "should pass autoMemoryEnabled:false settings, got args:\n{args}"
     );
 

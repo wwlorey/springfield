@@ -6,5 +6,25 @@
       "Bash rm .sgf/**",
       "Bash mv .sgf/**"
     ]
+  },
+  "sandbox": {
+    "allowUnsandboxedCommands": true,
+    "autoAllowBashIfSandboxed": true,
+    "enabled": true,
+    "filesystem": {
+      "allowWrite": [
+        "~/.cargo"
+      ]
+    },
+    "network": {
+      "allowLocalBinding": true,
+      "allowedDomains": [
+        "localhost",
+        "github.com",
+        "*.githubusercontent.com",
+        "crates.io",
+        "*.crates.io"
+      ]
+    }
   }
 }
