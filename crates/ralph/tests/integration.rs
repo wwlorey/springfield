@@ -1640,13 +1640,11 @@ fn workspace_relative_files_not_staged() {
 
     let prompts_dir = workspace.path().join(".sgf/prompts");
     let has_dotfiles = prompts_dir.exists()
-        && fs::read_dir(&prompts_dir)
-            .unwrap()
-            .any(|e| {
-                e.ok()
-                    .and_then(|e| e.file_name().to_str().map(|s| s.starts_with('.')))
-                    .unwrap_or(false)
-            });
+        && fs::read_dir(&prompts_dir).unwrap().any(|e| {
+            e.ok()
+                .and_then(|e| e.file_name().to_str().map(|s| s.starts_with('.')))
+                .unwrap_or(false)
+        });
     assert!(
         !has_dotfiles,
         "no dotfiles should be staged for workspace-relative files"

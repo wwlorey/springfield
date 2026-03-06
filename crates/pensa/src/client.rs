@@ -45,7 +45,10 @@ impl Client {
             return (url, UrlSource::DaemonFile);
         }
         let port = Self::discover_port();
-        (format!("http://localhost:{port}"), UrlSource::LocalhostFallback)
+        (
+            format!("http://localhost:{port}"),
+            UrlSource::LocalhostFallback,
+        )
     }
 
     fn in_container() -> bool {
@@ -74,8 +77,8 @@ impl Client {
 
     fn build_http_client(source: UrlSource) -> HttpClient {
         if matches!(source, UrlSource::DaemonEnv | UrlSource::DaemonFile)
-            && let Ok(proxy_url) = std::env::var("HTTP_PROXY")
-                .or_else(|_| std::env::var("http_proxy"))
+            && let Ok(proxy_url) =
+                std::env::var("HTTP_PROXY").or_else(|_| std::env::var("http_proxy"))
             && !proxy_url.is_empty()
             && let Ok(proxy) = reqwest::Proxy::all(&proxy_url)
         {

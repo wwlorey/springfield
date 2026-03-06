@@ -542,7 +542,13 @@ fn main() {
     std::process::exit(2);
 }
 
-fn print_banner(cli: &Cli, iterations: u32, is_file: bool, system_files: &[String], tee: &TeeWriter) {
+fn print_banner(
+    cli: &Cli,
+    iterations: u32,
+    is_file: bool,
+    system_files: &[String],
+    tee: &TeeWriter,
+) {
     tee.writeln("⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣤⡴⣶⠖⡲⠒⡶⠒⣖⢲⡤⣄⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀");
     tee.writeln("⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⢴⡾⣻⠟⢉⡞⢁⡞⠁⢠⠇⠀⠸⡄⠳⡈⢫⡙⢦⣄⠀⠀⠀⠀⠀⠀⠀⠀⠀");
     tee.writeln("⠀⠀⠀⠀⠀⠀⠀⢀⡴⢚⡵⢋⡜⠁⢠⡎⠀⡞⠀⠀⢸⠀⠀⠀⡇⠀⢹⡀⠹⡌⢳⡙⣦⡀⠀⠀⠀⠀⠀⠀");
