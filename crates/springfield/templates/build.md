@@ -1,4 +1,4 @@
-Follow the `pn` claim workflow to choose **ONE** best next issue to implement.
+Follow the `pn` **claim workflow** to choose **ONE** best next issue to implement.
 
 IF there are no more issues:
 1. touch `.ralph-complete` and end.
