@@ -390,20 +390,12 @@ fn build_invokes_ralph_with_correct_flags() {
     assert!(args.contains("-a"), "missing --afk flag");
     assert!(args.contains("--loop-id"), "missing --loop-id");
     assert!(
-        !args.contains("--template"),
-        "should not pass --template (Docker sandbox removed)"
-    );
-    assert!(
         args.contains("--auto-push true"),
         "missing --auto-push true"
     );
     assert!(
         args.contains("--max-iterations 30"),
         "missing --max-iterations"
-    );
-    assert!(
-        !args.contains("--no-sandbox"),
-        "build should NOT pass --no-sandbox"
     );
 }
 

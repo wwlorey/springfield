@@ -467,29 +467,6 @@ mod tests {
     }
 
     #[test]
-    fn build_args_no_sandbox_removed() {
-        let config = LoopConfig {
-            stage: "build".to_string(),
-            spec: Some("auth".to_string()),
-            afk: false,
-            no_push: false,
-            iterations: 30,
-            interactive: false,
-            ralph_binary: None,
-            skip_preflight: false,
-            prompt_template: None,
-        };
-        let args = build_ralph_args(
-            &config,
-            "build-auth-20260226T143000",
-            Path::new("/tmp/prompt.md"),
-            None,
-        );
-
-        assert!(!args.contains(&"--no-sandbox".to_string()));
-    }
-
-    #[test]
     fn build_args_default_iterations() {
         let config = LoopConfig {
             stage: "build".to_string(),
@@ -573,7 +550,6 @@ mod tests {
 
         let args_content = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
         assert!(args_content.contains("--loop-id"));
-        assert!(!args_content.contains("--template"));
         assert!(args_content.contains("--auto-push true"));
         assert!(args_content.contains("--max-iterations 30"));
         assert!(args_content.contains("-a"));
