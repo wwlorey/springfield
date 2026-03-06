@@ -743,119 +743,6 @@ fn help_flag() {
 }
 
 // ===========================================================================
-// Docker template build (gated)
-// ===========================================================================
-
-#[test]
-#[ignore] // Requires Docker; run explicitly with `cargo test -p springfield -- --ignored`
-fn template_build_requires_pn() {
-    // Run with empty PATH so pn is not found
-    let output = Command::new(sgf_bin())
-        .args(["template", "build"])
-        .env("PATH", "")
-        .output()
-        .unwrap();
-
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.to_lowercase().contains("pn") || stderr.to_lowercase().contains("not found"),
-        "should report pn not found: {stderr}"
-    );
-}
-
-// ===========================================================================
-// Template pre-flight checks
-// ===========================================================================
-
-#[test]
-fn preflight_template_missing_and_build_fails_aborts_loop() {
-    let tmp = setup_test_dir();
-    sgf_init_and_commit(tmp.path());
-    create_spec_and_commit(tmp.path(), "auth");
-
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
-    // Mock docker that fails both inspect and build
-    let mock_docker_dir = TempDir::new().unwrap();
-    create_mock_script(mock_docker_dir.path(), "docker", "#!/bin/sh\nexit 1\n");
-    let path_with_mock_docker = format!("{}:{}", mock_docker_dir.path().display(), mock_path);
-
-    let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 0\n");
-
-    let output = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("PATH", &path_with_mock_docker)
-        .output()
-        .unwrap();
-
-    assert!(
-        !output.status.success(),
-        "loop should abort when template build fails"
-    );
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("ralph-sandbox:latest not found")
-            || stderr.contains("template")
-            || stderr.contains("docker build failed"),
-        "should mention template failure: {stderr}"
-    );
-}
-
-#[test]
-fn preflight_template_exists_loop_proceeds() {
-    let tmp = setup_test_dir();
-    sgf_init_and_commit(tmp.path());
-    create_spec_and_commit(tmp.path(), "auth");
-
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
-    // Mock docker that succeeds for inspect (image exists) and returns labels
-    let mock_docker_dir = TempDir::new().unwrap();
-    create_mock_script(
-        mock_docker_dir.path(),
-        "docker",
-        concat!(
-            "#!/bin/sh\n",
-            "case \"$1\" in\n",
-            "  image) echo 'somehash|somehash'; exit 0 ;;\n",
-            "  *) exit 0 ;;\n",
-            "esac\n",
-        ),
-    );
-    let path_with_mock_docker = format!("{}:{}", mock_docker_dir.path().display(), mock_path);
-
-    let mock_dir = TempDir::new().unwrap();
-    let args_file = mock_dir.path().join("ralph_args.txt");
-    let mock_ralph = create_mock_script(
-        mock_dir.path(),
-        "mock_ralph.sh",
-        &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
-            args_file.display()
-        ),
-    );
-
-    let output = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("PATH", &path_with_mock_docker)
-        .output()
-        .unwrap();
-
-    assert!(
-        output.status.success(),
-        "loop should proceed when template exists: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    // Ralph should have been invoked
-    assert!(args_file.exists(), "ralph should have been invoked");
-}
-
 // ===========================================================================
 // Spec-parity integration tests (implementation plan)
 // ===========================================================================
@@ -933,21 +820,6 @@ fn end_to_end_build_passes_raw_path_and_spec() {
 
     let (_mock_pn_dir, mock_path) = setup_mock_pn();
 
-    // Mock docker that succeeds for inspect (image exists)
-    let mock_docker_dir = TempDir::new().unwrap();
-    create_mock_script(
-        mock_docker_dir.path(),
-        "docker",
-        concat!(
-            "#!/bin/sh\n",
-            "case \"$1\" in\n",
-            "  image) echo 'somehash|somehash'; exit 0 ;;\n",
-            "  *) exit 0 ;;\n",
-            "esac\n",
-        ),
-    );
-    let path_with_mock_docker = format!("{}:{}", mock_docker_dir.path().display(), mock_path);
-
     // Create spec file (validate requires it)
     fs::create_dir_all(tmp.path().join("specs")).unwrap();
     fs::write(tmp.path().join("specs/auth.md"), "# Auth spec").unwrap();
@@ -970,7 +842,7 @@ fn end_to_end_build_passes_raw_path_and_spec() {
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("PATH", &path_with_mock_docker)
+        .env("PATH", &mock_path)
         .output()
         .unwrap();
 

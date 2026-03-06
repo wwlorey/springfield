@@ -63,12 +63,6 @@ enum Commands {
         /// Loop ID to tail
         loop_id: String,
     },
-
-    /// Docker sandbox template management
-    Template {
-        #[command(subcommand)]
-        subcmd: TemplateSubcommand,
-    },
 }
 
 /// Common flags for looped stages.
@@ -91,12 +85,6 @@ struct LoopOpts {
 enum IssuesSubcommand {
     /// Interactive session for logging bugs
     Log,
-}
-
-#[derive(Subcommand)]
-enum TemplateSubcommand {
-    /// Rebuild Docker sandbox template
-    Build,
 }
 
 fn run_loop(
@@ -178,13 +166,5 @@ fn main() {
                 std::process::exit(1);
             }
         }
-        Commands::Template { subcmd } => match subcmd {
-            TemplateSubcommand::Build => {
-                if let Err(e) = springfield::template::ensure_template() {
-                    eprintln!("sgf template build: {e}");
-                    std::process::exit(1);
-                }
-            }
-        },
     }
 }

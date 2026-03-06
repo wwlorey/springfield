@@ -12,7 +12,6 @@ use signal_hook::flag;
 use crate::loop_mgmt;
 use crate::prompt;
 use crate::recovery;
-use crate::template;
 
 pub struct LoopConfig {
     pub stage: String,
@@ -127,7 +126,6 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
         recovery::pre_launch_recovery(root)?;
         if std::env::var("SGF_SKIP_PREFLIGHT").is_err() {
             recovery::ensure_daemon(root)?;
-            template::ensure_template()?;
         }
     }
 
