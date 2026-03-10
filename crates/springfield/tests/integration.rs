@@ -1349,3 +1349,203 @@ fn build_valid_spec_proceeds() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+// ===========================================================================
+// sgf spec auto-push after interactive session
+// ===========================================================================
+
+/// Set up a bare remote and configure the local repo to push to it.
+fn setup_bare_remote(local: &Path) -> TempDir {
+    let bare = TempDir::new().unwrap();
+    Command::new("git")
+        .args(["init", "--bare"])
+        .current_dir(bare.path())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .unwrap();
+    Command::new("git")
+        .args(["remote", "add", "origin", &bare.path().to_string_lossy()])
+        .current_dir(local)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .unwrap();
+    // Push initial state so the remote has a branch to track
+    Command::new("git")
+        .args(["push", "-u", "origin", "master"])
+        .current_dir(local)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .unwrap();
+    bare
+}
+
+/// Read HEAD from a bare remote repo.
+fn bare_remote_head(bare: &Path) -> String {
+    let out = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(bare)
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+#[test]
+fn spec_auto_pushes_after_session_with_new_commits() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+    let bare = setup_bare_remote(tmp.path());
+
+    let head_before = bare_remote_head(bare.path());
+
+    // Mock agent that creates a new commit
+    let mock_dir = TempDir::new().unwrap();
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        &format!(
+            concat!(
+                "#!/bin/sh\n",
+                "echo 'agent was here' > \"{root}/agent_output.txt\"\n",
+                "cd \"{root}\"\n",
+                "git add .\n",
+                "git commit -m 'agent commit' --allow-empty\n",
+                "exit 0\n",
+            ),
+            root = tmp.path().display()
+        ),
+    );
+
+    let output = sgf_cmd(tmp.path())
+        .arg("spec")
+        .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
+        .env("PROMPT_FILES", "")
+        .env("PATH", &mock_path)
+        .env_remove("CLAUDECODE")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "sgf spec failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let head_after = bare_remote_head(bare.path());
+    assert_ne!(
+        head_before, head_after,
+        "remote HEAD should have advanced after auto-push"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("new commits detected"),
+        "should log push detection: {stderr}"
+    );
+    assert!(
+        stderr.contains("push ok"),
+        "should log push success: {stderr}"
+    );
+}
+
+#[test]
+fn spec_no_push_suppresses_auto_push() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+    let bare = setup_bare_remote(tmp.path());
+
+    let head_before = bare_remote_head(bare.path());
+
+    // Mock agent that creates a new commit
+    let mock_dir = TempDir::new().unwrap();
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        &format!(
+            concat!(
+                "#!/bin/sh\n",
+                "echo 'agent was here' > \"{root}/agent_output.txt\"\n",
+                "cd \"{root}\"\n",
+                "git add .\n",
+                "git commit -m 'agent commit' --allow-empty\n",
+                "exit 0\n",
+            ),
+            root = tmp.path().display()
+        ),
+    );
+
+    let output = sgf_cmd(tmp.path())
+        .args(["spec", "--no-push"])
+        .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
+        .env("PROMPT_FILES", "")
+        .env("PATH", &mock_path)
+        .env_remove("CLAUDECODE")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "sgf spec --no-push failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let head_after = bare_remote_head(bare.path());
+    assert_eq!(
+        head_before, head_after,
+        "remote HEAD should NOT advance with --no-push"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("new commits detected"),
+        "should NOT attempt push with --no-push: {stderr}"
+    );
+}
+
+#[test]
+fn spec_no_push_when_head_unchanged() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+    let bare = setup_bare_remote(tmp.path());
+
+    let head_before = bare_remote_head(bare.path());
+
+    // Mock agent that does NOT create any commits
+    let mock_dir = TempDir::new().unwrap();
+    let mock_agent = create_mock_script(mock_dir.path(), "mock_agent.sh", "#!/bin/sh\nexit 0\n");
+
+    let output = sgf_cmd(tmp.path())
+        .arg("spec")
+        .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
+        .env("PROMPT_FILES", "")
+        .env("PATH", &mock_path)
+        .env_remove("CLAUDECODE")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "sgf spec (no-op agent) failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let head_after = bare_remote_head(bare.path());
+    assert_eq!(
+        head_before, head_after,
+        "remote HEAD should NOT advance when agent makes no commits"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("new commits detected"),
+        "should NOT attempt push when HEAD unchanged: {stderr}"
+    );
+}
