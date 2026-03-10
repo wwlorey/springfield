@@ -17,7 +17,11 @@ enum Commands {
     },
 
     /// Generate specs and implementation plan (interactive)
-    Spec,
+    Spec {
+        /// Disable auto-push after commits
+        #[arg(long)]
+        no_push: bool,
+    },
 
     /// Run build loop
     Build {
@@ -126,10 +130,10 @@ fn main() {
                 std::process::exit(1);
             }
         }
-        Commands::Spec => {
+        Commands::Spec { no_push } => {
             let opts = LoopOpts {
                 afk: false,
-                no_push: false,
+                no_push,
                 iterations: 1,
             };
             run_loop("spec", None, &opts, None, true);
