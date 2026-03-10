@@ -18,7 +18,7 @@ CLI entry point for Springfield. All developer interaction goes through this bin
 
 ```
 sgf init                               — scaffold a new project
-sgf spec                               — generate specs and implementation plan (interactive)
+sgf spec [--no-push]                   — generate specs and implementation plan (interactive)
 sgf build [spec] [-a] [--no-push] [N]  — run build loop
 sgf verify [-a] [--no-push] [N]        — run verification loop
 sgf test-plan [-a] [--no-push] [N]     — run test plan generation loop
@@ -338,7 +338,7 @@ Run `pn ready --spec $SGF_SPEC --json`.
 
 | Stage | Execution | Description |
 |-------|-----------|-------------|
-| `spec` | `$AGENT_CMD` directly | Interactive interview; calls `$AGENT_CMD --verbose @{prompt_path}`, inheriting stdio |
+| `spec` | `$AGENT_CMD` directly | Interactive interview; calls `$AGENT_CMD --verbose @{prompt_path}`, inheriting stdio; auto-pushes after session if HEAD changed |
 | `build` | ralph | Autonomous execution; ralph invokes `$AGENT_CMD` with `--dangerously-skip-permissions` |
 | `verify` | ralph | Autonomous execution |
 | `test-plan` | ralph | Autonomous execution |
@@ -346,6 +346,10 @@ Run `pn ready --spec $SGF_SPEC --json`.
 | `issues log` | `$AGENT_CMD` directly | Interactive interview; calls `$AGENT_CMD --verbose @{prompt_path}`, inheriting stdio |
 
 Interactive stages (`spec`, `issues log`) call `$AGENT_CMD` directly. No PID file, no log tee, no loop ID. The wrapper (configured by the user) handles prompt file injection via `PROMPT_FILES`. Automated stages (`build`, `verify`, `test-plan`, `test`) go through ralph, which handles prompt file injection via `--append-system-prompt` with `study` instructions and invokes `$AGENT_CMD` directly on the host.
+
+#### Auto-push after `sgf spec`
+
+`sgf spec` auto-pushes after the interactive Claude session exits, using the same HEAD-comparison logic as ralph's `auto_push_if_changed`: capture `git rev-parse HEAD` before the session, compare after, and `git push` if HEAD changed. Push failures are non-fatal (logged as warnings). Suppressed with `--no-push`.
 
 ### Exit Codes
 
