@@ -232,7 +232,33 @@ fn is_remote_host() -> bool {
     false
 }
 
+fn clear_stale_daemon_files(pensa_dir: &std::path::Path) {
+    let _ = std::fs::remove_file(pensa_dir.join("daemon.port"));
+    let _ = std::fs::remove_file(pensa_dir.join("daemon.project"));
+}
+
+fn is_daemon_stale(dir: &std::path::Path) -> bool {
+    let project_file = dir.join(".pensa/daemon.project");
+    let Ok(stored) = std::fs::read_to_string(&project_file) else {
+        return false; // no project file — legacy daemon, don't interfere
+    };
+    let stored = stored.trim();
+    if stored.is_empty() {
+        return false;
+    }
+    let canonical = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    let stored_path = std::path::Path::new(stored);
+    stored_path != canonical
+}
+
 fn ensure_daemon() {
+    let dir = std::env::current_dir().unwrap();
+
+    if is_daemon_stale(&dir) {
+        eprintln!("pn: stale daemon detected (project directory changed), restarting...");
+        clear_stale_daemon_files(&dir.join(".pensa"));
+    }
+
     let client = Client::new();
     if client.check_reachable().is_ok() {
         return;
@@ -246,7 +272,6 @@ fn ensure_daemon() {
         process::exit(1);
     }
 
-    let dir = std::env::current_dir().unwrap();
     let port = pensa::db::project_port(&dir);
     eprintln!("pn: starting daemon on port {port}...");
 

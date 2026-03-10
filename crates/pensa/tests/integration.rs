@@ -148,3 +148,107 @@ fn empty_daemon_url_is_ignored() {
         "empty daemon.url should be ignored, got: {stderr}"
     );
 }
+
+// --- stale daemon detection tests ---
+
+#[test]
+fn stale_daemon_project_clears_port_file() {
+    let dir = TempDir::new().expect("create temp dir");
+    let pensa_dir = dir.path().join(".pensa");
+    std::fs::create_dir_all(&pensa_dir).unwrap();
+
+    // Write a port file pointing at a port nothing listens on
+    let port = portpicker::pick_unused_port().expect("no free port");
+    std::fs::write(pensa_dir.join("daemon.port"), port.to_string()).unwrap();
+    // Write a project file pointing to a different (non-existent) directory
+    std::fs::write(
+        pensa_dir.join("daemon.project"),
+        "/tmp/old-project-that-was-renamed",
+    )
+    .unwrap();
+
+    let output = Command::new(pn_bin())
+        .env_remove("PN_DAEMON")
+        .env_remove("PN_DAEMON_HOST")
+        .current_dir(dir.path())
+        .args(["list", "--json"])
+        .output()
+        .expect("run pn list with stale daemon.project");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("stale daemon detected"),
+        "should detect stale daemon, got: {stderr}"
+    );
+    // Port file should have been removed
+    assert!(
+        !pensa_dir.join("daemon.port").exists()
+            || std::fs::read_to_string(pensa_dir.join("daemon.port"))
+                .map(|s| s.trim() != port.to_string())
+                .unwrap_or(true),
+        "stale port file should be cleared"
+    );
+    // Old project file should have been removed
+    assert!(
+        !pensa_dir.join("daemon.project").exists()
+            || std::fs::read_to_string(pensa_dir.join("daemon.project"))
+                .map(|s| s.trim() != "/tmp/old-project-that-was-renamed")
+                .unwrap_or(true),
+        "stale project file should be cleared"
+    );
+}
+
+#[test]
+fn matching_daemon_project_is_not_stale() {
+    let dir = TempDir::new().expect("create temp dir");
+    let pensa_dir = dir.path().join(".pensa");
+    std::fs::create_dir_all(&pensa_dir).unwrap();
+
+    let canonical = dir.path().canonicalize().unwrap();
+    let port = portpicker::pick_unused_port().expect("no free port");
+    std::fs::write(pensa_dir.join("daemon.port"), port.to_string()).unwrap();
+    std::fs::write(
+        pensa_dir.join("daemon.project"),
+        canonical.to_string_lossy().as_bytes(),
+    )
+    .unwrap();
+
+    let output = Command::new(pn_bin())
+        .env_remove("PN_DAEMON")
+        .env_remove("PN_DAEMON_HOST")
+        .current_dir(dir.path())
+        .args(["list", "--json"])
+        .output()
+        .expect("run pn list with matching daemon.project");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("stale daemon detected"),
+        "should not detect stale daemon when project matches, got: {stderr}"
+    );
+}
+
+#[test]
+fn missing_daemon_project_is_not_stale() {
+    let dir = TempDir::new().expect("create temp dir");
+    let pensa_dir = dir.path().join(".pensa");
+    std::fs::create_dir_all(&pensa_dir).unwrap();
+
+    // Only write port file, no project file (legacy daemon)
+    let port = portpicker::pick_unused_port().expect("no free port");
+    std::fs::write(pensa_dir.join("daemon.port"), port.to_string()).unwrap();
+
+    let output = Command::new(pn_bin())
+        .env_remove("PN_DAEMON")
+        .env_remove("PN_DAEMON_HOST")
+        .current_dir(dir.path())
+        .args(["list", "--json"])
+        .output()
+        .expect("run pn list without daemon.project");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("stale daemon detected"),
+        "missing daemon.project should not trigger stale detection, got: {stderr}"
+    );
+}

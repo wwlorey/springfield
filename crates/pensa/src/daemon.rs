@@ -80,10 +80,18 @@ pub async fn start(port: u16, project_dir: PathBuf) {
         .await
         .expect("failed to bind");
 
-    let port_file = project_dir.join(".pensa/daemon.port");
-    let _ = std::fs::create_dir_all(project_dir.join(".pensa"));
+    let pensa_dir = project_dir.join(".pensa");
+    let port_file = pensa_dir.join("daemon.port");
+    let project_file = pensa_dir.join("daemon.project");
+    let _ = std::fs::create_dir_all(&pensa_dir);
     if let Err(e) = std::fs::write(&port_file, port.to_string()) {
         tracing::warn!("failed to write port file: {e}");
+    }
+    let canonical = project_dir
+        .canonicalize()
+        .unwrap_or_else(|_| project_dir.clone());
+    if let Err(e) = std::fs::write(&project_file, canonical.to_string_lossy().as_bytes()) {
+        tracing::warn!("failed to write project file: {e}");
     }
 
     tracing::info!("pensa daemon listening on port {port}");
@@ -94,6 +102,7 @@ pub async fn start(port: u16, project_dir: PathBuf) {
         .expect("server error");
 
     let _ = std::fs::remove_file(&port_file);
+    let _ = std::fs::remove_file(&project_file);
 }
 
 async fn shutdown_signal() {
