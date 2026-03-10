@@ -64,6 +64,36 @@ fn export_pensa() {
     }
 }
 
+fn git_head() -> Option<String> {
+    Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+}
+
+fn auto_push_if_changed(head_before: &str) {
+    let head_after = git_head();
+    if let Some(ref after) = head_after
+        && after != head_before
+    {
+        eprintln!("sgf: new commits detected, pushing...");
+        match Command::new("git").arg("push").output() {
+            Ok(out) if out.status.success() => {
+                eprintln!("sgf: push ok");
+            }
+            Ok(out) => {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                eprintln!("sgf: push failed (non-fatal): {}", stderr.trim());
+            }
+            Err(e) => {
+                eprintln!("sgf: push failed (non-fatal): {e}");
+            }
+        }
+    }
+}
+
 fn build_ralph_args(
     config: &LoopConfig,
     loop_id: &str,
@@ -126,7 +156,20 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
         }
 
         eprintln!("sgf: launching interactive session [{}]", config.stage);
-        return run_interactive_claude(&prompt_path);
+
+        let head_before = if config.stage == "spec" && !config.no_push {
+            git_head()
+        } else {
+            None
+        };
+
+        let exit_code = run_interactive_claude(&prompt_path)?;
+
+        if let Some(ref before) = head_before {
+            auto_push_if_changed(before);
+        }
+
+        return Ok(exit_code);
     }
 
     resolve_agent_cmd()?;
@@ -801,5 +844,24 @@ mod tests {
 
         let args_content = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
         assert!(args_content.contains("test-plan-"));
+    }
+
+    #[test]
+    fn git_head_returns_some_in_repo() {
+        let head = git_head();
+        assert!(head.is_some(), "should return HEAD in a git repo");
+        let sha = head.unwrap();
+        assert_eq!(sha.len(), 40, "HEAD should be a 40-char hex SHA");
+        assert!(
+            sha.chars().all(|c| c.is_ascii_hexdigit()),
+            "HEAD should be hex"
+        );
+    }
+
+    #[test]
+    fn auto_push_no_op_when_head_unchanged() {
+        let head = git_head().expect("should be in a git repo");
+        // Should not attempt push when HEAD hasn't changed
+        auto_push_if_changed(&head);
     }
 }
