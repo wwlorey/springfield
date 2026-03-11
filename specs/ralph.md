@@ -240,6 +240,33 @@ In AFK mode, `setsid()` in `pre_exec` creates a new session, detaching the agent
 
 No PTY pair is needed since the agent runs directly (no Docker wrapper that forces raw mode on stdin). AFK mode uses `Stdio::piped()` for stdout and `Stdio::inherit()` for stderr.
 
+### Terminal Settings Preservation
+
+The agent (Claude Code) may modify terminal settings via inherited file descriptors (e.g., calling `tcsetattr()` on the stderr fd to enable raw mode). This can disable `ISIG`, causing Ctrl+C to send byte `0x03` instead of generating SIGINT, and Ctrl+D to send byte `0x04` instead of triggering EOF. Both AFK and interactive modes are affected.
+
+Ralph saves terminal settings (`tcgetattr` on stdin fd) before spawning the agent and restores them (`tcsetattr`) after the agent exits. This ensures the terminal is always in a known-good state for signal handling between iterations and after the agent run.
+
+```rust
+fn save_terminal_settings() -> Option<libc::termios> {
+    unsafe {
+        let mut termios: libc::termios = std::mem::zeroed();
+        if libc::tcgetattr(libc::STDIN_FILENO, &mut termios) == 0 {
+            Some(termios)
+        } else {
+            None
+        }
+    }
+}
+
+fn restore_terminal_settings(termios: &libc::termios) {
+    unsafe {
+        libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, termios);
+    }
+}
+```
+
+The save happens once before the main loop. The restore happens after each agent invocation (both `run_afk` and `run_interactive`). If stdin is not a terminal (e.g., piped input), `tcgetattr` fails and no save/restore occurs — this is expected and harmless.
+
 ### Stdout Reading and Interrupt Polling
 
 Stdout is read on a dedicated thread that sends lines through an `mpsc` channel. The main thread uses `recv_timeout` (100ms) to poll the channel, checking both the `interrupted` flag and `sigint_count` between receives. When the abort condition is met (double Ctrl+C in AFK, or single SIGTERM):

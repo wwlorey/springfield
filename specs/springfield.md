@@ -364,11 +364,15 @@ Interactive stages (`spec`, `issues log`) call `$AGENT_CMD` directly. No PID fil
 | `2` | Iterations exhausted — may have remaining work | Developer decides: re-launch or stop |
 | `130` | Interrupted (SIGINT/SIGTERM) | Log interruption, clean up |
 
-Interrupt handling uses the shared `shutdown` crate's `ShutdownController` (see [shutdown spec](shutdown.md)). sgf creates the controller with `monitor_stdin: true` before spawning the child process, and polls it in all modes. The controller detects both Ctrl+C (SIGINT) and Ctrl+D (stdin EOF) as shutdown triggers, requiring a double-press of the same key within 2 seconds. SIGTERM always triggers immediate shutdown.
+Interrupt handling uses the shared `shutdown` crate's `ShutdownController` (see [shutdown spec](shutdown.md)). The controller configuration depends on the mode:
 
-**All modes** (AFK, non-AFK, interactive): sgf spawns ralph (or `$AGENT_CMD` for interactive stages) in its own process group (`setsid()` via `pre_exec`). The `ShutdownController` intercepts SIGINT — the child does NOT receive it. First press: the controller prints "Press Ctrl-C again to exit" (or "Press Ctrl-D again to exit") to stderr. Second press of the same key within 2 seconds: sgf sends SIGTERM to the child process, waits for it to exit, and returns exit code 130. If no second press arrives within 2 seconds, the controller resets and the process continues. SIGTERM always triggers immediate shutdown (single signal).
+**AFK mode** (`sgf build -a`, `sgf verify -a`, etc.): sgf spawns ralph in its own session (`setsid()` via `pre_exec`). The controller is created with `monitor_stdin: true` — stdin is free since no user interaction occurs. Both double Ctrl+C (SIGINT) and double Ctrl+D (stdin EOF) trigger shutdown. First press prints "Press Ctrl-C again to exit" (or "Press Ctrl-D again to exit") to stderr. Second press of the same key within 2 seconds: sgf sends SIGTERM to ralph, waits for exit, returns code 130. Timeout resets the counter. SIGTERM always triggers immediate shutdown (single signal).
 
-sgf sets `SGF_MANAGED=1` in ralph's environment so ralph disables its own stdin monitoring and relies on sgf for Ctrl+D detection. Ralph still handles SIGTERM from sgf for graceful cleanup.
+**Non-AFK mode** (`sgf build`, `sgf verify`, etc.): sgf spawns ralph **without** `setsid()` — ralph and the agent stay in sgf's process group, receiving terminal signals naturally and retaining full terminal access. The controller is created with `monitor_stdin: false` — stdin belongs to the child for user interaction with Claude. Only double Ctrl+C works for shutdown; Ctrl+D goes to Claude as normal input. Both sgf and the child receive SIGINT on Ctrl+C; sgf's handler prints the confirmation prompt while Claude handles the signal with its own logic.
+
+**Interactive stages** (`sgf spec`, `sgf issues log`): Same as non-AFK — no `setsid()`, `monitor_stdin: false`. The user types directly into Claude.
+
+sgf sets `SGF_MANAGED=1` in ralph's environment so ralph disables its own stdin monitoring and relies on sgf for Ctrl+D detection (AFK) or passes stdin through (non-AFK). Ralph still handles SIGTERM from sgf for graceful cleanup.
 
 Signal handlers are registered just before spawning the child — during pre-launch checks, daemon startup, and other phases before handler registration, default signal behavior applies (single SIGINT exits).
 

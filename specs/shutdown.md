@@ -116,15 +116,19 @@ When ralph is launched by sgf, sgf sets `SGF_MANAGED=1` in ralph's environment. 
 
 ## Integration with sgf
 
-sgf creates a `ShutdownController` with `monitor_stdin: true` before spawning ralph. The polling loop in `run_ralph()` calls `controller.poll()` instead of manually checking atomic counters.
+sgf creates a `ShutdownController` before spawning ralph or `$AGENT_CMD`. The controller configuration varies by mode — AFK mode owns stdin and terminal signals; non-AFK and interactive modes let the child own them.
 
-### All Modes
+### AFK Loops
 
-All modes use double-press semantics — AFK, non-AFK, and interactive:
+`setsid()` isolates ralph in its own session. sgf creates the controller with `monitor_stdin: true` (stdin is free — no user interaction). The 50ms polling loop calls `controller.poll()`. Both double Ctrl+C and double Ctrl+D trigger shutdown. On `Shutdown`, sgf sends SIGTERM to the ralph child process.
 
-- **AFK loops**: `poll()` is called in the existing 50ms polling loop. On `Shutdown`, sgf sends SIGTERM to the ralph child process.
-- **Non-AFK loops**: Same as AFK. Replaces the current single-press immediate shutdown.
-- **Interactive stages** (`spec`, `issues log`): sgf no longer ignores SIGINT entirely. Instead, it creates a `ShutdownController` and polls it while waiting for the child. First press is absorbed by the controller (child does NOT receive it since sgf registered the SIGINT handler). Double-press sends SIGTERM to the child.
+### Non-AFK Loops (Interactive Ralph)
+
+No `setsid()` — ralph stays in sgf's process group so it (and the agent) receive terminal signals naturally. sgf creates the controller with `monitor_stdin: false` — stdin belongs to the child for user interaction with Claude. Only double Ctrl+C works for shutdown (Ctrl+D goes to Claude as normal input). Both sgf and the child receive SIGINT; sgf's handler prints "Press Ctrl-C again to exit" while Claude handles the signal with its own logic.
+
+### Interactive Stages (`spec`, `issues log`)
+
+`monitor_stdin: false`, no `setsid()`. Same rationale as non-AFK loops — the user types directly into Claude.
 
 ### Environment Variable
 
