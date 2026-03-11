@@ -607,7 +607,7 @@ fn run_afk(
             Ok(Ok(line)) => match format::format_line(&line) {
                 format::FormattedOutput::Text(text) => {
                     for l in text.split('\n') {
-                        tee.write_ansi_line(&style::bold(l));
+                        tee.write_ansi_line(&style::cyan(&style::bold(l)));
                     }
                 }
                 format::FormattedOutput::ToolCalls(calls) => {
@@ -654,7 +654,7 @@ fn run_afk(
                 }
                 format::FormattedOutput::Result(text) => {
                     for l in text.split('\n') {
-                        tee.write_ansi_line(l);
+                        tee.write_ansi_line(&style::cyan(&style::bold(l)));
                     }
                 }
                 format::FormattedOutput::Skip => {}

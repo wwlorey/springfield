@@ -2060,7 +2060,7 @@ fn afk_tool_calls_have_ansi_colors() {
 }
 
 #[test]
-fn afk_agent_text_has_bold_ansi() {
+fn afk_agent_text_has_bold_cyan_ansi() {
     let dir = setup_test_dir();
     let mock = create_mock_script(&dir, "afk-session.ndjson");
 
@@ -2078,14 +2078,14 @@ fn afk_agent_text_has_bold_ansi() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    // Agent text lines should be wrapped in bold (\x1b[1m...\x1b[0m)
+    // Agent text lines should be wrapped in cyan+bold (\x1b[36m\x1b[1m...\x1b[0m\x1b[0m)
     assert!(
-        stdout.contains("\x1b[1mI'll start by studying the required files"),
-        "agent text should have bold ANSI codes, got:\n{stdout}"
+        stdout.contains("\x1b[36m\x1b[1mI'll start by studying the required files"),
+        "agent text should have cyan+bold ANSI codes, got:\n{stdout}"
     );
     assert!(
-        stdout.contains("\x1b[1mNow I can see the cleanup plan."),
-        "agent text should have bold ANSI codes, got:\n{stdout}"
+        stdout.contains("\x1b[36m\x1b[1mNow I can see the cleanup plan."),
+        "agent text should have cyan+bold ANSI codes, got:\n{stdout}"
     );
 }
 
