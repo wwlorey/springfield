@@ -25,6 +25,7 @@ IMPORTANT:
 - **Do not implement placeholder code.** We want full, real implementations.
 - **Author PROPERTY BASED TESTS and/or UNIT TESTS** (whichever is best).
 - **After making changes to the files apply FULL BACKPRESSURE to verify behavior.**
+- **If you attempt to claim a `pn` issue and is already claimed, DO NOT WORK ON IT, even if it is claimed by you.**
 - When the ONE issue is done:
   * Follow the `pn` Issue Close Workflow.
   * Stop working.
