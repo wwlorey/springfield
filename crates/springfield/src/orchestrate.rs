@@ -1,13 +1,10 @@
-use std::io;
+use std::io::{self, IsTerminal as _};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use signal_hook::consts::{SIGINT, SIGTERM};
-use signal_hook::flag;
+use shutdown::{ShutdownConfig, ShutdownController, ShutdownStatus};
 
 use crate::loop_mgmt;
 use crate::prompt;
@@ -163,16 +160,12 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
             None
         };
 
-        // Ignore SIGINT so the child (claude) handles it and sgf survives
-        // to run post-session tasks like auto-push.
-        let prev_sigint = unsafe { libc::signal(libc::SIGINT, libc::SIG_IGN) };
+        let controller = ShutdownController::new(ShutdownConfig {
+            monitor_stdin: false,
+            ..Default::default()
+        })?;
 
-        let exit_code = run_interactive_claude(&prompt_path)?;
-
-        // Restore the previous SIGINT handler.
-        unsafe {
-            libc::signal(libc::SIGINT, prev_sigint);
-        }
+        let exit_code = run_interactive_claude(&prompt_path, &controller)?;
 
         if let Some(ref before) = head_before {
             auto_push_if_changed(before);
@@ -206,30 +199,14 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
 
     let args = build_ralph_args(config, &loop_id, &prompt_path, log_path.as_deref());
 
-    let sigint_count = Arc::new(AtomicUsize::new(0));
-    {
-        let sigint_count = sigint_count.clone();
-        unsafe {
-            signal_hook::low_level::register(SIGINT, move || {
-                sigint_count.fetch_add(1, Ordering::SeqCst);
-            })
-        }
-        .map_err(|e| io::Error::other(format!("failed to register SIGINT handler: {e}")))?;
-    }
-    let terminated = Arc::new(AtomicBool::new(false));
-    flag::register(SIGTERM, Arc::clone(&terminated))
-        .map_err(|e| io::Error::other(format!("failed to register SIGTERM handler: {e}")))?;
+    let controller = ShutdownController::new(ShutdownConfig {
+        monitor_stdin: io::stdin().is_terminal(),
+        ..Default::default()
+    })?;
 
     eprintln!("sgf: launching ralph [{loop_id}]");
 
-    let exit_code = run_ralph(
-        &binary,
-        &args,
-        config.spec.as_deref(),
-        config.afk,
-        &sigint_count,
-        &terminated,
-    )?;
+    let exit_code = run_ralph(&binary, &args, config.spec.as_deref(), &controller)?;
 
     loop_mgmt::remove_pid_file(root, &loop_id);
 
@@ -239,50 +216,17 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
     Ok(exit_code)
 }
 
-fn run_interactive_claude(prompt_path: &Path) -> io::Result<i32> {
+fn run_interactive_claude(prompt_path: &Path, controller: &ShutdownController) -> io::Result<i32> {
     let cmd = resolve_agent_cmd()?;
     let prompt_arg = format!("@{}", prompt_path.display());
 
-    let status = Command::new(&cmd)
+    let mut child = Command::new(&cmd)
         .args(["--verbose", &prompt_arg])
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
-        .status()
-        .map_err(|e| io::Error::other(format!("failed to spawn {cmd}: {e}")))?;
-
-    Ok(status.code().unwrap_or(1))
-}
-
-fn run_ralph(
-    binary: &str,
-    args: &[String],
-    spec: Option<&str>,
-    afk: bool,
-    sigint_count: &AtomicUsize,
-    terminated: &AtomicBool,
-) -> io::Result<i32> {
-    let mut cmd = Command::new(binary);
-    cmd.args(args)
-        .stdin(Stdio::inherit())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit());
-    if let Some(stem) = spec {
-        cmd.env("SGF_SPEC", stem);
-    }
-    if afk {
-        unsafe {
-            cmd.pre_exec(|| {
-                libc::setsid();
-                Ok(())
-            });
-        }
-    }
-    let mut child = cmd
         .spawn()
-        .map_err(|e| io::Error::other(format!("failed to spawn ralph: {e}")))?;
-
-    let mut first_sigint_at: Option<Instant> = None;
+        .map_err(|e| io::Error::other(format!("failed to spawn {cmd}: {e}")))?;
 
     loop {
         match child.try_wait() {
@@ -290,37 +234,52 @@ fn run_ralph(
                 return Ok(status.code().unwrap_or(1));
             }
             Ok(None) => {
-                if terminated.load(Ordering::Relaxed) {
+                if controller.poll() == ShutdownStatus::Shutdown {
                     kill_child(&child);
                     let _ = child.wait();
-
                     return Ok(130);
                 }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
 
-                let count = sigint_count.load(Ordering::Relaxed);
+fn run_ralph(
+    binary: &str,
+    args: &[String],
+    spec: Option<&str>,
+    controller: &ShutdownController,
+) -> io::Result<i32> {
+    let mut cmd = Command::new(binary);
+    cmd.args(args)
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .env("SGF_MANAGED", "1");
+    if let Some(stem) = spec {
+        cmd.env("SGF_SPEC", stem);
+    }
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| io::Error::other(format!("failed to spawn ralph: {e}")))?;
 
-                if afk {
-                    if count >= 2 {
-                        kill_child(&child);
-                        let _ = child.wait();
-
-                        return Ok(130);
-                    }
-                    if count == 1 {
-                        if let Some(first_at) = first_sigint_at {
-                            if first_at.elapsed() >= Duration::from_secs(2) {
-                                sigint_count.store(0, Ordering::Relaxed);
-                                first_sigint_at = None;
-                            }
-                        } else {
-                            eprintln!("\nsgf: press Ctrl+C again to stop\n");
-                            first_sigint_at = Some(Instant::now());
-                        }
-                    }
-                } else if count >= 1 {
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                return Ok(status.code().unwrap_or(1));
+            }
+            Ok(None) => {
+                if controller.poll() == ShutdownStatus::Shutdown {
                     kill_child(&child);
                     let _ = child.wait();
-
                     return Ok(130);
                 }
 
