@@ -127,6 +127,7 @@ fn afk_formats_tool_calls_as_one_liners() {
     let mock = create_mock_script(&dir, "afk-session.ndjson");
 
     let output = ralph_cmd(&dir)
+        .env("NO_COLOR", "1")
         .args([
             "--afk",
             "--command",
@@ -139,42 +140,41 @@ fn afk_formats_tool_calls_as_one_liners() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    // Read tool calls
+    // Read tool calls (new styled format: "  ─ Read  detail")
     assert!(
-        stdout.contains("-> Read(/Users/william/Repos/buddy-ralph/specs/README.md)"),
+        stdout.contains("─ Read  /Users/william/Repos/buddy-ralph/specs/README.md"),
         "should contain Read tool call, got:\n{stdout}"
     );
     // Read with offset and limit
     assert!(
         stdout.contains(
-            "-> Read(/Users/william/Repos/buddy-ralph/crates/buddy-llm/src/inference.rs 1:80)"
+            "─ Read  /Users/william/Repos/buddy-ralph/crates/buddy-llm/src/inference.rs 1:80"
         ),
         "should contain Read with offset:limit, got:\n{stdout}"
     );
     // Edit tool (file path only)
     assert!(
-        stdout.contains("-> Edit(/Users/william/Repos/buddy-ralph/specs/tokenizer-embedding.md)"),
+        stdout.contains("─ Edit  /Users/william/Repos/buddy-ralph/specs/tokenizer-embedding.md"),
         "should contain Edit tool call, got:\n{stdout}"
     );
     // TodoWrite (count)
     assert!(
-        stdout.contains("-> TodoWrite(3 items)"),
+        stdout.contains("─ TodoWrite  3 items"),
         "should contain TodoWrite with count, got:\n{stdout}"
     );
     // Bash tool
     assert!(
-        stdout
-            .contains("-> Bash(git diff specs/tokenizer-embedding.md plans/cleanup/buddy-llm.md)"),
+        stdout.contains("─ Bash  git diff specs/tokenizer-embedding.md plans/cleanup/buddy-llm.md"),
         "should contain Bash tool call, got:\n{stdout}"
     );
     // Grep tool
     assert!(
-        stdout.contains("-> Grep(GgufModelBuilder)"),
+        stdout.contains("─ Grep  GgufModelBuilder"),
         "should contain Grep tool call, got:\n{stdout}"
     );
     // Glob tool
     assert!(
-        stdout.contains("-> Glob(specs/**/*.md)"),
+        stdout.contains("─ Glob  specs/**/*.md"),
         "should contain Glob tool call, got:\n{stdout}"
     );
 
@@ -353,6 +353,7 @@ fn bash_command_truncation() {
     let mock = create_mock_script(&dir, "afk-session.ndjson");
 
     let output = ralph_cmd(&dir)
+        .env("NO_COLOR", "1")
         .args([
             "--afk",
             "--command",
@@ -367,30 +368,25 @@ fn bash_command_truncation() {
 
     // The long git add && git commit command (with heredoc newlines) gets truncated
     // at 100 chars by the Bash formatter, which appends "...".
-    // Since the command contains embedded newlines, the truncated output spans
-    // multiple printed lines. Verify the truncation ellipsis appears.
+    // Verify the truncation ellipsis appears in the new styled format.
     assert!(
-        stdout.contains("-> Bash(git add specs/tokenizer-embedding.md"),
+        stdout.contains("─ Bash  git add specs/tokenizer-embedding.md"),
         "should contain the long Bash tool call, got stdout:\n{stdout}"
     );
 
-    // The truncated command should end with "...)" somewhere in the output.
-    // Find the "-> Bash(git add specs/" portion and check that the full
-    // formatted block ends with "...)"
+    // The truncated command should end with "..." somewhere in the output.
     let start = stdout
-        .find("-> Bash(git add specs/tokenizer-embedding.md")
+        .find("─ Bash  git add specs/tokenizer-embedding.md")
         .expect("should find Bash tool call");
     let rest = &stdout[start..];
-    // The formatted tool call ends with "...)\n" since truncation adds "..."
-    // and format_tool_call wraps in "-> Name(detail)"
     assert!(
-        rest.contains("...)"),
-        "truncated Bash command should contain '...)', got:\n{rest}"
+        rest.contains("..."),
+        "truncated Bash command should contain '...', got:\n{rest}"
     );
 
     // Short Bash commands (like "git log --oneline -5") should NOT be truncated
     assert!(
-        stdout.contains("-> Bash(git log --oneline -5)"),
+        stdout.contains("─ Bash  git log --oneline -5"),
         "short Bash command should not be truncated, got stdout:\n{stdout}"
     );
 }

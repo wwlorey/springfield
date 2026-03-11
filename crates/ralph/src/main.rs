@@ -43,7 +43,7 @@ impl TeeWriter {
         if let Some(ref f) = self.log_file
             && let Ok(mut f) = f.lock()
         {
-            let _ = writeln!(f, "{line}");
+            let _ = writeln!(f, "{}", style::strip_ansi(line));
         }
     }
 
@@ -55,7 +55,7 @@ impl TeeWriter {
         if let Some(ref f) = self.log_file
             && let Ok(mut f) = f.lock()
         {
-            let _ = writeln!(f, "{line}");
+            let _ = writeln!(f, "{}", style::strip_ansi(line));
         }
     }
 }
@@ -582,13 +582,57 @@ fn run_afk(
         }
 
         match rx.recv_timeout(Duration::from_millis(100)) {
-            Ok(Ok(line)) => {
-                if let Some(output) = format::format_line(&line) {
-                    for line in output.split('\n') {
-                        tee.write_ansi_line(line);
+            Ok(Ok(line)) => match format::format_line(&line) {
+                format::FormattedOutput::Text(text) => {
+                    for l in text.split('\n') {
+                        tee.write_ansi_line(l);
                     }
                 }
-            }
+                format::FormattedOutput::ToolCalls(calls) => {
+                    for call in &calls {
+                        tee.write_ansi_line(&format!(
+                            "  {} {}  {}",
+                            style::dim("─"),
+                            style::bold(&call.name),
+                            style::dim(&call.detail),
+                        ));
+                    }
+                }
+                format::FormattedOutput::ToolResults(results) => {
+                    for result in &results {
+                        for l in &result.lines {
+                            if result.is_error {
+                                tee.write_ansi_line(&format!(
+                                    "     {}",
+                                    style::dim(&style::red(l))
+                                ));
+                            } else {
+                                tee.write_ansi_line(&format!("     {}", style::dim(l)));
+                            }
+                        }
+                        if result.truncated_count > 0 {
+                            tee.write_ansi_line(&format!(
+                                "     {}",
+                                style::dim(&format!("... ({} more lines)", result.truncated_count))
+                            ));
+                        }
+                    }
+                }
+                format::FormattedOutput::Usage {
+                    input_tokens,
+                    output_tokens,
+                } => {
+                    tee.write_ansi_line(&style::dim(&format!(
+                        "  Input: {input_tokens} tokens · Output: {output_tokens} tokens"
+                    )));
+                }
+                format::FormattedOutput::Result(text) => {
+                    for l in text.split('\n') {
+                        tee.write_ansi_line(l);
+                    }
+                }
+                format::FormattedOutput::Skip => {}
+            },
             Ok(Err(e)) => {
                 warn!(error = %e, "error reading stdout");
             }
