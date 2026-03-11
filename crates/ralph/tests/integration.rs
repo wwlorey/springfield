@@ -1996,3 +1996,131 @@ fn afk_shows_tool_results() {
         "should contain error tool result content, got:\n{stdout}"
     );
 }
+
+#[test]
+fn afk_tool_calls_have_ansi_colors() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script(&dir, "afk-session.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .env_remove("NO_COLOR")
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Read tool calls should use bold blue (1;34)
+    assert!(
+        stdout.contains("\x1b[1;34mRead\x1b[0m"),
+        "Read tool call should have bold blue ANSI codes, got:\n{stdout}"
+    );
+
+    // Bash tool calls should use bold yellow (1;33)
+    assert!(
+        stdout.contains("\x1b[1;33mBash\x1b[0m"),
+        "Bash tool call should have bold yellow ANSI codes, got:\n{stdout}"
+    );
+
+    // Edit tool calls should use bold magenta (1;35)
+    assert!(
+        stdout.contains("\x1b[1;35mEdit\x1b[0m"),
+        "Edit tool call should have bold magenta ANSI codes, got:\n{stdout}"
+    );
+
+    // Grep tool calls should use bold blue (1;34)
+    assert!(
+        stdout.contains("\x1b[1;34mGrep\x1b[0m"),
+        "Grep tool call should have bold blue ANSI codes, got:\n{stdout}"
+    );
+
+    // Glob tool calls should use bold blue (1;34)
+    assert!(
+        stdout.contains("\x1b[1;34mGlob\x1b[0m"),
+        "Glob tool call should have bold blue ANSI codes, got:\n{stdout}"
+    );
+
+    // TodoWrite tool calls should use bold cyan (1;36, default for unknown tools)
+    assert!(
+        stdout.contains("\x1b[1;36mTodoWrite\x1b[0m"),
+        "TodoWrite tool call should have bold cyan ANSI codes, got:\n{stdout}"
+    );
+
+    // Tool call details should use cyan (36)
+    assert!(
+        stdout.contains("\x1b[36m"),
+        "tool call details should have cyan ANSI codes, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn afk_agent_text_has_bold_ansi() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script(&dir, "afk-session.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .env_remove("NO_COLOR")
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Agent text lines should be wrapped in bold (\x1b[1m...\x1b[0m)
+    assert!(
+        stdout.contains("\x1b[1mI'll start by studying the required files"),
+        "agent text should have bold ANSI codes, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("\x1b[1mNow I can see the cleanup plan."),
+        "agent text should have bold ANSI codes, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn afk_test_result_lines_have_color_ansi() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script(&dir, "test-results.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .env_remove("NO_COLOR")
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Lines ending with "... ok" should have green ANSI codes (32)
+    assert!(
+        stdout.contains("\x1b[32mtest inference::test_load_model ... ok\x1b[0m"),
+        "test '... ok' lines should have green ANSI codes, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("\x1b[32mtest inference::test_tokenize ... ok\x1b[0m"),
+        "test '... ok' lines should have green ANSI codes, got:\n{stdout}"
+    );
+
+    // Lines ending with "... FAILED" should have red ANSI codes (31)
+    assert!(
+        stdout.contains("\x1b[31mtest inference::test_generate ... FAILED\x1b[0m"),
+        "test '... FAILED' lines should have red ANSI codes, got:\n{stdout}"
+    );
+}
