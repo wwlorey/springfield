@@ -19,10 +19,10 @@ CLI entry point for Springfield. All developer interaction goes through this bin
 ```
 sgf init                               — scaffold a new project
 sgf spec [--no-push]                   — generate specs and implementation plan (interactive)
-sgf build [spec] [-a] [--no-push] [N]  — run build loop
-sgf verify [-a] [--no-push] [N]        — run verification loop
-sgf test-plan [-a] [--no-push] [N]     — run test plan generation loop
-sgf test [spec] [-a] [--no-push] [N]   — run test execution loop
+sgf build [spec] [-a] [--no-push] [-n N]  — run build loop
+sgf verify [-a] [--no-push] [-n N]        — run verification loop
+sgf test-plan [-a] [--no-push] [-n N]     — run test plan generation loop
+sgf test [spec] [-a] [--no-push] [-n N]   — run test execution loop
 sgf issues log                         — interactive session for logging bugs
 sgf status                             — show project state (future work)
 sgf logs <loop-id>                     — tail a running loop's output
@@ -34,7 +34,7 @@ sgf logs <loop-id>                     — tail a running loop's output
 |------|---------|-------------|
 | `-a` / `--afk` | `false` | AFK mode: NDJSON stream parsing with formatted output |
 | `--no-push` | `false` | Disable auto-push after commits |
-| `N` (positional) | `30` | Number of iterations |
+| `-n` / `--iterations` | `30` | Number of iterations |
 
 ---
 
@@ -328,7 +328,7 @@ Run `pn ready --spec $SGF_SPEC --json`.
 | `--auto-push` | bool | `true` unless `--no-push` passed to sgf | Auto-push after commits |
 | `--max-iterations` | u32 | hardcoded: `30` | Safety limit |
 | `--spec` | string | spec positional arg from sgf (optional) | Spec stem — ralph includes `./specs/<stem>.md` in its study instruction. Omitted when no spec is given. |
-| `ITERATIONS` | u32 | positional arg or default `30` | Number of iterations |
+| `ITERATIONS` | u32 | `-n` / `--iterations` or default `30` | Number of iterations |
 | `PROMPT` | path | `.sgf/prompts/<stage>.md` | Raw prompt template file |
 
 ### Environment Variables Passed to Ralph
@@ -694,7 +694,7 @@ Loom's integrated observability platform: analytics, crash tracking, cron monito
 
 | Setting | Value | Override |
 |---------|-------|----------|
-| Iterations | `30` | Positional arg: `sgf build auth 10` |
+| Iterations | `30` | `-n` / `--iterations`: `sgf build -n 10` |
 | Auto-push | `true` | `--no-push` flag |
 | Pensa daemon port | per-project derived | `--port` flag on `pn daemon` |
 

@@ -81,7 +81,7 @@ struct LoopOpts {
     no_push: bool,
 
     /// Number of iterations
-    #[arg(default_value_t = 30)]
+    #[arg(short = 'n', long, default_value_t = 30)]
     iterations: u32,
 }
 
