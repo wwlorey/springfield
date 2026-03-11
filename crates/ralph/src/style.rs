@@ -34,6 +34,28 @@ pub fn red(s: &str) -> String {
     wrap("31", s, no_color())
 }
 
+pub fn strip_ansi(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let len = bytes.len();
+    let mut out = Vec::with_capacity(len);
+    let mut i = 0;
+    while i < len {
+        if bytes[i] == 0x1b && i + 1 < len && bytes[i + 1] == b'[' {
+            i += 2;
+            while i < len && (bytes[i].is_ascii_digit() || bytes[i] == b';') {
+                i += 1;
+            }
+            if i < len && bytes[i] == b'm' {
+                i += 1;
+            }
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    unsafe { String::from_utf8_unchecked(out) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -96,5 +118,34 @@ mod tests {
             wrap("31", "héllo wörld", false),
             "\x1b[31mhéllo wörld\x1b[0m"
         );
+    }
+
+    #[test]
+    fn strip_ansi_removes_codes() {
+        assert_eq!(strip_ansi("\x1b[1mhello\x1b[0m"), "hello");
+        assert_eq!(strip_ansi("\x1b[31mred\x1b[0m"), "red");
+        assert_eq!(strip_ansi("\x1b[2mdim\x1b[0m text"), "dim text");
+    }
+
+    #[test]
+    fn strip_ansi_no_codes() {
+        assert_eq!(strip_ansi("plain text"), "plain text");
+        assert_eq!(strip_ansi(""), "");
+    }
+
+    #[test]
+    fn strip_ansi_nested_styles() {
+        let styled = format!(
+            "  {} {}  {}",
+            wrap("2", "─", false),
+            wrap("1", "Read", false),
+            wrap("2", "foo.rs", false),
+        );
+        assert_eq!(strip_ansi(&styled), "  ─ Read  foo.rs");
+    }
+
+    #[test]
+    fn strip_ansi_preserves_utf8() {
+        assert_eq!(strip_ansi("\x1b[1mhéllo\x1b[0m wörld"), "héllo wörld");
     }
 }
