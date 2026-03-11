@@ -592,7 +592,7 @@ fn run_afk(
                             "  {} {}  {}",
                             style::dim("─"),
                             style::tool_name_style(&call.name),
-                            style::dim(&call.detail),
+                            style::cyan(&call.detail),
                         ));
                     }
                 }
