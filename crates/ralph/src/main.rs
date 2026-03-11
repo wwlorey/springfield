@@ -1,4 +1,6 @@
 pub(crate) mod format;
+#[allow(dead_code)]
+pub(crate) mod style;
 
 use clap::Parser;
 use signal_hook::consts::{SIGINT, SIGTERM};
