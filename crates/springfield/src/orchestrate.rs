@@ -263,7 +263,7 @@ fn run_ralph(
 ) -> io::Result<i32> {
     let mut cmd = Command::new(binary);
     cmd.args(args)
-        .stdin(Stdio::inherit())
+        .stdin(if afk { Stdio::null() } else { Stdio::inherit() })
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .env("SGF_MANAGED", "1");

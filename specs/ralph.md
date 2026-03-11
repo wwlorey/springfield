@@ -238,7 +238,9 @@ The between-iteration gap (2-second sleep) and the post-agent check both poll th
 
 In AFK mode, `setsid()` in `pre_exec` creates a new session, detaching the agent child process from ralph's session. This prevents the child from becoming the foreground process group and stealing SIGINT delivery. With `setsid`, the agent is in a different session and `tcsetpgrp()` on ralph's terminal fails.
 
-No PTY pair is needed since the agent runs directly (no Docker wrapper that forces raw mode on stdin). AFK mode uses `Stdio::piped()` for stdout and `Stdio::inherit()` for stderr.
+No PTY pair is needed since the agent runs directly (no Docker wrapper that forces raw mode on stdin). AFK mode uses `Stdio::piped()` for stdout, `Stdio::null()` for stdin, and `Stdio::inherit()` for stderr.
+
+**Stdin isolation in AFK mode**: The agent child receives `/dev/null` as stdin. This serves two purposes: (1) the agent has no terminal fd to call `tcsetattr` on, so it cannot disable ISIG or put the terminal in raw mode — Ctrl+C continues to generate SIGINT and Ctrl+D continues to trigger EOF for the parent process; (2) the agent has no stdin to read from, which is correct for AFK mode where no user interaction occurs. When ralph runs under sgf, sgf also passes `Stdio::null()` to ralph for the same reason.
 
 ### Terminal Settings Preservation
 

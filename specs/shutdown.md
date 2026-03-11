@@ -122,6 +122,8 @@ sgf creates a `ShutdownController` before spawning ralph or `$AGENT_CMD`. The co
 
 `setsid()` isolates ralph in its own session. sgf creates the controller with `monitor_stdin: true` (stdin is free — no user interaction). The 50ms polling loop calls `controller.poll()`. Both double Ctrl+C and double Ctrl+D trigger shutdown. On `Shutdown`, sgf sends SIGTERM to the ralph child process.
 
+**Stdin isolation**: sgf passes `Stdio::null()` for stdin when spawning ralph in AFK mode. This prevents the agent from inheriting the terminal fd and modifying terminal settings (e.g., disabling ISIG via `tcsetattr`). Without this, the agent can put the terminal in raw mode, causing Ctrl+C to emit byte `0x03` instead of generating SIGINT and Ctrl+D to emit byte `0x04` instead of triggering EOF. With `Stdio::null()`, the terminal fd stays under sgf's exclusive control and ISIG remains enabled.
+
 ### Non-AFK Loops (Interactive Ralph)
 
 No `setsid()` — ralph stays in sgf's process group so it (and the agent) receive terminal signals naturally. sgf creates the controller with `monitor_stdin: false` — stdin belongs to the child for user interaction with Claude. Only double Ctrl+C works for shutdown (Ctrl+D goes to Claude as normal input). Both sgf and the child receive SIGINT; sgf's handler prints "Press Ctrl-C again to exit" while Claude handles the signal with its own logic.

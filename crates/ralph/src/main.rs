@@ -562,6 +562,7 @@ fn run_afk(
     cmd.args(&study_args);
     let child = unsafe {
         cmd.arg(&prompt_arg)
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .pre_exec(setsid_hook)
