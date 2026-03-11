@@ -200,7 +200,7 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
     let args = build_ralph_args(config, &loop_id, &prompt_path, log_path.as_deref());
 
     let controller = ShutdownController::new(ShutdownConfig {
-        monitor_stdin: io::stdin().is_terminal(),
+        monitor_stdin: std::env::var("SGF_MONITOR_STDIN").is_ok() || io::stdin().is_terminal(),
         ..Default::default()
     })?;
 

@@ -1707,3 +1707,127 @@ fn confirmation_message_on_first_ctrl_c() {
         "should show double-press prompt on stderr, got:\n{stderr}"
     );
 }
+
+#[test]
+fn double_ctrl_d_exits_130() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+    let mock_dir = TempDir::new().unwrap();
+    let mock_ralph = create_slow_mock_ralph(mock_dir.path());
+
+    // Closing a piped stdin causes continuous EOF (read returns 0), which
+    // simulates a rapid double Ctrl+D press.
+    let mut child = sgf_cmd(tmp.path())
+        .args(["build", "auth", "-a"])
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("SGF_MONITOR_STDIN", "1")
+        .env("PATH", &mock_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn sgf");
+
+    let stdin = child.stdin.take().expect("open stdin");
+    let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+
+    std::thread::sleep(Duration::from_millis(500));
+    drop(stdin);
+
+    std::thread::sleep(Duration::from_millis(1000));
+    let output = match child.try_wait() {
+        Ok(Some(_)) => child.wait_with_output().expect("wait for sgf"),
+        _ => {
+            nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGTERM)
+                .expect("send cleanup SIGTERM");
+            child.wait_with_output().expect("wait for sgf")
+        }
+    };
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert_eq!(
+        output.status.code(),
+        Some(130),
+        "should exit 130 on double Ctrl+D, stderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("Press Ctrl-D again to exit"),
+        "should show Ctrl-D prompt on stderr, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn mixed_ctrl_c_then_ctrl_d_no_shutdown() {
+    use std::io::Write;
+
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph_mixed.sh",
+        "#!/bin/bash\ntrap '' INT\nfor i in $(seq 1 50); do sleep 0.1; done\nexit 0\n",
+    );
+
+    let mut child = sgf_cmd(tmp.path())
+        .args(["build", "auth", "-a"])
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("SGF_MONITOR_STDIN", "1")
+        .env("PATH", &mock_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn sgf");
+
+    let mut stdin = child.stdin.take().expect("open stdin");
+    let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+
+    std::thread::sleep(Duration::from_millis(500));
+
+    // Send Ctrl+C (SIGINT) — starts the Ctrl+C confirmation window.
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send SIGINT");
+    std::thread::sleep(Duration::from_millis(200));
+
+    // Send non-EOF data to stdin. This verifies that stdin activity from a
+    // different channel (not Ctrl+D EOF) does not satisfy the Ctrl+C
+    // double-press requirement.
+    let _ = stdin.write_all(b"x\n");
+    let _ = stdin.flush();
+
+    // Wait past the 2-second timeout so the Ctrl+C pending state resets.
+    std::thread::sleep(Duration::from_millis(2500));
+
+    // The process should still be alive — mixed input did not cause shutdown.
+    assert!(
+        child.try_wait().expect("try_wait").is_none(),
+        "process should still be running after Ctrl+C + non-EOF stdin"
+    );
+
+    // Clean up.
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGTERM).expect("send cleanup SIGTERM");
+    drop(stdin);
+
+    let output = child.wait_with_output().expect("wait for sgf");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        stderr.contains("Press Ctrl-C again to exit"),
+        "should have shown Ctrl-C prompt, got:\n{stderr}"
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(130),
+        "should exit 130 from SIGTERM cleanup, stderr:\n{stderr}"
+    );
+}
