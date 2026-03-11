@@ -1,3 +1,5 @@
+#[allow(dead_code)]
+pub(crate) mod banner;
 pub(crate) mod format;
 #[allow(dead_code)]
 pub(crate) mod style;
