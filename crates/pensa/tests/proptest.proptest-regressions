@@ -1,0 +1,11 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 719263af13d41e1a1c516f380ab2342dc731844409a3f50c00a82fb7380ad6c5 # shrinks to (n, edges) = (3, [])
+cc e2d53514c394e2785661f405ef2e6285d7ee17fd2a9bce1cd78c76823ff9d548 # shrinks to params = [CreateIssueParams { title: "_", issue_type: Bug, priority: P0, description: None, spec: None, fixes: None, assignee: None, deps: [], actor: "prop-agent" }]
+cc 0f1da7f6c71ed889957cb7f457988a1c30267ee170e0c0b353e095cde7a8cf03 # shrinks to (n, edges) = (3, [])
+cc cae7f509a0a20ee272418f07f5bab0f0096a78a43c742a157d13867ad78dce53 # shrinks to (n, ops) = (2, [Claim(0, "aaa")])
+cc a42652ca8e6f111fff6a7ab6bb63a682a4b43613e21461407812753ca0c93475 # shrinks to params = [CreateIssueParams { title: "_", issue_type: Bug, priority: P0, description: None, spec: None, fixes: None, assignee: None, deps: [], actor: "prop-agent" }], filter_type = None, filter_priority = None, filter_status = None
