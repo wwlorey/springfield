@@ -206,31 +206,33 @@ After the process exits, ralph checks for the `.ralph-complete` sentinel file to
 
 ## Signal Handling
 
-Ralph registers signal handlers at startup using `signal-hook`:
+Ralph uses the shared `shutdown` crate's `ShutdownController` (see [shutdown spec](shutdown.md)) for graceful shutdown detection. The controller handles both Ctrl+C (SIGINT) and Ctrl+D (stdin EOF) as shutdown triggers, requiring a double-press of the same key within 2 seconds. SIGTERM always triggers immediate shutdown.
 
-- **SIGTERM**: Sets an `AtomicBool` (`interrupted`) flag. A single SIGTERM always triggers immediate shutdown.
-- **SIGINT (Ctrl+C)**: Increments an `AtomicUsize` counter (`sigint_count`) via `signal_hook::flag::register_usize`. Behavior depends on mode:
-  - **Interactive mode**: A single SIGINT triggers immediate shutdown (same as SIGTERM). The counter is checked against `>= 1`.
-  - **AFK mode**: Requires **two presses** within a timeout window (see [Double Ctrl+C in AFK Mode](#double-ctrlc-in-afk-mode)).
+### Standalone vs Managed
 
-The between-iteration gap (2-second sleep) and the post-`run_afk` check both use single-press semantics: `sigint_count >= 1 || interrupted`.
+When ralph runs standalone (no parent sgf), it creates a `ShutdownController` with `monitor_stdin: true` — both Ctrl+C and Ctrl+D work for shutdown.
 
-### Double Ctrl+C in AFK Mode
+When ralph runs under sgf, sgf sets `SGF_MANAGED=1` in ralph's environment. Ralph creates the controller with `monitor_stdin: false` — it handles SIGINT directly but relies on sgf for Ctrl+D detection. sgf sends SIGTERM to ralph when the user confirms shutdown, and SIGTERM triggers immediate exit.
 
-In AFK mode, ralph requires two Ctrl+C presses to abort, similar to Claude Code's behavior. This prevents accidental termination of long-running unattended loops.
+```rust
+let config = ShutdownConfig {
+    monitor_stdin: std::env::var("SGF_MANAGED").is_err(),
+    ..Default::default()
+};
+```
 
-**Mechanism:**
+### Double-Press Behavior
 
-1. First Ctrl+C increments `sigint_count` to 1. The `run_afk` polling loop detects `sigint_count == 1` and:
-   - Prints `"\nPress Ctrl+C again to stop\n"` to stdout (not to the log file)
-   - Records the current time as the start of the confirmation window
-2. Second Ctrl+C increments `sigint_count` to 2. The polling loop detects `sigint_count >= 2` and:
-   - Kills the child process via `child.kill()`
-   - Calls `child.wait()` to reap the process
-   - Returns to the main loop, which detects the signal and exits with code 130
-3. **Timeout**: If no second press arrives within **2 seconds**, the counter is reset to 0 (via `store(0, Ordering::Relaxed)`) and the confirmation window message is cleared. The loop continues running normally.
+All modes (AFK and interactive) use double-press semantics:
 
-**Why stdout-only for the message:** The "press again" prompt is an interactive terminal cue, not an application event. It should not appear in `--log-file` output or structured logs.
+1. First Ctrl+C (or Ctrl+D): the controller prints "Press Ctrl-C again to exit" (or "Press Ctrl-D again to exit") to stderr. Starts a 2-second confirmation window.
+2. Second press of the **same key** within 2 seconds: kills the agent child process, exits with code 130.
+3. **Timeout**: If no second press of the same key arrives within 2 seconds, the counter resets and the loop continues.
+4. **SIGTERM**: Immediate shutdown — kills child, exits 130.
+
+Ctrl+C and Ctrl+D are independent channels. Pressing Ctrl+C then Ctrl+D (or vice versa) does NOT trigger shutdown.
+
+The between-iteration gap (2-second sleep) and the post-agent check both poll the controller.
 
 ### Session Isolation (AFK mode)
 
@@ -636,9 +638,8 @@ No custom error types. Fail loudly, continue when sensible:
 | stdout read error | `tracing::warn!`, continue reading |
 | Git `rev-parse` failure | Return `None`, skip push check |
 | Git push failure | `tracing::warn!`, continue |
-| SIGINT received (AFK mode) | First press: print "Press Ctrl+C again to stop" to stdout, start 2s timeout. Second press: kill child, `tracing::warn!`, exit 130. Timeout: reset counter, continue. |
-| SIGINT received (interactive / between iterations) | Kill child process, `tracing::warn!`, exit 130 |
-| SIGTERM received | Kill child process (AFK), `tracing::warn!`, exit 130 (immediate, single signal) |
+| SIGINT/Ctrl+D received (all modes) | First press: print "Press Ctrl-C again to exit" (or "Press Ctrl-D again to exit") to stderr, start 2s timeout. Second press of same key: kill child, `tracing::warn!`, exit 130. Timeout: reset counter, continue. |
+| SIGTERM received | Kill child process, `tracing::warn!`, exit 130 (immediate, single signal) |
 
 ## Testing
 

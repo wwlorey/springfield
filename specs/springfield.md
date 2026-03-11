@@ -58,7 +58,7 @@ Scaffolds a new project. Accepts `--force` to overwrite template and skeleton fi
     ├── test.md
     └── issues.md
 BACKPRESSURE.md                        (build/test/lint/format commands for the project)
-.claude/settings.json                  (deny rules for .sgf/**)
+.claude/settings.json                  (deny rules for .sgf/** and .claude/**)
 .pre-commit-config.yaml                (prek hooks for pensa sync)
 .gitignore                             (Springfield entries + stack-specific entries)
 CLAUDE.md                              (`ln -s` to AGENTS.md)
@@ -68,7 +68,7 @@ specs/
 
 ### Claude settings
 
-`sgf init` creates or updates `.claude/settings.json` with deny rules protecting `.sgf/` from agent modification and native sandbox configuration:
+`sgf init` creates or updates `.claude/settings.json` with deny rules protecting `.sgf/` and `.claude/` from agent modification, plus native sandbox configuration:
 
 ```json
 {
@@ -77,7 +77,11 @@ specs/
       "Edit .sgf/**",
       "Write .sgf/**",
       "Bash rm .sgf/**",
-      "Bash mv .sgf/**"
+      "Bash mv .sgf/**",
+      "Edit .claude/**",
+      "Write .claude/**",
+      "Bash rm .claude/**",
+      "Bash mv .claude/**"
     ]
   },
   "sandbox": {
@@ -263,7 +267,7 @@ specs/
 
 **`.sgf/prompts/`** — Editable prompt templates for each workflow stage. Seeded by `sgf init` from Springfield's built-in templates. Once seeded, the project owns these files — edit them to evolve the prompts. To improve defaults for future projects, update the templates in the Springfield repo.
 
-**`.sgf/` protection** — The entire `.sgf/` directory is protected from agent modification via Claude deny settings. `sgf init` scaffolds these rules. This is enforced at the framework level — agents cannot write to prompts or reference files regardless of prompt instructions. `BACKPRESSURE.md` is intentionally outside `.sgf/` and not protected — it is developer-authored content that agents may need to reference or suggest edits to.
+**`.sgf/` and `.claude/` protection** — Both `.sgf/` and `.claude/` are protected from agent modification via Claude deny settings. `sgf init` scaffolds these rules. `.sgf/` protection prevents agents from modifying prompts and reference files. `.claude/` protection prevents agents from weakening sandbox configuration or deny rules — this is self-reinforcing since the deny rules live inside `.claude/settings.json`. `BACKPRESSURE.md` is intentionally outside `.sgf/` and not protected — it is developer-authored content that agents may need to reference or suggest edits to.
 
 **`PROMPT_FILES`** (env var) — Colon-separated list of files to include in `study` instructions. Default: `$HOME/.MEMENTO.md:./BACKPRESSURE.md:./specs/README.md`. Ralph reads this variable for automated stages and passes it as `--append-system-prompt 'study @<file>;...'`; `$AGENT_CMD` wrappers read it for interactive stages. sgf does not read `PROMPT_FILES`. `~` is expanded to `$HOME`; `./` paths are resolved relative to the project root. Missing files emit a warning to stderr. If `PROMPT_FILES` is not set, a warning is emitted and the default is used.
 
@@ -360,13 +364,13 @@ Interactive stages (`spec`, `issues log`) call `$AGENT_CMD` directly. No PID fil
 | `2` | Iterations exhausted — may have remaining work | Developer decides: re-launch or stop |
 | `130` | Interrupted (SIGINT/SIGTERM) | Log interruption, clean up |
 
-On interrupt, sgf's behavior depends on the stage type:
+Interrupt handling uses the shared `shutdown` crate's `ShutdownController` (see [shutdown spec](shutdown.md)). sgf creates the controller with `monitor_stdin: true` before spawning the child process, and polls it in all modes. The controller detects both Ctrl+C (SIGINT) and Ctrl+D (stdin EOF) as shutdown triggers, requiring a double-press of the same key within 2 seconds. SIGTERM always triggers immediate shutdown.
 
-**AFK loops** (`-a` flag): sgf spawns ralph in its own process group (`setsid()` via `pre_exec`) so that terminal SIGINT is delivered only to sgf, not to ralph. sgf independently implements double Ctrl+C semantics. SIGINT increments an `AtomicUsize` counter (`sigint_count`). First press: print "sgf: press Ctrl+C again to stop" and start a 2-second confirmation window. Second press within 2 seconds: send SIGTERM to the ralph child process, wait for it to exit. If no second press arrives within 2 seconds, sgf resets its counter to 0. SIGTERM always triggers immediate shutdown (single signal). Signal handlers are registered just before spawning the ralph child — during pre-launch checks, daemon startup, and other phases before handler registration, default signal behavior applies (single SIGINT exits).
+**All modes** (AFK, non-AFK, interactive): sgf spawns ralph (or `$AGENT_CMD` for interactive stages) in its own process group (`setsid()` via `pre_exec`). The `ShutdownController` intercepts SIGINT — the child does NOT receive it. First press: the controller prints "Press Ctrl-C again to exit" (or "Press Ctrl-D again to exit") to stderr. Second press of the same key within 2 seconds: sgf sends SIGTERM to the child process, waits for it to exit, and returns exit code 130. If no second press arrives within 2 seconds, the controller resets and the process continues. SIGTERM always triggers immediate shutdown (single signal).
 
-**Non-AFK loops**: A single SIGINT triggers immediate shutdown — send SIGTERM to the child process, wait for exit, clean up.
+sgf sets `SGF_MANAGED=1` in ralph's environment so ralph disables its own stdin monitoring and relies on sgf for Ctrl+D detection. Ralph still handles SIGTERM from sgf for graceful cleanup.
 
-**Interactive stages** (`spec`, `issues log`): sgf ignores SIGINT while the child session runs, allowing the child to handle terminal signals itself. After the child exits (regardless of how), sgf restores the default SIGINT handler and runs post-session tasks (e.g., auto-push for `spec`). This prevents SIGINT from killing sgf before post-session cleanup completes.
+Signal handlers are registered just before spawning the child — during pre-launch checks, daemon startup, and other phases before handler registration, default signal behavior applies (single SIGINT exits).
 
 Claude Code crashes and push failures are handled within ralph as warnings — they do not produce distinct exit codes. Ralph logs the failure and continues to the next iteration without cleanup. The next iteration's agent inherits whatever state exists and proceeds via forward correction. Stale claims and dirty working trees accumulate within a ralph run and are cleared by sgf's pre-launch recovery before the next run.
 
@@ -708,7 +712,7 @@ Loom's integrated observability platform: analytics, crash tracking, cron monito
 
 **Env-var-driven context injection**: `PROMPT_FILES` lists the files to include in `study` instructions (default: `$HOME/.MEMENTO.md:./BACKPRESSURE.md:./specs/README.md`). For automated stages, ralph reads `PROMPT_FILES` and passes `--append-system-prompt` with a `study @<file>` instruction for each entry. For interactive stages, the `$AGENT_CMD` wrapper handles injection. sgf does not read or process `PROMPT_FILES` — it only validates prompt templates exist and passes raw paths through.
 
-**Protected scaffolding**: `.sgf/` is protected from agent writes via Claude deny settings. The developer is the authority on prompts, backpressure, and project configuration.
+**Protected scaffolding**: `.sgf/` and `.claude/` are protected from agent writes via Claude deny settings. The developer is the authority on prompts, settings, and project configuration.
 
 **Decentralized projects**: Springfield is project-aware — it reads `.sgf/` from the current working directory. No global registry. Each project is self-contained.
 
