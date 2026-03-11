@@ -3,17 +3,16 @@ pub(crate) mod format;
 pub(crate) mod style;
 
 use clap::Parser;
-use signal_hook::consts::{SIGINT, SIGTERM};
-use signal_hook::flag;
+use shutdown::{ShutdownConfig, ShutdownController, ShutdownStatus};
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tracing::{error, warn};
 
 struct TeeWriter {
@@ -251,18 +250,11 @@ fn main() {
 
     let agent_cmd = resolve_agent_cmd(&cli);
 
-    let sigint_count = Arc::new(AtomicUsize::new(0));
-    let interrupted = Arc::new(AtomicBool::new(false));
-    {
-        let sigint_count = sigint_count.clone();
-        unsafe {
-            signal_hook::low_level::register(SIGINT, move || {
-                sigint_count.fetch_add(1, Ordering::SeqCst);
-            })
-        }
-        .expect("Failed to register SIGINT handler");
-    }
-    flag::register(SIGTERM, interrupted.clone()).expect("Failed to register SIGTERM handler");
+    let config = ShutdownConfig {
+        monitor_stdin: std::env::var("SGF_MANAGED").is_err(),
+        ..Default::default()
+    };
+    let controller = ShutdownController::new(config).expect("Failed to create ShutdownController");
 
     let is_default_prompt = cli.prompt == "prompt.md";
     let is_file = Path::new(&cli.prompt).exists();
@@ -307,20 +299,12 @@ fn main() {
         let head_before = git_head();
 
         if cli.afk {
-            run_afk(
-                &agent_cmd,
-                &cli,
-                is_file,
-                &prompt_files,
-                &sigint_count,
-                &interrupted,
-                &tee,
-            );
+            run_afk(&agent_cmd, &cli, is_file, &prompt_files, &controller, &tee);
         } else {
-            run_interactive(&agent_cmd, &cli, is_file, &prompt_files);
+            run_interactive(&agent_cmd, &cli, is_file, &prompt_files, &controller);
         }
 
-        if sigint_count.load(Ordering::Relaxed) >= 1 || interrupted.load(Ordering::Relaxed) {
+        if controller.poll() == ShutdownStatus::Shutdown {
             warn!("interrupted");
             std::process::exit(130);
         }
@@ -346,15 +330,11 @@ fn main() {
         )));
 
         for _ in 0..20 {
-            if sigint_count.load(Ordering::Relaxed) >= 1 || interrupted.load(Ordering::Relaxed) {
-                break;
+            if controller.poll() == ShutdownStatus::Shutdown {
+                warn!("interrupted");
+                std::process::exit(130);
             }
             thread::sleep(Duration::from_millis(100));
-        }
-
-        if sigint_count.load(Ordering::Relaxed) >= 1 || interrupted.load(Ordering::Relaxed) {
-            warn!("interrupted");
-            std::process::exit(130);
         }
 
         auto_push_if_changed(&cli, &head_before, &tee);
@@ -451,7 +431,13 @@ fn ding_watcher(stop: &AtomicBool) {
     }
 }
 
-fn run_interactive(agent_cmd: &str, cli: &Cli, is_file: bool, prompt_files: &[String]) {
+fn run_interactive(
+    agent_cmd: &str,
+    cli: &Cli,
+    is_file: bool,
+    prompt_files: &[String],
+    controller: &ShutdownController,
+) {
     let stop = Arc::new(AtomicBool::new(false));
     let stop_clone = stop.clone();
     let watcher = thread::spawn(move || ding_watcher(&stop_clone));
@@ -472,28 +458,51 @@ fn run_interactive(agent_cmd: &str, cli: &Cli, is_file: bool, prompt_files: &[St
         r#"{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}"#,
     ]);
     command.args(&study_args);
-    let result = command
+    let mut child = match command
         .arg(&prompt_arg)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
-        .status();
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            warn!(error = %e, "failed to spawn command");
+            stop.store(true, Ordering::Relaxed);
+            let _ = watcher.join();
+            return;
+        }
+    };
+
+    loop {
+        if controller.poll() == ShutdownStatus::Shutdown {
+            let _ = child.kill();
+            let _ = child.wait();
+            break;
+        }
+
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                if !status.success() {
+                    warn!(
+                        status = status.code().unwrap_or(-1),
+                        "command exited with non-zero status"
+                    );
+                }
+                break;
+            }
+            Ok(None) => {
+                thread::sleep(Duration::from_millis(100));
+            }
+            Err(e) => {
+                warn!(error = %e, "error waiting for child process");
+                break;
+            }
+        }
+    }
 
     stop.store(true, Ordering::Relaxed);
     let _ = watcher.join();
-
-    match result {
-        Ok(status) if !status.success() => {
-            warn!(
-                status = status.code().unwrap_or(-1),
-                "command exited with non-zero status"
-            );
-        }
-        Err(e) => {
-            warn!(error = %e, "failed to spawn command");
-        }
-        _ => {}
-    }
 }
 
 fn run_afk(
@@ -501,8 +510,7 @@ fn run_afk(
     cli: &Cli,
     is_file: bool,
     prompt_files: &[String],
-    sigint_count: &Arc<AtomicUsize>,
-    interrupted: &Arc<AtomicBool>,
+    controller: &ShutdownController,
     tee: &TeeWriter,
 ) {
     let setsid_hook = || unsafe {
@@ -564,31 +572,11 @@ fn run_afk(
         }
     });
 
-    let mut first_sigint_at: Option<Instant> = None;
-
     loop {
-        if interrupted.load(Ordering::Relaxed) {
+        if controller.poll() == ShutdownStatus::Shutdown {
             let _ = child.kill();
             let _ = child.wait();
             return;
-        }
-
-        let count = sigint_count.load(Ordering::Relaxed);
-        if count >= 2 {
-            let _ = child.kill();
-            let _ = child.wait();
-            return;
-        }
-        if count == 1 {
-            if let Some(first_at) = first_sigint_at {
-                if first_at.elapsed() >= Duration::from_secs(2) {
-                    sigint_count.store(0, Ordering::Relaxed);
-                    first_sigint_at = None;
-                }
-            } else {
-                println!("\nPress Ctrl+C again to stop\n");
-                first_sigint_at = Some(Instant::now());
-            }
         }
 
         match rx.recv_timeout(Duration::from_millis(100)) {

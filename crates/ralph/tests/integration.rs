@@ -84,6 +84,8 @@ fn ralph_cmd(dir: &TempDir) -> Command {
     cmd.env("RALPH_AUTO_PUSH", "false");
     cmd.env("RUST_LOG", "warn");
     cmd.env("PROMPT_FILES", "");
+    cmd.env("SGF_MANAGED", "1");
+    cmd.stdin(std::process::Stdio::null());
     cmd
 }
 
@@ -1210,6 +1212,8 @@ fn prompt_files_default_entries_passed_when_unset() {
     cmd.env("RALPH_AUTO_PUSH", "false");
     cmd.env("RUST_LOG", "warn");
     cmd.env_remove("PROMPT_FILES");
+    cmd.env("SGF_MANAGED", "1");
+    cmd.stdin(std::process::Stdio::null());
     // Isolate HOME to temp dir so $HOME/.MEMENTO.md won't resolve to host file
     cmd.env("HOME", dir.path());
     cmd.args([
@@ -1307,17 +1311,18 @@ fn afk_double_ctrlc_aborts() {
         Some(130),
         "should exit 130 on double Ctrl+C, got stdout:\n{stdout}"
     );
+    let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stdout.contains("Press Ctrl+C again to stop"),
-        "should show double-press prompt, got:\n{stdout}"
+        stderr.contains("Press Ctrl-C again to exit"),
+        "should show double-press prompt on stderr, got:\n{stderr}"
     );
 }
 
 #[test]
-fn interactive_sigint_exits_130() {
+fn interactive_double_sigint_exits_130() {
     let dir = setup_test_dir();
     let script_path = dir.path().join("mock_slow_interactive.sh");
-    fs::write(&script_path, "#!/bin/bash\ntrap '' INT\nsleep 1\n").expect("write mock");
+    fs::write(&script_path, "#!/bin/bash\ntrap '' INT\nsleep 5\n").expect("write mock");
     fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755)).expect("chmod");
 
     let child = ralph_cmd(&dir)
@@ -1330,14 +1335,16 @@ fn interactive_sigint_exits_130() {
     let pid = nix::unistd::Pid::from_raw(child.id() as i32);
 
     std::thread::sleep(Duration::from_millis(500));
-    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send SIGINT");
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send first SIGINT");
+    std::thread::sleep(Duration::from_millis(200));
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send second SIGINT");
 
     let output = child.wait_with_output().expect("wait for ralph");
 
     assert_eq!(
         output.status.code(),
         Some(130),
-        "should exit 130 on SIGINT in interactive mode"
+        "should exit 130 on double SIGINT in interactive mode"
     );
 }
 

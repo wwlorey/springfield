@@ -1309,7 +1309,7 @@ dependencies = [
  "nix",
  "serde",
  "serde_json",
- "signal-hook",
+ "shutdown",
  "tempfile",
  "tracing",
  "tracing-subscriber",
