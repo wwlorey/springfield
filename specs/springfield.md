@@ -314,7 +314,7 @@ Run `pn ready --spec $SGF_SPEC --json`.
 ### Invocation
 
 ```
-[SGF_SPEC=<stem>] [AGENT_CMD=<path>] sgf → ralph [-a] [--loop-id ID] [--auto-push BOOL] [--max-iterations N] [--spec STEM] ITERATIONS PROMPT
+[SGF_SPEC=<stem>] [AGENT_CMD=<path>] sgf → ralph [-a] [--loop-id ID] [--auto-push BOOL] [--spec STEM] ITERATIONS PROMPT
 ```
 
 `sgf` translates its own flags and hardcoded defaults into ralph CLI flags. Ralph does not read config files — all configuration arrives via flags and environment variables.
@@ -326,7 +326,6 @@ Run `pn ready --spec $SGF_SPEC --json`.
 | `-a` / `--afk` | bool | sgf command (e.g., `sgf build -a`) | AFK mode |
 | `--loop-id` | string | sgf-generated | Unique loop identifier |
 | `--auto-push` | bool | `true` unless `--no-push` passed to sgf | Auto-push after commits |
-| `--max-iterations` | u32 | hardcoded: `30` | Safety limit |
 | `--spec` | string | spec positional arg from sgf (optional) | Spec stem — ralph includes `./specs/<stem>.md` in its study instruction. Omitted when no spec is given. |
 | `ITERATIONS` | u32 | `-n` / `--iterations` or default `30` | Number of iterations |
 | `PROMPT` | path | `.sgf/prompts/<stage>.md` | Raw prompt template file |

@@ -109,10 +109,6 @@ struct Cli {
     #[arg(default_value = "prompt.md")]
     prompt: String,
 
-    /// Safety limit for iterations
-    #[arg(long, env = "RALPH_MAX_ITERATIONS", default_value_t = 100)]
-    max_iterations: u32,
-
     /// Auto-push after new commits
     #[arg(long, env = "RALPH_AUTO_PUSH", default_value = "true", value_parser = parse_bool, num_args = 1)]
     auto_push: bool,
@@ -283,13 +279,14 @@ fn main() {
 
     let prompt_files = collect_prompt_files(&cli);
 
-    let iterations = if cli.iterations > cli.max_iterations {
+    const MAX_ITERATIONS: u32 = 1000;
+    let iterations = if cli.iterations > MAX_ITERATIONS {
         warn!(
             requested = cli.iterations,
-            max = cli.max_iterations,
-            "reducing iterations to max allowed"
+            max = MAX_ITERATIONS,
+            "clamping iterations to hard limit"
         );
-        cli.max_iterations
+        MAX_ITERATIONS
     } else {
         cli.iterations
     };

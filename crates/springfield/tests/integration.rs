@@ -543,8 +543,8 @@ fn build_invokes_ralph_with_correct_flags() {
         "missing --auto-push true"
     );
     assert!(
-        args.contains("--max-iterations 30"),
-        "missing --max-iterations"
+        !args.contains("--max-iterations"),
+        "should not pass --max-iterations"
     );
 }
 

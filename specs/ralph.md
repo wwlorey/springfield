@@ -69,14 +69,14 @@ ralph [OPTIONS] [ITERATIONS] [PROMPT]
 When invoked by `sgf`, the full command looks like:
 
 ```
-SGF_SPEC=auth ralph [-a] [--loop-id ID] [--auto-push BOOL] [--max-iterations N] [--spec auth] ITERATIONS PROMPT
+SGF_SPEC=auth ralph [-a] [--loop-id ID] [--auto-push BOOL] [--spec auth] ITERATIONS PROMPT
 ```
 
 ### Arguments
 
 | Argument | Type | Default | Description |
 |----------|------|---------|-------------|
-| `ITERATIONS` | u32 | `1` | Number of iterations to run |
+| `ITERATIONS` | u32 | `1` | Number of iterations to run (clamped to 1000 max) |
 | `PROMPT` | String | `prompt.md` | Prompt file path or inline text string |
 
 ### Prompt Resolution
@@ -94,7 +94,6 @@ The default value `prompt.md` is treated specially: if no explicit prompt is pro
 |-------------|---------|---------|-------------|
 | `-a`, `--afk` | — | `false` | Run in AFK mode (non-interactive) |
 | `--loop-id` | — | — | Loop identifier (sgf-generated, included in banner output) |
-| `--max-iterations` | `RALPH_MAX_ITERATIONS` | `100` | Safety limit for iterations |
 | `--auto-push` | `RALPH_AUTO_PUSH` | `true` | Auto-push after new commits (requires explicit value: `true`/`false`/`yes`/`no`/`1`/`0`) |
 | `--command` | `RALPH_COMMAND` | — | Override: path to executable replacing agent invocation (for testing) |
 | `--spec` | `SGF_SPEC` | — | Spec stem — adds `./specs/<stem>.md` to the study instruction. Fails with error if the spec file does not exist. |
@@ -731,7 +730,7 @@ Binary-level E2E tests using `cargo test -p ralph`. Each test:
 | AFK completion banner uses box format | `complete.ndjson` + sentinel | stdout contains `╭─ Ralph COMPLETE` |
 | AFK max-iterations banner uses box format | `afk-session.ndjson` | stdout contains `╭─ Ralph reached max iterations` |
 | Missing prompt file | — | exit code 1, stderr contains error message |
-| Iterations clamped to max | `afk-session.ndjson` | stdout contains "Warning: Reducing iterations" |
+| Iterations clamped at 1000 | — | stderr contains "clamping iterations to hard limit" when ITERATIONS > 1000 |
 | Help flag | — | exit code 0, stdout contains usage info |
 | Bash command truncation | `afk-session.ndjson` | long commands end with `...` |
 | AFK double Ctrl+C aborts | `afk-session.ndjson` + two SIGINTs | exit code 130, stdout contains "Press Ctrl+C again to stop" |

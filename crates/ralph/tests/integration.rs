@@ -308,18 +308,16 @@ fn explicit_nonexistent_file_treated_as_inline_text() {
 }
 
 #[test]
-fn iterations_clamped_to_max() {
+fn iterations_clamped_at_1000() {
     let dir = setup_test_dir();
-    let mock = create_mock_script(&dir, "afk-session.ndjson");
+    let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
 
     let output = ralph_cmd(&dir)
         .args([
             "--afk",
-            "--max-iterations",
-            "5",
             "--command",
             mock.to_str().unwrap(),
-            "100",
+            "5000",
             "prompt.md",
         ])
         .output()
@@ -328,7 +326,7 @@ fn iterations_clamped_to_max() {
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     assert!(
-        stderr.contains("reducing iterations to max allowed"),
+        stderr.contains("clamping iterations to hard limit"),
         "should warn about clamping, got stderr:\n{stderr}"
     );
 }

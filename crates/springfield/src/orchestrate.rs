@@ -113,9 +113,6 @@ fn build_ralph_args(
         "true".to_string()
     });
 
-    args.push("--max-iterations".to_string());
-    args.push("30".to_string());
-
     if let Some(ref spec) = config.spec {
         args.push("--spec".to_string());
         args.push(spec.clone());
@@ -435,8 +432,6 @@ mod tests {
                 "build-auth-20260226T143000",
                 "--auto-push",
                 "false",
-                "--max-iterations",
-                "30",
                 "--spec",
                 "auth",
                 "10",
@@ -492,9 +487,7 @@ mod tests {
         );
 
         assert!(args.contains(&"30".to_string()));
-        assert!(args.contains(&"--max-iterations".to_string()));
-        let max_idx = args.iter().position(|a| a == "--max-iterations").unwrap();
-        assert_eq!(args[max_idx + 1], "30");
+        assert!(!args.contains(&"--max-iterations".to_string()));
     }
 
     #[test]
@@ -556,7 +549,7 @@ mod tests {
         let args_content = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
         assert!(args_content.contains("--loop-id"));
         assert!(args_content.contains("--auto-push true"));
-        assert!(args_content.contains("--max-iterations 30"));
+        assert!(!args_content.contains("--max-iterations"));
         assert!(args_content.contains("-a"));
 
         let pid_files = loop_mgmt::list_pid_files(root);
