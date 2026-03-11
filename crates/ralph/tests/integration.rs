@@ -1898,3 +1898,94 @@ fn afk_max_iterations_banner_uses_box_format() {
         "max-iterations banner should use box format, got:\n{stdout}"
     );
 }
+
+#[test]
+fn afk_no_color_disables_ansi() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script(&dir, "afk-session.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .env("NO_COLOR", "1")
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Check for ANSI color/style codes (\x1b[...m) — not cursor control codes
+    // like \r\x1b[2K which are always emitted for line clearing
+    let has_ansi_style = stdout.as_bytes().windows(2).enumerate().any(|(i, w)| {
+        if w == b"\x1b[" {
+            // Look for pattern \x1b[<digits>m (ANSI SGR codes)
+            let rest = &stdout.as_bytes()[i + 2..];
+            // Skip \x1b[2K (clear line) — that's not a style code
+            if rest.first() == Some(&b'2') && rest.get(1) == Some(&b'K') {
+                return false;
+            }
+            // Any \x1b[<digits>m or \x1b[<digits>;<digits>m is a style code
+            rest.iter()
+                .take_while(|&&b| b.is_ascii_digit() || b == b';')
+                .last()
+                .is_some()
+                && rest
+                    .iter()
+                    .position(|&b| !b.is_ascii_digit() && b != b';')
+                    .map(|pos| rest[pos] == b'm')
+                    .unwrap_or(false)
+        } else {
+            false
+        }
+    });
+    assert!(
+        !has_ansi_style,
+        "NO_COLOR=1 should produce no ANSI style/color codes in stdout"
+    );
+
+    assert!(
+        stdout.contains("─ Read"),
+        "should still contain tool call formatting without ANSI, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("╭─ Ralph Loop Starting"),
+        "should still contain box-drawing chars without ANSI, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn afk_shows_tool_results() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script(&dir, "afk-session.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .env("NO_COLOR", "1")
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        stdout.contains("# Buddy Ralph Specifications"),
+        "should contain tool result content from first Read, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Applied edit to specs/tokenizer-embedding.md"),
+        "should contain tool result from Edit, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("No such file or directory"),
+        "should contain error tool result content, got:\n{stdout}"
+    );
+}
