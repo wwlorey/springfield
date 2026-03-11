@@ -232,6 +232,23 @@ fn collect_prompt_files(cli: &Cli) -> Vec<String> {
     files
 }
 
+fn save_terminal_settings() -> Option<libc::termios> {
+    unsafe {
+        let mut termios: libc::termios = std::mem::zeroed();
+        if libc::tcgetattr(libc::STDIN_FILENO, &mut termios) == 0 {
+            Some(termios)
+        } else {
+            None
+        }
+    }
+}
+
+fn restore_terminal_settings(termios: &libc::termios) {
+    unsafe {
+        libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, termios);
+    }
+}
+
 fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
@@ -282,6 +299,8 @@ fn main() {
     remove_sentinel();
     let _ = fs::remove_file(DING_SENTINEL);
 
+    let saved_termios = save_terminal_settings();
+
     for i in 1..=iterations {
         remove_sentinel();
 
@@ -302,6 +321,10 @@ fn main() {
             run_afk(&agent_cmd, &cli, is_file, &prompt_files, &controller, &tee);
         } else {
             run_interactive(&agent_cmd, &cli, is_file, &prompt_files, &controller);
+        }
+
+        if let Some(ref termios) = saved_termios {
+            restore_terminal_settings(termios);
         }
 
         if controller.poll() == ShutdownStatus::Shutdown {
@@ -698,6 +721,26 @@ mod tests {
         fs::create_dir(&sub).unwrap();
         fs::write(sub.join(SENTINEL), "").unwrap();
         assert!(find_sentinel(dir.path(), 2).is_some());
+    }
+
+    #[test]
+    fn save_terminal_settings_returns_some_on_tty() {
+        let result = save_terminal_settings();
+        if unsafe { libc::isatty(libc::STDIN_FILENO) } == 1 {
+            assert!(result.is_some());
+        } else {
+            assert!(result.is_none());
+        }
+    }
+
+    #[test]
+    fn restore_terminal_settings_is_idempotent() {
+        if let Some(termios) = save_terminal_settings() {
+            restore_terminal_settings(&termios);
+            restore_terminal_settings(&termios);
+            let after = save_terminal_settings();
+            assert!(after.is_some());
+        }
     }
 
     #[test]
