@@ -3,6 +3,14 @@ use crate::style;
 const MIN_WIDTH: usize = 40;
 
 pub fn render_box(title: &str, lines: &[String]) -> String {
+    render_box_styled(title, lines, style::bold)
+}
+
+pub fn render_box_styled(
+    title: &str,
+    lines: &[String],
+    title_style: impl Fn(&str) -> String,
+) -> String {
     let title_len = title.chars().count();
     let content_width = lines
         .iter()
@@ -15,7 +23,7 @@ pub fn render_box(title: &str, lines: &[String]) -> String {
 
     let fill_len = inner.saturating_sub(title_len + 3);
     out.push_str(&style::dim("╭─ "));
-    out.push_str(&style::bold(title));
+    out.push_str(&title_style(title));
     out.push_str(&style::dim(&format!(" {}╮", "─".repeat(fill_len))));
 
     for line in lines {

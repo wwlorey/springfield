@@ -1,7 +1,5 @@
-#[allow(dead_code)]
 pub(crate) mod banner;
 pub(crate) mod format;
-#[allow(dead_code)]
 pub(crate) mod style;
 
 use clap::Parser;
@@ -295,14 +293,15 @@ fn main() {
     for i in 1..=iterations {
         remove_sentinel();
 
-        tee.writeln("");
-        tee.writeln("========================================");
-        if let Some(ref id) = cli.loop_id {
-            tee.writeln(&format!("Iteration {} of {} [{}]", i, iterations, id));
+        let iter_title = if let Some(ref id) = cli.loop_id {
+            format!("Iteration {} of {} [{}]", i, iterations, id)
         } else {
-            tee.writeln(&format!("Iteration {} of {}", i, iterations));
+            format!("Iteration {} of {}", i, iterations)
+        };
+        tee.writeln("");
+        for line in banner::render_box(&iter_title, &[]).split('\n') {
+            tee.writeln(line);
         }
-        tee.writeln("========================================");
         tee.writeln("");
 
         let head_before = git_head();
@@ -328,16 +327,23 @@ fn main() {
 
         if let Some(sentinel_path) = find_sentinel(Path::new("."), SENTINEL_MAX_DEPTH) {
             let _ = fs::remove_file(sentinel_path);
+            let complete_title = format!("Ralph COMPLETE after {} iterations!", i);
             tee.writeln("");
-            tee.writeln("========================================");
-            tee.writeln(&format!("Ralph COMPLETE after {} iterations!", i));
-            tee.writeln("========================================");
+            for line in
+                banner::render_box_styled(&complete_title, &[], |s| style::bold(&style::green(s)))
+                    .split('\n')
+            {
+                tee.writeln(line);
+            }
             auto_push_if_changed(&cli, &head_before, &tee);
             std::process::exit(0);
         }
 
         tee.writeln("");
-        tee.writeln(&format!("Iteration {} complete, continuing...", i));
+        tee.writeln(&style::dim(&format!(
+            "Iteration {} complete, continuing...",
+            i
+        )));
 
         for _ in 0..20 {
             if sigint_count.load(Ordering::Relaxed) >= 1 || interrupted.load(Ordering::Relaxed) {
@@ -355,10 +361,13 @@ fn main() {
     }
 
     remove_sentinel();
+    let max_title = format!("Ralph reached max iterations ({})", iterations);
     tee.writeln("");
-    tee.writeln("========================================");
-    tee.writeln(&format!("Ralph reached max iterations ({})", iterations));
-    tee.writeln("========================================");
+    for line in
+        banner::render_box_styled(&max_title, &[], |s| style::bold(&style::yellow(s))).split('\n')
+    {
+        tee.writeln(line);
+    }
     std::process::exit(2);
 }
 
@@ -401,31 +410,32 @@ fn print_banner(
     tee.writeln("⠀⠀⠀⠀⠀⢸⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡇⠀⠀⢸⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢷⠀⠀⠀⠀⠀⠀");
     tee.writeln("⠀⠀⣠⡴⠒⠛⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠙⠛⣻⠖⠚⠉⠉⠉⠉⠉⠉⠉⠉⠉⠛⠛⠛⠛⢦⡀⠀⠀⠀⠀");
     tee.writeln("⢠⡾⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⡞⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡇⠀⠀⠀⠀");
-    tee.writeln("========================================");
-    tee.writeln("Ralph Loop Starting");
-    tee.writeln("========================================");
-    tee.writeln(&format!(
-        "Mode:        {}",
-        if cli.afk { "AFK" } else { "Interactive" }
-    ));
-    if is_file {
-        tee.writeln(&format!("Prompt:      {} (file)", cli.prompt));
-    } else {
-        let display = format::truncate(&cli.prompt, 60);
-        tee.writeln(&format!("Prompt:      {} (text)", display));
-    }
-    tee.writeln(&format!("Iterations:  {}", iterations));
-    tee.writeln(&format!("Agent:       {}", agent_cmd));
+    let mut body = vec![
+        format!(
+            "Mode:        {}",
+            if cli.afk { "AFK" } else { "Interactive" }
+        ),
+        if is_file {
+            format!("Prompt:      {} (file)", cli.prompt)
+        } else {
+            let display = format::truncate(&cli.prompt, 60);
+            format!("Prompt:      {} (text)", display)
+        },
+        format!("Iterations:  {}", iterations),
+        format!("Agent:       {}", agent_cmd),
+    ];
     if let Some(ref id) = cli.loop_id {
-        tee.writeln(&format!("Loop ID:     {}", id));
+        body.push(format!("Loop ID:     {}", id));
     }
     if !prompt_files.is_empty() {
-        tee.writeln("Prompt files:");
+        body.push("Prompt files:".to_string());
         for f in prompt_files {
-            tee.writeln(&format!("  - {}", f));
+            body.push(format!("  - {}", f));
         }
     }
-    tee.writeln("========================================");
+    for line in banner::render_box("Ralph Loop Starting", &body).split('\n') {
+        tee.writeln(line);
+    }
     tee.writeln("");
 }
 
@@ -665,7 +675,7 @@ fn auto_push_if_changed(cli: &Cli, head_before: &Option<String>, tee: &TeeWriter
     if let (Some(before), Some(after)) = (head_before, &head_after)
         && before != after
     {
-        tee.writeln("New commits detected, pushing...");
+        tee.writeln(&style::dim("New commits detected, pushing..."));
         match Command::new("git").arg("push").status() {
             Ok(status) if !status.success() => {
                 warn!("git push failed, continuing");

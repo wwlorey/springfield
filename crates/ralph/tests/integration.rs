@@ -601,9 +601,13 @@ fn no_loop_id_when_not_provided() {
         !stdout.contains("Loop ID"),
         "should not contain Loop ID label when --loop-id is not provided, got:\n{stdout}"
     );
-    // Iteration banner should be plain "Iteration N of M" without brackets
+    // Iteration banner title should not contain a loop ID in brackets
     assert!(
-        stdout.contains("Iteration 1 of 1\n"),
+        stdout.contains("Iteration 1 of 1"),
+        "iteration banner should contain iteration info, got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("Iteration 1 of 1 ["),
         "iteration banner should not contain loop ID, got:\n{stdout}"
     );
 }
@@ -1815,5 +1819,82 @@ fn auto_push_disabled_does_not_push() {
     assert!(
         !stdout.contains("New commits detected, pushing..."),
         "should NOT push when auto_push is false, got stdout:\n{stdout}"
+    );
+}
+
+#[test]
+fn afk_startup_banner_uses_box_format() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .env("NO_COLOR", "1")
+        .args(["--afk", "--command", mock.to_str().unwrap(), "1"])
+        .output()
+        .expect("run ralph");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        stdout.contains("╭─ Ralph Loop Starting"),
+        "startup banner should use box format, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn afk_iteration_banner_uses_box_format() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .env("NO_COLOR", "1")
+        .args(["--afk", "--command", mock.to_str().unwrap(), "1"])
+        .output()
+        .expect("run ralph");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        stdout.contains("╭─ Iteration 1 of"),
+        "iteration banner should use box format, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn afk_completion_banner_uses_box_format() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .env("NO_COLOR", "1")
+        .args(["--afk", "--command", mock.to_str().unwrap(), "1"])
+        .output()
+        .expect("run ralph");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        stdout.contains("╭─ Ralph COMPLETE"),
+        "completion banner should use box format, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn afk_max_iterations_banner_uses_box_format() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script(&dir, "afk-session.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .env("NO_COLOR", "1")
+        .args(["--afk", "--command", mock.to_str().unwrap(), "1"])
+        .output()
+        .expect("run ralph");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert_eq!(output.status.code(), Some(2), "should exit with code 2");
+    assert!(
+        stdout.contains("╭─ Ralph reached max iterations"),
+        "max-iterations banner should use box format, got:\n{stdout}"
     );
 }
