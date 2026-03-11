@@ -435,15 +435,11 @@ Tool names are bold + colored based on operation type:
 
 | Element | Style |
 |---------|-------|
-| Agent text (model reasoning) | Bold |
+| Agent text (model reasoning) | Bold cyan |
 | Tool separator `─` | Dim |
 | Tool name | Bold + category color (see above) |
 | Tool detail (path/command/pattern) | Cyan |
-| Tool result lines (normal) | Dim |
-| Tool result lines (error) | Red (not dim) |
-| Tool result lines matching `\.\.\. ok$` | Dim green |
-| Tool result lines matching `\.\.\. FAILED$` | Red |
-| Truncation indicator `... (N more lines)` | Dim |
+| Tool results | Hidden (not displayed) |
 | Box borders (`╭╮│╰╯─`) | Dim |
 | Box title text | Bold |
 | Completion banner title | Bold green |
@@ -451,10 +447,6 @@ Tool names are bold + colored based on operation type:
 | Usage stats | Dim |
 | "Iteration N complete, continuing..." | Dim |
 | "New commits detected, pushing..." | Dim |
-
-#### Test Result Highlighting
-
-Tool result lines from test runners get special treatment. Lines ending in ` ... ok` are styled dim green. Lines ending in ` ... FAILED` are styled red. This applies only to tool result lines (not agent text). The matching is simple suffix-based — no regex required.
 
 ### Box Banner Formatting
 
@@ -506,7 +498,7 @@ When there is no loop ID: `╭─ Iteration 1 of 10 ─╮`. The iteration banne
 
 ### Text Block Formatting
 
-Text blocks are printed bold, preserving Claude's reasoning output with original newlines. This visually distinguishes agent reasoning from tool output.
+Text blocks are printed bold cyan, preserving Claude's reasoning output with original newlines. This visually distinguishes agent reasoning from tool output with a consistent color.
 
 ### Tool Call Formatting
 
@@ -535,27 +527,7 @@ Truncated values end with `...`. Truncation respects UTF-8 character boundaries.
 
 ### Tool Result Formatting
 
-When a `user` event contains `tool_result` content blocks, each result is displayed beneath the preceding tool call line(s), indented and dimmed:
-
-```
-  ─ Read  specs/README.md
-     1│ # Springfield Specifications
-     2│
-     3│ | Spec | Code | Purpose |
-     ...
-
-  ─ Bash  cargo test -p ralph
-     running 12 tests
-     test format::tests::text_block_passthrough ... ok
-     test format::tests::read_tool_basic ... ok
-     ...
-```
-
-Tool results are truncated to a maximum of **15 lines**. If the result exceeds 15 lines, the output is truncated and a dim `... (N more lines)` indicator is appended.
-
-For error results (`is_error: true`), the result text is styled in dim red instead of dim.
-
-If `user` events turn out not to contain tool results in practice (the stream-json format is under-documented), this feature degrades gracefully — tool calls are shown without results, identical to the old behavior but with new styling.
+Tool results from `user` events are **not displayed** in AFK output. Only tool call header lines are shown. The `format_line()` function still parses `user` events (for the log file and future use), but `run_afk()` silently drops `ToolResults` output.
 
 ### Result Event Formatting
 
@@ -751,7 +723,7 @@ Binary-level E2E tests using `cargo test -p ralph`. Each test:
 |------|---------|---------|
 | AFK formats text blocks | `afk-session.ndjson` | stdout contains Claude's text verbatim |
 | AFK formats tool calls as styled one-liners | `afk-session.ndjson` | stdout contains `─ Read` format, no raw JSON args |
-| AFK shows tool results | `afk-session.ndjson` | stdout contains truncated tool result output (if `user` events present in fixture) |
+| AFK hides tool results | `afk-session.ndjson` | stdout does not contain tool result content from `user` events |
 | AFK detects completion file | `complete.ndjson` + sentinel file | exit code 0, sentinel cleaned up |
 | AFK exhausts iterations without completion | `afk-session.ndjson` | exit code 2 |
 | AFK startup banner uses box format | `afk-session.ndjson` | stdout contains `╭─ Ralph Loop Starting` |
@@ -790,48 +762,32 @@ Fixtures are derived from real AFK output captured in [`ralph/tests/fixtures/ral
 For `afk-session.ndjson`, the formatter should produce output like (ANSI styling indicated in brackets, not literal):
 
 ```
-[bold]I'll start by studying the required files to understand the context and plan.[/bold]
+[bold][cyan]I'll start by studying the required files to understand the context and plan.[/cyan][/bold]
 
   [dim]─[/dim] [bold][blue]Read[/blue][/bold]  [cyan]specs/README.md[/cyan]
-     [dim]1│ # Springfield Specifications[/dim]
-     [dim]2│ [/dim]
-     [dim]3│ | Spec | Code | Purpose |[/dim]
-     [dim]...[/dim]
-
   [dim]─[/dim] [bold][blue]Read[/blue][/bold]  [cyan]plans/cleanup/buddy-llm.md[/cyan]
-     [dim]1│ # Cleanup Plan[/dim]
-     [dim]...[/dim]
 
-[bold]Now I can see the cleanup plan. Many items are checked off...[/bold]
+[bold][cyan]Now I can see the cleanup plan. Many items are checked off...[/cyan][/bold]
 
   [dim]─[/dim] [bold][cyan]TodoWrite[/cyan][/bold]  [cyan]3 items[/cyan]
 
-[bold]Let me read the relevant files in parallel...[/bold]
+[bold][cyan]Let me read the relevant files in parallel...[/cyan][/bold]
 
   [dim]─[/dim] [bold][blue]Read[/blue][/bold]  [cyan]specs/tokenizer-embedding.md[/cyan]
   [dim]─[/dim] [bold][blue]Read[/blue][/bold]  [cyan]crates/buddy-llm/src/inference.rs 1:80[/cyan]
   [dim]─[/dim] [bold][blue]Read[/blue][/bold]  [cyan]specs/buddy-llm.md[/cyan]
 
-[bold]Now I have full context...[/bold]
+[bold][cyan]Now I have full context...[/cyan][/bold]
 
   [dim]─[/dim] [bold][magenta]Edit[/magenta][/bold]  [cyan]specs/tokenizer-embedding.md[/cyan]
-     [dim]✓ Applied edit[/dim]
 
   [dim]─[/dim] [bold][yellow]Bash[/yellow][/bold]  [cyan]git diff specs/tokenizer-embedding.md plans/cleanup/buddy-llm.md[/cyan]
-     [dim]diff --git a/specs/tokenizer-embedding.md b/specs/tokenizer-embedding.md[/dim]
-     [dim]...[/dim]
 
   [dim]─[/dim] [bold][yellow]Bash[/yellow][/bold]  [cyan]cargo test -p ralph[/cyan]
-     [dim]running 12 tests[/dim]
-     [dim][green]test format::tests::text_block_passthrough ... ok[/green][/dim]
-     [dim][green]test format::tests::read_tool_basic ... ok[/green][/dim]
-     [dim]...[/dim]
 
   [dim]─[/dim] [bold][yellow]Bash[/yellow][/bold]  [cyan]git add ... && git commit ...[/cyan]
-     [dim][master 170c9b2] Replace mistral.rs code snippet[/dim]
-     [dim] 1 file changed, 4 insertions(+), 8 deletions(-)[/dim]
 
-[bold]Done. Updated `specs/tokenizer-embedding.md`.[/bold]
+[bold][cyan]Done. Updated `specs/tokenizer-embedding.md`.[/cyan][/bold]
 
   [dim]Input: 12,450 tokens · Output: 1,230 tokens[/dim]
 ```
