@@ -1831,3 +1831,346 @@ fn mixed_ctrl_c_then_ctrl_d_no_shutdown() {
         "should exit 130 from SIGTERM cleanup, stderr:\n{stderr}"
     );
 }
+
+// ===========================================================================
+// Mode-dependent shutdown behavior
+// ===========================================================================
+
+#[test]
+fn afk_mode_child_gets_new_session() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+    let mock_dir = TempDir::new().unwrap();
+    let sid_file = mock_dir.path().join("sid_info.txt");
+
+    // Mock ralph that checks if it became a session leader.
+    // setsid() creates a new session AND new process group where PGID == PID.
+    // We get bash's own PID ($$) and its PGID via python os.getpgid(parent).
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph_sid.sh",
+        &format!(
+            concat!(
+                "#!/bin/bash\n",
+                "MY_PID=$$\n",
+                "MY_PGID=$(python3 -c \"import os; print(os.getpgid($MY_PID))\")\n",
+                "echo \"pid=$MY_PID pgid=$MY_PGID\" > \"{}\"\n",
+                "exit 0\n",
+            ),
+            sid_file.display()
+        ),
+    );
+
+    let output = sgf_cmd(tmp.path())
+        .args(["build", "auth", "-a"])
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("PATH", &mock_path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "sgf build -a failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let info = fs::read_to_string(&sid_file).unwrap();
+    let get_val = |key: &str| -> String {
+        info.split_whitespace()
+            .find(|s| s.starts_with(&format!("{key}=")))
+            .unwrap_or("")
+            .split('=')
+            .nth(1)
+            .unwrap_or("")
+            .to_string()
+    };
+    let pid = get_val("pid");
+    let pgid = get_val("pgid");
+
+    // In AFK mode with setsid(), the child becomes a session leader
+    // and process group leader: PGID == PID.
+    assert_eq!(
+        pgid, pid,
+        "AFK child PGID should equal its PID (setsid), info: {info}"
+    );
+}
+
+#[test]
+fn non_afk_mode_child_inherits_session() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+    let mock_dir = TempDir::new().unwrap();
+    let sid_file = mock_dir.path().join("sid_info.txt");
+
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph_sid.sh",
+        &format!(
+            concat!(
+                "#!/bin/bash\n",
+                "MY_PID=$$\n",
+                "MY_PGID=$(python3 -c \"import os; print(os.getpgid($MY_PID))\")\n",
+                "echo \"pid=$MY_PID pgid=$MY_PGID\" > \"{}\"\n",
+                "exit 0\n",
+            ),
+            sid_file.display()
+        ),
+    );
+
+    // Non-AFK: no -a flag
+    let output = sgf_cmd(tmp.path())
+        .args(["build", "auth"])
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("AGENT_CMD", "true")
+        .env("PATH", &mock_path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "sgf build (non-afk) failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let info = fs::read_to_string(&sid_file).unwrap();
+    let get_val = |key: &str| -> String {
+        info.split_whitespace()
+            .find(|s| s.starts_with(&format!("{key}=")))
+            .unwrap_or("")
+            .split('=')
+            .nth(1)
+            .unwrap_or("")
+            .to_string()
+    };
+    let pid = get_val("pid");
+    let pgid = get_val("pgid");
+
+    // In non-AFK mode, no setsid() — child inherits parent's process group.
+    assert_ne!(
+        pgid, pid,
+        "non-AFK child PGID should NOT equal its PID (no setsid), info: {info}"
+    );
+}
+
+#[test]
+fn non_afk_stdin_eof_does_not_trigger_shutdown() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    // Mock ralph that sleeps then exits 0
+    let mock_dir = TempDir::new().unwrap();
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph_sleep.sh",
+        "#!/bin/bash\ntrap '' INT\nsleep 2\nexit 0\n",
+    );
+
+    // Non-AFK mode: monitor_stdin should be false, so closing stdin
+    // should NOT cause shutdown.
+    let mut child = sgf_cmd(tmp.path())
+        .args(["build", "auth"])
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("AGENT_CMD", "true")
+        .env("PATH", &mock_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn sgf");
+
+    let stdin = child.stdin.take().expect("open stdin");
+
+    std::thread::sleep(Duration::from_millis(500));
+    drop(stdin); // Close stdin — would trigger Ctrl+D detection if monitor_stdin were true
+
+    // Wait for the process to finish naturally
+    let output = child.wait_with_output().expect("wait for sgf");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "non-AFK mode should NOT shutdown on stdin EOF, should exit 0 from mock ralph completing"
+    );
+}
+
+#[test]
+fn afk_monitor_stdin_eof_triggers_shutdown() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_ralph = create_slow_mock_ralph(mock_dir.path());
+
+    // AFK mode with SGF_MONITOR_STDIN=1: closing piped stdin triggers EOF shutdown.
+    let mut child = sgf_cmd(tmp.path())
+        .args(["build", "auth", "-a"])
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("SGF_MONITOR_STDIN", "1")
+        .env("PATH", &mock_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn sgf");
+
+    let stdin = child.stdin.take().expect("open stdin");
+    let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+
+    std::thread::sleep(Duration::from_millis(500));
+    drop(stdin); // EOF triggers double-Ctrl+D detection
+
+    std::thread::sleep(Duration::from_millis(1000));
+    let output = match child.try_wait() {
+        Ok(Some(_)) => child.wait_with_output().expect("wait for sgf"),
+        _ => {
+            nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGTERM)
+                .expect("send cleanup SIGTERM");
+            child.wait_with_output().expect("wait for sgf")
+        }
+    };
+
+    assert_eq!(
+        output.status.code(),
+        Some(130),
+        "AFK mode with monitor_stdin should exit 130 on stdin EOF"
+    );
+}
+
+#[test]
+fn non_afk_does_not_pass_afk_flag_to_ralph() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    let mock_dir = TempDir::new().unwrap();
+    let args_file = mock_dir.path().join("ralph_args.txt");
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph.sh",
+        &format!(
+            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
+            args_file.display()
+        ),
+    );
+
+    let output = sgf_cmd(tmp.path())
+        .args(["build", "auth"])
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("AGENT_CMD", "true")
+        .env("PATH", &mock_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let args = fs::read_to_string(&args_file).unwrap();
+    let argv: Vec<&str> = args.trim().split_whitespace().collect();
+    assert!(
+        !argv.contains(&"-a"),
+        "non-AFK should NOT pass -a flag to ralph, got: {args}"
+    );
+}
+
+#[test]
+fn non_afk_does_not_create_log_file() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    let mock_dir = TempDir::new().unwrap();
+    let args_file = mock_dir.path().join("ralph_args.txt");
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph.sh",
+        &format!(
+            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
+            args_file.display()
+        ),
+    );
+
+    let output = sgf_cmd(tmp.path())
+        .args(["build", "auth"])
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("AGENT_CMD", "true")
+        .env("PATH", &mock_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    let args = fs::read_to_string(&args_file).unwrap();
+    assert!(
+        !args.contains("--log-file"),
+        "non-AFK should NOT pass --log-file to ralph, got: {args}"
+    );
+}
+
+#[test]
+fn non_afk_stdin_passthrough_to_mock_ralph() {
+    use std::io::Write;
+
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    // Mock ralph that reads a line from stdin and echoes it to stdout
+    let mock_dir = TempDir::new().unwrap();
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph_echo.sh",
+        "#!/bin/bash\nread -r line\necho \"ECHO:$line\"\nexit 0\n",
+    );
+
+    let mut child = sgf_cmd(tmp.path())
+        .args(["build", "auth"])
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("AGENT_CMD", "true")
+        .env("PATH", &mock_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn sgf");
+
+    let mut stdin = child.stdin.take().expect("open stdin");
+
+    std::thread::sleep(Duration::from_millis(300));
+    stdin.write_all(b"hello_from_test\n").expect("write stdin");
+    stdin.flush().expect("flush stdin");
+    drop(stdin);
+
+    let output = child.wait_with_output().expect("wait for sgf");
+
+    assert!(
+        output.status.success(),
+        "sgf should succeed, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("ECHO:hello_from_test"),
+        "non-AFK ralph should receive stdin passthrough and echo it, got stdout: {stdout}"
+    );
+}
