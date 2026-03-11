@@ -601,6 +601,13 @@ fn run_afk(
                         for l in &result.lines {
                             if result.is_error {
                                 tee.write_ansi_line(&format!("     {}", style::red(l)));
+                            } else if l.ends_with("... ok") {
+                                tee.write_ansi_line(&format!(
+                                    "     {}",
+                                    style::dim(&style::green(l))
+                                ));
+                            } else if l.ends_with("... FAILED") {
+                                tee.write_ansi_line(&format!("     {}", style::red(l)));
                             } else {
                                 tee.write_ansi_line(&format!("     {}", style::dim(l)));
                             }
