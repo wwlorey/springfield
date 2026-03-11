@@ -2,6 +2,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use tempfile::TempDir;
 
@@ -1547,5 +1548,162 @@ fn spec_no_push_when_head_unchanged() {
     assert!(
         !stderr.contains("new commits detected"),
         "should NOT attempt push when HEAD unchanged: {stderr}"
+    );
+}
+
+// ===========================================================================
+// Signal handling (shutdown controller integration)
+// ===========================================================================
+
+fn create_slow_mock_ralph(dir: &Path) -> PathBuf {
+    create_mock_script(
+        dir,
+        "mock_ralph_slow.sh",
+        "#!/bin/bash\ntrap '' INT\nfor i in $(seq 1 50); do sleep 0.1; done\nexit 2\n",
+    )
+}
+
+#[test]
+fn double_ctrl_c_exits_130() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+    let mock_dir = TempDir::new().unwrap();
+    let mock_ralph = create_slow_mock_ralph(mock_dir.path());
+
+    let child = sgf_cmd(tmp.path())
+        .args(["build", "auth", "-a"])
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("PATH", &mock_path)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn sgf");
+
+    let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+
+    std::thread::sleep(Duration::from_millis(500));
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send first SIGINT");
+    std::thread::sleep(Duration::from_millis(200));
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send second SIGINT");
+
+    let output = child.wait_with_output().expect("wait for sgf");
+
+    assert_eq!(
+        output.status.code(),
+        Some(130),
+        "should exit 130 on double Ctrl+C"
+    );
+}
+
+#[test]
+fn single_ctrl_c_continues_after_timeout() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph_quick.sh",
+        "#!/bin/bash\ntrap '' INT\nsleep 3\nexit 0\n",
+    );
+
+    let child = sgf_cmd(tmp.path())
+        .args(["build", "auth", "-a"])
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("PATH", &mock_path)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn sgf");
+
+    let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+
+    std::thread::sleep(Duration::from_millis(500));
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send single SIGINT");
+
+    let output = child.wait_with_output().expect("wait for sgf");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "should exit 0 (ralph completed) after single Ctrl+C timeout, not 130"
+    );
+}
+
+#[test]
+fn sigterm_exits_immediately() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+    let mock_dir = TempDir::new().unwrap();
+    let mock_ralph = create_slow_mock_ralph(mock_dir.path());
+
+    let child = sgf_cmd(tmp.path())
+        .args(["build", "auth", "-a"])
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("PATH", &mock_path)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn sgf");
+
+    let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+
+    std::thread::sleep(Duration::from_millis(500));
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGTERM).expect("send SIGTERM");
+
+    let output = child.wait_with_output().expect("wait for sgf");
+
+    assert_eq!(
+        output.status.code(),
+        Some(130),
+        "should exit 130 on SIGTERM"
+    );
+}
+
+#[test]
+fn confirmation_message_on_first_ctrl_c() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+    let mock_dir = TempDir::new().unwrap();
+    let mock_ralph = create_slow_mock_ralph(mock_dir.path());
+
+    let child = sgf_cmd(tmp.path())
+        .args(["build", "auth", "-a"])
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("PATH", &mock_path)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn sgf");
+
+    let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+
+    std::thread::sleep(Duration::from_millis(500));
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send first SIGINT");
+    std::thread::sleep(Duration::from_millis(200));
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send second SIGINT");
+
+    let output = child.wait_with_output().expect("wait for sgf");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        stderr.contains("Press Ctrl-C again to exit"),
+        "should show double-press prompt on stderr, got:\n{stderr}"
     );
 }

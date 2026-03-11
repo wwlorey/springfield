@@ -1822,6 +1822,7 @@ dependencies = [
  "chrono",
  "clap",
  "libc",
+ "nix",
  "portpicker",
  "predicates",
  "serde",
