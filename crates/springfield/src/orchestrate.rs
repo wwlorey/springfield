@@ -163,7 +163,16 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
             None
         };
 
+        // Ignore SIGINT so the child (claude) handles it and sgf survives
+        // to run post-session tasks like auto-push.
+        let prev_sigint = unsafe { libc::signal(libc::SIGINT, libc::SIG_IGN) };
+
         let exit_code = run_interactive_claude(&prompt_path)?;
+
+        // Restore the previous SIGINT handler.
+        unsafe {
+            libc::signal(libc::SIGINT, prev_sigint);
+        }
 
         if let Some(ref before) = head_before {
             auto_push_if_changed(before);

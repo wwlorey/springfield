@@ -5,7 +5,9 @@ use tempfile::TempDir;
 
 fn open_temp_db() -> (Db, TempDir) {
     let dir = TempDir::new().unwrap();
-    let db = Db::open(dir.path()).unwrap();
+    let pensa_dir = dir.path().join(".pensa");
+    let data_dir = dir.path().join("data");
+    let db = Db::open_with_data_dir(pensa_dir, data_dir).unwrap();
     (db, dir)
 }
 

@@ -49,12 +49,12 @@ fn remote_host_pn_daemon_host_refuses_auto_start() {
     std::fs::write(port_file.join("daemon.port"), port.to_string()).unwrap();
 
     let output = Command::new(pn_bin())
-        .env("PN_DAEMON_HOST", "host.docker.internal")
+        .env("PN_DAEMON_HOST", "remote.example.com")
         .env_remove("PN_DAEMON")
         .current_dir(dir.path())
         .args(["list", "--json"])
         .output()
-        .expect("run pn list with PN_DAEMON_HOST=host.docker.internal");
+        .expect("run pn list with PN_DAEMON_HOST=remote.example.com");
     assert!(
         !output.status.success(),
         "should fail when PN_DAEMON_HOST is remote and daemon unreachable"

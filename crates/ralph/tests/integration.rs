@@ -948,11 +948,12 @@ fn prompt_files_expands_home() {
     let dir = setup_test_dir();
     let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
 
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let test_file = PathBuf::from(&home).join(".ralph-test-prompt-file.md");
-    fs::write(&test_file, "# Test\n").expect("write test file in HOME");
+    let fake_home = dir.path().join("fakehome");
+    fs::create_dir_all(&fake_home).expect("create fake home");
+    fs::write(fake_home.join(".ralph-test-prompt-file.md"), "# Test\n").expect("write test file");
 
     let output = ralph_cmd(&dir)
+        .env("HOME", &fake_home)
         .env("PROMPT_FILES", "$HOME/.ralph-test-prompt-file.md")
         .args([
             "--afk",
@@ -963,8 +964,6 @@ fn prompt_files_expands_home() {
         ])
         .output()
         .expect("run ralph");
-
-    let _ = fs::remove_file(&test_file);
 
     let stderr = String::from_utf8_lossy(&output.stderr);
 
@@ -979,11 +978,12 @@ fn prompt_files_expands_tilde() {
     let dir = setup_test_dir();
     let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
 
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let test_file = PathBuf::from(&home).join(".ralph-test-tilde-file.md");
-    fs::write(&test_file, "# Test\n").expect("write test file in HOME");
+    let fake_home = dir.path().join("fakehome");
+    fs::create_dir_all(&fake_home).expect("create fake home");
+    fs::write(fake_home.join(".ralph-test-tilde-file.md"), "# Test\n").expect("write test file");
 
     let output = ralph_cmd(&dir)
+        .env("HOME", &fake_home)
         .env("PROMPT_FILES", "~/.ralph-test-tilde-file.md")
         .args([
             "--afk",
@@ -994,8 +994,6 @@ fn prompt_files_expands_tilde() {
         ])
         .output()
         .expect("run ralph");
-
-    let _ = fs::remove_file(&test_file);
 
     let stderr = String::from_utf8_lossy(&output.stderr);
 

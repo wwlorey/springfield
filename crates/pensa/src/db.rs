@@ -118,7 +118,7 @@ impl Db {
         Self::open_with_data_dir(pensa_dir, dd)
     }
 
-    fn open_with_data_dir(pensa_dir: PathBuf, data_dir: PathBuf) -> Result<Db, PensaError> {
+    pub fn open_with_data_dir(pensa_dir: PathBuf, data_dir: PathBuf) -> Result<Db, PensaError> {
         fs::create_dir_all(&pensa_dir)
             .map_err(|e| PensaError::Internal(format!("failed to create .pensa dir: {e}")))?;
         fs::create_dir_all(&data_dir)
@@ -1441,8 +1441,10 @@ mod tests {
     #[test]
     fn open_is_idempotent() {
         let dir = TempDir::new().unwrap();
-        let _db1 = Db::open(dir.path()).unwrap();
-        let _db2 = Db::open(dir.path()).unwrap();
+        let pensa_dir = dir.path().join(".pensa");
+        let data_dir = dir.path().join("data");
+        let _db1 = Db::open_with_data_dir(pensa_dir.clone(), data_dir.clone()).unwrap();
+        let _db2 = Db::open_with_data_dir(pensa_dir, data_dir).unwrap();
     }
 
     #[test]

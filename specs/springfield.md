@@ -364,7 +364,9 @@ On interrupt, sgf's behavior depends on the stage type:
 
 **AFK loops** (`-a` flag): sgf spawns ralph in its own process group (`setsid()` via `pre_exec`) so that terminal SIGINT is delivered only to sgf, not to ralph. sgf independently implements double Ctrl+C semantics. SIGINT increments an `AtomicUsize` counter (`sigint_count`). First press: print "sgf: press Ctrl+C again to stop" and start a 2-second confirmation window. Second press within 2 seconds: send SIGTERM to the ralph child process, wait for it to exit. If no second press arrives within 2 seconds, sgf resets its counter to 0. SIGTERM always triggers immediate shutdown (single signal). Signal handlers are registered just before spawning the ralph child — during pre-launch checks, daemon startup, and other phases before handler registration, default signal behavior applies (single SIGINT exits).
 
-**Non-AFK loops and interactive stages**: A single SIGINT triggers immediate shutdown — send SIGTERM to the child process, wait for exit, clean up.
+**Non-AFK loops**: A single SIGINT triggers immediate shutdown — send SIGTERM to the child process, wait for exit, clean up.
+
+**Interactive stages** (`spec`, `issues log`): sgf ignores SIGINT while the child session runs, allowing the child to handle terminal signals itself. After the child exits (regardless of how), sgf restores the default SIGINT handler and runs post-session tasks (e.g., auto-push for `spec`). This prevents SIGINT from killing sgf before post-session cleanup completes.
 
 Claude Code crashes and push failures are handled within ralph as warnings — they do not produce distinct exit codes. Ralph logs the failure and continues to the next iteration without cleanup. The next iteration's agent inherits whatever state exists and proceeds via forward correction. Stale claims and dirty working trees accumulate within a ralph run and are cleared by sgf's pre-launch recovery before the next run.
 
