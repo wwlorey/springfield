@@ -472,15 +472,18 @@ Each iteration gets fresh context. The pensa database persists state between ite
 | Build | `pn ready [--spec <stem>] --json` | Implement the task (or plan the bug — see below); apply backpressure | `pn close <id> --reason "..."` (tasks) / `pn release <id>` (bugs) |
 | Test | `pn ready -t test [--spec <stem>] --json` | Execute the test | `pn close <id> --reason "..."` |
 
-#### Bug Planning in the Build Loop
+#### Bug Handling in the Build Loop
 
-`pn ready` now includes unplanned bugs (see pensa spec). When the build loop claims an item and it is a bug, the iteration becomes a **planning** iteration:
+`pn ready` includes unplanned bugs (see pensa spec). When the build loop claims a bug, the agent studies the codebase then decides how to proceed:
 
-1. Study the codebase to understand the bug
-2. Create fix task(s): `pn create -t task "fix: <description>" --fixes <bug-id> [--spec <stem>] [-p <priority>] [--dep <id>]`
-3. Comment lessons learned on the bug: `pn comment add <bug-id> "..."`
-4. Release the bug: `pn release <bug-id>` (the bug drops out of `pn ready` — it now has fix children)
-5. Commit with `[<bug-id>]` prefix
+**Small bugs (fixable in this iteration):** Fix it directly — implement, test, apply backpressure, and close the bug. Treat it like a normal task.
+
+**Large bugs (multiple files/crates, significant refactor):** Decompose into fix tasks:
+
+1. Create fix task(s): `pn create -t task "fix: <description>" --fixes <bug-id> [--spec <stem>] [-p <priority>] [--dep <id>]`
+2. Comment lessons learned on the bug: `pn comment add <bug-id> "..."`
+3. Release the bug: `pn release <bug-id>` (the bug drops out of `pn ready` — it now has fix children)
+4. Commit with `[<bug-id>]` prefix
 
 The fix tasks appear in subsequent `pn ready` calls and are implemented as normal tasks. When all fix tasks for a bug are closed, pensa auto-closes the bug.
 

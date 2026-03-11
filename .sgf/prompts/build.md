@@ -4,7 +4,11 @@ IF there are no more issues:
 - touch `.ralph-complete` and end.
 
 ELSE IF the claimed item is a **bug** (`issue_type == "bug"`):
-- Create fix task(s): `pn create -t task "fix: <description>" --fixes <bug-id> [--spec <stem>] [-p <priority>] [--dep <id>]`
+- Study the codebase to understand the bug.
+- If the fix is small enough to implement in this iteration, fix it directly — treat it like a normal task (implement, test, backpressure, close).
+- If the fix is too large (multiple files/crates, significant refactor), decompose it:
+  1. Create fix task(s): `pn create -t task "fix: <description>" --fixes <bug-id> [--spec <stem>] [-p <priority>] [--dep <id>]`
+  2. Release the bug: `pn release <bug-id>`
 
 ELSE:
 - implement the issue. Use subagents.
