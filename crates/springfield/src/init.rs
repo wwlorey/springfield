@@ -155,12 +155,14 @@ repos:
         entry: pn export
         language: system
         always_run: true
+        pass_filenames: false
         stages: [pre-commit]
       - id: pensa-import
         name: pensa import
         entry: pn import
         language: system
         always_run: true
+        pass_filenames: false
         stages: [post-merge, post-checkout, post-rewrite]
 ";
 
@@ -381,7 +383,7 @@ fn merge_pre_commit_config(root: &Path) -> io::Result<()> {
 
     if !has_export {
         let export_hook: serde_yaml::Value = serde_yaml::from_str(
-            "id: pensa-export\nname: pensa export\nentry: pn export\nlanguage: system\nalways_run: true\nstages: [pre-commit]",
+            "id: pensa-export\nname: pensa export\nentry: pn export\nlanguage: system\nalways_run: true\npass_filenames: false\nstages: [pre-commit]",
         )
         .map_err(io::Error::other)?;
         hooks_seq.push(export_hook);
@@ -389,7 +391,7 @@ fn merge_pre_commit_config(root: &Path) -> io::Result<()> {
 
     if !has_import {
         let import_hook: serde_yaml::Value = serde_yaml::from_str(
-            "id: pensa-import\nname: pensa import\nentry: pn import\nlanguage: system\nalways_run: true\nstages: [post-merge, post-checkout, post-rewrite]",
+            "id: pensa-import\nname: pensa import\nentry: pn import\nlanguage: system\nalways_run: true\npass_filenames: false\nstages: [post-merge, post-checkout, post-rewrite]",
         )
         .map_err(io::Error::other)?;
         hooks_seq.push(import_hook);
@@ -1020,6 +1022,87 @@ repos:
             first_export_count, second_export_count,
             "pensa-export duplicated on rerun"
         );
+    }
+
+    #[test]
+    fn pre_commit_hooks_have_pass_filenames_false() {
+        // pn export/import don't accept filename args; without pass_filenames: false
+        // pre-commit passes staged filenames causing "unexpected argument" errors.
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+        run(tmp.path(), false).unwrap();
+
+        let content = fs::read_to_string(tmp.path().join(".pre-commit-config.yaml")).unwrap();
+        let doc: serde_yaml::Value = serde_yaml::from_str(&content).unwrap();
+        let hooks: Vec<&serde_yaml::Value> = doc["repos"]
+            .as_sequence()
+            .unwrap()
+            .iter()
+            .flat_map(|repo| repo["hooks"].as_sequence().into_iter().flatten())
+            .filter(|hook| {
+                hook["id"]
+                    .as_str()
+                    .is_some_and(|id| id.starts_with("pensa-"))
+            })
+            .collect();
+
+        assert!(!hooks.is_empty(), "no pensa hooks found");
+        for hook in &hooks {
+            let id = hook["id"].as_str().unwrap();
+            assert_eq!(
+                hook["pass_filenames"].as_bool(),
+                Some(false),
+                "{id} missing pass_filenames: false"
+            );
+        }
+    }
+
+    #[test]
+    fn pre_commit_merge_path_matches_template() {
+        // Ensure hooks added via the merge path (existing config) have the same
+        // properties as those from the fresh-template path.
+        let tmp_fresh = TempDir::new().unwrap();
+        git_init(tmp_fresh.path());
+        run(tmp_fresh.path(), false).unwrap();
+
+        let tmp_merge = TempDir::new().unwrap();
+        git_init(tmp_merge.path());
+        // Seed with an unrelated hook so merge_pre_commit_config takes the merge path
+        fs::write(
+            tmp_merge.path().join(".pre-commit-config.yaml"),
+            "repos:\n  - repo: https://example.com\n    rev: v1\n    hooks:\n      - id: dummy\n",
+        )
+        .unwrap();
+        run(tmp_merge.path(), false).unwrap();
+
+        let fresh: serde_yaml::Value = serde_yaml::from_str(
+            &fs::read_to_string(tmp_fresh.path().join(".pre-commit-config.yaml")).unwrap(),
+        )
+        .unwrap();
+        let merged: serde_yaml::Value = serde_yaml::from_str(
+            &fs::read_to_string(tmp_merge.path().join(".pre-commit-config.yaml")).unwrap(),
+        )
+        .unwrap();
+
+        let extract_hook = |doc: &serde_yaml::Value, hook_id: &str| -> serde_yaml::Value {
+            doc["repos"]
+                .as_sequence()
+                .unwrap()
+                .iter()
+                .flat_map(|repo| repo["hooks"].as_sequence().into_iter().flatten())
+                .find(|h| h["id"].as_str() == Some(hook_id))
+                .unwrap()
+                .clone()
+        };
+
+        for hook_id in &["pensa-export", "pensa-import"] {
+            let from_fresh = extract_hook(&fresh, hook_id);
+            let from_merge = extract_hook(&merged, hook_id);
+            assert_eq!(
+                from_fresh, from_merge,
+                "{hook_id} differs between fresh and merge paths"
+            );
+        }
     }
 
     // --- Full idempotency including config files ---
