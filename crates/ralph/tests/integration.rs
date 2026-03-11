@@ -2124,3 +2124,127 @@ fn afk_test_result_lines_have_color_ansi() {
         "test '... FAILED' lines should have red ANSI codes, got:\n{stdout}"
     );
 }
+
+fn open_pty() -> (std::os::fd::OwnedFd, std::os::fd::OwnedFd) {
+    use std::os::fd::FromRawFd;
+    unsafe {
+        let master = libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY);
+        assert!(master >= 0, "posix_openpt failed");
+        assert_eq!(libc::grantpt(master), 0, "grantpt failed");
+        assert_eq!(libc::unlockpt(master), 0, "unlockpt failed");
+        let slave_name = libc::ptsname(master);
+        assert!(!slave_name.is_null(), "ptsname failed");
+        let slave = libc::open(slave_name, libc::O_RDWR | libc::O_NOCTTY);
+        assert!(slave >= 0, "open slave pty failed");
+        (
+            std::os::fd::OwnedFd::from_raw_fd(master),
+            std::os::fd::OwnedFd::from_raw_fd(slave),
+        )
+    }
+}
+
+fn termios_check_script() -> &'static str {
+    r#"python3 -c "
+import termios
+attrs = termios.tcgetattr(0)
+lflag = attrs[3]
+isig = 'yes' if (lflag & termios.ISIG) else 'no'
+icanon = 'yes' if (lflag & termios.ICANON) else 'no'
+print(f'isig={isig},icanon={icanon}')
+""#
+}
+
+fn termios_corrupt_script() -> &'static str {
+    r#"python3 -c "
+import termios
+attrs = termios.tcgetattr(0)
+attrs[3] &= ~(termios.ICANON | termios.ISIG)
+termios.tcsetattr(0, termios.TCSANOW, attrs)
+""#
+}
+
+// AFK mode uses setsid() for child processes. On macOS, when a session leader exits,
+// the kernel revokes the pty slave, invalidating fd 0 for subsequent iterations.
+// This prevents PTY-based terminal restoration testing in AFK mode.
+// The save/restore code is mode-independent (same tcgetattr/tcsetattr in main loop),
+// so the interactive test below validates the core functionality for both modes.
+#[test]
+fn afk_terminal_restore_graceful_with_non_tty_stdin() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script(&dir, "complete.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "2",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "should complete 2 iterations — save/restore is a no-op when stdin is not a tty"
+    );
+}
+
+#[test]
+fn interactive_restores_terminal_settings_after_agent_corrupts() {
+    let (master, slave) = open_pty();
+    let _master = master;
+
+    let dir = setup_test_dir();
+    let captures_file = dir.path().join("termios-captures.txt");
+
+    let check_cmd = termios_check_script();
+    let corrupt_cmd = termios_corrupt_script();
+    let script_path = dir.path().join("mock_termcorrupt.sh");
+    let content = format!(
+        "#!/bin/bash\n{check_cmd} >> {captures} 2>/dev/null\n{corrupt_cmd} 2>/dev/null\n",
+        captures = captures_file.display(),
+        check_cmd = check_cmd,
+        corrupt_cmd = corrupt_cmd,
+    );
+    fs::write(&script_path, content).expect("write mock script");
+    fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755)).expect("chmod");
+
+    let bin = env!("CARGO_BIN_EXE_ralph");
+    let output = Command::new(bin)
+        .current_dir(dir.path())
+        .env("RALPH_AUTO_PUSH", "false")
+        .env("RUST_LOG", "warn")
+        .env("PROMPT_FILES", "")
+        .env("SGF_MANAGED", "1")
+        .stdin(std::process::Stdio::from(slave))
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .args(["--command", script_path.to_str().unwrap(), "2", "prompt.md"])
+        .output()
+        .expect("run ralph");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "should exit 2 (iterations exhausted), stderr:\n{stderr}"
+    );
+
+    let captures = fs::read_to_string(&captures_file).expect("read termios captures");
+    let lines: Vec<&str> = captures.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(
+        lines.len(),
+        2,
+        "should have 2 termios captures (one per iteration), got: {captures}"
+    );
+    assert_eq!(
+        lines[0], "isig=yes,icanon=yes",
+        "iteration 1 should start with ISIG and ICANON enabled"
+    );
+    assert_eq!(
+        lines[1], "isig=yes,icanon=yes",
+        "iteration 2 should have ISIG and ICANON restored after agent corrupted them"
+    );
+}
