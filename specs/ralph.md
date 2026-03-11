@@ -385,14 +385,36 @@ struct Usage {
 
 ### ANSI Styling
 
-All AFK output uses ANSI escape codes for Claude Code-like terminal styling. A new `style` module provides helpers:
+All AFK output uses ANSI escape codes for terminal styling with color differentiation. The `style` module provides helpers: `bold(s)`, `dim(s)`, `green(s)`, `yellow(s)`, `red(s)`, `blue(s)`, `magenta(s)`, `cyan(s)`. A `NO_COLOR` environment variable check disables all styling (per the [NO_COLOR convention](https://no-color.org/)), falling back to unstyled output. The `TeeWriter` strips ANSI codes before writing to the log file.
+
+#### Color Scheme
+
+Designed for GitHub Dark terminal theme. Uses standard ANSI color codes for broad terminal compatibility.
+
+#### Tool Name Colors (by category)
+
+Tool names are bold + colored based on operation type:
+
+| Category | Tools | Color | Rationale |
+|----------|-------|-------|-----------|
+| Read ops | `Read`, `Glob`, `Grep` | Bold blue | Non-mutating, information gathering |
+| Mutations | `Edit`, `Write` | Bold magenta | File modifications stand out |
+| Shell | `Bash` | Bold yellow | Commands warrant attention |
+| Other | Everything else | Bold cyan | Default for unknown/misc tools |
+
+#### Full Element Styling
 
 | Element | Style |
 |---------|-------|
-| Model text | Default (no styling) |
-| Tool call line (`─ ToolName  detail`) | `─` dim, tool name bold, detail dim |
-| Tool result lines | Indented 5 spaces, dim |
-| Tool result error lines | Indented 5 spaces, dim red |
+| Agent text (model reasoning) | Bold |
+| Tool separator `─` | Dim |
+| Tool name | Bold + category color (see above) |
+| Tool detail (path/command/pattern) | Cyan |
+| Tool result lines (normal) | Dim |
+| Tool result lines (error) | Red (not dim) |
+| Tool result lines matching `\.\.\. ok$` | Dim green |
+| Tool result lines matching `\.\.\. FAILED$` | Red |
+| Truncation indicator `... (N more lines)` | Dim |
 | Box borders (`╭╮│╰╯─`) | Dim |
 | Box title text | Bold |
 | Completion banner title | Bold green |
@@ -401,7 +423,9 @@ All AFK output uses ANSI escape codes for Claude Code-like terminal styling. A n
 | "Iteration N complete, continuing..." | Dim |
 | "New commits detected, pushing..." | Dim |
 
-The `style` module provides functions like `bold(s)`, `dim(s)`, `green(s)`, `yellow(s)`, `red(s)` that wrap strings in ANSI escape sequences. A `NO_COLOR` environment variable check disables all styling (per the [NO_COLOR convention](https://no-color.org/)), falling back to unstyled output. This is important for log files — the `TeeWriter` strips ANSI codes before writing to the log file.
+#### Test Result Highlighting
+
+Tool result lines from test runners get special treatment. Lines ending in ` ... ok` are styled dim green. Lines ending in ` ... FAILED` are styled red. This applies only to tool result lines (not agent text). The matching is simple suffix-based — no regex required.
 
 ### Box Banner Formatting
 
@@ -453,7 +477,7 @@ When there is no loop ID: `╭─ Iteration 1 of 10 ─╮`. The iteration banne
 
 ### Text Block Formatting
 
-Text blocks are printed with default styling (no color), preserving Claude's reasoning output with original newlines.
+Text blocks are printed bold, preserving Claude's reasoning output with original newlines. This visually distinguishes agent reasoning from tool output.
 
 ### Tool Call Formatting
 
@@ -465,7 +489,7 @@ Tool calls are formatted as styled one-liners:
   ─ Edit  src/main.rs
 ```
 
-The format is: 2-space indent, dim `─`, space, bold tool name, 2 spaces, dim detail.
+The format is: 2-space indent, dim `─`, space, bold+colored tool name (color by category), 2 spaces, cyan detail.
 
 | Tool | Detail shown |
 |------|-------------|
@@ -666,7 +690,8 @@ The `format_line()` function is a pure function returning `FormattedOutput`. Uni
 
 #### `style.rs`
 
-- `bold()`, `dim()`, `green()`, `yellow()`, `red()` produce correct ANSI sequences
+- `bold()`, `dim()`, `green()`, `yellow()`, `red()`, `blue()`, `magenta()`, `cyan()` produce correct ANSI sequences
+- `tool_name_style(name)` returns the correct bold+color combo for each tool category
 - `NO_COLOR=1` disables all styling (returns input unchanged)
 
 #### `banner.rs`
@@ -736,42 +761,48 @@ Fixtures are derived from real AFK output captured in [`ralph/tests/fixtures/ral
 For `afk-session.ndjson`, the formatter should produce output like (ANSI styling indicated in brackets, not literal):
 
 ```
-I'll start by studying the required files to understand the context and plan.
+[bold]I'll start by studying the required files to understand the context and plan.[/bold]
 
-  [dim]─[/dim] [bold]Read[/bold]  [dim]specs/README.md[/dim]
+  [dim]─[/dim] [bold][blue]Read[/blue][/bold]  [cyan]specs/README.md[/cyan]
      [dim]1│ # Springfield Specifications[/dim]
      [dim]2│ [/dim]
      [dim]3│ | Spec | Code | Purpose |[/dim]
      [dim]...[/dim]
 
-  [dim]─[/dim] [bold]Read[/bold]  [dim]plans/cleanup/buddy-llm.md[/dim]
+  [dim]─[/dim] [bold][blue]Read[/blue][/bold]  [cyan]plans/cleanup/buddy-llm.md[/cyan]
      [dim]1│ # Cleanup Plan[/dim]
      [dim]...[/dim]
 
-Now I can see the cleanup plan. Many items are checked off...
+[bold]Now I can see the cleanup plan. Many items are checked off...[/bold]
 
-  [dim]─[/dim] [bold]TodoWrite[/bold]  [dim]3 items[/dim]
+  [dim]─[/dim] [bold][cyan]TodoWrite[/cyan][/bold]  [cyan]3 items[/cyan]
 
-Let me read the relevant files in parallel...
+[bold]Let me read the relevant files in parallel...[/bold]
 
-  [dim]─[/dim] [bold]Read[/bold]  [dim]specs/tokenizer-embedding.md[/dim]
-  [dim]─[/dim] [bold]Read[/bold]  [dim]crates/buddy-llm/src/inference.rs 1:80[/dim]
-  [dim]─[/dim] [bold]Read[/bold]  [dim]specs/buddy-llm.md[/dim]
+  [dim]─[/dim] [bold][blue]Read[/blue][/bold]  [cyan]specs/tokenizer-embedding.md[/cyan]
+  [dim]─[/dim] [bold][blue]Read[/blue][/bold]  [cyan]crates/buddy-llm/src/inference.rs 1:80[/cyan]
+  [dim]─[/dim] [bold][blue]Read[/blue][/bold]  [cyan]specs/buddy-llm.md[/cyan]
 
-Now I have full context...
+[bold]Now I have full context...[/bold]
 
-  [dim]─[/dim] [bold]Edit[/bold]  [dim]specs/tokenizer-embedding.md[/dim]
+  [dim]─[/dim] [bold][magenta]Edit[/magenta][/bold]  [cyan]specs/tokenizer-embedding.md[/cyan]
      [dim]✓ Applied edit[/dim]
 
-  [dim]─[/dim] [bold]Bash[/bold]  [dim]git diff specs/tokenizer-embedding.md plans/cleanup/buddy-llm.md[/dim]
+  [dim]─[/dim] [bold][yellow]Bash[/yellow][/bold]  [cyan]git diff specs/tokenizer-embedding.md plans/cleanup/buddy-llm.md[/cyan]
      [dim]diff --git a/specs/tokenizer-embedding.md b/specs/tokenizer-embedding.md[/dim]
      [dim]...[/dim]
 
-  [dim]─[/dim] [bold]Bash[/bold]  [dim]git add ... && git commit ...[/dim]
+  [dim]─[/dim] [bold][yellow]Bash[/yellow][/bold]  [cyan]cargo test -p ralph[/cyan]
+     [dim]running 12 tests[/dim]
+     [dim][green]test format::tests::text_block_passthrough ... ok[/green][/dim]
+     [dim][green]test format::tests::read_tool_basic ... ok[/green][/dim]
+     [dim]...[/dim]
+
+  [dim]─[/dim] [bold][yellow]Bash[/yellow][/bold]  [cyan]git add ... && git commit ...[/cyan]
      [dim][master 170c9b2] Replace mistral.rs code snippet[/dim]
      [dim] 1 file changed, 4 insertions(+), 8 deletions(-)[/dim]
 
-Done. Updated `specs/tokenizer-embedding.md`.
+[bold]Done. Updated `specs/tokenizer-embedding.md`.[/bold]
 
   [dim]Input: 12,450 tokens · Output: 1,230 tokens[/dim]
 ```
