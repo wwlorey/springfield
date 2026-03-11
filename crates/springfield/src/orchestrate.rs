@@ -199,14 +199,22 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
 
     let args = build_ralph_args(config, &loop_id, &prompt_path, log_path.as_deref());
 
+    let monitor_stdin =
+        config.afk && (std::env::var("SGF_MONITOR_STDIN").is_ok() || io::stdin().is_terminal());
     let controller = ShutdownController::new(ShutdownConfig {
-        monitor_stdin: std::env::var("SGF_MONITOR_STDIN").is_ok() || io::stdin().is_terminal(),
+        monitor_stdin,
         ..Default::default()
     })?;
 
     eprintln!("sgf: launching ralph [{loop_id}]");
 
-    let exit_code = run_ralph(&binary, &args, config.spec.as_deref(), &controller)?;
+    let exit_code = run_ralph(
+        &binary,
+        &args,
+        config.afk,
+        config.spec.as_deref(),
+        &controller,
+    )?;
 
     loop_mgmt::remove_pid_file(root, &loop_id);
 
@@ -249,6 +257,7 @@ fn run_interactive_claude(prompt_path: &Path, controller: &ShutdownController) -
 fn run_ralph(
     binary: &str,
     args: &[String],
+    afk: bool,
     spec: Option<&str>,
     controller: &ShutdownController,
 ) -> io::Result<i32> {
@@ -261,11 +270,13 @@ fn run_ralph(
     if let Some(stem) = spec {
         cmd.env("SGF_SPEC", stem);
     }
-    unsafe {
-        cmd.pre_exec(|| {
-            libc::setsid();
-            Ok(())
-        });
+    if afk {
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::setsid();
+                Ok(())
+            });
+        }
     }
     let mut child = cmd
         .spawn()
@@ -812,6 +823,42 @@ mod tests {
 
         let args_content = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
         assert!(args_content.contains("test-plan-"));
+    }
+
+    #[test]
+    fn run_non_afk_succeeds() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_project(root, "build", "Build the spec now.");
+        setup_spec(root, "auth");
+        setup_git_repo(root);
+
+        let mock = mock_ralph_script(
+            root,
+            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
+        );
+
+        let config = LoopConfig {
+            stage: "build".to_string(),
+            spec: Some("auth".to_string()),
+            afk: false,
+            no_push: false,
+            iterations: 30,
+            interactive: false,
+            ralph_binary: Some(mock),
+            skip_preflight: true,
+            prompt_template: None,
+        };
+
+        let exit_code = run(root, &config).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let args_content = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
+        let args: Vec<&str> = args_content.trim().split_whitespace().collect();
+        assert!(
+            !args.contains(&"-a"),
+            "non-AFK should not pass -a flag, got: {args_content}"
+        );
     }
 
     #[test]
