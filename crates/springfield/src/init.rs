@@ -134,6 +134,10 @@ const CLAUDE_SETTINGS_DENY_RULES: &[&str] = &[
     "Write .sgf/**",
     "Bash rm .sgf/**",
     "Bash mv .sgf/**",
+    "Edit .claude/**",
+    "Write .claude/**",
+    "Bash rm .claude/**",
+    "Bash mv .claude/**",
 ];
 
 const SANDBOX_ALLOW_WRITE: &[&str] = &["~/.cargo"];
@@ -840,7 +844,7 @@ mod tests {
                 "missing deny rule: {rule}"
             );
         }
-        assert_eq!(deny.len(), 4);
+        assert_eq!(deny.len(), 8);
 
         assert_eq!(doc["sandbox"]["enabled"], true);
         assert_eq!(doc["sandbox"]["autoAllowBashIfSandboxed"], true);
@@ -895,7 +899,7 @@ mod tests {
                 "missing deny rule after merge: {rule}"
             );
         }
-        assert_eq!(deny.len(), 5);
+        assert_eq!(deny.len(), 9);
 
         assert_eq!(
             doc["sandbox"]["enabled"], false,
@@ -946,7 +950,7 @@ mod tests {
         let content = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
         let doc: Value = serde_json::from_str(&content).unwrap();
         let deny = doc["permissions"]["deny"].as_array().unwrap();
-        assert_eq!(deny.len(), 4, "deny rules duplicated on rerun");
+        assert_eq!(deny.len(), 8, "deny rules duplicated on rerun");
 
         let allow_write = doc["sandbox"]["filesystem"]["allowWrite"]
             .as_array()

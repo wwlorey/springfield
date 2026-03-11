@@ -280,7 +280,7 @@ fn init_merges_existing_settings_json() {
     let deny = doc["permissions"]["deny"].as_array().unwrap();
     assert!(deny.contains(&serde_json::Value::String("Bash rm -rf /".to_string())));
     assert!(deny.contains(&serde_json::Value::String("Edit .sgf/**".to_string())));
-    assert_eq!(deny.len(), 5, "expected 1 custom + 4 sgf rules");
+    assert_eq!(deny.len(), 9, "expected 1 custom + 8 sgf rules");
 }
 
 // ===========================================================================
