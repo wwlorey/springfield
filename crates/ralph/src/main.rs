@@ -591,7 +591,7 @@ fn run_afk(
                         tee.write_ansi_line(&format!(
                             "  {} {}  {}",
                             style::dim("─"),
-                            style::bold(&call.name),
+                            style::tool_name_style(&call.name),
                             style::dim(&call.detail),
                         ));
                     }

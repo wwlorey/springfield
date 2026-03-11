@@ -34,6 +34,31 @@ pub fn red(s: &str) -> String {
     wrap("31", s, no_color())
 }
 
+#[allow(dead_code)]
+pub fn blue(s: &str) -> String {
+    wrap("34", s, no_color())
+}
+
+#[allow(dead_code)]
+pub fn magenta(s: &str) -> String {
+    wrap("35", s, no_color())
+}
+
+#[allow(dead_code)]
+pub fn cyan(s: &str) -> String {
+    wrap("36", s, no_color())
+}
+
+pub fn tool_name_style(name: &str) -> String {
+    let disabled = no_color();
+    match name {
+        "Read" | "Glob" | "Grep" => wrap("1;34", name, disabled),
+        "Edit" | "Write" => wrap("1;35", name, disabled),
+        "Bash" => wrap("1;33", name, disabled),
+        _ => wrap("1;36", name, disabled),
+    }
+}
+
 pub fn strip_ansi(s: &str) -> String {
     let bytes = s.as_bytes();
     let len = bytes.len();
@@ -86,12 +111,72 @@ mod tests {
     }
 
     #[test]
+    fn blue_styled() {
+        assert_eq!(wrap("34", "hello", false), "\x1b[34mhello\x1b[0m");
+    }
+
+    #[test]
+    fn magenta_styled() {
+        assert_eq!(wrap("35", "hello", false), "\x1b[35mhello\x1b[0m");
+    }
+
+    #[test]
+    fn cyan_styled() {
+        assert_eq!(wrap("36", "hello", false), "\x1b[36mhello\x1b[0m");
+    }
+
+    #[test]
+    fn tool_name_style_read_bold_blue() {
+        assert_eq!(wrap("1;34", "Read", false), "\x1b[1;34mRead\x1b[0m");
+        for name in &["Read", "Glob", "Grep"] {
+            let result = tool_name_style(name);
+            assert!(result.contains("1;34"), "expected bold blue for {name}");
+            assert!(result.contains(name));
+        }
+    }
+
+    #[test]
+    fn tool_name_style_edit_bold_magenta() {
+        for name in &["Edit", "Write"] {
+            let result = tool_name_style(name);
+            assert!(result.contains("1;35"), "expected bold magenta for {name}");
+            assert!(result.contains(name));
+        }
+    }
+
+    #[test]
+    fn tool_name_style_bash_bold_yellow() {
+        let result = tool_name_style("Bash");
+        assert!(result.contains("1;33"), "expected bold yellow for Bash");
+        assert!(result.contains("Bash"));
+    }
+
+    #[test]
+    fn tool_name_style_other_bold_cyan() {
+        for name in &["Agent", "WebSearch", "Unknown"] {
+            let result = tool_name_style(name);
+            assert!(result.contains("1;36"), "expected bold cyan for {name}");
+            assert!(result.contains(name));
+        }
+    }
+
+    #[test]
+    fn tool_name_style_no_color() {
+        for name in &["Read", "Edit", "Bash", "Agent"] {
+            assert_eq!(wrap("1;34", name, true), *name);
+        }
+    }
+
+    #[test]
     fn no_color_returns_plain_text() {
         assert_eq!(wrap("1", "hello", true), "hello");
         assert_eq!(wrap("2", "hello", true), "hello");
         assert_eq!(wrap("32", "hello", true), "hello");
         assert_eq!(wrap("33", "hello", true), "hello");
         assert_eq!(wrap("31", "hello", true), "hello");
+        assert_eq!(wrap("34", "hello", true), "hello");
+        assert_eq!(wrap("35", "hello", true), "hello");
+        assert_eq!(wrap("36", "hello", true), "hello");
     }
 
     #[test]
