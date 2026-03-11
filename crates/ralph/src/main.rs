@@ -620,30 +620,7 @@ fn run_afk(
                         ));
                     }
                 }
-                format::FormattedOutput::ToolResults(results) => {
-                    for result in &results {
-                        for l in &result.lines {
-                            if result.is_error {
-                                tee.write_ansi_line(&format!("     {}", style::red(l)));
-                            } else if l.ends_with("... ok") {
-                                tee.write_ansi_line(&format!(
-                                    "     {}",
-                                    style::dim(&style::green(l))
-                                ));
-                            } else if l.ends_with("... FAILED") {
-                                tee.write_ansi_line(&format!("     {}", style::red(l)));
-                            } else {
-                                tee.write_ansi_line(&format!("     {}", style::dim(l)));
-                            }
-                        }
-                        if result.truncated_count > 0 {
-                            tee.write_ansi_line(&format!(
-                                "     {}",
-                                style::dim(&format!("... ({} more lines)", result.truncated_count))
-                            ));
-                        }
-                    }
-                }
+                format::FormattedOutput::ToolResults(_) => {}
                 format::FormattedOutput::Usage {
                     input_tokens,
                     output_tokens,

@@ -2090,7 +2090,7 @@ fn afk_agent_text_has_bold_cyan_ansi() {
 }
 
 #[test]
-fn afk_test_result_lines_have_color_ansi() {
+fn afk_hides_test_result_lines() {
     let dir = setup_test_dir();
     let mock = create_mock_script(&dir, "test-results.ndjson");
 
@@ -2108,20 +2108,14 @@ fn afk_test_result_lines_have_color_ansi() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    // Lines ending with "... ok" should have green ANSI codes (32)
+    // Tool results should not appear in AFK output
     assert!(
-        stdout.contains("\x1b[32mtest inference::test_load_model ... ok\x1b[0m"),
-        "test '... ok' lines should have green ANSI codes, got:\n{stdout}"
+        !stdout.contains("test inference::test_load_model ... ok"),
+        "tool result lines should NOT appear in AFK output, got:\n{stdout}"
     );
     assert!(
-        stdout.contains("\x1b[32mtest inference::test_tokenize ... ok\x1b[0m"),
-        "test '... ok' lines should have green ANSI codes, got:\n{stdout}"
-    );
-
-    // Lines ending with "... FAILED" should have red ANSI codes (31)
-    assert!(
-        stdout.contains("\x1b[31mtest inference::test_generate ... FAILED\x1b[0m"),
-        "test '... FAILED' lines should have red ANSI codes, got:\n{stdout}"
+        !stdout.contains("test inference::test_generate ... FAILED"),
+        "tool result lines should NOT appear in AFK output, got:\n{stdout}"
     );
 }
 
