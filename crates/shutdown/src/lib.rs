@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use signal_hook::SigId;
 use signal_hook::consts::{SIGINT, SIGTERM};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,6 +43,7 @@ pub struct ShutdownController {
     last_seen_sigint: std::cell::Cell<u64>,
     last_seen_eof: std::cell::Cell<u64>,
     confirmed_shutdown: std::cell::Cell<bool>,
+    signal_ids: Vec<SigId>,
 }
 
 impl ShutdownController {
@@ -53,14 +55,18 @@ impl ShutdownController {
             stop: AtomicBool::new(false),
         });
 
+        let mut signal_ids = Vec::new();
+
         let inner_sigint = Arc::clone(&inner);
-        unsafe {
+        let sigint_id = unsafe {
             signal_hook::low_level::register(SIGINT, move || {
                 inner_sigint.sigint_count.fetch_add(1, Ordering::SeqCst);
-            })?;
-        }
+            })?
+        };
+        signal_ids.push(sigint_id);
 
-        signal_hook::flag::register(SIGTERM, Arc::clone(&inner.sigterm))?;
+        let sigterm_id = signal_hook::flag::register(SIGTERM, Arc::clone(&inner.sigterm))?;
+        signal_ids.push(sigterm_id);
 
         if config.monitor_stdin {
             let inner_stdin = Arc::clone(&inner);
@@ -90,6 +96,7 @@ impl ShutdownController {
             last_seen_sigint: std::cell::Cell::new(0),
             last_seen_eof: std::cell::Cell::new(0),
             confirmed_shutdown: std::cell::Cell::new(false),
+            signal_ids,
         })
     }
 
@@ -167,6 +174,9 @@ impl ShutdownController {
 
 impl Drop for ShutdownController {
     fn drop(&mut self) {
+        for id in &self.signal_ids {
+            signal_hook::low_level::unregister(*id);
+        }
         self.inner.stop.store(true, Ordering::Relaxed);
     }
 }
@@ -176,6 +186,7 @@ mod tests {
     use super::*;
     use nix::sys::signal::{self, Signal};
     use nix::unistd::Pid;
+    use serial_test::serial;
 
     fn controller_no_stdin() -> ShutdownController {
         ShutdownController::new(ShutdownConfig {
@@ -207,6 +218,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn sigterm_immediate_shutdown() {
         let ctrl = controller_no_stdin();
         signal::kill(Pid::this(), Signal::SIGTERM).unwrap();
@@ -215,6 +227,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn single_sigint_returns_pending() {
         let ctrl = controller_no_stdin();
         signal::kill(Pid::this(), Signal::SIGINT).unwrap();
@@ -223,6 +236,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn double_sigint_returns_shutdown() {
         let ctrl = controller_no_stdin();
         signal::kill(Pid::this(), Signal::SIGINT).unwrap();
@@ -235,6 +249,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn sigint_resets_after_timeout() {
         let ctrl = controller_with_timeout(Duration::from_millis(100));
         signal::kill(Pid::this(), Signal::SIGINT).unwrap();
