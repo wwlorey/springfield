@@ -17,7 +17,7 @@ CLI tool for iterative Claude Code execution. Invokes `$AGENT_CMD` directly (no 
 
 ## Design Goals
 
-1. **Readable AFK output**: Tool calls shown as compact one-liners, not raw JSON argument dumps
+1. **Readable AFK output**: Styled, Claude Code-like terminal output — ANSI colors, tool call one-liners, truncated tool results, boxed banners
 2. **Testable**: NDJSON formatting is a pure function; full binary testable via command override
 3. **Minimal dependencies**: Only `clap`, `serde`, `serde_json` — no async runtime needed
 4. **No implicit agent binary**: `$AGENT_CMD` is required. Never fall back to a hardcoded binary name.
@@ -27,13 +27,15 @@ CLI tool for iterative Claude Code execution. Invokes `$AGENT_CMD` directly (no 
 ```
 ralph/
 ├── src/
-│   ├── main.rs      # CLI, startup banner (mode, prompt, iterations, loop-id), iteration loop, agent invocation, git operations
-│   └── format.rs    # NDJSON parsing, tool call formatting, completion detection
+│   ├── main.rs      # CLI, iteration loop, agent invocation, git operations, output rendering
+│   ├── format.rs    # NDJSON parsing, tool call/result formatting (pure, no ANSI)
+│   ├── style.rs     # ANSI escape code helpers (bold, dim, green, yellow, red), NO_COLOR support
+│   └── banner.rs    # Box-drawing banner renderer (render_box)
 ├── tests/
 │   ├── integration.rs           # Binary-level E2E tests with mock agent
 │   └── fixtures/
 │       ├── prompt.md            # Dummy prompt for tests
-│       ├── afk-session.ndjson   # Fixture: normal AFK session with text + tool calls
+│       ├── afk-session.ndjson   # Fixture: normal AFK session with text + tool calls + tool results
 │       └── complete.ndjson      # Fixture: session ending with completion promise
 └── Cargo.toml
 ```
@@ -196,7 +198,11 @@ $AGENT_CMD \
   # or: "<inline text>"  # inline text (no @ prefix)
 ```
 
-Stdout is read line-by-line via `BufRead`, parsed as NDJSON, and formatted for human readability. Lines not starting with `{` are skipped silently (handles verbose debug output). Each output line is prefixed with `\r\x1b[2K` (carriage return + ANSI clear-line). This prefix is applied per line (not per block) because text content from the agent contains embedded newlines. After the process exits, ralph checks for the `.ralph-complete` sentinel file to determine if the task is complete.
+Stdout is read line-by-line via `BufRead`, parsed as NDJSON, and formatted with ANSI-styled output. Lines not starting with `{` are skipped silently (handles verbose debug output). Each output line is prefixed with `\r\x1b[2K` (carriage return + ANSI clear-line). This prefix is applied per line (not per block) because text content from the agent contains embedded newlines.
+
+The `TeeWriter` writes styled output (with ANSI codes) to stdout and stripped output (ANSI codes removed) to the log file. ANSI stripping uses a simple regex: `\x1b\[[0-9;]*m`.
+
+After the process exits, ralph checks for the `.ralph-complete` sentinel file to determine if the task is complete.
 
 ## Signal Handling
 
@@ -302,21 +308,17 @@ The watcher thread is started before spawning the agent process and stopped afte
 
 ### Stream Event Types
 
-Claude's `--output-format stream-json` emits newline-delimited JSON. Two event types are handled:
+Claude's `--output-format stream-json` emits newline-delimited JSON. Five top-level event types exist:
 
-```json
-{"type": "assistant", "message": {"content": [...]}}
-{"type": "result", "result": "final output text"}
-```
+| Type | Handling |
+|------|----------|
+| `assistant` | Parsed and formatted — contains model text and tool calls |
+| `result` | Parsed and formatted — final result text, may contain `session_id` and `usage` fields |
+| `user` | Parsed — may contain tool results (as `tool_result` content blocks). If present, displayed as truncated output beneath the corresponding tool call |
+| `system` | Logged at debug level, otherwise ignored |
+| Unknown | Logged at debug level via `#[serde(other)]`, otherwise ignored |
 
-Content blocks within `assistant` messages:
-
-```json
-{"type": "text", "text": "Claude's reasoning..."}
-{"type": "tool_use", "name": "Read", "input": {"file_path": "/foo/bar.rs"}}
-```
-
-All other event types are silently ignored via `#[serde(other)]`.
+Previously, only `assistant` and `result` were handled; all others were silently dropped. Now `user` events are parsed for tool results and unknown events are logged for discoverability.
 
 ### Serde Types
 
@@ -325,7 +327,15 @@ All other event types are silently ignored via `#[serde(other)]`.
 #[serde(tag = "type", rename_all = "snake_case")]
 enum StreamEvent {
     Assistant { message: AssistantMessage },
-    Result { result: String },
+    Result {
+        result: String,
+        #[serde(default)]
+        session_id: Option<String>,
+        #[serde(default)]
+        usage: Option<Usage>,
+    },
+    User { message: UserMessage },
+    System {},
     #[serde(other)]
     Unknown,
 }
@@ -336,6 +346,11 @@ struct AssistantMessage {
 }
 
 #[derive(Deserialize)]
+struct UserMessage {
+    content: Vec<UserContentBlock>,
+}
+
+#[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ContentBlock {
     Text { text: String },
@@ -343,36 +358,202 @@ enum ContentBlock {
     #[serde(other)]
     Unknown,
 }
+
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum UserContentBlock {
+    ToolResult {
+        #[serde(default)]
+        content: Option<serde_json::Value>,
+        #[serde(default)]
+        is_error: Option<bool>,
+    },
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Deserialize)]
+struct Usage {
+    #[serde(default)]
+    input_tokens: Option<u64>,
+    #[serde(default)]
+    output_tokens: Option<u64>,
+}
 ```
+
+### ANSI Styling
+
+All AFK output uses ANSI escape codes for Claude Code-like terminal styling. A new `style` module provides helpers:
+
+| Element | Style |
+|---------|-------|
+| Model text | Default (no styling) |
+| Tool call line (`─ ToolName  detail`) | `─` dim, tool name bold, detail dim |
+| Tool result lines | Indented 5 spaces, dim |
+| Tool result error lines | Indented 5 spaces, dim red |
+| Box borders (`╭╮│╰╯─`) | Dim |
+| Box title text | Bold |
+| Completion banner title | Bold green |
+| Max-iterations banner title | Bold yellow |
+| Usage stats | Dim |
+| "Iteration N complete, continuing..." | Dim |
+| "New commits detected, pushing..." | Dim |
+
+The `style` module provides functions like `bold(s)`, `dim(s)`, `green(s)`, `yellow(s)`, `red(s)` that wrap strings in ANSI escape sequences. A `NO_COLOR` environment variable check disables all styling (per the [NO_COLOR convention](https://no-color.org/)), falling back to unstyled output. This is important for log files — the `TeeWriter` strips ANSI codes before writing to the log file.
+
+### Box Banner Formatting
+
+A new `banner` module renders boxed banners with a title embedded in the top border:
+
+```
+╭─ Title Text Here ───────────────────╮
+│  Key:    Value                      │
+│  Key2:   Value2                     │
+╰─────────────────────────────────────╯
+```
+
+The box width is computed from the longest content line (minimum 40 characters). Content lines are right-padded with spaces to align the right `│` border. The top border embeds the title after `╭─ ` and fills the remainder with `─` before `╮`. Border characters are dim; title text is bold.
+
+```rust
+pub fn render_box(title: &str, lines: &[String]) -> String;
+```
+
+### Startup Banner
+
+The Ralph ASCII art is printed as-is (unstyled). The config block beneath it uses `render_box`:
+
+```
+[Ralph ASCII art]
+
+╭─ Ralph Loop Starting ──────────────────────────╮
+│  Mode:        AFK                              │
+│  Prompt:      prompt.md (file)                 │
+│  Iterations:  10                               │
+│  Agent:       claude                           │
+│  Loop ID:     build-auth-20260311T133300       │
+│  Prompt files:                                 │
+│    - $HOME/.MEMENTO.md                         │
+│    - ./BACKPRESSURE.md                         │
+│    - ./specs/README.md                         │
+╰────────────────────────────────────────────────╯
+```
+
+### Iteration Banner
+
+Each iteration uses `render_box` with the iteration/loop-id as the title:
+
+```
+╭─ Iteration 1 of 10 [build-auth-20260311T133300] ─╮
+╰───────────────────────────────────────────────────╯
+```
+
+When there is no loop ID: `╭─ Iteration 1 of 10 ─╮`. The iteration banner has no body lines — title only.
 
 ### Text Block Formatting
 
-Text blocks are printed verbatim, preserving Claude's reasoning output with original newlines.
+Text blocks are printed with default styling (no color), preserving Claude's reasoning output with original newlines.
 
 ### Tool Call Formatting
 
-Tool calls are formatted as compact one-liners showing only the most relevant argument:
+Tool calls are formatted as styled one-liners:
 
-| Tool | Shows | Example Output |
-|------|-------|----------------|
-| `Read` | `file_path` (+ `offset:limit` if present) | `-> Read(src/main.rs)` or `-> Read(src/main.rs 430:80)` |
-| `Edit` | `file_path` | `-> Edit(src/main.rs)` |
-| `Write` | `file_path` | `-> Write(src/new.rs)` |
-| `Bash` | `command` truncated to 100 chars | `-> Bash(git status)` |
-| `Glob` | `pattern` | `-> Glob(**/*.rs)` |
-| `Grep` | `pattern` | `-> Grep(TODO)` |
-| `TodoWrite` | item count from `todos` array | `-> TodoWrite(3 items)` |
-| Other | first string value, truncated to 80 chars | `-> WebSearch(rust serde json...)` |
+```
+  ─ Read  specs/README.md
+  ─ Bash  git status
+  ─ Edit  src/main.rs
+```
+
+The format is: 2-space indent, dim `─`, space, bold tool name, 2 spaces, dim detail.
+
+| Tool | Detail shown |
+|------|-------------|
+| `Read` | `file_path` (+ `offset:limit` if present) |
+| `Edit` | `file_path` |
+| `Write` | `file_path` |
+| `Bash` | `command` truncated to 100 chars |
+| `Glob` | `pattern` |
+| `Grep` | `pattern` |
+| `TodoWrite` | item count from `todos` array |
+| Other | first string value, truncated to 80 chars |
 
 Truncated values end with `...`. Truncation respects UTF-8 character boundaries.
 
-### Public Formatting API
+### Tool Result Formatting
 
-```rust
-pub fn format_line(line: &str) -> Option<String>;
+When a `user` event contains `tool_result` content blocks, each result is displayed beneath the preceding tool call line(s), indented and dimmed:
+
+```
+  ─ Read  specs/README.md
+     1│ # Springfield Specifications
+     2│
+     3│ | Spec | Code | Purpose |
+     ...
+
+  ─ Bash  cargo test -p ralph
+     running 12 tests
+     test format::tests::text_block_passthrough ... ok
+     test format::tests::read_tool_basic ... ok
+     ...
 ```
 
-Returns formatted text to print, or `None` if the line should be skipped. Completion detection is handled separately via the `.ralph-complete` sentinel file, not by inspecting stream output.
+Tool results are truncated to a maximum of **15 lines**. If the result exceeds 15 lines, the output is truncated and a dim `... (N more lines)` indicator is appended.
+
+For error results (`is_error: true`), the result text is styled in dim red instead of dim.
+
+If `user` events turn out not to contain tool results in practice (the stream-json format is under-documented), this feature degrades gracefully — tool calls are shown without results, identical to the old behavior but with new styling.
+
+### Result Event Formatting
+
+The `result` event's text is printed with default styling. If the `result` event contains `usage` fields (`input_tokens`, `output_tokens`), a usage summary line is printed after the result text:
+
+```
+  Input: 12,450 tokens · Output: 1,230 tokens
+```
+
+Styled dim. If no usage data is present, this line is omitted.
+
+### Completion and Max-Iterations Banners
+
+```
+╭─ Ralph COMPLETE after 3 iterations! ──────╮
+╰───────────────────────────────────────────╯
+```
+
+Title styled bold green. No body lines.
+
+```
+╭─ Ralph reached max iterations (10) ──────╮
+╰───────────────────────────────────────────╯
+```
+
+Title styled bold yellow. No body lines.
+
+### Public Formatting API
+
+The `format_line` function signature changes to return structured output:
+
+```rust
+pub enum FormattedOutput {
+    Text(String),
+    ToolCalls(Vec<String>),
+    ToolResults(Vec<FormattedToolResult>),
+    Usage { input_tokens: u64, output_tokens: u64 },
+    Result(String),
+    Skip,
+}
+
+pub struct FormattedToolResult {
+    pub lines: Vec<String>,
+    pub is_error: bool,
+    pub truncated_count: usize,
+}
+
+pub fn format_line(line: &str) -> FormattedOutput;
+```
+
+The caller (`run_afk`) applies ANSI styling and writes to `TeeWriter`. This keeps formatting logic pure and testable — styling is applied at the output boundary. The `TeeWriter` strips ANSI codes before writing to the log file.
+
+Completion detection is handled separately via the `.ralph-complete` sentinel file, not by inspecting stream output.
 
 ## Main Loop
 
@@ -461,19 +642,39 @@ No custom error types. Fail loudly, continue when sensible:
 
 ## Testing
 
-### Unit Tests (`format.rs`)
+### Unit Tests
 
-The `format_line()` function is a pure function. Unit tests cover:
+#### `format.rs`
 
-- Text block passthrough
-- Each tool type formatting (Read, Edit, Write, Bash, Glob, Grep, TodoWrite, fallback)
+The `format_line()` function is a pure function returning `FormattedOutput`. Unit tests cover:
+
+- Text block passthrough → `FormattedOutput::Text`
+- Each tool type formatting (Read, Edit, Write, Bash, Glob, Grep, TodoWrite, fallback) → `FormattedOutput::ToolCalls`
 - Read with offset/limit variants
 - Bash command truncation
 - UTF-8 safe truncation
-- Result event output
-- Non-JSON lines are skipped
-- Unknown event types are skipped
-- Malformed JSON is skipped
+- Result event → `FormattedOutput::Result`
+- Result event with usage → `FormattedOutput::Usage`
+- User event with tool results → `FormattedOutput::ToolResults`
+- User event with error tool result → `FormattedToolResult { is_error: true }`
+- Tool result truncation at 15 lines → `truncated_count > 0`
+- System event → `FormattedOutput::Skip`
+- Non-JSON lines → `FormattedOutput::Skip`
+- Unknown event types → `FormattedOutput::Skip`
+- Malformed JSON → `FormattedOutput::Skip`
+
+#### `style.rs`
+
+- `bold()`, `dim()`, `green()`, `yellow()`, `red()` produce correct ANSI sequences
+- `NO_COLOR=1` disables all styling (returns input unchanged)
+
+#### `banner.rs`
+
+- `render_box()` with title and body lines produces correct box-drawing output
+- Right borders align (all lines have same width)
+- Title-only box (no body lines) renders correctly
+- Box width respects minimum of 40 characters
+- Long title wraps the box to fit
 
 ### Integration Tests (`tests/integration.rs`)
 
@@ -486,6 +687,7 @@ Binary-level E2E tests using `cargo test -p ralph`. Each test:
    - `RALPH_COMMAND` set to the mock script path (bypasses `AGENT_CMD` requirement)
    - `RALPH_AUTO_PUSH=false` (no remote to push to)
    - Working directory set to the temp directory
+   - `NO_COLOR=1` for tests that assert on text content (avoids ANSI in assertions)
 5. Asserts on exit code and stdout content
 
 #### Test Cases
@@ -493,65 +695,85 @@ Binary-level E2E tests using `cargo test -p ralph`. Each test:
 | Test | Fixture | Asserts |
 |------|---------|---------|
 | AFK formats text blocks | `afk-session.ndjson` | stdout contains Claude's text verbatim |
-| AFK formats tool calls as one-liners | `afk-session.ndjson` | stdout contains `-> Read(...)` format, no raw JSON args |
+| AFK formats tool calls as styled one-liners | `afk-session.ndjson` | stdout contains `─ Read` format, no raw JSON args |
+| AFK shows tool results | `afk-session.ndjson` | stdout contains truncated tool result output (if `user` events present in fixture) |
 | AFK detects completion file | `complete.ndjson` + sentinel file | exit code 0, sentinel cleaned up |
 | AFK exhausts iterations without completion | `afk-session.ndjson` | exit code 2 |
+| AFK startup banner uses box format | `afk-session.ndjson` | stdout contains `╭─ Ralph Loop Starting` |
+| AFK iteration banner uses box format | `afk-session.ndjson` | stdout contains `╭─ Iteration 1 of` |
+| AFK completion banner uses box format | `complete.ndjson` + sentinel | stdout contains `╭─ Ralph COMPLETE` |
+| AFK max-iterations banner uses box format | `afk-session.ndjson` | stdout contains `╭─ Ralph reached max iterations` |
 | Missing prompt file | — | exit code 1, stderr contains error message |
 | Iterations clamped to max | `afk-session.ndjson` | stdout contains "Warning: Reducing iterations" |
 | Help flag | — | exit code 0, stdout contains usage info |
 | Bash command truncation | `afk-session.ndjson` | long commands end with `...` |
 | AFK double Ctrl+C aborts | `afk-session.ndjson` + two SIGINTs | exit code 130, stdout contains "Press Ctrl+C again to stop" |
 | AFK single Ctrl+C resets after timeout | `afk-session.ndjson` + one SIGINT | exit code 2 (iterations exhaust), loop continues after timeout |
+| ANSI output disabled with NO_COLOR | `afk-session.ndjson` + `NO_COLOR=1` | stdout contains no ANSI escape sequences |
 
 ### NDJSON Fixtures
 
 Fixtures are derived from real AFK output captured in [`ralph/tests/fixtures/ralph-sample-output.txt`](../ralph/tests/fixtures/ralph-sample-output.txt) (9 iterations of `scripts/ralph.sh --afk 10`).
 
-`ralph/tests/fixtures/afk-session.ndjson` — modeled on iteration 1 of sample output. Covers:
+`ralph/tests/fixtures/afk-session.ndjson` — updated to include `user` events with tool results. Covers:
 - Text blocks (Claude's reasoning)
 - Parallel tool calls (multiple content blocks per event)
+- User events with `tool_result` content blocks (truncatable output)
+- User events with error tool results (`is_error: true`)
 - Read with and without `offset`/`limit`
 - Edit with `old_string`/`new_string` content (must not appear in formatted output)
 - Bash with short and long commands
 - TodoWrite with `todos` array
 - Grep and Glob tool calls
-- Result event without completion promise
+- Result event (with optional `usage` fields if stream provides them)
 
 `ralph/tests/fixtures/complete.ndjson` — modeled on iteration 9 of sample output. Covers:
 - Short session ending with a result event (sentinel file creation is handled by the mock script, not the NDJSON fixture)
 
 ### Expected Formatted Output
 
-For `afk-session.ndjson`, the formatter should produce output like:
+For `afk-session.ndjson`, the formatter should produce output like (ANSI styling indicated in brackets, not literal):
 
 ```
 I'll start by studying the required files to understand the context and plan.
--> Read(/Users/william/Repos/buddy-ralph/specs/README.md)
--> Read(/Users/william/Repos/buddy-ralph/plans/cleanup/buddy-llm.md)
-Now I can see the cleanup plan. Many items are checked off...
--> TodoWrite(3 items)
-Let me read the relevant files in parallel...
--> Read(/Users/william/Repos/buddy-ralph/specs/tokenizer-embedding.md)
--> Read(/Users/william/Repos/buddy-ralph/crates/buddy-llm/src/inference.rs 1:80)
--> Read(/Users/william/Repos/buddy-ralph/specs/buddy-llm.md)
-Now I have full context...
--> Edit(/Users/william/Repos/buddy-ralph/specs/tokenizer-embedding.md)
-Now let me update the cleanup plan and commit.
--> Edit(/Users/william/Repos/buddy-ralph/plans/cleanup/buddy-llm.md)
--> Bash(git diff specs/tokenizer-embedding.md plans/cleanup/buddy-llm.md)
--> Bash(git log --oneline -5)
--> Bash(git add specs/tokenizer-embedding.md plans/cleanup/buddy-llm.md && git commit -m "$(cat <<'EOF'...)
--> Grep(GgufModelBuilder)
--> Glob(specs/**/*.md)
-Done. Updated `specs/tokenizer-embedding.md`...
-```
 
-Key differences from old `scripts/ralph.sh` output:
-- Edit calls show only file path, not `old_string`/`new_string` content dumps
-- TodoWrite shows `3 items`, not full JSON array
-- Read with offset/limit shows `1:80` in compact form
-- No `\r\n` artifacts or `file_path:` prefixes
-- Long Bash commands are truncated at 100 chars with `...`
+  [dim]─[/dim] [bold]Read[/bold]  [dim]specs/README.md[/dim]
+     [dim]1│ # Springfield Specifications[/dim]
+     [dim]2│ [/dim]
+     [dim]3│ | Spec | Code | Purpose |[/dim]
+     [dim]...[/dim]
+
+  [dim]─[/dim] [bold]Read[/bold]  [dim]plans/cleanup/buddy-llm.md[/dim]
+     [dim]1│ # Cleanup Plan[/dim]
+     [dim]...[/dim]
+
+Now I can see the cleanup plan. Many items are checked off...
+
+  [dim]─[/dim] [bold]TodoWrite[/bold]  [dim]3 items[/dim]
+
+Let me read the relevant files in parallel...
+
+  [dim]─[/dim] [bold]Read[/bold]  [dim]specs/tokenizer-embedding.md[/dim]
+  [dim]─[/dim] [bold]Read[/bold]  [dim]crates/buddy-llm/src/inference.rs 1:80[/dim]
+  [dim]─[/dim] [bold]Read[/bold]  [dim]specs/buddy-llm.md[/dim]
+
+Now I have full context...
+
+  [dim]─[/dim] [bold]Edit[/bold]  [dim]specs/tokenizer-embedding.md[/dim]
+     [dim]✓ Applied edit[/dim]
+
+  [dim]─[/dim] [bold]Bash[/bold]  [dim]git diff specs/tokenizer-embedding.md plans/cleanup/buddy-llm.md[/dim]
+     [dim]diff --git a/specs/tokenizer-embedding.md b/specs/tokenizer-embedding.md[/dim]
+     [dim]...[/dim]
+
+  [dim]─[/dim] [bold]Bash[/bold]  [dim]git add ... && git commit ...[/dim]
+     [dim][master 170c9b2] Replace mistral.rs code snippet[/dim]
+     [dim] 1 file changed, 4 insertions(+), 8 deletions(-)[/dim]
+
+Done. Updated `specs/tokenizer-embedding.md`.
+
+  [dim]Input: 12,450 tokens · Output: 1,230 tokens[/dim]
+```
 
 ## Related Specifications
 
