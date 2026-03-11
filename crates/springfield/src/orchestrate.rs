@@ -206,6 +206,10 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
         ..Default::default()
     })?;
 
+    if let Ok(ready_path) = std::env::var("SGF_READY_FILE") {
+        let _ = std::fs::write(&ready_path, "");
+    }
+
     eprintln!("sgf: launching ralph [{loop_id}]");
 
     let exit_code = run_ralph(

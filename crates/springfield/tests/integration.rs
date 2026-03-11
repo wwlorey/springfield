@@ -1563,6 +1563,22 @@ fn create_slow_mock_ralph(dir: &Path) -> PathBuf {
     )
 }
 
+/// Wait for the sgf process to signal readiness via `SGF_READY_FILE`.
+/// Polls every 25ms, panics after 5 seconds.
+fn wait_for_ready(ready_path: &Path) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while std::time::Instant::now() < deadline {
+        if ready_path.exists() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    panic!(
+        "sgf did not signal readiness within 5s (expected file: {})",
+        ready_path.display()
+    );
+}
+
 #[test]
 fn double_ctrl_c_exits_130() {
     let tmp = setup_test_dir();
@@ -1572,11 +1588,13 @@ fn double_ctrl_c_exits_130() {
     let (_mock_pn_dir, mock_path) = setup_mock_pn();
     let mock_dir = TempDir::new().unwrap();
     let mock_ralph = create_slow_mock_ralph(mock_dir.path());
+    let ready_file = mock_dir.path().join("sgf_ready");
 
     let child = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
         .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("SGF_READY_FILE", &ready_file)
         .env("PATH", &mock_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1585,7 +1603,7 @@ fn double_ctrl_c_exits_130() {
 
     let pid = nix::unistd::Pid::from_raw(child.id() as i32);
 
-    std::thread::sleep(Duration::from_millis(500));
+    wait_for_ready(&ready_file);
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send first SIGINT");
     std::thread::sleep(Duration::from_millis(200));
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send second SIGINT");
@@ -1613,11 +1631,13 @@ fn single_ctrl_c_continues_after_timeout() {
         "mock_ralph_quick.sh",
         "#!/bin/bash\ntrap '' INT\nsleep 3\nexit 0\n",
     );
+    let ready_file = mock_dir.path().join("sgf_ready");
 
     let child = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
         .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("SGF_READY_FILE", &ready_file)
         .env("PATH", &mock_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1626,7 +1646,7 @@ fn single_ctrl_c_continues_after_timeout() {
 
     let pid = nix::unistd::Pid::from_raw(child.id() as i32);
 
-    std::thread::sleep(Duration::from_millis(500));
+    wait_for_ready(&ready_file);
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send single SIGINT");
 
     let output = child.wait_with_output().expect("wait for sgf");
@@ -1647,11 +1667,13 @@ fn sigterm_exits_immediately() {
     let (_mock_pn_dir, mock_path) = setup_mock_pn();
     let mock_dir = TempDir::new().unwrap();
     let mock_ralph = create_slow_mock_ralph(mock_dir.path());
+    let ready_file = mock_dir.path().join("sgf_ready");
 
     let child = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
         .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("SGF_READY_FILE", &ready_file)
         .env("PATH", &mock_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1660,7 +1682,7 @@ fn sigterm_exits_immediately() {
 
     let pid = nix::unistd::Pid::from_raw(child.id() as i32);
 
-    std::thread::sleep(Duration::from_millis(500));
+    wait_for_ready(&ready_file);
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGTERM).expect("send SIGTERM");
 
     let output = child.wait_with_output().expect("wait for sgf");
@@ -1681,11 +1703,13 @@ fn confirmation_message_on_first_ctrl_c() {
     let (_mock_pn_dir, mock_path) = setup_mock_pn();
     let mock_dir = TempDir::new().unwrap();
     let mock_ralph = create_slow_mock_ralph(mock_dir.path());
+    let ready_file = mock_dir.path().join("sgf_ready");
 
     let child = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
         .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("SGF_READY_FILE", &ready_file)
         .env("PATH", &mock_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1694,7 +1718,7 @@ fn confirmation_message_on_first_ctrl_c() {
 
     let pid = nix::unistd::Pid::from_raw(child.id() as i32);
 
-    std::thread::sleep(Duration::from_millis(500));
+    wait_for_ready(&ready_file);
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send first SIGINT");
     std::thread::sleep(Duration::from_millis(200));
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send second SIGINT");
@@ -1717,6 +1741,7 @@ fn double_ctrl_d_exits_130() {
     let (_mock_pn_dir, mock_path) = setup_mock_pn();
     let mock_dir = TempDir::new().unwrap();
     let mock_ralph = create_slow_mock_ralph(mock_dir.path());
+    let ready_file = mock_dir.path().join("sgf_ready");
 
     // Closing a piped stdin causes continuous EOF (read returns 0), which
     // simulates a rapid double Ctrl+D press.
@@ -1725,6 +1750,7 @@ fn double_ctrl_d_exits_130() {
         .env("SGF_RALPH_BINARY", &mock_ralph)
         .env("SGF_SKIP_PREFLIGHT", "1")
         .env("SGF_MONITOR_STDIN", "1")
+        .env("SGF_READY_FILE", &ready_file)
         .env("PATH", &mock_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -1735,7 +1761,7 @@ fn double_ctrl_d_exits_130() {
     let stdin = child.stdin.take().expect("open stdin");
     let pid = nix::unistd::Pid::from_raw(child.id() as i32);
 
-    std::thread::sleep(Duration::from_millis(500));
+    wait_for_ready(&ready_file);
     drop(stdin);
 
     std::thread::sleep(Duration::from_millis(1000));
@@ -1777,12 +1803,14 @@ fn mixed_ctrl_c_then_ctrl_d_no_shutdown() {
         "mock_ralph_mixed.sh",
         "#!/bin/bash\ntrap '' INT\nfor i in $(seq 1 50); do sleep 0.1; done\nexit 0\n",
     );
+    let ready_file = mock_dir.path().join("sgf_ready");
 
     let mut child = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
         .env("SGF_SKIP_PREFLIGHT", "1")
         .env("SGF_MONITOR_STDIN", "1")
+        .env("SGF_READY_FILE", &ready_file)
         .env("PATH", &mock_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -1793,7 +1821,7 @@ fn mixed_ctrl_c_then_ctrl_d_no_shutdown() {
     let mut stdin = child.stdin.take().expect("open stdin");
     let pid = nix::unistd::Pid::from_raw(child.id() as i32);
 
-    std::thread::sleep(Duration::from_millis(500));
+    wait_for_ready(&ready_file);
 
     // Send Ctrl+C (SIGINT) — starts the Ctrl+C confirmation window.
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send SIGINT");
@@ -1974,6 +2002,8 @@ fn non_afk_stdin_eof_does_not_trigger_shutdown() {
         "#!/bin/bash\ntrap '' INT\nsleep 2\nexit 0\n",
     );
 
+    let ready_file = mock_dir.path().join("sgf_ready");
+
     // Non-AFK mode: monitor_stdin should be false, so closing stdin
     // should NOT cause shutdown.
     let mut child = sgf_cmd(tmp.path())
@@ -1981,6 +2011,7 @@ fn non_afk_stdin_eof_does_not_trigger_shutdown() {
         .env("SGF_RALPH_BINARY", &mock_ralph)
         .env("SGF_SKIP_PREFLIGHT", "1")
         .env("AGENT_CMD", "true")
+        .env("SGF_READY_FILE", &ready_file)
         .env("PATH", &mock_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -1990,7 +2021,7 @@ fn non_afk_stdin_eof_does_not_trigger_shutdown() {
 
     let stdin = child.stdin.take().expect("open stdin");
 
-    std::thread::sleep(Duration::from_millis(500));
+    wait_for_ready(&ready_file);
     drop(stdin); // Close stdin — would trigger Ctrl+D detection if monitor_stdin were true
 
     // Wait for the process to finish naturally
@@ -2014,12 +2045,15 @@ fn afk_monitor_stdin_eof_triggers_shutdown() {
     let mock_dir = TempDir::new().unwrap();
     let mock_ralph = create_slow_mock_ralph(mock_dir.path());
 
+    let ready_file = mock_dir.path().join("sgf_ready");
+
     // AFK mode with SGF_MONITOR_STDIN=1: closing piped stdin triggers EOF shutdown.
     let mut child = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
         .env("SGF_SKIP_PREFLIGHT", "1")
         .env("SGF_MONITOR_STDIN", "1")
+        .env("SGF_READY_FILE", &ready_file)
         .env("PATH", &mock_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -2030,7 +2064,7 @@ fn afk_monitor_stdin_eof_triggers_shutdown() {
     let stdin = child.stdin.take().expect("open stdin");
     let pid = nix::unistd::Pid::from_raw(child.id() as i32);
 
-    std::thread::sleep(Duration::from_millis(500));
+    wait_for_ready(&ready_file);
     drop(stdin); // EOF triggers double-Ctrl+D detection
 
     std::thread::sleep(Duration::from_millis(1000));
