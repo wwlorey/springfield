@@ -5,6 +5,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::loop_mgmt;
+use crate::style;
 
 pub(crate) fn project_port(root: &Path) -> u16 {
     use sha2::{Digest, Sha256};
@@ -34,7 +35,7 @@ pub fn pre_launch_recovery(root: &Path) -> io::Result<()> {
         loop_mgmt::remove_pid_file(root, loop_id);
     }
 
-    eprintln!("sgf: recovering from stale state...");
+    style::print_action("recovering from stale state...");
 
     let checkout = Command::new("git")
         .args(["checkout", "--", "."])
@@ -72,15 +73,15 @@ pub fn pre_launch_recovery(root: &Path) -> io::Result<()> {
         .status();
     match doctor {
         Ok(status) if !status.success() => {
-            eprintln!("sgf: warning: pn doctor --fix exited with {status}");
+            style::print_warning(&format!("pn doctor --fix exited with {status}"));
         }
         Err(e) => {
-            eprintln!("sgf: warning: pn doctor --fix failed: {e}");
+            style::print_warning(&format!("pn doctor --fix failed: {e}"));
         }
         _ => {}
     }
 
-    eprintln!("sgf: recovery complete");
+    style::print_success("recovery complete");
     Ok(())
 }
 
@@ -90,7 +91,7 @@ pub fn ensure_daemon(root: &Path) -> io::Result<()> {
     }
 
     let port = project_port(root);
-    eprintln!("sgf: starting pensa daemon on port {port}...");
+    style::print_action(&format!("starting pensa daemon on port {port}..."));
 
     Command::new("pn")
         .args([
@@ -113,7 +114,7 @@ pub fn ensure_daemon(root: &Path) -> io::Result<()> {
     while Instant::now() < deadline {
         thread::sleep(interval);
         if daemon_is_reachable(root) {
-            eprintln!("sgf: pensa daemon ready");
+            style::print_success("pensa daemon ready");
             return Ok(());
         }
         interval = (interval * 2).min(max_interval);
