@@ -16,6 +16,7 @@ const TEMPLATE_VERIFY: &str = include_str!("../templates/verify.md");
 const TEMPLATE_TEST_PLAN: &str = include_str!("../templates/test-plan.md");
 const TEMPLATE_TEST: &str = include_str!("../templates/test.md");
 const TEMPLATE_ISSUES: &str = include_str!("../templates/issues.md");
+const TEMPLATE_DOC: &str = include_str!("../templates/doc.md");
 const TEMPLATE_LOOM_SPECS_README: &str = include_str!("../templates/loom-specs-README.md");
 
 const SPECS_README_CONTENT: &str = "\
@@ -67,6 +68,10 @@ const TEMPLATE_FILES: &[TemplateFile] = &[
     TemplateFile {
         path: ".sgf/prompts/issues.md",
         content: TEMPLATE_ISSUES,
+    },
+    TemplateFile {
+        path: ".sgf/prompts/doc.md",
+        content: TEMPLATE_DOC,
     },
     TemplateFile {
         path: ".sgf/loom-specs-README.md",
