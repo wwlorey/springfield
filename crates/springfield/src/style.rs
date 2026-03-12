@@ -437,6 +437,20 @@ mod tests {
     }
 
     #[test]
+    fn strip_ansi_preserves_box_drawing_chars() {
+        assert_eq!(strip_ansi("╭─────╮"), "╭─────╮");
+        assert_eq!(strip_ansi("╰─────╯"), "╰─────╯");
+        assert_eq!(strip_ansi("│ text │"), "│ text │");
+        assert_eq!(strip_ansi("╭╮╰╯│─"), "╭╮╰╯│─");
+        // box-drawing chars wrapped in ANSI — only ANSI stripped, chars preserved
+        assert_eq!(strip_ansi("\x1b[2m╭─────╮\x1b[0m"), "╭─────╮");
+        assert_eq!(
+            strip_ansi("\x1b[2m│\x1b[0m\x1b[1;7m sgf \x1b[0m\x1b[2m│\x1b[0m"),
+            "│ sgf │"
+        );
+    }
+
+    #[test]
     fn strip_ansi_compound_codes() {
         assert_eq!(strip_ansi("\x1b[1;7m sgf \x1b[0m"), " sgf ");
         assert_eq!(strip_ansi("\x1b[1;31merror\x1b[0m"), "error");
