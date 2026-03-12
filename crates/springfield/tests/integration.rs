@@ -2439,6 +2439,14 @@ fn no_color_badge_falls_back_to_plain_prefix() {
         !stderr.contains("\x1b["),
         "NO_COLOR=1 should produce no ANSI escape codes, got stderr: {stderr}"
     );
+    assert!(
+        !stderr.contains("╭─────╮"),
+        "NO_COLOR=1 should not produce box top border, got stderr: {stderr}"
+    );
+    assert!(
+        !stderr.contains("╰─────╯"),
+        "NO_COLOR=1 should not produce box bottom border, got stderr: {stderr}"
+    );
 }
 
 #[test]
@@ -2468,8 +2476,16 @@ fn colored_output_contains_ansi_inverse_badge() {
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     assert!(
+        stderr.contains("╭─────╮"),
+        "colored output should contain box top border ╭─────╮, got stderr: {stderr}"
+    );
+    assert!(
         stderr.contains("\x1b[1;7m sgf \x1b[0m"),
-        "colored output should contain ANSI inverse badge sequence, got stderr: {stderr}"
+        "colored output should contain bold inverse sgf label on middle line, got stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("╰─────╯"),
+        "colored output should contain box bottom border ╰─────╯, got stderr: {stderr}"
     );
 }
 
