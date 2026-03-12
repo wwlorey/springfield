@@ -312,7 +312,7 @@ fn main() {
         }
         tee.writeln("");
 
-        let head_before = git_head();
+        let head_before = vcs_utils::git_head();
 
         if cli.afk {
             run_afk(&agent_cmd, &cli, is_file, &prompt_files, &controller, &tee);
@@ -650,35 +650,13 @@ fn run_afk(
     }
 }
 
-fn git_head() -> Option<String> {
-    Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-}
-
 fn auto_push_if_changed(cli: &Cli, head_before: &Option<String>, tee: &TeeWriter) {
     if !cli.auto_push {
         return;
     }
 
-    let head_after = git_head();
-
-    if let (Some(before), Some(after)) = (head_before, &head_after)
-        && before != after
-    {
-        tee.writeln(&style::dim("New commits detected, pushing..."));
-        match Command::new("git").arg("push").status() {
-            Ok(status) if !status.success() => {
-                warn!("git push failed, continuing");
-            }
-            Err(e) => {
-                warn!(error = %e, "git push failed");
-            }
-            _ => {}
-        }
+    if let Some(before) = head_before {
+        vcs_utils::auto_push_if_changed(before, |msg| tee.writeln(&style::dim(msg)));
     }
 }
 
