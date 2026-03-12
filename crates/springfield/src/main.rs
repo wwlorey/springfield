@@ -23,6 +23,13 @@ enum Commands {
         no_push: bool,
     },
 
+    /// Generate documentation (interactive)
+    Doc {
+        /// Disable auto-push after commits
+        #[arg(long)]
+        no_push: bool,
+    },
+
     /// Run build loop
     Build {
         /// Spec stem to build
@@ -137,6 +144,14 @@ fn main() {
                 iterations: 1,
             };
             run_loop("spec", None, &opts, None, true);
+        }
+        Commands::Doc { no_push } => {
+            let opts = LoopOpts {
+                afk: false,
+                no_push,
+                iterations: 1,
+            };
+            run_loop("doc", None, &opts, None, true);
         }
         Commands::Build { spec, opts } => {
             run_loop("build", spec.as_deref(), &opts, None, false);
