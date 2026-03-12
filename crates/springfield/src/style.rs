@@ -72,7 +72,7 @@ pub fn badge_mid() -> String {
     if no_color() {
         "sgf:".to_string()
     } else {
-        format!("{}\x1b[1;7m sgf \x1b[0m{}", dim("│"), dim("│"))
+        format!("{}\x1b[1m sgf \x1b[0m{}", dim("│"), dim("│"))
     }
 }
 
@@ -231,7 +231,7 @@ mod tests {
 
     #[test]
     fn wrap_compound_codes() {
-        assert_eq!(wrap("1;7", "sgf", false), "\x1b[1;7msgf\x1b[0m");
+        assert_eq!(wrap("1", "sgf", false), "\x1b[1msgf\x1b[0m");
         assert_eq!(wrap("1;31", "err", false), "\x1b[1;31merr\x1b[0m");
         assert_eq!(wrap("1;32", "ok", false), "\x1b[1;32mok\x1b[0m");
         assert_eq!(wrap("1;33", "warn", false), "\x1b[1;33mwarn\x1b[0m");
@@ -263,7 +263,7 @@ mod tests {
     #[test]
     fn badge_mid_colored() {
         let out = fmt_badge_mid(false);
-        assert!(out.contains("\x1b[1;7m sgf \x1b[0m"));
+        assert!(out.contains("\x1b[1m sgf \x1b[0m"));
         assert!(out.contains("\x1b[2m│\x1b[0m"));
     }
 
@@ -291,7 +291,7 @@ mod tests {
         let lines: Vec<&str> = out.lines().collect();
         assert_eq!(lines.len(), 3);
         assert_eq!(lines[0], fmt_badge_top(false));
-        assert!(lines[1].contains("\x1b[1;7m sgf \x1b[0m"));
+        assert!(lines[1].contains("\x1b[1m sgf \x1b[0m"));
         assert!(lines[1].contains("\x1b[1;37mlaunching\x1b[0m"));
         assert_eq!(lines[2], fmt_badge_bot(false));
     }
@@ -425,7 +425,7 @@ mod tests {
     fn strip_ansi_nested_styles() {
         let styled = format!(
             "{} {}",
-            wrap("1;7", " sgf ", false),
+            wrap("1", " sgf ", false),
             wrap("1;32", "done", false),
         );
         assert_eq!(strip_ansi(&styled), " sgf  done");
@@ -445,14 +445,14 @@ mod tests {
         // box-drawing chars wrapped in ANSI — only ANSI stripped, chars preserved
         assert_eq!(strip_ansi("\x1b[2m╭─────╮\x1b[0m"), "╭─────╮");
         assert_eq!(
-            strip_ansi("\x1b[2m│\x1b[0m\x1b[1;7m sgf \x1b[0m\x1b[2m│\x1b[0m"),
+            strip_ansi("\x1b[2m│\x1b[0m\x1b[1m sgf \x1b[0m\x1b[2m│\x1b[0m"),
             "│ sgf │"
         );
     }
 
     #[test]
     fn strip_ansi_compound_codes() {
-        assert_eq!(strip_ansi("\x1b[1;7m sgf \x1b[0m"), " sgf ");
+        assert_eq!(strip_ansi("\x1b[1m sgf \x1b[0m"), " sgf ");
         assert_eq!(strip_ansi("\x1b[1;31merror\x1b[0m"), "error");
     }
 
@@ -489,7 +489,7 @@ mod tests {
             "sgf:".to_string()
         } else {
             format!(
-                "{}\x1b[1;7m sgf \x1b[0m{}",
+                "{}\x1b[1m sgf \x1b[0m{}",
                 wrap("2", "│", false),
                 wrap("2", "│", false)
             )

@@ -2450,7 +2450,7 @@ fn no_color_badge_falls_back_to_plain_prefix() {
 }
 
 #[test]
-fn colored_output_contains_ansi_inverse_badge() {
+fn colored_output_contains_bold_badge() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
@@ -2480,8 +2480,8 @@ fn colored_output_contains_ansi_inverse_badge() {
         "colored output should contain box top border ╭─────╮, got stderr: {stderr}"
     );
     assert!(
-        stderr.contains("\x1b[1;7m sgf \x1b[0m"),
-        "colored output should contain bold inverse sgf label on middle line, got stderr: {stderr}"
+        stderr.contains("\x1b[1m sgf \x1b[0m"),
+        "colored output should contain bold sgf label on middle line, got stderr: {stderr}"
     );
     assert!(
         stderr.contains("╰─────╯"),

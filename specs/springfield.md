@@ -414,11 +414,11 @@ The `.sgf/logs/` directory is gitignored.
 
 ## Console Output
 
-sgf uses a rounded-box badge for all status output to stderr. Every message is wrapped in a 3-line box drawn with Unicode box-drawing characters (`╭╮╰╯│─`), echoing ralph's rounded-box aesthetic. The `sgf` label appears on the middle line in bold inverse. The box borders are dim. Message text sits to the right of the box on the middle line — its color conveys semantic state.
+sgf uses a rounded-box badge for all status output to stderr. Every message is wrapped in a 3-line box drawn with Unicode box-drawing characters (`╭╮╰╯│─`), echoing ralph's rounded-box aesthetic. The `sgf` label appears on the middle line in bold. The box borders are dim. Message text sits to the right of the box on the middle line — its color conveys semantic state.
 
 ### Visual Format
 
-Each message gets its own 3-line box. The box is always 7 characters wide (`╭─────╮`). The `sgf` label is centered inside on the middle line in bold inverse. The message text appears to the right of the closing `│` on the middle line.
+Each message gets its own 3-line box. The box is always 7 characters wide (`╭─────╮`). The `sgf` label is centered inside on the middle line in bold. The message text appears to the right of the closing `│` on the middle line.
 
 ```
 ╭─────╮
@@ -463,14 +463,14 @@ Each message gets its own 3-line box. The box is always 7 characters wide (`╭�
 | Error | Red | Fatal failures: ralph exited with error, pn export failed |
 | Detail | Dim (gray) | Supplementary info: stage, iterations, mode (below box, no badge) |
 
-The box borders (`╭─────╮`, `│`, `╰─────╯`) are always **dim**. The `sgf` text inside the box is always **bold inverse** (`\x1b[1;7m sgf \x1b[0m`) — black text on white background regardless of message state.
+The box borders (`╭─────╮`, `│`, `╰─────╯`) are always **dim**. The `sgf` text inside the box is always **bold** (`\x1b[1m sgf \x1b[0m`) — normal text color regardless of message state.
 
 ### Box Construction
 
 The badge box is 3 lines emitted to stderr:
 
 1. **Top**: `dim(╭─────╮)`
-2. **Middle**: `dim(│) bold_inverse( sgf ) dim(│)` + space + colored message
+2. **Middle**: `dim(│) bold( sgf ) dim(│)` + space + colored message
 3. **Bottom**: `dim(╰─────╯)` + optional detail text
 
 The box is stateless — each semantic output call (`print_action`, `print_success`, etc.) emits its own complete 3-line box. No buffering or grouping.
@@ -505,7 +505,7 @@ sgf: ralph exited with error [build-auth-20260312T143000]
 
 **Badge Box**:
 - `badge_top()` — returns the top border: `dim(╭─────╮)`
-- `badge_mid()` — returns the middle line badge: `dim(│) bold_inverse( sgf ) dim(│)`
+- `badge_mid()` — returns the middle line badge: `dim(│) bold( sgf ) dim(│)`
 - `badge_bot()` — returns the bottom border: `dim(╰─────╯)`
 
 **Semantic Output** (all write to stderr via 3-line box):
