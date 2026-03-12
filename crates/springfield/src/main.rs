@@ -120,7 +120,7 @@ fn run_loop(
     match springfield::orchestrate::run(&root, &config) {
         Ok(code) => std::process::exit(code),
         Err(e) => {
-            eprintln!("sgf {stage}: {e}");
+            springfield::style::print_error(&format!("{stage}: {e}"));
             std::process::exit(1);
         }
     }
@@ -133,7 +133,7 @@ fn main() {
         Commands::Init { force } => {
             let root = std::env::current_dir().expect("failed to get current directory");
             if let Err(e) = springfield::init::run(&root, force) {
-                eprintln!("sgf init: {e}");
+                springfield::style::print_error(&format!("init: {e}"));
                 std::process::exit(1);
             }
         }
@@ -176,12 +176,12 @@ fn main() {
             }
         },
         Commands::Status => {
-            println!("Not yet implemented");
+            springfield::style::print_warning("not yet implemented");
         }
         Commands::Logs { loop_id } => {
             let root = std::env::current_dir().expect("failed to get current directory");
             if let Err(e) = springfield::loop_mgmt::run_logs(&root, &loop_id) {
-                eprintln!("sgf logs: {e}");
+                springfield::style::print_error(&format!("logs: {e}"));
                 std::process::exit(1);
             }
         }

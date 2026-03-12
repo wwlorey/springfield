@@ -497,9 +497,9 @@ fn check_git_clean(root: &Path, paths: &[&str]) -> io::Result<Vec<String>> {
 }
 
 fn confirm_overwrite(files: &[&str]) -> io::Result<bool> {
-    eprintln!("The following files will be overwritten:");
+    crate::style::print_warning("the following files will be overwritten:");
     for f in files {
-        eprintln!("  {f}");
+        crate::style::print_detail(f);
     }
     eprint!("Overwrite {} files? [y/N] ", files.len());
     io::stderr().flush()?;
@@ -579,7 +579,7 @@ pub fn run(root: &Path, force: bool) -> io::Result<()> {
     merge_pre_commit_config(root)?;
     install_prek_hooks(root)?;
 
-    println!("sgf init: project scaffolded successfully");
+    crate::style::print_success("project scaffolded successfully");
     Ok(())
 }
 

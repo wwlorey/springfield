@@ -864,8 +864,8 @@ fn status_prints_placeholder() {
     let output = sgf_cmd(tmp.path()).arg("status").output().unwrap();
 
     assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Not yet implemented"));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("not yet implemented"));
 }
 
 #[test]
