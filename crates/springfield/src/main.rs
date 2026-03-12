@@ -23,7 +23,7 @@ enum Commands {
         no_push: bool,
     },
 
-    /// Generate documentation (interactive)
+    /// Triage pensa doctor results (interactive)
     Doc {
         /// Disable auto-push after commits
         #[arg(long)]
