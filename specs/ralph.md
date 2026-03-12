@@ -51,6 +51,7 @@ ralph/
 | `libc` (0.2) | `setsid()` in pre_exec hook to detach child from controlling terminal |
 | `tracing` (0.1) | Structured logging |
 | `tracing-subscriber` (0.3, fmt + env-filter) | Log output formatting, `RUST_LOG` env filter |
+| `vcs-utils` (workspace) | Shared VCS utilities — `git_head()`, `auto_push_if_changed()` (see [vcs-utils spec](vcs-utils.md)) |
 
 Dev dependencies for integration tests:
 
@@ -599,7 +600,7 @@ For each iteration `i` in `1..=iterations`:
 
 1. Remove any stale `.ralph-complete` sentinel
 2. Print iteration banner (includes loop ID if provided)
-3. Record `git rev-parse HEAD` as `head_before`
+3. Record `vcs_utils::git_head()` as `head_before`
 4. Execute agent via `$AGENT_CMD` (or `--command` override):
    - Interactive: start notification watcher thread, `.status()` with inherited stdio, stop watcher thread
    - AFK: `.spawn()` with piped stdout, read lines via reader thread + channel through `format_line()`
@@ -608,19 +609,13 @@ For each iteration `i` in `1..=iterations`:
 7. Print "Iteration N complete, continuing..."
 8. Sleep 2 seconds (interruptible, polled in 100ms increments)
 9. If interrupted: log warning, exit 130
-10. If `--auto-push` and HEAD changed: run `git push`
+10. If `--auto-push`: call `vcs_utils::auto_push_if_changed()`
 
 After loop: search for and delete sentinel files (depth <= 2), print max iterations banner, exit 2.
 
 ## Git Auto-Push
 
-After each iteration (when `--auto-push` is true):
-
-1. Compare `git rev-parse HEAD` before and after the iteration
-2. If HEAD changed, run `git push`
-3. If push fails, print warning to stderr and continue
-
-`git_head()` returns `Option<String>` — failures (not a git repo, etc.) silently return `None` and skip the push check.
+After each iteration (when `--auto-push` is true), ralph uses `vcs_utils::git_head()` and `vcs_utils::auto_push_if_changed()` from the shared [vcs-utils](vcs-utils.md) crate. See the vcs-utils spec for API details and behavior.
 
 ## Completion Detection
 

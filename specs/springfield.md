@@ -352,7 +352,7 @@ Interactive stages (`spec`, `issues log`) call `$AGENT_CMD` directly. No PID fil
 
 #### Auto-push after `sgf spec`
 
-`sgf spec` auto-pushes after the interactive Claude session exits, using the same HEAD-comparison logic as ralph's `auto_push_if_changed`: capture `git rev-parse HEAD` before the session, compare after, and `git push` if HEAD changed. Push failures are non-fatal (logged as warnings). Suppressed with `--no-push`.
+`sgf spec` auto-pushes after the interactive Claude session exits using `vcs_utils::auto_push_if_changed()` from the shared [vcs-utils](vcs-utils.md) crate: capture `vcs_utils::git_head()` before the session, then call `auto_push_if_changed()` after. Push failures are non-fatal (logged as warnings). Suppressed with `--no-push`.
 
 ### Exit Codes
 
