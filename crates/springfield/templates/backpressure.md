@@ -28,7 +28,7 @@ Some tests may be gated behind `#[ignore]` because they use expensive operations
 - **Build:** `pnpm run build`
 - **Unit tests:** `pnpm run test:unit`
 - **Unit test single file:** `pnpm run test:unit <path>` (e.g., `pnpm run test:unit src/components/Auth/LoginScreen.test.tsx`)
-- **Type check:** `pnpm run tsc --noEmit`
+- **Type check:** `pnpm run typecheck` (should be configured to run at least `pnpm run tsc --noEmit`)
 - **Lint:** `pnpm run lint`
 - **Lint fix:** `pnpm run lint:fix`
 - **Format:** `pnpm run format`
