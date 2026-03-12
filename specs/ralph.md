@@ -795,3 +795,4 @@ For `afk-session.ndjson`, the formatter should produce output like (ANSI styling
 
 - [springfield](springfield.md) — CLI entry point that orchestrates ralph
 - [pensa](pensa.md) — Agent persistent memory, used by the agent inside ralph iterations
+- [vcs-utils](vcs-utils.md) — Shared VCS utilities (git_head, auto_push_if_changed)

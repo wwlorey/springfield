@@ -6,3 +6,4 @@
 | [ralph](ralph.md) | `crates/ralph/` | Iterative Claude Code runner — invokes `$AGENT_CMD` directly |
 | [shutdown](shutdown.md) | `crates/shutdown/` | Shared graceful shutdown — double-press Ctrl+C/Ctrl+D detection |
 | [springfield](springfield.md) | `crates/springfield/` | CLI entry point — scaffolding, prompt delivery, loop orchestration |
+| [vcs-utils](vcs-utils.md) | `crates/vcs-utils/` | Shared VCS utilities — git HEAD detection, auto-push |
