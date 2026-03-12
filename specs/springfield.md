@@ -10,7 +10,7 @@ CLI entry point for Springfield. All developer interaction goes through this bin
 - **Loop orchestration**: Launch ralph with the correct flags, manage PID files, tee logs
 - **Recovery**: Pre-launch cleanup of dirty state from crashed iterations
 - **Daemon lifecycle**: Start the pensa daemon before launching loops
-- **Workflow commands**: `spec`, `build`, `verify`, `test-plan`, `test`, `issues log`
+- **Workflow commands**: `spec`, `build`, `verify`, `test-plan`, `test`, `issues log`, `doc`
 
 ---
 
@@ -24,6 +24,7 @@ sgf verify [-a] [--no-push] [-n N]        — run verification loop
 sgf test-plan [-a] [--no-push] [-n N]     — run test plan generation loop
 sgf test [spec] [-a] [--no-push] [-n N]   — run test execution loop
 sgf issues log                         — interactive session for logging bugs
+sgf doc [--no-push]                    — triage pensa doctor results (interactive)
 sgf status                             — show project state (future work)
 sgf logs <loop-id>                     — tail a running loop's output
 ```
@@ -56,7 +57,8 @@ Scaffolds a new project. Accepts `--force` to overwrite template and skeleton fi
     ├── verify.md
     ├── test-plan.md
     ├── test.md
-    └── issues.md
+    ├── issues.md
+    └── doc.md
 BACKPRESSURE.md                        (build/test/lint/format commands for the project)
 .claude/settings.json                  (deny rules for .sgf/** and .claude/**)
 .pre-commit-config.yaml                (prek hooks for pensa sync)
@@ -241,7 +243,8 @@ After `sgf init` and ongoing development, a project contains:
     ├── verify.md
     ├── test-plan.md
     ├── test.md
-    └── issues.md
+    ├── issues.md
+    └── doc.md
 BACKPRESSURE.md                (committed — build/test/lint/format commands)
 .pre-commit-config.yaml        (prek hooks for pensa sync)
 AGENTS.md                      (hand-authored operational guidance)
@@ -347,12 +350,13 @@ Run `pn ready --spec $SGF_SPEC --json`.
 | `test-plan` | ralph | Autonomous execution |
 | `test` | ralph | Autonomous execution |
 | `issues log` | `$AGENT_CMD` directly | Interactive interview; calls `$AGENT_CMD --verbose @{prompt_path}`, inheriting stdio |
+| `doc` | `$AGENT_CMD` directly | Interactive triage; calls `$AGENT_CMD --verbose @{prompt_path}`, inheriting stdio; auto-pushes after session if HEAD changed |
 
-Interactive stages (`spec`, `issues log`) call `$AGENT_CMD` directly. No PID file, no log tee, no loop ID. The wrapper (configured by the user) handles prompt file injection via `PROMPT_FILES`. Automated stages (`build`, `verify`, `test-plan`, `test`) go through ralph, which handles prompt file injection via `--append-system-prompt` with `study` instructions and invokes `$AGENT_CMD` directly on the host.
+Interactive stages (`spec`, `issues log`, `doc`) call `$AGENT_CMD` directly. No PID file, no log tee, no loop ID. The wrapper (configured by the user) handles prompt file injection via `PROMPT_FILES`. Automated stages (`build`, `verify`, `test-plan`, `test`) go through ralph, which handles prompt file injection via `--append-system-prompt` with `study` instructions and invokes `$AGENT_CMD` directly on the host.
 
-#### Auto-push after `sgf spec`
+#### Auto-push after `sgf spec` / `sgf doc`
 
-`sgf spec` auto-pushes after the interactive Claude session exits using `vcs_utils::auto_push_if_changed()` from the shared [vcs-utils](vcs-utils.md) crate: capture `vcs_utils::git_head()` before the session, then call `auto_push_if_changed()` after. Push failures are non-fatal (logged as warnings). Suppressed with `--no-push`.
+`sgf spec` and `sgf doc` auto-push after the interactive Claude session exits using `vcs_utils::auto_push_if_changed()` from the shared [vcs-utils](vcs-utils.md) crate: capture `vcs_utils::git_head()` before the session, then call `auto_push_if_changed()` after. Push failures are non-fatal (logged as warnings). Suppressed with `--no-push`.
 
 ### Exit Codes
 
@@ -563,7 +567,18 @@ Calls `$AGENT_CMD` directly (no ralph, no Docker) using `.sgf/prompts/issues.md`
 
 One bug per session. The developer runs `sgf issues log` again for additional bugs — fresh context each time prevents accumulation across unrelated issues.
 
-### 7. Inline Issue Logging
+### 7. Doc (`sgf doc`)
+
+Calls `$AGENT_CMD` directly (no ralph) using `.sgf/prompts/doc.md`. Runs `pn doctor --json` and triages the results:
+
+1. Run `pn doctor --json`
+2. For each reported issue, investigate whether it has been completed or is still valid
+3. Comment pertinent findings on affected issues
+4. Close any completed or invalid issues
+
+Auto-pushes after the session if HEAD changed (like `sgf spec`). Suppressed with `--no-push`.
+
+### 8. Inline Issue Logging
 
 Issues are also logged by agents during any stage via `pn create`. The build loop logs bugs it discovers during implementation. The verify loop logs spec gaps. The test loop logs test failures. `sgf issues log` is for developer-reported bugs; inline logging is for agent-discovered bugs.
 
@@ -581,6 +596,7 @@ Each workflow stage has a corresponding prompt template in `.sgf/prompts/`. Thes
 | `test-plan.md` | Generate test items from specs using pn |
 | `test.md` | Claim one pn test item, execute it, apply backpressure |
 | `issues.md` | Interactive bug reporting session |
+| `doc.md` | Interactive pensa doctor triage |
 
 The canonical prompt templates live in `.sgf/prompts/` — do not duplicate their contents here. See `crates/springfield/src/init.rs` for the default template text that `sgf init` writes.
 
