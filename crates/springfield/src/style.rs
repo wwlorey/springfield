@@ -1,0 +1,347 @@
+use std::sync::OnceLock;
+
+static NO_COLOR: OnceLock<bool> = OnceLock::new();
+
+pub fn no_color() -> bool {
+    *NO_COLOR.get_or_init(|| std::env::var("NO_COLOR").is_ok())
+}
+
+fn wrap(code: &str, s: &str, disabled: bool) -> String {
+    if disabled {
+        s.to_string()
+    } else {
+        format!("\x1b[{code}m{s}\x1b[0m")
+    }
+}
+
+pub fn bold(s: &str) -> String {
+    wrap("1", s, no_color())
+}
+
+pub fn dim(s: &str) -> String {
+    wrap("2", s, no_color())
+}
+
+pub fn green(s: &str) -> String {
+    wrap("32", s, no_color())
+}
+
+pub fn yellow(s: &str) -> String {
+    wrap("33", s, no_color())
+}
+
+pub fn red(s: &str) -> String {
+    wrap("31", s, no_color())
+}
+
+pub fn white(s: &str) -> String {
+    wrap("37", s, no_color())
+}
+
+pub fn strip_ansi(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let len = bytes.len();
+    let mut out = Vec::with_capacity(len);
+    let mut i = 0;
+    while i < len {
+        if bytes[i] == 0x1b && i + 1 < len && bytes[i + 1] == b'[' {
+            i += 2;
+            while i < len && (bytes[i].is_ascii_digit() || bytes[i] == b';') {
+                i += 1;
+            }
+            if i < len && bytes[i] == b'm' {
+                i += 1;
+            }
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    unsafe { String::from_utf8_unchecked(out) }
+}
+
+pub fn badge() -> String {
+    if no_color() {
+        "sgf:".to_string()
+    } else {
+        "\x1b[1;7m sgf \x1b[0m".to_string()
+    }
+}
+
+const DETAIL_INDENT: &str = "       ";
+const DETAIL_INDENT_NO_COLOR: &str = "     ";
+
+fn styled_line(msg: &str, color_code: &str) -> String {
+    if no_color() {
+        format!("{} {msg}", badge())
+    } else {
+        format!(" {} {}", badge(), wrap(color_code, msg, false))
+    }
+}
+
+pub fn action(msg: &str) -> String {
+    styled_line(msg, "1;37")
+}
+
+pub fn success(msg: &str) -> String {
+    styled_line(msg, "1;32")
+}
+
+pub fn warning(msg: &str) -> String {
+    styled_line(msg, "1;33")
+}
+
+pub fn error(msg: &str) -> String {
+    styled_line(msg, "1;31")
+}
+
+pub fn detail(msg: &str) -> String {
+    let indent = if no_color() {
+        DETAIL_INDENT_NO_COLOR
+    } else {
+        DETAIL_INDENT
+    };
+    let text = dim(msg);
+    format!("{indent}{text}")
+}
+
+pub fn print_action(msg: &str) {
+    eprintln!("{}", action(msg));
+}
+
+pub fn print_success(msg: &str) {
+    eprintln!("{}", success(msg));
+}
+
+pub fn print_warning(msg: &str) {
+    eprintln!("{}", warning(msg));
+}
+
+pub fn print_error(msg: &str) {
+    eprintln!("{}", error(msg));
+}
+
+pub fn print_detail(msg: &str) {
+    eprintln!("{}", detail(msg));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wrap_applies_ansi_code() {
+        assert_eq!(wrap("1", "hello", false), "\x1b[1mhello\x1b[0m");
+    }
+
+    #[test]
+    fn wrap_disabled_returns_plain() {
+        assert_eq!(wrap("1", "hello", true), "hello");
+    }
+
+    #[test]
+    fn wrap_empty_string() {
+        assert_eq!(wrap("1", "", false), "\x1b[1m\x1b[0m");
+        assert_eq!(wrap("1", "", true), "");
+    }
+
+    #[test]
+    fn wrap_all_color_codes() {
+        assert_eq!(wrap("2", "x", false), "\x1b[2mx\x1b[0m");
+        assert_eq!(wrap("31", "x", false), "\x1b[31mx\x1b[0m");
+        assert_eq!(wrap("32", "x", false), "\x1b[32mx\x1b[0m");
+        assert_eq!(wrap("33", "x", false), "\x1b[33mx\x1b[0m");
+        assert_eq!(wrap("37", "x", false), "\x1b[37mx\x1b[0m");
+    }
+
+    #[test]
+    fn wrap_compound_codes() {
+        assert_eq!(wrap("1;7", "sgf", false), "\x1b[1;7msgf\x1b[0m");
+        assert_eq!(wrap("1;31", "err", false), "\x1b[1;31merr\x1b[0m");
+        assert_eq!(wrap("1;32", "ok", false), "\x1b[1;32mok\x1b[0m");
+        assert_eq!(wrap("1;33", "warn", false), "\x1b[1;33mwarn\x1b[0m");
+        assert_eq!(wrap("1;37", "act", false), "\x1b[1;37mact\x1b[0m");
+    }
+
+    #[test]
+    fn wrap_multiline() {
+        assert_eq!(wrap("1", "a\nb", false), "\x1b[1ma\nb\x1b[0m");
+    }
+
+    #[test]
+    fn wrap_utf8() {
+        assert_eq!(wrap("31", "héllo", false), "\x1b[31mhéllo\x1b[0m");
+    }
+
+    #[test]
+    fn badge_colored() {
+        let b = badge_with_color(false);
+        assert_eq!(b, "\x1b[1;7m sgf \x1b[0m");
+    }
+
+    #[test]
+    fn badge_no_color() {
+        let b = badge_with_color(true);
+        assert_eq!(b, "sgf:");
+    }
+
+    #[test]
+    fn action_colored() {
+        let out = format_action("launching", false);
+        assert!(out.contains("\x1b[1;7m sgf \x1b[0m"));
+        assert!(out.contains("\x1b[1;37mlaunching\x1b[0m"));
+        assert!(out.starts_with(" "));
+    }
+
+    #[test]
+    fn action_no_color() {
+        let out = format_action("launching", true);
+        assert_eq!(out, "sgf: launching");
+    }
+
+    #[test]
+    fn success_colored() {
+        let out = format_success("done", false);
+        assert!(out.contains("\x1b[1;7m sgf \x1b[0m"));
+        assert!(out.contains("\x1b[1;32mdone\x1b[0m"));
+    }
+
+    #[test]
+    fn success_no_color() {
+        let out = format_success("done", true);
+        assert_eq!(out, "sgf: done");
+    }
+
+    #[test]
+    fn warning_colored() {
+        let out = format_warning("skipped", false);
+        assert!(out.contains("\x1b[1;7m sgf \x1b[0m"));
+        assert!(out.contains("\x1b[1;33mskipped\x1b[0m"));
+    }
+
+    #[test]
+    fn warning_no_color() {
+        let out = format_warning("skipped", true);
+        assert_eq!(out, "sgf: skipped");
+    }
+
+    #[test]
+    fn error_colored() {
+        let out = format_error("failed", false);
+        assert!(out.contains("\x1b[1;7m sgf \x1b[0m"));
+        assert!(out.contains("\x1b[1;31mfailed\x1b[0m"));
+    }
+
+    #[test]
+    fn error_no_color() {
+        let out = format_error("failed", true);
+        assert_eq!(out, "sgf: failed");
+    }
+
+    #[test]
+    fn detail_colored() {
+        let out = format_detail("stage: auth", false);
+        assert_eq!(out, format!("       \x1b[2mstage: auth\x1b[0m"));
+    }
+
+    #[test]
+    fn detail_no_color() {
+        let out = format_detail("stage: auth", true);
+        assert_eq!(out, "     stage: auth");
+    }
+
+    #[test]
+    fn strip_ansi_removes_codes() {
+        assert_eq!(strip_ansi("\x1b[1mhello\x1b[0m"), "hello");
+        assert_eq!(strip_ansi("\x1b[31mred\x1b[0m"), "red");
+        assert_eq!(strip_ansi("\x1b[2mdim\x1b[0m text"), "dim text");
+    }
+
+    #[test]
+    fn strip_ansi_no_codes() {
+        assert_eq!(strip_ansi("plain text"), "plain text");
+        assert_eq!(strip_ansi(""), "");
+    }
+
+    #[test]
+    fn strip_ansi_nested_styles() {
+        let styled = format!(
+            "{} {}",
+            wrap("1;7", " sgf ", false),
+            wrap("1;32", "done", false),
+        );
+        assert_eq!(strip_ansi(&styled), " sgf  done");
+    }
+
+    #[test]
+    fn strip_ansi_preserves_utf8() {
+        assert_eq!(strip_ansi("\x1b[1mhéllo\x1b[0m wörld"), "héllo wörld");
+    }
+
+    #[test]
+    fn strip_ansi_compound_codes() {
+        assert_eq!(strip_ansi("\x1b[1;7m sgf \x1b[0m"), " sgf ");
+        assert_eq!(strip_ansi("\x1b[1;31merror\x1b[0m"), "error");
+    }
+
+    #[test]
+    fn action_message_strips_clean() {
+        let out = format_action("test msg", false);
+        let stripped = strip_ansi(&out);
+        assert_eq!(stripped, "  sgf  test msg");
+    }
+
+    #[test]
+    fn detail_indent_aligns_with_message_text() {
+        let act = format_action("hello", false);
+        let det = format_detail("info", false);
+        let act_stripped = strip_ansi(&act);
+        let det_stripped = strip_ansi(&det);
+        let act_text_start = act_stripped.find("hello").unwrap();
+        let det_text_start = det_stripped.find("info").unwrap();
+        assert_eq!(act_text_start, det_text_start);
+    }
+
+    // Test helpers that bypass the global OnceLock for deterministic testing
+    fn badge_with_color(disabled: bool) -> String {
+        if disabled {
+            "sgf:".to_string()
+        } else {
+            "\x1b[1;7m sgf \x1b[0m".to_string()
+        }
+    }
+
+    fn format_styled(msg: &str, color_code: &str, disabled: bool) -> String {
+        if disabled {
+            format!("{} {msg}", badge_with_color(true))
+        } else {
+            format!(
+                " {} {}",
+                badge_with_color(false),
+                wrap(color_code, msg, false)
+            )
+        }
+    }
+
+    fn format_action(msg: &str, disabled: bool) -> String {
+        format_styled(msg, "1;37", disabled)
+    }
+
+    fn format_success(msg: &str, disabled: bool) -> String {
+        format_styled(msg, "1;32", disabled)
+    }
+
+    fn format_warning(msg: &str, disabled: bool) -> String {
+        format_styled(msg, "1;33", disabled)
+    }
+
+    fn format_error(msg: &str, disabled: bool) -> String {
+        format_styled(msg, "1;31", disabled)
+    }
+
+    fn format_detail(msg: &str, disabled: bool) -> String {
+        let indent = if disabled { "     " } else { "       " };
+        let text = wrap("2", msg, disabled);
+        format!("{indent}{text}")
+    }
+}
