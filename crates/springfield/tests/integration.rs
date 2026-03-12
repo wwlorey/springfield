@@ -1606,6 +1606,143 @@ fn doc_auto_pushes_after_session_with_new_commits() {
     );
 }
 
+#[test]
+fn doc_runs_interactive_via_agent_cmd() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    let mock_dir = TempDir::new().unwrap();
+    let args_file = mock_dir.path().join("agent_args.txt");
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        &format!(
+            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
+            args_file.display()
+        ),
+    );
+
+    let output = sgf_cmd(tmp.path())
+        .arg("doc")
+        .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
+        .env("PROMPT_FILES", "")
+        .env("PATH", &mock_path)
+        .env_remove("CLAUDECODE")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "sgf doc failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let args = fs::read_to_string(&args_file).unwrap();
+    assert!(args.contains("--verbose"), "should pass --verbose to agent");
+    assert!(args.contains("@"), "should pass prompt via @ prefix");
+    assert!(
+        args.contains(".sgf/prompts/doc.md"),
+        "should pass raw doc prompt path, got: {args}"
+    );
+}
+
+#[test]
+fn doc_no_push_suppresses_auto_push() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+    let bare = setup_bare_remote(tmp.path());
+
+    let head_before = bare_remote_head(bare.path());
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        &format!(
+            concat!(
+                "#!/bin/sh\n",
+                "echo 'agent was here' > \"{root}/agent_output.txt\"\n",
+                "cd \"{root}\"\n",
+                "git add .\n",
+                "git commit -m 'agent commit' --allow-empty\n",
+                "exit 0\n",
+            ),
+            root = tmp.path().display()
+        ),
+    );
+
+    let output = sgf_cmd(tmp.path())
+        .args(["doc", "--no-push"])
+        .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
+        .env("PROMPT_FILES", "")
+        .env("PATH", &mock_path)
+        .env_remove("CLAUDECODE")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "sgf doc --no-push failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let head_after = bare_remote_head(bare.path());
+    assert_eq!(
+        head_before, head_after,
+        "remote HEAD should NOT advance with --no-push"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("new commits detected"),
+        "should NOT attempt push with --no-push: {stderr}"
+    );
+}
+
+#[test]
+fn doc_no_push_when_head_unchanged() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+    let bare = setup_bare_remote(tmp.path());
+
+    let head_before = bare_remote_head(bare.path());
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_agent = create_mock_script(mock_dir.path(), "mock_agent.sh", "#!/bin/sh\nexit 0\n");
+
+    let output = sgf_cmd(tmp.path())
+        .arg("doc")
+        .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
+        .env("PROMPT_FILES", "")
+        .env("PATH", &mock_path)
+        .env_remove("CLAUDECODE")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "sgf doc (no-op agent) failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let head_after = bare_remote_head(bare.path());
+    assert_eq!(
+        head_before, head_after,
+        "remote HEAD should NOT advance when agent makes no commits"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("new commits detected"),
+        "should NOT attempt push when HEAD unchanged: {stderr}"
+    );
+}
+
 // ===========================================================================
 // Signal handling (shutdown controller integration)
 // ===========================================================================
