@@ -193,10 +193,12 @@ fn print_box_detail(msg: &str, color_code: &str, detail: &str) {
     if no_color() {
         eprintln!("sgf: {msg}");
         eprintln!("{DETAIL_INDENT_NO_COLOR}{detail}");
+        eprintln!();
     } else {
         eprintln!("{}", badge_top());
         eprintln!("{} {}", badge_mid(), wrap(color_code, msg, false));
         eprintln!("{} {}", badge_bot(), dim(detail));
+        eprintln!();
     }
 }
 
