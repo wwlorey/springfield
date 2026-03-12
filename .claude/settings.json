@@ -4,7 +4,11 @@
       "Edit .sgf/**",
       "Write .sgf/**",
       "Bash rm .sgf/**",
-      "Bash mv .sgf/**"
+      "Bash mv .sgf/**",
+      "Edit .claude/**",
+      "Write .claude/**",
+      "Bash rm .claude/**",
+      "Bash mv .claude/**"
     ]
   },
   "sandbox": {
