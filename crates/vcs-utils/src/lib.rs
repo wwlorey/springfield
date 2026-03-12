@@ -72,7 +72,9 @@ mod tests {
     fn auto_push_changed_head_emits_message() {
         let fake_old_head = "0000000000000000000000000000000000000000";
         let messages = RefCell::new(Vec::new());
-        auto_push_if_changed(fake_old_head, |msg| messages.borrow_mut().push(msg.to_string()));
+        auto_push_if_changed(fake_old_head, |msg| {
+            messages.borrow_mut().push(msg.to_string())
+        });
         let msgs = messages.borrow();
         assert!(!msgs.is_empty());
         assert_eq!(msgs[0], "New commits detected, pushing...");

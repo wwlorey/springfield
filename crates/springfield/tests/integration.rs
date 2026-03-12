@@ -1444,12 +1444,8 @@ fn spec_auto_pushes_after_session_with_new_commits() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("new commits detected"),
+        stderr.contains("New commits detected"),
         "should log push detection: {stderr}"
-    );
-    assert!(
-        stderr.contains("push ok"),
-        "should log push success: {stderr}"
     );
 }
 

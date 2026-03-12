@@ -1832,6 +1832,7 @@ dependencies = [
  "sha2",
  "shutdown",
  "tempfile",
+ "vcs-utils",
 ]
 
 [[package]]
