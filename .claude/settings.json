@@ -12,16 +12,12 @@
     ]
   },
   "sandbox": {
-    "allowUnsandboxedCommands": true,
-    "autoAllowBashIfSandboxed": true,
-    "enabled": true,
     "filesystem": {
       "allowWrite": [
         "~/.cargo"
       ]
     },
     "network": {
-      "allowLocalBinding": true,
       "allowedDomains": [
         "localhost",
         "github.com",
