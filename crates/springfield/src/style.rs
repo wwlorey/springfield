@@ -127,20 +127,24 @@ pub fn success(msg: &str) -> String {
     styled_line(msg, "1;32")
 }
 
+pub fn success_detail(msg: &str, detail: &str) -> String {
+    styled_line_detail(msg, "1;32", detail)
+}
+
 pub fn warning(msg: &str) -> String {
     styled_line(msg, "1;33")
+}
+
+pub fn warning_detail(msg: &str, detail: &str) -> String {
+    styled_line_detail(msg, "1;33", detail)
 }
 
 pub fn error(msg: &str) -> String {
     styled_line(msg, "1;31")
 }
 
-pub fn detail(msg: &str) -> String {
-    if no_color() {
-        format!("{DETAIL_INDENT_NO_COLOR}{msg}")
-    } else {
-        format!("{} {}", badge_bot(), dim(msg))
-    }
+pub fn error_detail(msg: &str, detail: &str) -> String {
+    styled_line_detail(msg, "1;31", detail)
 }
 
 pub fn print_action(msg: &str) {
@@ -155,16 +159,24 @@ pub fn print_success(msg: &str) {
     print_box(msg, "1;32");
 }
 
+pub fn print_success_detail(msg: &str, detail: &str) {
+    print_box_detail(msg, "1;32", detail);
+}
+
 pub fn print_warning(msg: &str) {
     print_box(msg, "1;33");
+}
+
+pub fn print_warning_detail(msg: &str, detail: &str) {
+    print_box_detail(msg, "1;33", detail);
 }
 
 pub fn print_error(msg: &str) {
     print_box(msg, "1;31");
 }
 
-pub fn print_detail(msg: &str) {
-    eprintln!("{}", detail(msg));
+pub fn print_error_detail(msg: &str, detail: &str) {
+    print_box_detail(msg, "1;31", detail);
 }
 
 fn print_box(msg: &str, color_code: &str) {
@@ -333,19 +345,6 @@ mod tests {
     }
 
     #[test]
-    fn detail_colored() {
-        let out = format_detail("stage: auth", false);
-        let expected = format!("{} \x1b[2mstage: auth\x1b[0m", fmt_badge_bot(false));
-        assert_eq!(out, expected);
-    }
-
-    #[test]
-    fn detail_no_color() {
-        let out = format_detail("stage: auth", true);
-        assert_eq!(out, "     stage: auth");
-    }
-
-    #[test]
     fn action_detail_colored() {
         let out = format_action_detail("launching", "stage: auth", false);
         let lines: Vec<&str> = out.lines().collect();
@@ -360,6 +359,53 @@ mod tests {
     fn action_detail_no_color() {
         let out = format_action_detail("launching", "stage: auth", true);
         assert_eq!(out, "sgf: launching\n     stage: auth");
+    }
+
+    #[test]
+    fn success_detail_colored() {
+        let out = format_success_detail("done", "elapsed: 3s", false);
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0], fmt_badge_top(false));
+        assert!(lines[1].contains("\x1b[1;32mdone\x1b[0m"));
+        assert!(lines[2].contains("╰─────╯"));
+        assert!(lines[2].contains("\x1b[2melapsed: 3s\x1b[0m"));
+    }
+
+    #[test]
+    fn success_detail_no_color() {
+        let out = format_success_detail("done", "elapsed: 3s", true);
+        assert_eq!(out, "sgf: done\n     elapsed: 3s");
+    }
+
+    #[test]
+    fn warning_detail_colored() {
+        let out = format_warning_detail("skipped", "reason: timeout", false);
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 3);
+        assert!(lines[1].contains("\x1b[1;33mskipped\x1b[0m"));
+        assert!(lines[2].contains("\x1b[2mreason: timeout\x1b[0m"));
+    }
+
+    #[test]
+    fn warning_detail_no_color() {
+        let out = format_warning_detail("skipped", "reason: timeout", true);
+        assert_eq!(out, "sgf: skipped\n     reason: timeout");
+    }
+
+    #[test]
+    fn error_detail_colored() {
+        let out = format_error_detail("failed", "exit code: 1", false);
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 3);
+        assert!(lines[1].contains("\x1b[1;31mfailed\x1b[0m"));
+        assert!(lines[2].contains("\x1b[2mexit code: 1\x1b[0m"));
+    }
+
+    #[test]
+    fn error_detail_no_color() {
+        let out = format_error_detail("failed", "exit code: 1", true);
+        assert_eq!(out, "sgf: failed\n     exit code: 1");
     }
 
     #[test]
@@ -406,12 +452,12 @@ mod tests {
 
     #[test]
     fn detail_indent_aligns_with_message_text() {
-        let act = format_action("hello", false);
-        let det = format_detail("info", false);
-        let mid_stripped = strip_ansi(act.lines().nth(1).unwrap());
-        let det_stripped = strip_ansi(&det);
+        let out = format_action_detail("hello", "info", false);
+        let lines: Vec<&str> = out.lines().collect();
+        let mid_stripped = strip_ansi(lines[1]);
+        let bot_stripped = strip_ansi(lines[2]);
         let msg_start = mid_stripped.chars().position(|c| c == 'h').unwrap();
-        let det_start = det_stripped.chars().position(|c| c == 'i').unwrap();
+        let det_start = bot_stripped.chars().position(|c| c == 'i').unwrap();
         assert_eq!(msg_start, det_start);
     }
 
@@ -493,11 +539,15 @@ mod tests {
         format_styled_detail(msg, "1;37", detail, disabled)
     }
 
-    fn format_detail(msg: &str, disabled: bool) -> String {
-        if disabled {
-            format!("     {msg}")
-        } else {
-            format!("{} {}", fmt_badge_bot(false), wrap("2", msg, false))
-        }
+    fn format_success_detail(msg: &str, detail: &str, disabled: bool) -> String {
+        format_styled_detail(msg, "1;32", detail, disabled)
+    }
+
+    fn format_warning_detail(msg: &str, detail: &str, disabled: bool) -> String {
+        format_styled_detail(msg, "1;33", detail, disabled)
+    }
+
+    fn format_error_detail(msg: &str, detail: &str, disabled: bool) -> String {
+        format_styled_detail(msg, "1;31", detail, disabled)
     }
 }
