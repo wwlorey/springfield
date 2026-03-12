@@ -9,6 +9,7 @@ use shutdown::{ShutdownConfig, ShutdownController, ShutdownStatus};
 use crate::loop_mgmt;
 use crate::prompt;
 use crate::recovery;
+use crate::style;
 
 pub struct LoopConfig {
     pub stage: String,
@@ -49,14 +50,14 @@ fn resolve_agent_cmd_from(val: Option<String>) -> io::Result<String> {
 fn export_pensa() {
     match Command::new("pn").arg("export").output() {
         Ok(out) if out.status.success() => {
-            eprintln!("sgf: pn export ok");
+            style::print_success("pn export ok");
         }
         Ok(out) => {
             let stderr = String::from_utf8_lossy(&out.stderr);
-            eprintln!("sgf: pn export failed: {}", stderr.trim());
+            style::print_error(&format!("pn export failed: {}", stderr.trim()));
         }
         Err(e) => {
-            eprintln!("sgf: pn export skipped (pn not found: {e})");
+            style::print_warning(&format!("pn export skipped (pn not found: {e})"));
         }
     }
 }
@@ -100,13 +101,13 @@ fn build_ralph_args(
     args
 }
 
-fn exit_message(code: i32) -> &'static str {
+fn print_exit_message(code: i32, loop_id: &str) {
     match code {
-        0 => "loop completed successfully",
-        1 => "ralph exited with error",
-        2 => "iterations exhausted — re-launch to continue or stop",
-        130 => "interrupted",
-        _ => "ralph exited with unexpected code",
+        0 => style::print_success(&format!("loop complete [{loop_id}]")),
+        1 => style::print_error(&format!("ralph exited with error [{loop_id}]")),
+        2 => style::print_warning(&format!("iterations exhausted [{loop_id}]")),
+        130 => style::print_warning(&format!("interrupted [{loop_id}]")),
+        _ => style::print_error(&format!("ralph exited with unexpected code [{loop_id}]")),
     }
 }
 
@@ -119,7 +120,8 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
             recovery::ensure_daemon(root)?;
         }
 
-        eprintln!("sgf: launching interactive session [{}]", config.stage);
+        style::print_action(&format!("launching interactive session [{}]", config.stage));
+        style::print_detail(&format!("stage: {}", config.stage));
 
         let head_before = if (config.stage == "spec" || config.stage == "doc") && !config.no_push {
             vcs_utils::git_head()
@@ -135,7 +137,13 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
         let exit_code = run_interactive_claude(&prompt_path, &controller)?;
 
         if let Some(ref before) = head_before {
-            vcs_utils::auto_push_if_changed(before, |msg| eprintln!("sgf: {msg}"));
+            vcs_utils::auto_push_if_changed(before, |msg| {
+                if msg.contains("failed") {
+                    style::print_warning(msg);
+                } else {
+                    style::print_action(msg);
+                }
+            });
         }
 
         return Ok(exit_code);
@@ -177,7 +185,18 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
         let _ = std::fs::write(&ready_path, "");
     }
 
-    eprintln!("sgf: launching ralph [{loop_id}]");
+    style::print_action(&format!("launching ralph [{loop_id}]"));
+    {
+        let mut parts = Vec::new();
+        if let Some(ref spec) = config.spec {
+            parts.push(format!("stage: {spec}"));
+        }
+        parts.push(format!("iterations: {}", config.iterations));
+        if config.afk {
+            parts.push("mode: afk".to_string());
+        }
+        style::print_detail(&parts.join(" · "));
+    }
 
     let exit_code = run_ralph(
         &binary,
@@ -189,8 +208,7 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
 
     loop_mgmt::remove_pid_file(root, &loop_id);
 
-    let msg = exit_message(exit_code);
-    eprintln!("sgf: {msg} [{loop_id}]");
+    print_exit_message(exit_code, &loop_id);
 
     Ok(exit_code)
 }
@@ -461,15 +479,12 @@ mod tests {
     }
 
     #[test]
-    fn exit_messages() {
-        assert_eq!(exit_message(0), "loop completed successfully");
-        assert_eq!(exit_message(1), "ralph exited with error");
-        assert_eq!(
-            exit_message(2),
-            "iterations exhausted — re-launch to continue or stop"
-        );
-        assert_eq!(exit_message(130), "interrupted");
-        assert_eq!(exit_message(42), "ralph exited with unexpected code");
+    fn exit_messages_all_codes() {
+        print_exit_message(0, "test-loop");
+        print_exit_message(1, "test-loop");
+        print_exit_message(2, "test-loop");
+        print_exit_message(130, "test-loop");
+        print_exit_message(42, "test-loop");
     }
 
     #[test]
