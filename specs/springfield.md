@@ -412,6 +412,116 @@ The `.sgf/logs/` directory is gitignored.
 
 ---
 
+## Console Output
+
+sgf uses an inverse-badge style for all status output to stderr. Every message is prefixed with an `sgf` badge rendered as black text on a white background (ANSI inverse). The badge is always the same color — message text color conveys semantic state.
+
+### Visual Format
+
+```
+  sgf  launching ralph [build-auth-20260312T143000]
+       stage: auth · iterations: 10 · mode: afk
+
+  sgf  recovering from stale state...
+  sgf  recovery complete
+
+  sgf  starting pensa daemon...
+  sgf  pensa daemon ready
+
+  sgf  pn export ok
+
+  sgf  launching ralph [build-auth-20260312T143000]
+       stage: auth · iterations: 30
+
+  sgf  pushing → origin/main...
+  sgf  loop complete [build-auth-20260312T143000]
+  sgf  ralph exited with error [build-auth-20260312T143000]
+  sgf  iterations exhausted [build-auth-20260312T143000]
+```
+
+### Color Scheme
+
+| State | Message Color | When |
+|-------|---------------|------|
+| Action | White | In-progress operations: launching, recovering, pushing, starting daemon |
+| Success | Green | Completed operations: recovery complete, daemon ready, pn export ok, loop complete, pushed |
+| Warning | Yellow | Non-fatal issues: pn export skipped, pn doctor failed, iterations exhausted |
+| Error | Red | Fatal failures: ralph exited with error, pn export failed |
+| Detail | Dim (gray) | Supplementary info: stage, iterations, mode (indented, no badge) |
+
+The badge itself is always `\x1b[1;7m sgf \x1b[0m` (bold inverse) — black text on white background regardless of message state.
+
+### Detail Lines
+
+Multi-context events include indented detail lines below the main message. Detail lines have no badge — they are indented to align with the message text (7 characters: 2-space margin + 3-char badge + 2-space gap) and rendered in dim gray.
+
+Detail lines appear for:
+- **Ralph launch**: `stage: <spec> · iterations: <n> · mode: <afk|interactive>`
+- **Interactive launch**: `stage: <stage>`
+
+### NO_COLOR Support
+
+When the `NO_COLOR` environment variable is set, all ANSI codes are suppressed. The badge falls back to plain `sgf:` prefix. Detail lines are indented with plain spaces. Message text has no color formatting.
+
+```
+sgf: launching ralph [build-auth-20260312T143000]
+     stage: auth · iterations: 30
+sgf: recovery complete
+sgf: ralph exited with error [build-auth-20260312T143000]
+```
+
+### style.rs Module
+
+`crates/springfield/src/style.rs` provides styling primitives and semantic output functions. Mirrors ralph's `style.rs` structure for ANSI primitives but adds sgf-specific badge and message functions.
+
+**ANSI Primitives** (same interface as ralph):
+- `bold(s)`, `dim(s)`, `green(s)`, `yellow(s)`, `red(s)`, `white(s)`
+- `no_color()` — checks `NO_COLOR` environment variable
+- `strip_ansi(s)` — removes ANSI escape sequences
+
+**Badge**:
+- `badge()` — returns the rendered `sgf` badge string (inverse when colors enabled, `sgf:` when not)
+
+**Semantic Output** (all write to stderr):
+- `action(msg)` — badge + bold white message
+- `success(msg)` — badge + bold green message
+- `warning(msg)` — badge + bold yellow message
+- `error(msg)` — badge + bold red message
+- `detail(msg)` — indented dim message, no badge
+
+### Auto-push Callback
+
+The `vcs_utils::auto_push_if_changed()` callback emits raw messages (e.g., `"New commits detected, pushing..."`, `"push failed (non-fatal): ..."`). The callback in `orchestrate.rs` wraps these with the appropriate styled output function — action for "pushing", warning for "push failed".
+
+### Message Catalog
+
+Every `eprintln!("sgf: ...")` and `println!(...)` call in the springfield crate is replaced with a styled output call.
+
+| Message | Style | Source |
+|---------|-------|--------|
+| recovering from stale state... | action | recovery.rs |
+| recovery complete | success | recovery.rs |
+| pn doctor --fix exited with {status} | warning | recovery.rs |
+| pn doctor --fix failed: {e} | warning | recovery.rs |
+| starting pensa daemon on port {port}... | action | recovery.rs |
+| pensa daemon ready | success | recovery.rs |
+| pn export ok | success | orchestrate.rs |
+| pn export failed: {err} | error | orchestrate.rs |
+| pn export skipped (pn not found: {e}) | warning | orchestrate.rs |
+| launching interactive session [{stage}] | action | orchestrate.rs |
+| launching ralph [{loop_id}] | action | orchestrate.rs |
+| loop complete [{loop_id}] | success | orchestrate.rs |
+| ralph exited with error [{loop_id}] | error | orchestrate.rs |
+| iterations exhausted [{loop_id}] | warning | orchestrate.rs |
+| interrupted [{loop_id}] | warning | orchestrate.rs |
+| ralph exited with unexpected code [{loop_id}] | error | orchestrate.rs |
+| New commits detected, pushing... | action | orchestrate.rs (auto-push callback) |
+| push failed (non-fatal): {err} | warning | orchestrate.rs (auto-push callback) |
+| project scaffolded successfully | success | init.rs |
+| {stage}: {e} | error | main.rs |
+
+---
+
 ## Recovery
 
 Ralph does not perform iteration-start cleanup. Recovery is `sgf`'s responsibility, executed before launching ralph.
