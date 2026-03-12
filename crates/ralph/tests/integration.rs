@@ -2050,15 +2050,15 @@ fn afk_tool_calls_have_ansi_colors() {
         "TodoWrite tool call should have bold cyan ANSI codes, got:\n{stdout}"
     );
 
-    // Tool call details should use cyan (36)
+    // Tool call details should use white (37)
     assert!(
-        stdout.contains("\x1b[36m"),
-        "tool call details should have cyan ANSI codes, got:\n{stdout}"
+        stdout.contains("\x1b[37m"),
+        "tool call details should have white ANSI codes, got:\n{stdout}"
     );
 }
 
 #[test]
-fn afk_agent_text_has_bold_cyan_ansi() {
+fn afk_agent_text_has_bold_white_ansi() {
     let dir = setup_test_dir();
     let mock = create_mock_script(&dir, "afk-session.ndjson");
 
@@ -2076,14 +2076,14 @@ fn afk_agent_text_has_bold_cyan_ansi() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    // Agent text lines should be wrapped in cyan+bold (\x1b[36m\x1b[1m...\x1b[0m\x1b[0m)
+    // Agent text lines should be wrapped in white+bold (\x1b[37m\x1b[1m...\x1b[0m\x1b[0m)
     assert!(
-        stdout.contains("\x1b[36m\x1b[1mI'll start by studying the required files"),
-        "agent text should have cyan+bold ANSI codes, got:\n{stdout}"
+        stdout.contains("\x1b[37m\x1b[1mI'll start by studying the required files"),
+        "agent text should have white+bold ANSI codes, got:\n{stdout}"
     );
     assert!(
-        stdout.contains("\x1b[36m\x1b[1mNow I can see the cleanup plan."),
-        "agent text should have cyan+bold ANSI codes, got:\n{stdout}"
+        stdout.contains("\x1b[37m\x1b[1mNow I can see the cleanup plan."),
+        "agent text should have white+bold ANSI codes, got:\n{stdout}"
     );
 }
 

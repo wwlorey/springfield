@@ -603,9 +603,11 @@ fn run_afk(
         match rx.recv_timeout(Duration::from_millis(100)) {
             Ok(Ok(line)) => match format::format_line(&line) {
                 format::FormattedOutput::Text(text) => {
+                    tee.write_ansi_line("");
                     for l in text.split('\n') {
-                        tee.write_ansi_line(&style::cyan(&style::bold(l)));
+                        tee.write_ansi_line(&style::white(&style::bold(l)));
                     }
+                    tee.write_ansi_line("");
                 }
                 format::FormattedOutput::ToolCalls(calls) => {
                     for call in &calls {
@@ -613,7 +615,7 @@ fn run_afk(
                             "  {} {}  {}",
                             style::dim("─"),
                             style::tool_name_style(&call.name),
-                            style::cyan(&call.detail),
+                            style::white(&call.detail),
                         ));
                     }
                 }
@@ -627,9 +629,11 @@ fn run_afk(
                     )));
                 }
                 format::FormattedOutput::Result(text) => {
+                    tee.write_ansi_line("");
                     for l in text.split('\n') {
-                        tee.write_ansi_line(&style::cyan(&style::bold(l)));
+                        tee.write_ansi_line(&style::white(&style::bold(l)));
                     }
+                    tee.write_ansi_line("");
                 }
                 format::FormattedOutput::Skip => {}
             },

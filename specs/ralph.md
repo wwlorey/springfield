@@ -413,7 +413,7 @@ struct Usage {
 
 ### ANSI Styling
 
-All AFK output uses ANSI escape codes for terminal styling with color differentiation. The `style` module provides helpers: `bold(s)`, `dim(s)`, `green(s)`, `yellow(s)`, `red(s)`, `blue(s)`, `magenta(s)`, `cyan(s)`. A `NO_COLOR` environment variable check disables all styling (per the [NO_COLOR convention](https://no-color.org/)), falling back to unstyled output. The `TeeWriter` strips ANSI codes before writing to the log file.
+All AFK output uses ANSI escape codes for terminal styling with color differentiation. The `style` module provides helpers: `bold(s)`, `dim(s)`, `green(s)`, `yellow(s)`, `red(s)`, `blue(s)`, `magenta(s)`, `cyan(s)`, `white(s)`. A `NO_COLOR` environment variable check disables all styling (per the [NO_COLOR convention](https://no-color.org/)), falling back to unstyled output. The `TeeWriter` strips ANSI codes before writing to the log file.
 
 #### Color Scheme
 
@@ -434,10 +434,10 @@ Tool names are bold + colored based on operation type:
 
 | Element | Style |
 |---------|-------|
-| Agent text (model reasoning) | Bold cyan |
+| Agent text (model reasoning) | Bold white, blank line before and after |
 | Tool separator `─` | Dim |
 | Tool name | Bold + category color (see above) |
-| Tool detail (path/command/pattern) | Cyan |
+| Tool detail (path/command/pattern) | White |
 | Tool results | Hidden (not displayed) |
 | Box borders (`╭╮│╰╯─`) | Dim |
 | Box title text | Bold |
@@ -497,7 +497,7 @@ When there is no loop ID: `╭─ Iteration 1 of 10 ─╮`. The iteration banne
 
 ### Text Block Formatting
 
-Text blocks are printed bold cyan, preserving Claude's reasoning output with original newlines. This visually distinguishes agent reasoning from tool output with a consistent color.
+Text blocks are printed bold white, preserving Claude's reasoning output with original newlines. A blank line is printed before and after each text block for visual separation. This visually distinguishes agent reasoning from tool output.
 
 ### Tool Call Formatting
 
@@ -509,7 +509,7 @@ Tool calls are formatted as styled one-liners:
   ─ Edit  src/main.rs
 ```
 
-The format is: 2-space indent, dim `─`, space, bold+colored tool name (color by category), 2 spaces, cyan detail.
+The format is: 2-space indent, dim `─`, space, bold+colored tool name (color by category), 2 spaces, white detail.
 
 | Tool | Detail shown |
 |------|-------------|
@@ -690,7 +690,7 @@ The `format_line()` function is a pure function returning `FormattedOutput`. Uni
 
 #### `style.rs`
 
-- `bold()`, `dim()`, `green()`, `yellow()`, `red()`, `blue()`, `magenta()`, `cyan()` produce correct ANSI sequences
+- `bold()`, `dim()`, `green()`, `yellow()`, `red()`, `blue()`, `magenta()`, `cyan()`, `white()` produce correct ANSI sequences
 - `tool_name_style(name)` returns the correct bold+color combo for each tool category
 - `NO_COLOR=1` disables all styling (returns input unchanged)
 
@@ -761,32 +761,32 @@ Fixtures are derived from real AFK output captured in [`ralph/tests/fixtures/ral
 For `afk-session.ndjson`, the formatter should produce output like (ANSI styling indicated in brackets, not literal):
 
 ```
-[bold][cyan]I'll start by studying the required files to understand the context and plan.[/cyan][/bold]
+[bold][white]I'll start by studying the required files to understand the context and plan.[/white][/bold]
 
-  [dim]─[/dim] [bold][blue]Read[/blue][/bold]  [cyan]specs/README.md[/cyan]
-  [dim]─[/dim] [bold][blue]Read[/blue][/bold]  [cyan]plans/cleanup/buddy-llm.md[/cyan]
+  [dim]─[/dim] [bold][blue]Read[/blue][/bold]  [white]specs/README.md[/white]
+  [dim]─[/dim] [bold][blue]Read[/blue][/bold]  [white]plans/cleanup/buddy-llm.md[/white]
 
-[bold][cyan]Now I can see the cleanup plan. Many items are checked off...[/cyan][/bold]
+[bold][white]Now I can see the cleanup plan. Many items are checked off...[/white][/bold]
 
-  [dim]─[/dim] [bold][cyan]TodoWrite[/cyan][/bold]  [cyan]3 items[/cyan]
+  [dim]─[/dim] [bold][cyan]TodoWrite[/cyan][/bold]  [white]3 items[/white]
 
-[bold][cyan]Let me read the relevant files in parallel...[/cyan][/bold]
+[bold][white]Let me read the relevant files in parallel...[/white][/bold]
 
-  [dim]─[/dim] [bold][blue]Read[/blue][/bold]  [cyan]specs/tokenizer-embedding.md[/cyan]
-  [dim]─[/dim] [bold][blue]Read[/blue][/bold]  [cyan]crates/buddy-llm/src/inference.rs 1:80[/cyan]
-  [dim]─[/dim] [bold][blue]Read[/blue][/bold]  [cyan]specs/buddy-llm.md[/cyan]
+  [dim]─[/dim] [bold][blue]Read[/blue][/bold]  [white]specs/tokenizer-embedding.md[/white]
+  [dim]─[/dim] [bold][blue]Read[/blue][/bold]  [white]crates/buddy-llm/src/inference.rs 1:80[/white]
+  [dim]─[/dim] [bold][blue]Read[/blue][/bold]  [white]specs/buddy-llm.md[/white]
 
-[bold][cyan]Now I have full context...[/cyan][/bold]
+[bold][white]Now I have full context...[/white][/bold]
 
-  [dim]─[/dim] [bold][magenta]Edit[/magenta][/bold]  [cyan]specs/tokenizer-embedding.md[/cyan]
+  [dim]─[/dim] [bold][magenta]Edit[/magenta][/bold]  [white]specs/tokenizer-embedding.md[/white]
 
-  [dim]─[/dim] [bold][yellow]Bash[/yellow][/bold]  [cyan]git diff specs/tokenizer-embedding.md plans/cleanup/buddy-llm.md[/cyan]
+  [dim]─[/dim] [bold][yellow]Bash[/yellow][/bold]  [white]git diff specs/tokenizer-embedding.md plans/cleanup/buddy-llm.md[/white]
 
-  [dim]─[/dim] [bold][yellow]Bash[/yellow][/bold]  [cyan]cargo test -p ralph[/cyan]
+  [dim]─[/dim] [bold][yellow]Bash[/yellow][/bold]  [white]cargo test -p ralph[/white]
 
-  [dim]─[/dim] [bold][yellow]Bash[/yellow][/bold]  [cyan]git add ... && git commit ...[/cyan]
+  [dim]─[/dim] [bold][yellow]Bash[/yellow][/bold]  [white]git add ... && git commit ...[/white]
 
-[bold][cyan]Done. Updated `specs/tokenizer-embedding.md`.[/cyan][/bold]
+[bold][white]Done. Updated `specs/tokenizer-embedding.md`.[/white][/bold]
 
   [dim]Input: 12,450 tokens · Output: 1,230 tokens[/dim]
 ```

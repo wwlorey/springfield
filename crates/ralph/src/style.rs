@@ -50,6 +50,10 @@ pub fn cyan(s: &str) -> String {
     wrap("36", s, no_color())
 }
 
+pub fn white(s: &str) -> String {
+    wrap("37", s, no_color())
+}
+
 pub fn tool_name_style(name: &str) -> String {
     let disabled = no_color();
     match name {
@@ -127,6 +131,11 @@ mod tests {
     }
 
     #[test]
+    fn white_styled() {
+        assert_eq!(wrap("37", "hello", false), "\x1b[37mhello\x1b[0m");
+    }
+
+    #[test]
     fn tool_name_style_read_bold_blue() {
         assert_eq!(wrap("1;34", "Read", false), "\x1b[1;34mRead\x1b[0m");
         for name in &["Read", "Glob", "Grep"] {
@@ -178,6 +187,7 @@ mod tests {
         assert_eq!(wrap("34", "hello", true), "hello");
         assert_eq!(wrap("35", "hello", true), "hello");
         assert_eq!(wrap("36", "hello", true), "hello");
+        assert_eq!(wrap("37", "hello", true), "hello");
     }
 
     #[test]
