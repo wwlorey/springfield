@@ -2400,3 +2400,275 @@ fn non_afk_stdin_passthrough_to_mock_ralph() {
         "non-AFK ralph should receive stdin passthrough and echo it, got stdout: {stdout}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Styled console output integration tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn no_color_badge_falls_back_to_plain_prefix() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 0\n");
+
+    let output = sgf_cmd(tmp.path())
+        .args(["build", "auth", "-a"])
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("AGENT_CMD", "true")
+        .env("PATH", &mock_path)
+        .env("NO_COLOR", "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("spawn sgf");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        stderr.contains("sgf:"),
+        "NO_COLOR=1 should produce plain 'sgf:' prefix, got stderr: {stderr}"
+    );
+    assert!(
+        !stderr.contains("\x1b["),
+        "NO_COLOR=1 should produce no ANSI escape codes, got stderr: {stderr}"
+    );
+}
+
+#[test]
+fn colored_output_contains_ansi_inverse_badge() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 0\n");
+
+    let output = sgf_cmd(tmp.path())
+        .args(["build", "auth", "-a"])
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("AGENT_CMD", "true")
+        .env("PATH", &mock_path)
+        .env_remove("NO_COLOR")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("spawn sgf");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        stderr.contains("\x1b[1;7m sgf \x1b[0m"),
+        "colored output should contain ANSI inverse badge sequence, got stderr: {stderr}"
+    );
+}
+
+#[test]
+fn exit_0_uses_success_styling() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 0\n");
+
+    let output = sgf_cmd(tmp.path())
+        .args(["build", "auth", "-a"])
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("AGENT_CMD", "true")
+        .env("PATH", &mock_path)
+        .env_remove("NO_COLOR")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("spawn sgf");
+
+    assert!(output.status.success());
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        stderr.contains("loop complete"),
+        "exit 0 should print 'loop complete' message, got stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("\x1b[1;32m"),
+        "exit 0 should use green (success) styling, got stderr: {stderr}"
+    );
+}
+
+#[test]
+fn exit_1_uses_error_styling() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 1\n");
+
+    let output = sgf_cmd(tmp.path())
+        .args(["build", "auth", "-a"])
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("AGENT_CMD", "true")
+        .env("PATH", &mock_path)
+        .env_remove("NO_COLOR")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("spawn sgf");
+
+    assert_eq!(output.status.code(), Some(1));
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        stderr.contains("ralph exited with error"),
+        "exit 1 should print error message, got stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("\x1b[1;31m"),
+        "exit 1 should use red (error) styling, got stderr: {stderr}"
+    );
+}
+
+#[test]
+fn exit_2_uses_warning_styling() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 2\n");
+
+    let output = sgf_cmd(tmp.path())
+        .args(["build", "-a"])
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("AGENT_CMD", "true")
+        .env("PATH", &mock_path)
+        .env_remove("NO_COLOR")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("spawn sgf");
+
+    assert_eq!(output.status.code(), Some(2));
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        stderr.contains("iterations exhausted"),
+        "exit 2 should print 'iterations exhausted' message, got stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("\x1b[1;33m"),
+        "exit 2 should use yellow (warning) styling, got stderr: {stderr}"
+    );
+}
+
+#[test]
+fn no_color_exit_messages_use_plain_prefix() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    let mock_dir = TempDir::new().unwrap();
+
+    // Test exit 0 (success) with NO_COLOR
+    let mock_ralph_0 =
+        create_mock_script(mock_dir.path(), "mock_ralph_0.sh", "#!/bin/sh\nexit 0\n");
+
+    let output = sgf_cmd(tmp.path())
+        .args(["build", "auth", "-a"])
+        .env("SGF_RALPH_BINARY", &mock_ralph_0)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("AGENT_CMD", "true")
+        .env("PATH", &mock_path)
+        .env("NO_COLOR", "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("spawn sgf");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        stderr.contains("sgf: loop complete"),
+        "NO_COLOR exit 0 should use 'sgf:' prefix with success message, got stderr: {stderr}"
+    );
+    assert!(
+        !stderr.contains("\x1b["),
+        "NO_COLOR exit 0 should have no ANSI codes, got stderr: {stderr}"
+    );
+
+    // Test exit 1 (error) with NO_COLOR
+    let mock_ralph_1 =
+        create_mock_script(mock_dir.path(), "mock_ralph_1.sh", "#!/bin/sh\nexit 1\n");
+
+    let output = sgf_cmd(tmp.path())
+        .args(["build", "auth", "-a"])
+        .env("SGF_RALPH_BINARY", &mock_ralph_1)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("AGENT_CMD", "true")
+        .env("PATH", &mock_path)
+        .env("NO_COLOR", "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("spawn sgf");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        stderr.contains("sgf: ralph exited with error"),
+        "NO_COLOR exit 1 should use 'sgf:' prefix with error message, got stderr: {stderr}"
+    );
+
+    // Test exit 2 (warning) with NO_COLOR
+    let mock_ralph_2 =
+        create_mock_script(mock_dir.path(), "mock_ralph_2.sh", "#!/bin/sh\nexit 2\n");
+
+    let output = sgf_cmd(tmp.path())
+        .args(["build", "auth", "-a"])
+        .env("SGF_RALPH_BINARY", &mock_ralph_2)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("AGENT_CMD", "true")
+        .env("PATH", &mock_path)
+        .env("NO_COLOR", "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("spawn sgf");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        stderr.contains("sgf: iterations exhausted"),
+        "NO_COLOR exit 2 should use 'sgf:' prefix with warning message, got stderr: {stderr}"
+    );
+}
