@@ -302,20 +302,16 @@ fn init_sandbox_config_scaffolded() {
         "sandbox.autoAllowBashIfSandboxed"
     );
     assert_eq!(
-        doc["sandbox"]["allowUnsandboxedCommands"], true,
-        "sandbox.allowUnsandboxedCommands"
-    );
-    assert_eq!(
         doc["sandbox"]["network"]["allowLocalBinding"], true,
         "sandbox.network.allowLocalBinding"
     );
-
-    let allow_write = doc["sandbox"]["filesystem"]["allowWrite"]
-        .as_array()
-        .expect("allowWrite should be an array");
     assert!(
-        allow_write.contains(&serde_json::json!("~/.cargo")),
-        "allowWrite should include ~/.cargo"
+        doc["sandbox"]["filesystem"].is_null(),
+        "sandbox.filesystem should not be scaffolded"
+    );
+    assert!(
+        doc["sandbox"]["allowUnsandboxedCommands"].is_null(),
+        "sandbox.allowUnsandboxedCommands should not be scaffolded"
     );
 
     let domains = doc["sandbox"]["network"]["allowedDomains"]
@@ -343,17 +339,6 @@ fn init_sandbox_no_duplicates_on_rerun() {
     let doc2: serde_json::Value = serde_json::from_str(&second).unwrap();
 
     assert_eq!(
-        doc1["sandbox"]["filesystem"]["allowWrite"]
-            .as_array()
-            .unwrap()
-            .len(),
-        doc2["sandbox"]["filesystem"]["allowWrite"]
-            .as_array()
-            .unwrap()
-            .len(),
-        "allowWrite duplicated on rerun"
-    );
-    assert_eq!(
         doc1["sandbox"]["network"]["allowedDomains"]
             .as_array()
             .unwrap()
@@ -376,7 +361,6 @@ fn init_sandbox_preserves_custom_config() {
         r#"{
   "sandbox": {
     "enabled": false,
-    "filesystem": { "allowWrite": ["~/.npm"] },
     "network": { "allowedDomains": ["custom.example.com"], "allowLocalBinding": false }
   }
 }"#,
@@ -396,19 +380,6 @@ fn init_sandbox_preserves_custom_config() {
     assert_eq!(
         doc["sandbox"]["network"]["allowLocalBinding"], false,
         "existing allowLocalBinding=false should be preserved"
-    );
-
-    // Custom array entries should be preserved
-    let allow_write = doc["sandbox"]["filesystem"]["allowWrite"]
-        .as_array()
-        .unwrap();
-    assert!(
-        allow_write.contains(&serde_json::json!("~/.npm")),
-        "custom allowWrite entry lost"
-    );
-    assert!(
-        allow_write.contains(&serde_json::json!("~/.cargo")),
-        "default allowWrite entry not added"
     );
 
     let domains = doc["sandbox"]["network"]["allowedDomains"]

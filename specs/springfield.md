@@ -89,12 +89,6 @@ specs/
   "sandbox": {
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
-    "allowUnsandboxedCommands": true,
-    "filesystem": {
-      "allowWrite": [
-        "~/.cargo"
-      ]
-    },
     "network": {
       "allowedDomains": [
         "localhost",
@@ -109,7 +103,7 @@ specs/
 }
 ```
 
-If `.claude/settings.json` already exists, `sgf init` merges both deny rules and sandbox settings into the existing file without duplicating entries or removing existing rules. Array fields (`permissions.deny`, `sandbox.filesystem.allowWrite`, `sandbox.network.allowedDomains`) are merged additively — existing entries are preserved, new entries are appended if not already present. Scalar fields (`sandbox.enabled`, `sandbox.autoAllowBashIfSandboxed`, etc.) are set only if not already present in the file.
+If `.claude/settings.json` already exists, `sgf init` merges both deny rules and sandbox settings into the existing file without duplicating entries or removing existing rules. Array fields (`permissions.deny`, `sandbox.network.allowedDomains`) are merged additively — existing entries are preserved, new entries are appended if not already present. Scalar fields (`sandbox.enabled`, `sandbox.autoAllowBashIfSandboxed`, `sandbox.network.allowLocalBinding`) are set only if not already present in the file.
 
 #### Sandbox configuration
 
@@ -119,16 +113,14 @@ Claude Code's native sandbox provides OS-level filesystem and network isolation 
 |---------|-------|-----------|
 | `sandbox.enabled` | `true` | OS-level enforcement for all sessions |
 | `sandbox.autoAllowBashIfSandboxed` | `true` | Bash commands auto-approved within sandbox bounds, reducing prompt fatigue |
-| `sandbox.allowUnsandboxedCommands` | `true` | Interactive sessions can escape sandbox with user approval when needed |
-| `sandbox.filesystem.allowWrite` | `["~/.cargo"]` | Cargo needs to download and cache crate dependencies |
 | `sandbox.network.allowedDomains` | `["localhost", "github.com", "*.githubusercontent.com", "crates.io", "*.crates.io"]` | `localhost` for pensa daemon access; GitHub for git operations; crates.io for cargo |
 | `sandbox.network.allowLocalBinding` | `true` | Allows test servers (e.g., `cargo test`) to bind localhost ports |
 
 **Automated stages (ralph):** Ralph overrides `sandbox.allowUnsandboxedCommands` to `false` via `--settings`, preventing the agent from escaping the sandbox. Combined with `--dangerously-skip-permissions`, this means automated agents operate freely within sandbox bounds but cannot break out.
 
-**Interactive stages:** Use project settings as-is. The sandbox is active but `allowUnsandboxedCommands: true` means the developer can approve out-of-sandbox commands when needed (e.g., reading files from a sibling repo via bash).
+**Interactive stages:** Use project settings as-is. The sandbox is active; `allowUnsandboxedCommands` is left to the developer's global settings.
 
-**Extending for other stacks:** The default domains cover Rust development. Developers add domains for their stack (e.g., `registry.npmjs.org`, `registry.yarnpkg.com` for Node; `pypi.org` for Python) by editing `.claude/settings.json`. Additional filesystem write paths (e.g., `~/.npm`, `~/.cache`) follow the same pattern.
+**Extending for other stacks:** The default domains cover Rust development. Developers add domains for their stack (e.g., `registry.npmjs.org`, `registry.yarnpkg.com` for Node; `pypi.org` for Python) by editing `.claude/settings.json`. Additional filesystem write paths (e.g., `~/.npm`, `~/.cache`) follow the same pattern via global settings.
 
 ### Prek hooks
 
