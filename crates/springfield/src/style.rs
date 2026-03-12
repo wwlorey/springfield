@@ -60,27 +60,68 @@ pub fn strip_ansi(s: &str) -> String {
     unsafe { String::from_utf8_unchecked(out) }
 }
 
-pub fn badge() -> String {
+pub fn badge_top() -> String {
     if no_color() {
-        "sgf:".to_string()
+        String::new()
     } else {
-        "\x1b[1;7m sgf \x1b[0m".to_string()
+        dim("╭─────╮")
     }
 }
 
-const DETAIL_INDENT: &str = "       ";
+pub fn badge_mid() -> String {
+    if no_color() {
+        "sgf:".to_string()
+    } else {
+        format!("{}\x1b[1;7m sgf \x1b[0m{}", dim("│"), dim("│"))
+    }
+}
+
+pub fn badge_bot() -> String {
+    if no_color() {
+        String::new()
+    } else {
+        dim("╰─────╯")
+    }
+}
+
+const DETAIL_INDENT: &str = "        ";
 const DETAIL_INDENT_NO_COLOR: &str = "     ";
 
 fn styled_line(msg: &str, color_code: &str) -> String {
     if no_color() {
-        format!("{} {msg}", badge())
+        format!("sgf: {msg}")
     } else {
-        format!(" {} {}", badge(), wrap(color_code, msg, false))
+        format!(
+            "{}\n{} {}\n{}",
+            badge_top(),
+            badge_mid(),
+            wrap(color_code, msg, false),
+            badge_bot()
+        )
+    }
+}
+
+fn styled_line_detail(msg: &str, color_code: &str, detail: &str) -> String {
+    if no_color() {
+        format!("sgf: {msg}\n{DETAIL_INDENT_NO_COLOR}{detail}")
+    } else {
+        format!(
+            "{}\n{} {}\n{} {}",
+            badge_top(),
+            badge_mid(),
+            wrap(color_code, msg, false),
+            badge_bot(),
+            dim(detail)
+        )
     }
 }
 
 pub fn action(msg: &str) -> String {
     styled_line(msg, "1;37")
+}
+
+pub fn action_detail(msg: &str, detail: &str) -> String {
+    styled_line_detail(msg, "1;37", detail)
 }
 
 pub fn success(msg: &str) -> String {
@@ -107,6 +148,10 @@ pub fn detail(msg: &str) -> String {
 
 pub fn print_action(msg: &str) {
     eprintln!("{}", action(msg));
+}
+
+pub fn print_action_detail(msg: &str, detail: &str) {
+    eprintln!("{}", action_detail(msg, detail));
 }
 
 pub fn print_success(msg: &str) {
@@ -174,23 +219,51 @@ mod tests {
     }
 
     #[test]
-    fn badge_colored() {
-        let b = badge_with_color(false);
-        assert_eq!(b, "\x1b[1;7m sgf \x1b[0m");
+    fn badge_top_colored() {
+        let out = fmt_badge_top(false);
+        assert_eq!(out, "\x1b[2m╭─────╮\x1b[0m");
     }
 
     #[test]
-    fn badge_no_color() {
-        let b = badge_with_color(true);
-        assert_eq!(b, "sgf:");
+    fn badge_top_no_color() {
+        let out = fmt_badge_top(true);
+        assert_eq!(out, "");
+    }
+
+    #[test]
+    fn badge_mid_colored() {
+        let out = fmt_badge_mid(false);
+        assert!(out.contains("\x1b[1;7m sgf \x1b[0m"));
+        assert!(out.contains("\x1b[2m│\x1b[0m"));
+    }
+
+    #[test]
+    fn badge_mid_no_color() {
+        let out = fmt_badge_mid(true);
+        assert_eq!(out, "sgf:");
+    }
+
+    #[test]
+    fn badge_bot_colored() {
+        let out = fmt_badge_bot(false);
+        assert_eq!(out, "\x1b[2m╰─────╯\x1b[0m");
+    }
+
+    #[test]
+    fn badge_bot_no_color() {
+        let out = fmt_badge_bot(true);
+        assert_eq!(out, "");
     }
 
     #[test]
     fn action_colored() {
         let out = format_action("launching", false);
-        assert!(out.contains("\x1b[1;7m sgf \x1b[0m"));
-        assert!(out.contains("\x1b[1;37mlaunching\x1b[0m"));
-        assert!(out.starts_with(" "));
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0], fmt_badge_top(false));
+        assert!(lines[1].contains("\x1b[1;7m sgf \x1b[0m"));
+        assert!(lines[1].contains("\x1b[1;37mlaunching\x1b[0m"));
+        assert_eq!(lines[2], fmt_badge_bot(false));
     }
 
     #[test]
@@ -202,8 +275,9 @@ mod tests {
     #[test]
     fn success_colored() {
         let out = format_success("done", false);
-        assert!(out.contains("\x1b[1;7m sgf \x1b[0m"));
-        assert!(out.contains("\x1b[1;32mdone\x1b[0m"));
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 3);
+        assert!(lines[1].contains("\x1b[1;32mdone\x1b[0m"));
     }
 
     #[test]
@@ -215,8 +289,9 @@ mod tests {
     #[test]
     fn warning_colored() {
         let out = format_warning("skipped", false);
-        assert!(out.contains("\x1b[1;7m sgf \x1b[0m"));
-        assert!(out.contains("\x1b[1;33mskipped\x1b[0m"));
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 3);
+        assert!(lines[1].contains("\x1b[1;33mskipped\x1b[0m"));
     }
 
     #[test]
@@ -228,8 +303,9 @@ mod tests {
     #[test]
     fn error_colored() {
         let out = format_error("failed", false);
-        assert!(out.contains("\x1b[1;7m sgf \x1b[0m"));
-        assert!(out.contains("\x1b[1;31mfailed\x1b[0m"));
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 3);
+        assert!(lines[1].contains("\x1b[1;31mfailed\x1b[0m"));
     }
 
     #[test]
@@ -241,13 +317,30 @@ mod tests {
     #[test]
     fn detail_colored() {
         let out = format_detail("stage: auth", false);
-        assert_eq!(out, format!("       \x1b[2mstage: auth\x1b[0m"));
+        assert_eq!(out, format!("        \x1b[2mstage: auth\x1b[0m"));
     }
 
     #[test]
     fn detail_no_color() {
         let out = format_detail("stage: auth", true);
         assert_eq!(out, "     stage: auth");
+    }
+
+    #[test]
+    fn action_detail_colored() {
+        let out = format_action_detail("launching", "stage: auth", false);
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0], fmt_badge_top(false));
+        assert!(lines[1].contains("\x1b[1;37mlaunching\x1b[0m"));
+        assert!(lines[2].contains("╰─────╯"));
+        assert!(lines[2].contains("\x1b[2mstage: auth\x1b[0m"));
+    }
+
+    #[test]
+    fn action_detail_no_color() {
+        let out = format_action_detail("launching", "stage: auth", true);
+        assert_eq!(out, "sgf: launching\n     stage: auth");
     }
 
     #[test]
@@ -285,40 +378,78 @@ mod tests {
     }
 
     #[test]
-    fn action_message_strips_clean() {
+    fn action_mid_line_strips_clean() {
         let out = format_action("test msg", false);
-        let stripped = strip_ansi(&out);
-        assert_eq!(stripped, "  sgf  test msg");
+        let mid = out.lines().nth(1).unwrap();
+        let stripped = strip_ansi(mid);
+        assert_eq!(stripped, "│ sgf │ test msg");
     }
 
     #[test]
     fn detail_indent_aligns_with_message_text() {
         let act = format_action("hello", false);
         let det = format_detail("info", false);
-        let act_stripped = strip_ansi(&act);
+        let mid_stripped = strip_ansi(act.lines().nth(1).unwrap());
         let det_stripped = strip_ansi(&det);
-        let act_text_start = act_stripped.find("hello").unwrap();
-        let det_text_start = det_stripped.find("info").unwrap();
-        assert_eq!(act_text_start, det_text_start);
+        let msg_start = mid_stripped.chars().position(|c| c == 'h').unwrap();
+        let det_start = det_stripped.chars().position(|c| c == 'i').unwrap();
+        assert_eq!(msg_start, det_start);
     }
 
     // Test helpers that bypass the global OnceLock for deterministic testing
-    fn badge_with_color(disabled: bool) -> String {
+    fn fmt_badge_top(disabled: bool) -> String {
+        if disabled {
+            String::new()
+        } else {
+            wrap("2", "╭─────╮", false)
+        }
+    }
+
+    fn fmt_badge_mid(disabled: bool) -> String {
         if disabled {
             "sgf:".to_string()
         } else {
-            "\x1b[1;7m sgf \x1b[0m".to_string()
+            format!(
+                "{}\x1b[1;7m sgf \x1b[0m{}",
+                wrap("2", "│", false),
+                wrap("2", "│", false)
+            )
+        }
+    }
+
+    fn fmt_badge_bot(disabled: bool) -> String {
+        if disabled {
+            String::new()
+        } else {
+            wrap("2", "╰─────╯", false)
         }
     }
 
     fn format_styled(msg: &str, color_code: &str, disabled: bool) -> String {
         if disabled {
-            format!("{} {msg}", badge_with_color(true))
+            format!("sgf: {msg}")
         } else {
             format!(
-                " {} {}",
-                badge_with_color(false),
-                wrap(color_code, msg, false)
+                "{}\n{} {}\n{}",
+                fmt_badge_top(false),
+                fmt_badge_mid(false),
+                wrap(color_code, msg, false),
+                fmt_badge_bot(false)
+            )
+        }
+    }
+
+    fn format_styled_detail(msg: &str, color_code: &str, detail: &str, disabled: bool) -> String {
+        if disabled {
+            format!("sgf: {msg}\n     {detail}")
+        } else {
+            format!(
+                "{}\n{} {}\n{} {}",
+                fmt_badge_top(false),
+                fmt_badge_mid(false),
+                wrap(color_code, msg, false),
+                fmt_badge_bot(false),
+                wrap("2", detail, false)
             )
         }
     }
@@ -339,8 +470,12 @@ mod tests {
         format_styled(msg, "1;31", disabled)
     }
 
+    fn format_action_detail(msg: &str, detail: &str, disabled: bool) -> String {
+        format_styled_detail(msg, "1;37", detail, disabled)
+    }
+
     fn format_detail(msg: &str, disabled: bool) -> String {
-        let indent = if disabled { "     " } else { "       " };
+        let indent = if disabled { "     " } else { "        " };
         let text = wrap("2", msg, disabled);
         format!("{indent}{text}")
     }

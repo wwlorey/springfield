@@ -120,8 +120,10 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
             recovery::ensure_daemon(root)?;
         }
 
-        style::print_action(&format!("launching interactive session [{}]", config.stage));
-        style::print_detail(&format!("stage: {}", config.stage));
+        style::print_action_detail(
+            &format!("launching interactive session [{}]", config.stage),
+            &format!("stage: {}", config.stage),
+        );
 
         let head_before = if (config.stage == "spec" || config.stage == "doc") && !config.no_push {
             vcs_utils::git_head()
@@ -185,7 +187,6 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
         let _ = std::fs::write(&ready_path, "");
     }
 
-    style::print_action(&format!("launching ralph [{loop_id}]"));
     {
         let mut parts = Vec::new();
         if let Some(ref spec) = config.spec {
@@ -195,7 +196,7 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
         if config.afk {
             parts.push("mode: afk".to_string());
         }
-        style::print_detail(&parts.join(" · "));
+        style::print_action_detail(&format!("launching ralph [{loop_id}]"), &parts.join(" · "));
     }
 
     let exit_code = run_ralph(
