@@ -84,7 +84,6 @@ pub fn badge_bot() -> String {
     }
 }
 
-const DETAIL_INDENT: &str = "        ";
 const DETAIL_INDENT_NO_COLOR: &str = "     ";
 
 fn styled_line(msg: &str, color_code: &str) -> String {
@@ -137,37 +136,56 @@ pub fn error(msg: &str) -> String {
 }
 
 pub fn detail(msg: &str) -> String {
-    let indent = if no_color() {
-        DETAIL_INDENT_NO_COLOR
+    if no_color() {
+        format!("{DETAIL_INDENT_NO_COLOR}{msg}")
     } else {
-        DETAIL_INDENT
-    };
-    let text = dim(msg);
-    format!("{indent}{text}")
+        format!("{} {}", badge_bot(), dim(msg))
+    }
 }
 
 pub fn print_action(msg: &str) {
-    eprintln!("{}", action(msg));
+    print_box(msg, "1;37");
 }
 
 pub fn print_action_detail(msg: &str, detail: &str) {
-    eprintln!("{}", action_detail(msg, detail));
+    print_box_detail(msg, "1;37", detail);
 }
 
 pub fn print_success(msg: &str) {
-    eprintln!("{}", success(msg));
+    print_box(msg, "1;32");
 }
 
 pub fn print_warning(msg: &str) {
-    eprintln!("{}", warning(msg));
+    print_box(msg, "1;33");
 }
 
 pub fn print_error(msg: &str) {
-    eprintln!("{}", error(msg));
+    print_box(msg, "1;31");
 }
 
 pub fn print_detail(msg: &str) {
     eprintln!("{}", detail(msg));
+}
+
+fn print_box(msg: &str, color_code: &str) {
+    if no_color() {
+        eprintln!("sgf: {msg}");
+    } else {
+        eprintln!("{}", badge_top());
+        eprintln!("{} {}", badge_mid(), wrap(color_code, msg, false));
+        eprintln!("{}", badge_bot());
+    }
+}
+
+fn print_box_detail(msg: &str, color_code: &str, detail: &str) {
+    if no_color() {
+        eprintln!("sgf: {msg}");
+        eprintln!("{DETAIL_INDENT_NO_COLOR}{detail}");
+    } else {
+        eprintln!("{}", badge_top());
+        eprintln!("{} {}", badge_mid(), wrap(color_code, msg, false));
+        eprintln!("{} {}", badge_bot(), dim(detail));
+    }
 }
 
 #[cfg(test)]
@@ -317,7 +335,8 @@ mod tests {
     #[test]
     fn detail_colored() {
         let out = format_detail("stage: auth", false);
-        assert_eq!(out, format!("        \x1b[2mstage: auth\x1b[0m"));
+        let expected = format!("{} \x1b[2mstage: auth\x1b[0m", fmt_badge_bot(false));
+        assert_eq!(out, expected);
     }
 
     #[test]
@@ -475,8 +494,10 @@ mod tests {
     }
 
     fn format_detail(msg: &str, disabled: bool) -> String {
-        let indent = if disabled { "     " } else { "        " };
-        let text = wrap("2", msg, disabled);
-        format!("{indent}{text}")
+        if disabled {
+            format!("     {msg}")
+        } else {
+            format!("{} {}", fmt_badge_bot(false), wrap("2", msg, false))
+        }
     }
 }

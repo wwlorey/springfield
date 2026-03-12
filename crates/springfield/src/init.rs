@@ -497,10 +497,8 @@ fn check_git_clean(root: &Path, paths: &[&str]) -> io::Result<Vec<String>> {
 }
 
 fn confirm_overwrite(files: &[&str]) -> io::Result<bool> {
-    crate::style::print_warning("the following files will be overwritten:");
-    for f in files {
-        crate::style::print_detail(f);
-    }
+    let file_list = files.join(", ");
+    crate::style::print_warning(&format!("overwriting: {file_list}"));
     eprint!("Overwrite {} files? [y/N] ", files.len());
     io::stderr().flush()?;
 
