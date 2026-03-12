@@ -414,29 +414,43 @@ The `.sgf/logs/` directory is gitignored.
 
 ## Console Output
 
-sgf uses an inverse-badge style for all status output to stderr. Every message is prefixed with an `sgf` badge rendered as black text on a white background (ANSI inverse). The badge is always the same color — message text color conveys semantic state.
+sgf uses a rounded-box badge for all status output to stderr. Every message is wrapped in a 3-line box drawn with Unicode box-drawing characters (`╭╮╰╯│─`), echoing ralph's rounded-box aesthetic. The `sgf` label appears on the middle line in bold inverse. The box borders are dim. Message text sits to the right of the box on the middle line — its color conveys semantic state.
 
 ### Visual Format
 
+Each message gets its own 3-line box. The box is always 7 characters wide (`╭─────╮`). The `sgf` label is centered inside on the middle line in bold inverse. The message text appears to the right of the closing `│` on the middle line.
+
 ```
-  sgf  launching ralph [build-auth-20260312T143000]
-       stage: auth · iterations: 10 · mode: afk
-
-  sgf  recovering from stale state...
-  sgf  recovery complete
-
-  sgf  starting pensa daemon...
-  sgf  pensa daemon ready
-
-  sgf  pn export ok
-
-  sgf  launching ralph [build-auth-20260312T143000]
-       stage: auth · iterations: 30
-
-  sgf  pushing → origin/main...
-  sgf  loop complete [build-auth-20260312T143000]
-  sgf  ralph exited with error [build-auth-20260312T143000]
-  sgf  iterations exhausted [build-auth-20260312T143000]
+╭─────╮
+│ sgf │ launching ralph [build-auth-20260312T143000]
+╰─────╯ stage: auth · iterations: 10 · mode: afk
+╭─────╮
+│ sgf │ recovering from stale state...
+╰─────╯
+╭─────╮
+│ sgf │ recovery complete
+╰─────╯
+╭─────╮
+│ sgf │ starting pensa daemon...
+╰─────╯
+╭─────╮
+│ sgf │ pensa daemon ready
+╰─────╯
+╭─────╮
+│ sgf │ pn export ok
+╰─────╯
+╭─────╮
+│ sgf │ pushing → origin/main...
+╰─────╯
+╭─────╮
+│ sgf │ loop complete [build-auth-20260312T143000]
+╰─────╯
+╭─────╮
+│ sgf │ ralph exited with error [build-auth-20260312T143000]
+╰─────╯
+╭─────╮
+│ sgf │ iterations exhausted [build-auth-20260312T143000]
+╰─────╯
 ```
 
 ### Color Scheme
@@ -447,13 +461,23 @@ sgf uses an inverse-badge style for all status output to stderr. Every message i
 | Success | Green | Completed operations: recovery complete, daemon ready, pn export ok, loop complete, pushed |
 | Warning | Yellow | Non-fatal issues: pn export skipped, pn doctor failed, iterations exhausted |
 | Error | Red | Fatal failures: ralph exited with error, pn export failed |
-| Detail | Dim (gray) | Supplementary info: stage, iterations, mode (indented, no badge) |
+| Detail | Dim (gray) | Supplementary info: stage, iterations, mode (below box, no badge) |
 
-The badge itself is always `\x1b[1;7m sgf \x1b[0m` (bold inverse) — black text on white background regardless of message state.
+The box borders (`╭─────╮`, `│`, `╰─────╯`) are always **dim**. The `sgf` text inside the box is always **bold inverse** (`\x1b[1;7m sgf \x1b[0m`) — black text on white background regardless of message state.
+
+### Box Construction
+
+The badge box is 3 lines emitted to stderr:
+
+1. **Top**: `dim(╭─────╮)`
+2. **Middle**: `dim(│) bold_inverse( sgf ) dim(│)` + space + colored message
+3. **Bottom**: `dim(╰─────╯)` + optional detail text
+
+The box is stateless — each semantic output call (`print_action`, `print_success`, etc.) emits its own complete 3-line box. No buffering or grouping.
 
 ### Detail Lines
 
-Multi-context events include indented detail lines below the main message. Detail lines have no badge — they are indented to align with the message text (7 characters: 2-space margin + 3-char badge + 2-space gap) and rendered in dim gray.
+Detail lines appear on the bottom line of the box, to the right of `╰─────╯`, aligned with the message text on the middle line (8 characters: 7-char box width + 1-space gap). They are rendered in dim gray.
 
 Detail lines appear for:
 - **Ralph launch**: `stage: <spec> · iterations: <n> · mode: <afk|interactive>`
@@ -461,7 +485,7 @@ Detail lines appear for:
 
 ### NO_COLOR Support
 
-When the `NO_COLOR` environment variable is set, all ANSI codes are suppressed. The badge falls back to plain `sgf:` prefix. Detail lines are indented with plain spaces. Message text has no color formatting.
+When the `NO_COLOR` environment variable is set, all ANSI codes and box-drawing characters are suppressed. The badge falls back to plain `sgf:` prefix. Detail lines are indented with plain spaces. Message text has no color formatting.
 
 ```
 sgf: launching ralph [build-auth-20260312T143000]
@@ -472,22 +496,24 @@ sgf: ralph exited with error [build-auth-20260312T143000]
 
 ### style.rs Module
 
-`crates/springfield/src/style.rs` provides styling primitives and semantic output functions. Mirrors ralph's `style.rs` structure for ANSI primitives but adds sgf-specific badge and message functions.
+`crates/springfield/src/style.rs` provides styling primitives and semantic output functions. Mirrors ralph's `style.rs` structure for ANSI primitives but adds sgf-specific badge box and message functions.
 
 **ANSI Primitives** (same interface as ralph):
 - `bold(s)`, `dim(s)`, `green(s)`, `yellow(s)`, `red(s)`, `white(s)`
 - `no_color()` — checks `NO_COLOR` environment variable
 - `strip_ansi(s)` — removes ANSI escape sequences
 
-**Badge**:
-- `badge()` — returns the rendered `sgf` badge string (inverse when colors enabled, `sgf:` when not)
+**Badge Box**:
+- `badge_top()` — returns the top border: `dim(╭─────╮)`
+- `badge_mid()` — returns the middle line badge: `dim(│) bold_inverse( sgf ) dim(│)`
+- `badge_bot()` — returns the bottom border: `dim(╰─────╯)`
 
-**Semantic Output** (all write to stderr):
-- `action(msg)` — badge + bold white message
-- `success(msg)` — badge + bold green message
-- `warning(msg)` — badge + bold yellow message
-- `error(msg)` — badge + bold red message
-- `detail(msg)` — indented dim message, no badge
+**Semantic Output** (all write to stderr via 3-line box):
+- `action(msg)` — box + bold white message
+- `success(msg)` — box + bold green message
+- `warning(msg)` — box + bold yellow message
+- `error(msg)` — box + bold red message
+- `detail(msg)` — indented dim message, no box (appended to bottom line of preceding box)
 
 ### Auto-push Callback
 
