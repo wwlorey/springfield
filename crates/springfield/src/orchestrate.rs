@@ -121,7 +121,7 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
 
         eprintln!("sgf: launching interactive session [{}]", config.stage);
 
-        let head_before = if config.stage == "spec" && !config.no_push {
+        let head_before = if (config.stage == "spec" || config.stage == "doc") && !config.no_push {
             vcs_utils::git_head()
         } else {
             None

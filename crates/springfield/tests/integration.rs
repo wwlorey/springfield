@@ -1548,6 +1548,65 @@ fn spec_no_push_when_head_unchanged() {
 }
 
 // ===========================================================================
+// sgf doc auto-push after interactive session
+// ===========================================================================
+
+#[test]
+fn doc_auto_pushes_after_session_with_new_commits() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+    let bare = setup_bare_remote(tmp.path());
+
+    let head_before = bare_remote_head(bare.path());
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        &format!(
+            concat!(
+                "#!/bin/sh\n",
+                "echo 'agent was here' > \"{root}/agent_output.txt\"\n",
+                "cd \"{root}\"\n",
+                "git add .\n",
+                "git commit -m 'agent commit' --allow-empty\n",
+                "exit 0\n",
+            ),
+            root = tmp.path().display()
+        ),
+    );
+
+    let output = sgf_cmd(tmp.path())
+        .arg("doc")
+        .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
+        .env("PROMPT_FILES", "")
+        .env("PATH", &mock_path)
+        .env_remove("CLAUDECODE")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "sgf doc failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let head_after = bare_remote_head(bare.path());
+    assert_ne!(
+        head_before, head_after,
+        "remote HEAD should have advanced after auto-push"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("New commits detected"),
+        "should log push detection: {stderr}"
+    );
+}
+
+// ===========================================================================
 // Signal handling (shutdown controller integration)
 // ===========================================================================
 
