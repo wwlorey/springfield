@@ -1,3 +1,4 @@
+pub mod config;
 pub mod init;
 pub mod loop_mgmt;
 pub mod orchestrate;
