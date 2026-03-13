@@ -2043,6 +2043,104 @@ fn mixed_ctrl_c_then_ctrl_d_no_shutdown() {
     );
 }
 
+#[test]
+fn double_ctrl_c_kills_entire_process_tree() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+    let mock_dir = TempDir::new().unwrap();
+    let grandchild_pid_file = mock_dir.path().join("grandchild.pid");
+    let ready_file = mock_dir.path().join("sgf_ready");
+
+    // Mock ralph that spawns a long-running grandchild, writes the grandchild's
+    // PID to a file, then sleeps. The grandchild sleeps forever — if it's still
+    // alive after sgf exits, the process tree was NOT fully killed.
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph_tree.sh",
+        &format!(
+            concat!(
+                "#!/bin/bash\n",
+                "trap '' INT\n",
+                "sleep 3600 &\n",
+                "echo $! > \"{}\"\n",
+                "for i in $(seq 1 500); do sleep 0.1; done\n",
+                "exit 2\n",
+            ),
+            grandchild_pid_file.display()
+        ),
+    );
+
+    let child = sgf_cmd(tmp.path())
+        .args(["build", "auth", "-a"])
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("SGF_READY_FILE", &ready_file)
+        .env("PATH", &mock_path)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn sgf");
+
+    let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+
+    wait_for_ready(&ready_file);
+
+    // Wait for the grandchild PID file to be written.
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while !grandchild_pid_file.exists() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "grandchild PID file was not created within 5s"
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    }
+
+    let grandchild_pid_str = fs::read_to_string(&grandchild_pid_file)
+        .expect("read grandchild PID file")
+        .trim()
+        .to_string();
+    let grandchild_pid: i32 = grandchild_pid_str
+        .parse()
+        .unwrap_or_else(|_| panic!("invalid grandchild PID: {grandchild_pid_str}"));
+
+    // Verify the grandchild is alive before we send signals.
+    assert_eq!(
+        unsafe { libc::kill(grandchild_pid, 0) },
+        0,
+        "grandchild (pid {grandchild_pid}) should be alive before SIGINT"
+    );
+
+    // Send double SIGINT (Ctrl+C) to sgf.
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send first SIGINT");
+    std::thread::sleep(Duration::from_millis(200));
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send second SIGINT");
+
+    let output = child.wait_with_output().expect("wait for sgf");
+
+    assert_eq!(
+        output.status.code(),
+        Some(130),
+        "should exit 130 on double Ctrl+C"
+    );
+
+    // Give a moment for process group cleanup to propagate.
+    std::thread::sleep(Duration::from_millis(200));
+
+    // Verify the grandchild is dead — kill(pid, 0) returns -1 with ESRCH
+    // when the process doesn't exist.
+    let alive = unsafe { libc::kill(grandchild_pid, 0) };
+    assert_eq!(
+        alive,
+        -1,
+        "grandchild (pid {grandchild_pid}) should be dead after double Ctrl+C, \
+         but kill(pid, 0) returned {alive} (errno: {})",
+        std::io::Error::last_os_error()
+    );
+}
+
 // ===========================================================================
 // Mode-dependent shutdown behavior
 // ===========================================================================
