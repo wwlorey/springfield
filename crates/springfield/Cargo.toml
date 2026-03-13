@@ -18,6 +18,7 @@ shutdown = { path = "../shutdown" }
 vcs-utils = { path = "../vcs-utils" }
 libc = "0.2"
 sha2 = "0.10"
+toml = "0.8"
 
 [dev-dependencies]
 tempfile = "3"
