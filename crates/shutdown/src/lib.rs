@@ -307,6 +307,8 @@ mod tests {
 
     #[test]
     fn kill_pg_sends_sigterm_to_group() {
+        use std::os::unix::process::ExitStatusExt;
+
         let mut child = spawn_in_new_session(&["sleep", "60"]);
         let pid = child.id();
         thread::sleep(Duration::from_millis(100));
@@ -316,6 +318,11 @@ mod tests {
 
         let status = child.wait().unwrap();
         assert!(!status.success());
+        assert_eq!(
+            status.signal(),
+            Some(libc::SIGTERM),
+            "child should be killed by SIGTERM, not SIGKILL"
+        );
     }
 
     #[test]
