@@ -95,6 +95,13 @@ fn sgf_init_and_commit(dir: &Path) {
     git_add_commit(dir, "sgf init");
 }
 
+/// Write a config.toml into .sgf/prompts/ with the given TOML content and commit.
+fn write_config_toml(dir: &Path, content: &str) {
+    let config_path = dir.join(".sgf/prompts/config.toml");
+    fs::write(&config_path, content).unwrap();
+    git_add_commit(dir, "add config.toml");
+}
+
 /// Create a spec file at specs/<stem>.md and commit it.
 fn create_spec_and_commit(dir: &Path, stem: &str) {
     fs::create_dir_all(dir.join("specs")).unwrap();
@@ -476,6 +483,10 @@ fn prompt_validate_returns_raw_path() {
 fn build_invokes_ralph_with_correct_flags() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    write_config_toml(
+        tmp.path(),
+        "[build]\nmode = \"afk\"\niterations = 30\nauto_push = true\n",
+    );
     create_spec_and_commit(tmp.path(), "auth");
 
     let (_mock_pn_dir, mock_path) = setup_mock_pn();
@@ -660,7 +671,7 @@ fn issues_log_runs_interactive_via_agent_cmd() {
     );
 
     let output = sgf_cmd(tmp.path())
-        .args(["issues", "log"])
+        .args(["issues"])
         .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
         .env("PROMPT_FILES", "")
         .env("PATH", &mock_path)
@@ -669,7 +680,7 @@ fn issues_log_runs_interactive_via_agent_cmd() {
         .unwrap();
     assert!(
         output.status.success(),
-        "sgf issues log failed: {}",
+        "sgf issues failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
 
@@ -845,13 +856,12 @@ fn help_flag() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("init"));
-    assert!(stdout.contains("build"));
-    assert!(stdout.contains("verify"));
-    assert!(stdout.contains("test-plan"));
-    assert!(stdout.contains("spec"));
-    assert!(stdout.contains("status"));
-    assert!(stdout.contains("logs"));
+    assert!(stdout.contains("init"), "help should list init built-in");
+    assert!(
+        stdout.contains("status"),
+        "help should list status built-in"
+    );
+    assert!(stdout.contains("logs"), "help should list logs built-in");
 }
 
 // ===========================================================================
@@ -1368,6 +1378,10 @@ fn bare_remote_head(bare: &Path) -> String {
 fn spec_auto_pushes_after_session_with_new_commits() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    write_config_toml(
+        tmp.path(),
+        "[spec]\nmode = \"interactive\"\nauto_push = true\n",
+    );
 
     let (_mock_pn_dir, mock_path) = setup_mock_pn();
     let bare = setup_bare_remote(tmp.path());
@@ -1526,6 +1540,10 @@ fn spec_no_push_when_head_unchanged() {
 fn doc_auto_pushes_after_session_with_new_commits() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    write_config_toml(
+        tmp.path(),
+        "[doc]\nmode = \"interactive\"\nauto_push = true\n",
+    );
 
     let (_mock_pn_dir, mock_path) = setup_mock_pn();
     let bare = setup_bare_remote(tmp.path());
@@ -2090,92 +2108,78 @@ fn afk_mode_child_gets_new_session() {
 }
 
 #[test]
-fn non_afk_mode_child_inherits_session() {
+fn default_build_without_config_runs_interactive() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
     let (_mock_pn_dir, mock_path) = setup_mock_pn();
-    let mock_dir = TempDir::new().unwrap();
-    let sid_file = mock_dir.path().join("sid_info.txt");
 
-    let mock_ralph = create_mock_script(
+    let mock_dir = TempDir::new().unwrap();
+    let args_file = mock_dir.path().join("agent_args.txt");
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph_sid.sh",
+        "mock_agent.sh",
         &format!(
-            concat!(
-                "#!/bin/bash\n",
-                "MY_PID=$$\n",
-                "MY_PGID=$(python3 -c \"import os; print(os.getpgid($MY_PID))\")\n",
-                "echo \"pid=$MY_PID pgid=$MY_PGID\" > \"{}\"\n",
-                "exit 0\n",
-            ),
-            sid_file.display()
+            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
+            args_file.display()
         ),
     );
 
-    // Non-AFK: no -a flag
+    // Without config.toml, build defaults to interactive mode (AGENT_CMD, not ralph)
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("AGENT_CMD", "true")
+        .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
+        .env("PROMPT_FILES", "")
         .env("PATH", &mock_path)
+        .env_remove("CLAUDECODE")
         .output()
         .unwrap();
     assert!(
         output.status.success(),
-        "sgf build (non-afk) failed: {}",
+        "sgf build (interactive default) failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let info = fs::read_to_string(&sid_file).unwrap();
-    let get_val = |key: &str| -> String {
-        info.split_whitespace()
-            .find(|s| s.starts_with(&format!("{key}=")))
-            .unwrap_or("")
-            .split('=')
-            .nth(1)
-            .unwrap_or("")
-            .to_string()
-    };
-    let pid = get_val("pid");
-    let pgid = get_val("pgid");
-
-    // In non-AFK mode, no setsid() — child inherits parent's process group.
-    assert_ne!(
-        pgid, pid,
-        "non-AFK child PGID should NOT equal its PID (no setsid), info: {info}"
+    let args = fs::read_to_string(&args_file).unwrap();
+    assert!(
+        args.contains("--verbose"),
+        "interactive mode should pass --verbose to agent"
+    );
+    assert!(
+        args.contains("@"),
+        "interactive mode should pass prompt via @ prefix"
+    );
+    assert!(
+        args.contains(".sgf/prompts/build.md"),
+        "should pass raw build prompt path"
     );
 }
 
 #[test]
-fn non_afk_stdin_eof_does_not_trigger_shutdown() {
+fn interactive_mode_stdin_eof_does_not_trigger_shutdown() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
     let (_mock_pn_dir, mock_path) = setup_mock_pn();
 
-    // Mock ralph that sleeps then exits 0
+    // Mock agent that sleeps then exits 0
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph_sleep.sh",
+        "mock_agent_sleep.sh",
         "#!/bin/bash\ntrap '' INT\nsleep 2\nexit 0\n",
     );
 
-    let ready_file = mock_dir.path().join("sgf_ready");
-
-    // Non-AFK mode: monitor_stdin should be false, so closing stdin
-    // should NOT cause shutdown.
+    // Interactive mode (default without config): monitor_stdin should be false,
+    // so closing stdin should NOT cause shutdown.
     let mut child = sgf_cmd(tmp.path())
         .args(["build", "auth"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("AGENT_CMD", "true")
-        .env("SGF_READY_FILE", &ready_file)
+        .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
+        .env("PROMPT_FILES", "")
         .env("PATH", &mock_path)
+        .env_remove("CLAUDECODE")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -2184,16 +2188,15 @@ fn non_afk_stdin_eof_does_not_trigger_shutdown() {
 
     let stdin = child.stdin.take().expect("open stdin");
 
-    wait_for_ready(&ready_file);
-    drop(stdin); // Close stdin — would trigger Ctrl+D detection if monitor_stdin were true
+    std::thread::sleep(Duration::from_millis(500));
+    drop(stdin); // Close stdin — should NOT trigger shutdown in interactive mode
 
-    // Wait for the process to finish naturally
     let output = child.wait_with_output().expect("wait for sgf");
 
     assert_eq!(
         output.status.code(),
         Some(0),
-        "non-AFK mode should NOT shutdown on stdin EOF, should exit 0 from mock ralph completing"
+        "interactive mode should NOT shutdown on stdin EOF"
     );
 }
 
@@ -2248,9 +2251,13 @@ fn afk_monitor_stdin_eof_triggers_shutdown() {
 }
 
 #[test]
-fn non_afk_does_not_pass_afk_flag_to_ralph() {
+fn config_afk_mode_invokes_ralph_with_afk_flag() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    write_config_toml(
+        tmp.path(),
+        "[build]\nmode = \"afk\"\niterations = 30\nauto_push = false\n",
+    );
     create_spec_and_commit(tmp.path(), "auth");
 
     let (_mock_pn_dir, mock_path) = setup_mock_pn();
@@ -2274,20 +2281,74 @@ fn non_afk_does_not_pass_afk_flag_to_ralph() {
         .env("PATH", &mock_path)
         .output()
         .unwrap();
-    assert!(output.status.success());
+    assert!(
+        output.status.success(),
+        "sgf build (afk via config) failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 
     let args = fs::read_to_string(&args_file).unwrap();
     let argv: Vec<&str> = args.trim().split_whitespace().collect();
     assert!(
-        !argv.contains(&"-a"),
-        "non-AFK should NOT pass -a flag to ralph, got: {args}"
+        argv.contains(&"-a"),
+        "AFK mode from config should pass -a flag to ralph, got: {args}"
     );
 }
 
 #[test]
-fn non_afk_does_not_create_log_file() {
+fn interactive_override_does_not_invoke_ralph() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    write_config_toml(
+        tmp.path(),
+        "[build]\nmode = \"afk\"\niterations = 30\nauto_push = false\n",
+    );
+    create_spec_and_commit(tmp.path(), "auth");
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    let mock_dir = TempDir::new().unwrap();
+    let args_file = mock_dir.path().join("agent_args.txt");
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        &format!(
+            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
+            args_file.display()
+        ),
+    );
+
+    // -i overrides config mode=afk to interactive
+    let output = sgf_cmd(tmp.path())
+        .args(["build", "auth", "-i"])
+        .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
+        .env("PROMPT_FILES", "")
+        .env("PATH", &mock_path)
+        .env_remove("CLAUDECODE")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "sgf build -i failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let args = fs::read_to_string(&args_file).unwrap();
+    assert!(
+        args.contains("--verbose"),
+        "-i should force interactive mode using AGENT_CMD"
+    );
+}
+
+#[test]
+fn alias_resolves_to_prompt() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    write_config_toml(
+        tmp.path(),
+        "[build]\nalias = \"b\"\nmode = \"afk\"\nauto_push = false\n",
+    );
+
     create_spec_and_commit(tmp.path(), "auth");
 
     let (_mock_pn_dir, mock_path) = setup_mock_pn();
@@ -2304,71 +2365,22 @@ fn non_afk_does_not_create_log_file() {
     );
 
     let output = sgf_cmd(tmp.path())
-        .args(["build", "auth"])
+        .args(["b", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
         .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("AGENT_CMD", "true")
         .env("PATH", &mock_path)
         .output()
         .unwrap();
-    assert!(output.status.success());
-
-    let args = fs::read_to_string(&args_file).unwrap();
-    assert!(
-        !args.contains("--log-file"),
-        "non-AFK should NOT pass --log-file to ralph, got: {args}"
-    );
-}
-
-#[test]
-fn non_afk_stdin_passthrough_to_mock_ralph() {
-    use std::io::Write;
-
-    let tmp = setup_test_dir();
-    sgf_init_and_commit(tmp.path());
-    create_spec_and_commit(tmp.path(), "auth");
-
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
-    // Mock ralph that reads a line from stdin and echoes it to stdout
-    let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_mock_script(
-        mock_dir.path(),
-        "mock_ralph_echo.sh",
-        "#!/bin/bash\nread -r line\necho \"ECHO:$line\"\nexit 0\n",
-    );
-
-    let mut child = sgf_cmd(tmp.path())
-        .args(["build", "auth"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("AGENT_CMD", "true")
-        .env("PATH", &mock_path)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn sgf");
-
-    let mut stdin = child.stdin.take().expect("open stdin");
-
-    std::thread::sleep(Duration::from_millis(300));
-    stdin.write_all(b"hello_from_test\n").expect("write stdin");
-    stdin.flush().expect("flush stdin");
-    drop(stdin);
-
-    let output = child.wait_with_output().expect("wait for sgf");
-
     assert!(
         output.status.success(),
-        "sgf should succeed, stderr: {}",
+        "sgf b (alias for build) failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let args = fs::read_to_string(&args_file).unwrap();
     assert!(
-        stdout.contains("ECHO:hello_from_test"),
-        "non-AFK ralph should receive stdin passthrough and echo it, got stdout: {stdout}"
+        args.contains(".sgf/prompts/build.md"),
+        "alias 'b' should resolve to build.md, got: {args}"
     );
 }
 
