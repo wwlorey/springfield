@@ -5,37 +5,138 @@ CLI entry point for Springfield. All developer interaction goes through this bin
 ## Overview
 
 `sgf` provides:
-- **Project scaffolding**: `sgf init` creates the full project structure (`.sgf/`, `.pensa/`, prompts, backpressure, specs index, Claude deny settings, git hooks)
-- **Prompt delivery**: Validate prompt templates exist, pass raw paths to ralph or `$AGENT_CMD`, set `SGF_SPEC` env var
+- **Project scaffolding**: `sgf init` creates the full project structure (`.sgf/`, `.pensa/`, prompts, config, backpressure, specs index, Claude deny settings, git hooks)
+- **Unified command dispatch**: `sgf <command>` resolves to a prompt file in `.sgf/prompts/`, with per-command defaults from `.sgf/prompts/config.toml`
+- **Prompt delivery**: Validate prompt files exist, pass raw paths to ralph or `$AGENT_CMD`, set `SGF_SPEC` env var
 - **Loop orchestration**: Launch ralph with the correct flags, manage PID files, tee logs
 - **Recovery**: Pre-launch cleanup of dirty state from crashed iterations
 - **Daemon lifecycle**: Start the pensa daemon before launching loops
-- **Workflow commands**: `spec`, `build`, `verify`, `test-plan`, `test`, `issues log`, `doc`
 
 ---
 
 ## CLI Commands
 
 ```
-sgf init                               — scaffold a new project
-sgf spec [--no-push]                   — generate specs and implementation plan (interactive)
-sgf build [spec] [-a] [--no-push] [-n N]  — run build loop
-sgf verify [-a] [--no-push] [-n N]        — run verification loop
-sgf test-plan [-a] [--no-push] [-n N]     — run test plan generation loop
-sgf test [spec] [-a] [--no-push] [-n N]   — run test execution loop
-sgf issues log                         — interactive session for logging bugs
-sgf doc [--no-push]                    — triage pensa doctor results (interactive)
-sgf status                             — show project state (future work)
-sgf logs <loop-id>                     — tail a running loop's output
+sgf <command> [spec] [-a | -i] [-n N] [--no-push]   — run a prompt-driven command
+sgf init [--force]                                    — scaffold a new project
+sgf logs <loop-id>                                    — tail a running loop's output
+sgf status                                            — show project state (future work)
 ```
+
+Where `<command>` resolves to `.sgf/prompts/<command>.md`. Commands can also be invoked by alias (e.g., `sgf i` for `sgf install` if `alias = "i"` is configured in `config.toml`).
+
+### Command Resolution
+
+1. Check if `<command>` matches a reserved built-in (`init`, `logs`, `status`). If so, run the built-in.
+2. Check if `.sgf/prompts/<command>.md` exists. If so, run it.
+3. Check if `<command>` matches an alias in `.sgf/prompts/config.toml`. If so, resolve to the aliased prompt and run it.
+4. Error: `unknown command: <command>`.
 
 ### Common Flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-a` / `--afk` | `false` | AFK mode: NDJSON stream parsing with formatted output |
+| `-a` / `--afk` | from config.toml | AFK mode: NDJSON stream parsing with formatted output |
+| `-i` / `--interactive` | from config.toml | Interactive mode: full terminal passthrough |
 | `--no-push` | `false` | Disable auto-push after commits |
-| `-n` / `--iterations` | `30` | Number of iterations |
+| `-n` / `--iterations` | from config.toml | Number of iterations |
+
+`-a` and `-i` are mutually exclusive — passing both is an error (exit 1 with a clear message). When neither is passed, the default comes from `config.toml`. When no `config.toml` entry exists for the command, the fallback default is interactive mode.
+
+### Examples
+
+```bash
+sgf install                    # one-shot AFK (from config.toml defaults)
+sgf i                          # same, using alias
+sgf build auth -a -n 30        # AFK build loop with spec, 30 iterations
+sgf b auth                     # same as sgf build auth (with config.toml defaults)
+sgf spec                       # interactive spec session (from config.toml defaults)
+sgf build auth -i              # force interactive build (overrides config.toml)
+sgf verify -a                  # force AFK verify
+sgf issues-log                 # interactive bug reporting
+sgf doc                        # interactive doc triage
+```
+
+---
+
+## Prompt Configuration
+
+`.sgf/prompts/config.toml` defines per-command defaults. Scaffolded by `sgf init` alongside prompt files. Parsed at command dispatch time.
+
+### Format
+
+```toml
+[install]
+alias = "i"
+mode = "afk"
+iterations = 1
+auto_push = true
+
+[build]
+alias = "b"
+mode = "interactive"
+iterations = 30
+auto_push = true
+
+[spec]
+alias = "s"
+mode = "interactive"
+iterations = 1
+auto_push = false
+
+[doc]
+mode = "interactive"
+iterations = 1
+auto_push = false
+
+[verify]
+alias = "v"
+mode = "afk"
+iterations = 30
+auto_push = true
+
+[test-plan]
+mode = "afk"
+iterations = 30
+auto_push = true
+
+[test]
+mode = "afk"
+iterations = 30
+auto_push = true
+
+[issues-log]
+mode = "interactive"
+iterations = 1
+auto_push = false
+```
+
+### Fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `alias` | string | — | Short alias for the command (e.g., `"i"` for install). Optional. |
+| `mode` | `"afk"` \| `"interactive"` | `"interactive"` | Default execution mode |
+| `iterations` | u32 | `1` | Default iteration count |
+| `auto_push` | bool | `false` | Auto-push after commits |
+
+### Validation
+
+- Aliases must be unique across all config entries. Duplicate aliases are a parse-time error (exit 1).
+- Aliases cannot shadow prompt file names. If `build.md` exists, no other entry can use `alias = "build"`.
+- One alias per prompt (the `alias` field is a single string, not an array).
+
+### Fallback Defaults
+
+If a prompt file exists in `.sgf/prompts/` but has no corresponding `[section]` in `config.toml`, sensible defaults apply: `mode = "interactive"`, `iterations = 1`, `auto_push = false`. This allows users to drop in a new prompt file and run it immediately without editing config.toml.
+
+### CLI Override Precedence
+
+CLI flags override config.toml defaults. Config.toml defaults override fallback defaults.
+
+```
+CLI flags  >  config.toml  >  fallback defaults
+```
 
 ---
 
@@ -52,12 +153,14 @@ Scaffolds a new project. Accepts `--force` to overwrite template and skeleton fi
 ├── logs/                              (empty, gitignored)
 ├── run/                               (empty, gitignored)
 └── prompts/
-    ├── build.md                       (prompt template — passed directly, no assembly)
+    ├── config.toml                    (per-command defaults: mode, iterations, auto_push, alias)
+    ├── build.md                       (prompt — passed directly, no assembly)
+    ├── install.md
     ├── spec.md
     ├── verify.md
     ├── test-plan.md
     ├── test.md
-    ├── issues.md
+    ├── issues-log.md
     └── doc.md
 BACKPRESSURE.md                        (build/test/lint/format commands for the project)
 .claude/settings.json                  (deny rules for .sgf/** and .claude/**)
@@ -211,6 +314,8 @@ Safety checks:
 
 Config merges (`.gitignore`, `.claude/settings.json`, `.pre-commit-config.yaml`) are unaffected by `--force` — they always use additive merge logic.
 
+**`config.toml` merge on `--force`**: `config.toml` uses merge logic similar to `.gitignore` — shipped entries (those known to sgf) are overwritten with built-in defaults, but user-added entries (custom `[sections]` not shipped with sgf) are preserved. This allows `--force` to update defaults for built-in commands without nuking custom command configurations.
+
 ---
 
 ## Per-Repo Project Structure
@@ -230,12 +335,14 @@ After `sgf init` and ongoing development, a project contains:
 ├── run/                       (gitignored — PID files for running loops)
 │   └── <loop-id>.pid
 └── prompts/
-    ├── build.md               (committed — editable prompt templates, passed directly to ralph/$AGENT_CMD)
+    ├── config.toml            (committed — per-command defaults: mode, iterations, auto_push, alias)
+    ├── build.md               (committed — editable prompts, passed directly to ralph/$AGENT_CMD)
+    ├── install.md
     ├── spec.md
     ├── verify.md
     ├── test-plan.md
     ├── test.md
-    ├── issues.md
+    ├── issues-log.md
     └── doc.md
 BACKPRESSURE.md                (committed — build/test/lint/format commands)
 .pre-commit-config.yaml        (prek hooks for pensa sync)
@@ -260,7 +367,9 @@ specs/
 
 **`CLAUDE.md`** — Entry point for Claude Code. Symlinks to AGENTS.md. Auto-loaded by Claude Code at the start of every session.
 
-**`.sgf/prompts/`** — Editable prompt templates for each workflow stage. Seeded by `sgf init` from Springfield's built-in templates. Once seeded, the project owns these files — edit them to evolve the prompts. To improve defaults for future projects, update the templates in the Springfield repo.
+**`.sgf/prompts/config.toml`** — Per-command defaults. Defines `mode`, `iterations`, `auto_push`, and optional `alias` for each prompt. Seeded by `sgf init`. Users add entries for custom prompts. See [Prompt Configuration](#prompt-configuration).
+
+**`.sgf/prompts/`** — Editable prompts for each command. Seeded by `sgf init` from Springfield's built-in defaults. Once seeded, the project owns these files — edit them to evolve the prompts. To improve defaults for future projects, update the embedded content in the Springfield repo. Adding a new `.md` file here makes it available as `sgf <name>` immediately (with fallback defaults if no config.toml entry exists).
 
 **`.sgf/` and `.claude/` protection** — Both `.sgf/` and `.claude/` are protected from agent modification via Claude deny settings. `sgf init` scaffolds these rules. `.sgf/` protection prevents agents from modifying prompts and reference files. `.claude/` protection prevents agents from weakening sandbox configuration or deny rules — this is self-reinforcing since the deny rules live inside `.claude/settings.json`. `BACKPRESSURE.md` is intentionally outside `.sgf/` and not protected — it is developer-authored content that agents may need to reference or suggest edits to.
 
@@ -332,23 +441,22 @@ Run `pn ready --spec $SGF_SPEC --json`.
 | `SGF_SPEC` | sgf | Spec stem (e.g., `auth`). Set only when a spec is provided to `build` or `test`. Not set when no spec is given. |
 | `AGENT_CMD` | inherited | Path to the agent binary. sgf validates this is set before launching ralph. |
 
-### Execution Model by Stage
+### Execution Model
 
-| Stage | Execution | Description |
-|-------|-----------|-------------|
-| `spec` | `$AGENT_CMD` directly | Interactive interview; calls `$AGENT_CMD --verbose @{prompt_path}`, inheriting stdio; auto-pushes after session if HEAD changed |
-| `build` | ralph | Autonomous execution; ralph invokes `$AGENT_CMD` with `--dangerously-skip-permissions` |
-| `verify` | ralph | Autonomous execution |
-| `test-plan` | ralph | Autonomous execution |
-| `test` | ralph | Autonomous execution |
-| `issues log` | `$AGENT_CMD` directly | Interactive interview; calls `$AGENT_CMD --verbose @{prompt_path}`, inheriting stdio |
-| `doc` | `$AGENT_CMD` directly | Interactive triage; calls `$AGENT_CMD --verbose @{prompt_path}`, inheriting stdio; auto-pushes after session if HEAD changed |
+Execution mode is determined by the resolved `mode` (from CLI flags or config.toml defaults):
 
-Interactive stages (`spec`, `issues log`, `doc`) call `$AGENT_CMD` directly. No PID file, no log tee, no loop ID. The wrapper (configured by the user) handles prompt file injection via `PROMPT_FILES`. Automated stages (`build`, `verify`, `test-plan`, `test`) go through ralph, which handles prompt file injection via `--append-system-prompt` with `study` instructions and invokes `$AGENT_CMD` directly on the host.
+| Mode | Execution | Description |
+|------|-----------|-------------|
+| `interactive` | `$AGENT_CMD` directly | Full terminal passthrough; calls `$AGENT_CMD --verbose @{prompt_path}`, inheriting stdio |
+| `afk` | ralph | Autonomous execution; ralph invokes `$AGENT_CMD` with `--dangerously-skip-permissions`, NDJSON stream formatting |
 
-#### Auto-push after `sgf spec` / `sgf doc`
+**Interactive mode**: Calls `$AGENT_CMD` directly. No PID file, no log tee, no loop ID. The wrapper (configured by the user) handles prompt file injection via `PROMPT_FILES`. When `auto_push` is true, auto-pushes after the session if HEAD changed.
 
-`sgf spec` and `sgf doc` auto-push after the interactive Claude session exits using `vcs_utils::auto_push_if_changed()` from the shared [vcs-utils](vcs-utils.md) crate: capture `vcs_utils::git_head()` before the session, then call `auto_push_if_changed()` after. Push failures are non-fatal (logged as warnings). Suppressed with `--no-push`.
+**AFK mode**: Goes through ralph, which handles prompt file injection via `--append-system-prompt` with `study` instructions and invokes `$AGENT_CMD` directly on the host. PID file, log tee, and loop ID are managed by sgf.
+
+#### Auto-push for interactive commands
+
+Interactive commands with `auto_push = true` auto-push after the Claude session exits using `vcs_utils::auto_push_if_changed()` from the shared [vcs-utils](vcs-utils.md) crate: capture `vcs_utils::git_head()` before the session, then call `auto_push_if_changed()` after. Push failures are non-fatal (logged as warnings). Suppressed with `--no-push`.
 
 ### Exit Codes
 
@@ -685,9 +793,9 @@ Follows the standard loop iteration. Runs via ralph using `.sgf/prompts/test.md`
 
 After all test items are closed, a final iteration generates `test-report.md` — a summary of all test results, pass/fail status, and any bugs logged.
 
-### 6. Issues Log (`sgf issues log`)
+### 6. Issues Log (`sgf issues-log`)
 
-Calls `$AGENT_CMD` directly (no ralph, no Docker) using `.sgf/prompts/issues.md`. Each session handles one bug:
+Calls `$AGENT_CMD` directly (no ralph, no Docker) using `.sgf/prompts/issues-log.md`. Each session handles one bug:
 
 1. The developer describes a bug they've observed
 2. The agent interviews them to capture details — steps to reproduce, expected vs actual behavior, relevant context
@@ -712,27 +820,34 @@ Issues are also logged by agents during any stage via `pn create`. The build loo
 
 ---
 
-## Prompt Templates
+## Shipped Prompts
 
-Each workflow stage has a corresponding prompt template in `.sgf/prompts/`. These are the default contents that `sgf init` writes. The project owns these files after scaffolding — edit them freely.
+Each command has a corresponding prompt in `.sgf/prompts/`. These are the default contents that `sgf init` writes. The project owns these files after scaffolding — edit them freely.
 
-| Template | Purpose |
-|----------|---------|
+| Prompt | Purpose |
+|--------|---------|
+| `install.md` | Install dependencies, build, and verify the project works |
 | `spec.md` | Interactive spec discussion and implementation planning |
 | `build.md` | Claim one pn issue, implement it, apply backpressure, commit |
 | `verify.md` | Verify one spec against codebase, update verification report |
 | `test-plan.md` | Generate test items from specs using pn |
 | `test.md` | Claim one pn test item, execute it, apply backpressure |
-| `issues.md` | Interactive bug reporting session |
+| `issues-log.md` | Interactive bug reporting session |
 | `doc.md` | Interactive pensa doctor triage |
 
-The canonical prompt templates live in `.sgf/prompts/` — do not duplicate their contents here. See `crates/springfield/src/init.rs` for the default template text that `sgf init` writes.
+The canonical prompts live in `.sgf/prompts/` — do not duplicate their contents here. See `crates/springfield/src/init.rs` for the default text that `sgf init` writes.
+
+### Custom Prompts
+
+Users can add custom prompts by creating a new `.md` file in `.sgf/prompts/` and optionally adding a `[section]` in `config.toml`. For example, adding `.sgf/prompts/deploy.md` and `[deploy]` in config.toml enables `sgf deploy`. Without a config.toml entry, `sgf deploy` still works with fallback defaults (interactive, 1 iteration, no auto-push).
 
 ---
 
 ## Backpressure Template
 
-`sgf init` writes `BACKPRESSURE.md` to the project root from the template at `crates/springfield/templates/backpressure.md`. The developer deletes sections that don't apply to their project and edits commands as needed.
+`sgf init` writes `BACKPRESSURE.md` to the project root from embedded content (previously `crates/springfield/templates/backpressure.md`). The developer deletes sections that don't apply to their project and edits commands as needed.
+
+Note: The `crates/springfield/templates/` directory is removed. All template content is embedded directly in the binary via `include_str!()` from a `templates/` directory that serves only as the source for embedding — the conceptual "templates" layer is eliminated. Prompts in `.sgf/prompts/` are the single source of truth for prompt content in a project.
 
 ---
 
@@ -779,12 +894,15 @@ Loom's integrated observability platform: analytics, crash tracking, cron monito
 
 ---
 
-## Hardcoded Defaults
+## Defaults
 
-| Setting | Value | Override |
-|---------|-------|----------|
-| Iterations | `30` | `-n` / `--iterations`: `sgf build -n 10` |
-| Auto-push | `true` | `--no-push` flag |
+Per-command defaults live in `.sgf/prompts/config.toml` (see [Prompt Configuration](#prompt-configuration)). CLI flags override config.toml values:
+
+| Setting | Fallback Default | Override |
+|---------|-----------------|----------|
+| Mode | `interactive` | `-a` / `-i` flags |
+| Iterations | `1` | `-n` / `--iterations` |
+| Auto-push | `false` | `--no-push` flag (disables), config.toml `auto_push` field |
 | Pensa daemon port | per-project derived | `--port` flag on `pn daemon` |
 
 ---
@@ -801,7 +919,7 @@ Loom's integrated observability platform: analytics, crash tracking, cron monito
 
 **Tasks as implementation plan**: There is no separate "implementation plan" entity. The living set of pensa tasks linked to a spec *is* the implementation plan. Query with `pn list -t task --spec <stem>`.
 
-**Editable prompts**: Prompts are plain markdown files owned by the project. Edit them as you learn what works. To improve defaults, update Springfield's templates.
+**Editable prompts**: Prompts are plain markdown files owned by the project. Edit them as you learn what works. Drop new `.md` files into `.sgf/prompts/` to create new commands — no code changes required. To improve defaults for future projects, update the embedded content in Springfield's init module.
 
 **Env-var-driven context injection**: `PROMPT_FILES` lists the files to include in `study` instructions (default: `$HOME/.MEMENTO.md:./BACKPRESSURE.md:./specs/README.md`). For automated stages, ralph reads `PROMPT_FILES` and passes `--append-system-prompt` with a `study @<file>` instruction for each entry. For interactive stages, the `$AGENT_CMD` wrapper handles injection. sgf does not read or process `PROMPT_FILES` — it only validates prompt templates exist and passes raw paths through.
 
