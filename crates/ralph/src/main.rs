@@ -3,7 +3,7 @@ pub(crate) mod format;
 pub(crate) mod style;
 
 use clap::Parser;
-use shutdown::{ShutdownConfig, ShutdownController, ShutdownStatus};
+use shutdown::{ShutdownConfig, ShutdownController, ShutdownStatus, kill_process_group};
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::process::CommandExt;
@@ -496,7 +496,7 @@ fn run_interactive(
 
     loop {
         if controller.poll() == ShutdownStatus::Shutdown {
-            let _ = child.kill();
+            kill_process_group(child.id(), Duration::from_secs(10));
             let _ = child.wait();
             break;
         }
@@ -595,7 +595,7 @@ fn run_afk(
 
     loop {
         if controller.poll() == ShutdownStatus::Shutdown {
-            let _ = child.kill();
+            kill_process_group(child.id(), Duration::from_secs(10));
             let _ = child.wait();
             return;
         }
