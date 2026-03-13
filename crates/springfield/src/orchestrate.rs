@@ -283,10 +283,7 @@ fn run_ralph(
 }
 
 fn kill_child(child: &std::process::Child) {
-    let pid = child.id() as i32;
-    unsafe {
-        libc::kill(pid, libc::SIGTERM);
-    }
+    shutdown::kill_process_group(child.id(), Duration::from_secs(10));
 }
 
 #[cfg(test)]
