@@ -78,6 +78,50 @@ mod tests {
     }
 
     #[test]
+    fn validate_dynamic_command_name() {
+        let tmp = TempDir::new().unwrap();
+        setup_project(tmp.path());
+        fs::write(
+            tmp.path().join(".sgf/prompts/install.md"),
+            "Install prompt.",
+        )
+        .unwrap();
+
+        let path = validate(tmp.path(), "install", None).unwrap();
+        assert!(path.ends_with(".sgf/prompts/install.md"));
+    }
+
+    #[test]
+    fn validate_custom_command_name() {
+        let tmp = TempDir::new().unwrap();
+        setup_project(tmp.path());
+        fs::write(
+            tmp.path().join(".sgf/prompts/deploy-staging.md"),
+            "Deploy prompt.",
+        )
+        .unwrap();
+
+        let path = validate(tmp.path(), "deploy-staging", None).unwrap();
+        assert!(path.ends_with(".sgf/prompts/deploy-staging.md"));
+    }
+
+    #[test]
+    fn validate_custom_command_with_spec() {
+        let tmp = TempDir::new().unwrap();
+        setup_project(tmp.path());
+        fs::create_dir_all(tmp.path().join("specs")).unwrap();
+        fs::write(
+            tmp.path().join(".sgf/prompts/install.md"),
+            "Install prompt.",
+        )
+        .unwrap();
+        fs::write(tmp.path().join("specs/ralph.md"), "# Ralph spec").unwrap();
+
+        let path = validate(tmp.path(), "install", Some("ralph")).unwrap();
+        assert!(path.ends_with(".sgf/prompts/install.md"));
+    }
+
+    #[test]
     fn validate_returns_raw_path() {
         let tmp = TempDir::new().unwrap();
         setup_project(tmp.path());
