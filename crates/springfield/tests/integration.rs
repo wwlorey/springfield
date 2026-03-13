@@ -148,7 +148,9 @@ fn init_creates_all_files() {
         ".sgf/prompts/verify.md",
         ".sgf/prompts/test-plan.md",
         ".sgf/prompts/test.md",
-        ".sgf/prompts/issues.md",
+        ".sgf/prompts/issues-log.md",
+        ".sgf/prompts/install.md",
+        ".sgf/prompts/config.toml",
         "specs/README.md",
         ".claude/settings.json",
         ".pre-commit-config.yaml",
@@ -671,7 +673,7 @@ fn issues_log_runs_interactive_via_agent_cmd() {
     );
 
     let output = sgf_cmd(tmp.path())
-        .args(["issues"])
+        .args(["issues-log"])
         .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
         .env("PROMPT_FILES", "")
         .env("PATH", &mock_path)
@@ -680,7 +682,7 @@ fn issues_log_runs_interactive_via_agent_cmd() {
         .unwrap();
     assert!(
         output.status.success(),
-        "sgf issues failed: {}",
+        "sgf issues-log failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
 
@@ -688,8 +690,8 @@ fn issues_log_runs_interactive_via_agent_cmd() {
     assert!(args.contains("--verbose"), "should pass --verbose to agent");
     assert!(args.contains("@"), "should pass prompt via @ prefix");
     assert!(
-        args.contains(".sgf/prompts/issues.md"),
-        "should pass raw issues prompt path"
+        args.contains(".sgf/prompts/issues-log.md"),
+        "should pass raw issues-log prompt path"
     );
 }
 
@@ -897,7 +899,7 @@ fn templates_no_read_memento_directive() {
         ".sgf/prompts/verify.md",
         ".sgf/prompts/test-plan.md",
         ".sgf/prompts/test.md",
-        ".sgf/prompts/issues.md",
+        ".sgf/prompts/issues-log.md",
     ];
 
     for tmpl in templates {

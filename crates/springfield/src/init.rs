@@ -15,8 +15,10 @@ const TEMPLATE_BUILD: &str = include_str!("../templates/build.md");
 const TEMPLATE_VERIFY: &str = include_str!("../templates/verify.md");
 const TEMPLATE_TEST_PLAN: &str = include_str!("../templates/test-plan.md");
 const TEMPLATE_TEST: &str = include_str!("../templates/test.md");
-const TEMPLATE_ISSUES: &str = include_str!("../templates/issues.md");
+const TEMPLATE_ISSUES_LOG: &str = include_str!("../templates/issues-log.md");
 const TEMPLATE_DOC: &str = include_str!("../templates/doc.md");
+const TEMPLATE_INSTALL: &str = include_str!("../templates/install.md");
+const TEMPLATE_CONFIG_TOML: &str = include_str!("../templates/config.toml");
 const TEMPLATE_LOOM_SPECS_README: &str = include_str!("../templates/loom-specs-README.md");
 
 const SPECS_README_CONTENT: &str = "\
@@ -66,12 +68,20 @@ const TEMPLATE_FILES: &[TemplateFile] = &[
         content: TEMPLATE_TEST,
     },
     TemplateFile {
-        path: ".sgf/prompts/issues.md",
-        content: TEMPLATE_ISSUES,
+        path: ".sgf/prompts/issues-log.md",
+        content: TEMPLATE_ISSUES_LOG,
     },
     TemplateFile {
         path: ".sgf/prompts/doc.md",
         content: TEMPLATE_DOC,
+    },
+    TemplateFile {
+        path: ".sgf/prompts/install.md",
+        content: TEMPLATE_INSTALL,
+    },
+    TemplateFile {
+        path: ".sgf/prompts/config.toml",
+        content: TEMPLATE_CONFIG_TOML,
     },
     TemplateFile {
         path: ".sgf/loom-specs-README.md",
@@ -386,6 +396,67 @@ fn merge_pre_commit_config(root: &Path) -> io::Result<()> {
     fs::write(&path, output)
 }
 
+const SHIPPED_CONFIG_SECTIONS: &[&str] = &[
+    "install",
+    "spec",
+    "build",
+    "verify",
+    "test-plan",
+    "test",
+    "issues-log",
+    "doc",
+];
+
+fn merge_config_toml(root: &Path) -> io::Result<()> {
+    let path = root.join(".sgf/prompts/config.toml");
+    if !path.exists() {
+        return fs::write(&path, TEMPLATE_CONFIG_TOML);
+    }
+
+    let existing = fs::read_to_string(&path)?;
+    let mut existing_table: toml::Table = existing
+        .parse()
+        .map_err(|e: toml::de::Error| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+
+    let shipped_table: toml::Table = TEMPLATE_CONFIG_TOML
+        .parse()
+        .expect("shipped config.toml is valid");
+
+    for (key, value) in &shipped_table {
+        existing_table.insert(key.clone(), value.clone());
+    }
+
+    let mut output = String::new();
+    let shipped_set: std::collections::HashSet<&str> =
+        SHIPPED_CONFIG_SECTIONS.iter().copied().collect();
+
+    let serialize = |table: toml::Table| -> io::Result<String> {
+        toml::to_string_pretty(&table).map_err(io::Error::other)
+    };
+
+    for section in SHIPPED_CONFIG_SECTIONS {
+        if let Some(value) = existing_table.remove(*section) {
+            output.push_str(&serialize(toml::Table::from_iter([(
+                section.to_string(),
+                value,
+            )]))?);
+            output.push('\n');
+        }
+    }
+
+    for (key, value) in &existing_table {
+        if !shipped_set.contains(key.as_str()) {
+            output.push_str(&serialize(toml::Table::from_iter([(
+                key.clone(),
+                value.clone(),
+            )]))?);
+            output.push('\n');
+        }
+    }
+
+    fs::write(&path, output.trim_end().to_string() + "\n")
+}
+
 fn install_prek_hooks(root: &Path) -> io::Result<()> {
     let output = Command::new("prek")
         .arg("install")
@@ -490,7 +561,11 @@ fn write_force_files(root: &Path) -> io::Result<()> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        fs::write(&path, tf.content)?;
+        if tf.path == ".sgf/prompts/config.toml" {
+            merge_config_toml(root)?;
+        } else {
+            fs::write(&path, tf.content)?;
+        }
     }
     for sf in SKELETON_FILES {
         write_if_missing(&root.join(sf.path), sf.content)?;
@@ -1306,5 +1381,128 @@ repos:
             let content = fs::read_to_string(&path).unwrap();
             assert_eq!(content, sf.content, "content mismatch: {}", sf.path);
         }
+    }
+
+    // --- config.toml scaffolding tests ---
+
+    #[test]
+    fn config_toml_scaffolded() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+        run(tmp.path(), false).unwrap();
+
+        let path = tmp.path().join(".sgf/prompts/config.toml");
+        assert!(path.is_file(), "config.toml should be scaffolded");
+        let content = fs::read_to_string(&path).unwrap();
+        assert_eq!(content, TEMPLATE_CONFIG_TOML);
+    }
+
+    #[test]
+    fn install_md_scaffolded() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+        run(tmp.path(), false).unwrap();
+
+        let path = tmp.path().join(".sgf/prompts/install.md");
+        assert!(path.is_file(), "install.md should be scaffolded");
+        let content = fs::read_to_string(&path).unwrap();
+        assert_eq!(content, TEMPLATE_INSTALL);
+    }
+
+    #[test]
+    fn issues_log_md_scaffolded() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+        run(tmp.path(), false).unwrap();
+
+        let path = tmp.path().join(".sgf/prompts/issues-log.md");
+        assert!(path.is_file(), "issues-log.md should be scaffolded");
+        assert!(
+            !tmp.path().join(".sgf/prompts/issues.md").exists(),
+            "issues.md should NOT exist (renamed to issues-log.md)"
+        );
+    }
+
+    // --- config.toml --force merge tests ---
+
+    #[test]
+    fn force_config_toml_overwrites_shipped_sections() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+        run(tmp.path(), false).unwrap();
+        git_add_commit(tmp.path(), "init");
+
+        let config_path = tmp.path().join(".sgf/prompts/config.toml");
+        fs::write(
+            &config_path,
+            "[build]\nalias = \"b\"\nmode = \"afk\"\niterations = 999\nauto_push = false\n",
+        )
+        .unwrap();
+        git_add_commit(tmp.path(), "modify config");
+
+        force_init(tmp.path()).unwrap();
+
+        let content = fs::read_to_string(&config_path).unwrap();
+        let table: toml::Table = content.parse().unwrap();
+        let build = table["build"].as_table().unwrap();
+        assert_eq!(build["iterations"].as_integer(), Some(30));
+        assert_eq!(build["auto_push"].as_bool(), Some(true));
+    }
+
+    #[test]
+    fn force_config_toml_preserves_user_sections() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+        run(tmp.path(), false).unwrap();
+        git_add_commit(tmp.path(), "init");
+
+        let config_path = tmp.path().join(".sgf/prompts/config.toml");
+        let mut content = fs::read_to_string(&config_path).unwrap();
+        content
+            .push_str("\n[my-custom-prompt]\nmode = \"afk\"\niterations = 5\nauto_push = true\n");
+        fs::write(&config_path, &content).unwrap();
+        git_add_commit(tmp.path(), "add custom section");
+
+        force_init(tmp.path()).unwrap();
+
+        let result = fs::read_to_string(&config_path).unwrap();
+        let table: toml::Table = result.parse().unwrap();
+        assert!(
+            table.contains_key("my-custom-prompt"),
+            "user-added section should be preserved"
+        );
+        let custom = table["my-custom-prompt"].as_table().unwrap();
+        assert_eq!(custom["mode"].as_str(), Some("afk"));
+        assert_eq!(custom["iterations"].as_integer(), Some(5));
+    }
+
+    #[test]
+    fn force_config_toml_merge_preserves_all_shipped_sections() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+        run(tmp.path(), false).unwrap();
+        git_add_commit(tmp.path(), "init");
+
+        force_init(tmp.path()).unwrap();
+
+        let content = fs::read_to_string(tmp.path().join(".sgf/prompts/config.toml")).unwrap();
+        let table: toml::Table = content.parse().unwrap();
+        for section in SHIPPED_CONFIG_SECTIONS {
+            assert!(
+                table.contains_key(*section),
+                "shipped section missing after force: {section}"
+            );
+        }
+    }
+
+    #[test]
+    fn merge_config_toml_creates_from_scratch() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir_all(tmp.path().join(".sgf/prompts")).unwrap();
+
+        merge_config_toml(tmp.path()).unwrap();
+
+        let content = fs::read_to_string(tmp.path().join(".sgf/prompts/config.toml")).unwrap();
+        assert_eq!(content, TEMPLATE_CONFIG_TOML);
     }
 }
