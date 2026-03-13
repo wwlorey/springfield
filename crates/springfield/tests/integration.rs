@@ -2673,3 +2673,369 @@ fn no_color_exit_messages_use_plain_prefix() {
         "NO_COLOR exit 2 should use 'sgf:' prefix with warning message, got stderr: {stderr}"
     );
 }
+
+// ===========================================================================
+// Unified command dispatch integration tests
+// ===========================================================================
+
+#[test]
+fn install_runs_afk_with_one_iteration_via_mock_ralph() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    write_config_toml(
+        tmp.path(),
+        "[install]\nalias = \"i\"\nmode = \"afk\"\niterations = 1\nauto_push = true\n",
+    );
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    let mock_dir = TempDir::new().unwrap();
+    let args_file = mock_dir.path().join("ralph_args.txt");
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph.sh",
+        &format!(
+            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
+            args_file.display()
+        ),
+    );
+
+    let output = sgf_cmd(tmp.path())
+        .arg("install")
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("PATH", &mock_path)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "sgf install failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let args = fs::read_to_string(&args_file).unwrap();
+    assert!(args.contains("-a"), "install should run in AFK mode");
+    assert!(
+        args.contains(".sgf/prompts/install.md"),
+        "should pass install prompt path, got: {args}"
+    );
+    // iterations = 1 means "1" appears as positional arg before the prompt path
+    assert!(args.contains(" 1 "), "should pass 1 iteration, got: {args}");
+}
+
+#[test]
+fn alias_i_resolves_to_install() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    write_config_toml(
+        tmp.path(),
+        "[install]\nalias = \"i\"\nmode = \"afk\"\niterations = 1\nauto_push = true\n",
+    );
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    let mock_dir = TempDir::new().unwrap();
+    let args_file = mock_dir.path().join("ralph_args.txt");
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph.sh",
+        &format!(
+            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
+            args_file.display()
+        ),
+    );
+
+    let output = sgf_cmd(tmp.path())
+        .arg("i")
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("PATH", &mock_path)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "sgf i (alias for install) failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let args = fs::read_to_string(&args_file).unwrap();
+    assert!(
+        args.contains(".sgf/prompts/install.md"),
+        "alias 'i' should resolve to install prompt, got: {args}"
+    );
+}
+
+#[test]
+fn build_auth_uses_config_defaults() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    write_config_toml(
+        tmp.path(),
+        "[build]\nalias = \"b\"\nmode = \"interactive\"\niterations = 30\nauto_push = true\n",
+    );
+    create_spec_and_commit(tmp.path(), "auth");
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    let mock_dir = TempDir::new().unwrap();
+    let args_file = mock_dir.path().join("agent_args.txt");
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        &format!(
+            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
+            args_file.display()
+        ),
+    );
+
+    let output = sgf_cmd(tmp.path())
+        .args(["build", "auth"])
+        .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
+        .env("PROMPT_FILES", "")
+        .env("PATH", &mock_path)
+        .env_remove("CLAUDECODE")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "sgf build auth (interactive default) failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Interactive mode invokes AGENT_CMD, not ralph
+    let args = fs::read_to_string(&args_file).unwrap();
+    assert!(
+        args.contains("--verbose"),
+        "interactive mode should pass --verbose to agent"
+    );
+    assert!(
+        args.contains(".sgf/prompts/build.md"),
+        "should pass raw build prompt path, got: {args}"
+    );
+}
+
+#[test]
+fn build_dash_a_overrides_mode_to_afk() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    // Config says interactive, but CLI -a should override to AFK
+    write_config_toml(
+        tmp.path(),
+        "[build]\nmode = \"interactive\"\niterations = 30\nauto_push = true\n",
+    );
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    let mock_dir = TempDir::new().unwrap();
+    let args_file = mock_dir.path().join("ralph_args.txt");
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph.sh",
+        &format!(
+            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
+            args_file.display()
+        ),
+    );
+
+    let output = sgf_cmd(tmp.path())
+        .args(["build", "-a"])
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("PATH", &mock_path)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "sgf build -a failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // -a should invoke ralph (AFK mode), not AGENT_CMD
+    let args = fs::read_to_string(&args_file).unwrap();
+    assert!(args.contains("-a"), "should pass -a to ralph");
+    assert!(
+        args.contains(".sgf/prompts/build.md"),
+        "should pass build prompt path, got: {args}"
+    );
+}
+
+#[test]
+fn build_dash_a_dash_i_errors() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let output = sgf_cmd(tmp.path())
+        .args(["build", "-a", "-i"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success(), "sgf build -a -i should fail");
+    assert_eq!(output.status.code(), Some(1));
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("mutually exclusive"),
+        "should report mutual exclusivity error, got: {stderr}"
+    );
+}
+
+#[test]
+fn build_dash_n_overrides_iterations() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    write_config_toml(
+        tmp.path(),
+        "[build]\nmode = \"afk\"\niterations = 30\nauto_push = true\n",
+    );
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    let mock_dir = TempDir::new().unwrap();
+    let args_file = mock_dir.path().join("ralph_args.txt");
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph.sh",
+        &format!(
+            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
+            args_file.display()
+        ),
+    );
+
+    let output = sgf_cmd(tmp.path())
+        .args(["build", "-n", "5"])
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("PATH", &mock_path)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "sgf build -n 5 failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let args = fs::read_to_string(&args_file).unwrap();
+    // iterations=5 should override config's 30
+    assert!(
+        args.contains(" 5 "),
+        "should pass 5 iterations (not 30), got: {args}"
+    );
+    assert!(
+        !args.contains(" 30 "),
+        "should NOT pass default 30 iterations, got: {args}"
+    );
+}
+
+#[test]
+fn unknown_command_errors_with_clear_message() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let output = sgf_cmd(tmp.path()).arg("nonexistent-cmd").output().unwrap();
+
+    assert!(!output.status.success(), "sgf nonexistent-cmd should fail");
+    assert_eq!(output.status.code(), Some(1));
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unknown command"),
+        "should report unknown command, got: {stderr}"
+    );
+    assert!(
+        stderr.contains("nonexistent-cmd"),
+        "should name the unrecognized command, got: {stderr}"
+    );
+}
+
+#[test]
+fn custom_prompt_without_config_entry_uses_fallback_defaults() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    // Create a custom prompt file with no config.toml entry
+    fs::write(
+        tmp.path().join(".sgf/prompts/deploy.md"),
+        "Deploy the project.",
+    )
+    .unwrap();
+    git_add_commit(tmp.path(), "add custom deploy prompt");
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    // Fallback defaults: interactive mode, 1 iteration
+    // So it should invoke AGENT_CMD (interactive), not ralph
+    let mock_dir = TempDir::new().unwrap();
+    let args_file = mock_dir.path().join("agent_args.txt");
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        &format!(
+            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
+            args_file.display()
+        ),
+    );
+
+    let output = sgf_cmd(tmp.path())
+        .arg("deploy")
+        .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
+        .env("PROMPT_FILES", "")
+        .env("PATH", &mock_path)
+        .env_remove("CLAUDECODE")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "sgf deploy (custom prompt, no config) failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let args = fs::read_to_string(&args_file).unwrap();
+    assert!(
+        args.contains(".sgf/prompts/deploy.md"),
+        "should pass custom deploy prompt path, got: {args}"
+    );
+    assert!(
+        args.contains("--verbose"),
+        "fallback interactive mode should pass --verbose, got: {args}"
+    );
+}
+
+#[test]
+fn config_toml_duplicate_alias_errors_at_parse_time() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    // Write config with duplicate alias "x" for both build and install
+    write_config_toml(
+        tmp.path(),
+        "[build]\nalias = \"x\"\n\n[install]\nalias = \"x\"\n",
+    );
+
+    // Use alias "x" so resolve_command goes through config::load (which validates)
+    let output = sgf_cmd(tmp.path())
+        .arg("x")
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("PATH", &mock_path)
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "duplicate alias should cause failure"
+    );
+    assert_eq!(output.status.code(), Some(1));
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("duplicate alias"),
+        "should report duplicate alias error, got: {stderr}"
+    );
+}
