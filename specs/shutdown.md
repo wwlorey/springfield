@@ -160,6 +160,66 @@ Same as AFK — ralph polls the controller between iterations and during the age
 
 When sgf sends SIGTERM, the controller's SIGTERM handler sets the flag, and `poll()` returns `Shutdown` immediately. Ralph kills the agent child and exits 130.
 
+## Process Group Kill with Escalation
+
+The `kill_process_group` function provides graceful-then-forceful termination of a process group. Both `sgf` and `ralph` spawn children with `setsid()`, making each child a session leader where PID=PGID. Killing a single PID leaves descendants (agent tool subprocesses, build commands, etc.) orphaned and running. This function kills the entire process group.
+
+### API
+
+```rust
+/// Kill a process group gracefully, escalating to SIGKILL after a timeout.
+///
+/// 1. Send SIGTERM to the process group (-pid)
+/// 2. Poll every 100ms for up to `timeout` checking if the group leader is still alive
+/// 3. If still alive after timeout, send SIGKILL to the process group (-pid)
+///
+/// Returns `true` if the process group was successfully terminated (SIGTERM or SIGKILL),
+/// `false` if the process was already dead.
+pub fn kill_process_group(pid: u32, timeout: Duration) -> bool;
+```
+
+### Behavior
+
+| Step | Action | Detail |
+|------|--------|--------|
+| 1 | `kill(-pid, SIGTERM)` | Signal the entire process group to terminate gracefully |
+| 2 | Poll loop | Every 100ms, check `kill(pid, 0)` (signal 0 = liveness test) |
+| 3a | Process exits within timeout | Return `true` |
+| 3b | Timeout expires (process still alive) | `kill(-pid, SIGKILL)`, return `true` |
+| 4 | Process already dead at step 1 | `kill(-pid, SIGTERM)` returns `ESRCH` → return `false` |
+
+The `pid` parameter is the group leader's PID (which equals the PGID due to `setsid()`). The negative PID in `kill()` targets all processes in that process group.
+
+### Default Timeout
+
+`sgf` and `ralph` both use a 10-second timeout. This is long enough for the agent to clean up tool subprocesses but short enough to avoid hanging indefinitely.
+
+### Usage by sgf
+
+sgf calls `kill_process_group` when its `ShutdownController` returns `Shutdown`:
+
+```rust
+fn kill_child(child: &std::process::Child) {
+    shutdown::kill_process_group(child.id(), Duration::from_secs(10));
+}
+```
+
+This replaces the previous single-PID SIGTERM: `kill(pid, SIGTERM)`.
+
+### Usage by ralph
+
+ralph calls `kill_process_group` in both `run_afk` and `run_interactive` when the shutdown controller triggers:
+
+```rust
+if controller.poll() == ShutdownStatus::Shutdown {
+    shutdown::kill_process_group(child.id(), Duration::from_secs(10));
+    let _ = child.wait();
+    return;
+}
+```
+
+This replaces the previous `child.kill()` (which sent SIGKILL to a single PID).
+
 ## Testing
 
 ### Unit Tests (`lib.rs`)
@@ -172,6 +232,10 @@ When sgf sends SIGTERM, the controller's SIGTERM handler sets the flag, and `pol
 | `sigint_resets_after_timeout` | Raise one SIGINT, sleep past timeout, verify `poll()` returns `Running` |
 | `default_config` | Verify `ShutdownConfig::default()` has 2-second timeout and `monitor_stdin: true` |
 | `poll_returns_running_initially` | Create controller, verify `poll()` returns `Running` |
+| `kill_pg_sends_sigterm_to_group` | Spawn a child with `setsid()`, call `kill_process_group`, verify child exits (not SIGKILL — check exit signal) |
+| `kill_pg_escalates_to_sigkill` | Spawn a child that traps SIGTERM (ignores it), call `kill_process_group` with short timeout, verify child is killed |
+| `kill_pg_already_dead` | Spawn a child, wait for it to exit, call `kill_process_group`, verify returns `false` |
+| `kill_pg_kills_descendants` | Spawn a child with `setsid()` that itself spawns a grandchild, call `kill_process_group`, verify both are dead |
 
 Stdin EOF tests require a PTY or pipe to simulate Ctrl+D, which is complex for unit tests. Stdin EOF behavior is covered by integration tests at the sgf/ralph level.
 

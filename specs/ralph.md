@@ -273,7 +273,7 @@ The save happens once before the main loop. The restore happens after each agent
 
 Stdout is read on a dedicated thread that sends lines through an `mpsc` channel. The main thread uses `recv_timeout` (100ms) to poll the channel, checking both the `interrupted` flag and `sigint_count` between receives. When the abort condition is met (double Ctrl+C in AFK, or single SIGTERM):
 
-1. The child process is killed via `child.kill()`
+1. The child's process group is killed via `shutdown::kill_process_group(child.id(), Duration::from_secs(10))` — sends SIGTERM to the group, waits up to 10s, escalates to SIGKILL
 2. `child.wait()` reaps the process
 3. Control returns to the main loop, which detects the flag and exits with code 130
 
@@ -657,8 +657,8 @@ No custom error types. Fail loudly, continue when sensible:
 | stdout read error | `tracing::warn!`, continue reading |
 | Git `rev-parse` failure | Return `None`, skip push check |
 | Git push failure | `tracing::warn!`, continue |
-| SIGINT/Ctrl+D received (all modes) | First press: print "Press Ctrl-C again to exit" (or "Press Ctrl-D again to exit") to stderr, start 2s timeout. Second press of same key: kill child, `tracing::warn!`, exit 130. Timeout: reset counter, continue. |
-| SIGTERM received | Kill child process, `tracing::warn!`, exit 130 (immediate, single signal) |
+| SIGINT/Ctrl+D received (all modes) | First press: print "Press Ctrl-C again to exit" (or "Press Ctrl-D again to exit") to stderr, start 2s timeout. Second press of same key: kill child process group (SIGTERM→10s→SIGKILL), `tracing::warn!`, exit 130. Timeout: reset counter, continue. |
+| SIGTERM received | Kill child process group (SIGTERM→10s→SIGKILL), `tracing::warn!`, exit 130 (immediate, single signal) |
 
 ## Testing
 
