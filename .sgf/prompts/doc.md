@@ -17,3 +17,4 @@ IF issues are returned:
 2. Check to see which of those issues are still valid.
 3. Comment pertinent info found during your research to those issues.
 4. Mark as complete any completed and/or invalid issues.
+5. Commit your changes.
