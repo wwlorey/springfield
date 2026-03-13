@@ -120,7 +120,7 @@ sgf creates a `ShutdownController` before spawning ralph or `$AGENT_CMD`. The co
 
 ### AFK Loops
 
-`setsid()` isolates ralph in its own session. sgf creates the controller with `monitor_stdin: true` (stdin is free — no user interaction). The 50ms polling loop calls `controller.poll()`. Both double Ctrl+C and double Ctrl+D trigger shutdown. On `Shutdown`, sgf sends SIGTERM to the ralph child process.
+`setsid()` isolates ralph in its own session. sgf creates the controller with `monitor_stdin: true` (stdin is free — no user interaction). The 50ms polling loop calls `controller.poll()`. Both double Ctrl+C and double Ctrl+D trigger shutdown. On `Shutdown`, sgf kills ralph's process group via `kill_process_group(pid, 10s)` — SIGTERM to the group, escalating to SIGKILL after timeout (see [Process Group Kill with Escalation](#process-group-kill-with-escalation)).
 
 **Stdin isolation**: sgf passes `Stdio::null()` for stdin when spawning ralph in AFK mode. This prevents the agent from inheriting the terminal fd and modifying terminal settings (e.g., disabling ISIG via `tcsetattr`). Without this, the agent can put the terminal in raw mode, causing Ctrl+C to emit byte `0x03` instead of generating SIGINT and Ctrl+D to emit byte `0x04` instead of triggering EOF. With `Stdio::null()`, the terminal fd stays under sgf's exclusive control and ISIG remains enabled.
 
@@ -150,7 +150,7 @@ let controller = ShutdownController::new(config)?;
 
 ### AFK Mode
 
-The `run_afk()` polling loop calls `controller.poll()` instead of manually checking `sigint_count`. On `Shutdown`, ralph kills the agent child process and exits 130.
+The `run_afk()` polling loop calls `controller.poll()` instead of manually checking `sigint_count`. On `Shutdown`, ralph kills the agent's process group via `kill_process_group` and exits 130.
 
 ### Interactive Mode
 
@@ -158,7 +158,7 @@ Same as AFK — ralph polls the controller between iterations and during the age
 
 ### SIGTERM from sgf
 
-When sgf sends SIGTERM, the controller's SIGTERM handler sets the flag, and `poll()` returns `Shutdown` immediately. Ralph kills the agent child and exits 130.
+When sgf sends SIGTERM, the controller's SIGTERM handler sets the flag, and `poll()` returns `Shutdown` immediately. Ralph kills the agent's process group via `kill_process_group` and exits 130.
 
 ## Process Group Kill with Escalation
 
