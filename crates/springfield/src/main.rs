@@ -141,20 +141,12 @@ fn run_dynamic(args: DynamicArgs) -> ! {
     let configs = config::load(&root).unwrap_or_default();
     let cmd_config = configs.get(&resolved).cloned().unwrap_or_default();
 
-    let interactive = if args.afk {
-        false
+    let mode = if args.afk {
+        Mode::Afk
     } else if args.interactive {
-        true
+        Mode::Interactive
     } else {
-        cmd_config.mode == Mode::Interactive
-    };
-
-    let afk = if args.afk {
-        true
-    } else if args.interactive {
-        false
-    } else {
-        cmd_config.mode == Mode::Afk
+        cmd_config.mode.clone()
     };
 
     let iterations = args.iterations.unwrap_or(cmd_config.iterations);
@@ -163,13 +155,11 @@ fn run_dynamic(args: DynamicArgs) -> ! {
     let config = springfield::orchestrate::LoopConfig {
         stage: resolved.clone(),
         spec: args.spec,
-        afk,
+        mode,
         no_push,
         iterations,
-        interactive,
         ralph_binary: None,
         skip_preflight: false,
-        prompt_template: None,
     };
 
     match springfield::orchestrate::run(&root, &config) {

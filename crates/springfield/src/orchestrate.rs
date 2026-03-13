@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use shutdown::{ShutdownConfig, ShutdownController, ShutdownStatus};
 
+use crate::config::Mode;
 use crate::loop_mgmt;
 use crate::prompt;
 use crate::recovery;
@@ -14,17 +15,13 @@ use crate::style;
 pub struct LoopConfig {
     pub stage: String,
     pub spec: Option<String>,
-    pub afk: bool,
+    pub mode: Mode,
     pub no_push: bool,
     pub iterations: u32,
-    /// Interactive stage — calls $AGENT_CMD directly instead of ralph.
-    pub interactive: bool,
     /// Override ralph binary path (defaults to `SGF_RALPH_BINARY` env, then `ralph`).
     pub ralph_binary: Option<String>,
     /// Skip pre-launch recovery and daemon startup (for testing).
     pub skip_preflight: bool,
-    /// Override prompt template name (defaults to `stage`).
-    pub prompt_template: Option<String>,
 }
 
 fn resolve_ralph_binary(config: &LoopConfig) -> String {
@@ -70,7 +67,7 @@ fn build_ralph_args(
 ) -> Vec<String> {
     let mut args = Vec::new();
 
-    if config.afk {
+    if config.mode == Mode::Afk {
         args.push("-a".to_string());
     }
 
@@ -112,10 +109,9 @@ fn print_exit_message(code: i32, loop_id: &str) {
 }
 
 pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
-    let template_stage = config.prompt_template.as_deref().unwrap_or(&config.stage);
-    let prompt_path = prompt::validate(root, template_stage, config.spec.as_deref())?;
+    let prompt_path = prompt::validate(root, &config.stage, config.spec.as_deref())?;
 
-    if config.interactive {
+    if config.mode == Mode::Interactive {
         if !config.skip_preflight {
             recovery::ensure_daemon(root)?;
         }
@@ -125,7 +121,7 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
             &format!("stage: {}", config.stage),
         );
 
-        let head_before = if (config.stage == "spec" || config.stage == "doc") && !config.no_push {
+        let head_before = if !config.no_push {
             vcs_utils::git_head()
         } else {
             None
@@ -154,6 +150,7 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
     resolve_agent_cmd()?;
 
     let loop_id = loop_mgmt::generate_loop_id(&config.stage, config.spec.as_deref());
+    let is_afk = config.mode == Mode::Afk;
 
     if !config.skip_preflight {
         recovery::pre_launch_recovery(root)?;
@@ -168,7 +165,7 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
 
     let binary = resolve_ralph_binary(config);
 
-    let log_path = if config.afk {
+    let log_path = if is_afk {
         Some(loop_mgmt::create_log_file(root, &loop_id)?)
     } else {
         None
@@ -177,7 +174,7 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
     let args = build_ralph_args(config, &loop_id, &prompt_path, log_path.as_deref());
 
     let monitor_stdin =
-        config.afk && (std::env::var("SGF_MONITOR_STDIN").is_ok() || io::stdin().is_terminal());
+        is_afk && (std::env::var("SGF_MONITOR_STDIN").is_ok() || io::stdin().is_terminal());
     let controller = ShutdownController::new(ShutdownConfig {
         monitor_stdin,
         ..Default::default()
@@ -193,19 +190,13 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
             parts.push(format!("stage: {spec}"));
         }
         parts.push(format!("iterations: {}", config.iterations));
-        if config.afk {
+        if is_afk {
             parts.push("mode: afk".to_string());
         }
         style::print_action_detail(&format!("launching ralph [{loop_id}]"), &parts.join(" · "));
     }
 
-    let exit_code = run_ralph(
-        &binary,
-        &args,
-        config.afk,
-        config.spec.as_deref(),
-        &controller,
-    )?;
+    let exit_code = run_ralph(&binary, &args, is_afk, config.spec.as_deref(), &controller)?;
 
     loop_mgmt::remove_pid_file(root, &loop_id);
 
@@ -398,13 +389,11 @@ mod tests {
         let config = LoopConfig {
             stage: "build".to_string(),
             spec: Some("auth".to_string()),
-            afk: true,
+            mode: Mode::Afk,
             no_push: true,
             iterations: 10,
-            interactive: false,
             ralph_binary: None,
             skip_preflight: false,
-            prompt_template: None,
         };
         let args = build_ralph_args(
             &config,
@@ -434,13 +423,11 @@ mod tests {
         let config = LoopConfig {
             stage: "verify".to_string(),
             spec: None,
-            afk: false,
+            mode: Mode::Interactive,
             no_push: false,
             iterations: 30,
-            interactive: false,
             ralph_binary: None,
             skip_preflight: false,
-            prompt_template: None,
         };
         let args = build_ralph_args(
             &config,
@@ -460,13 +447,11 @@ mod tests {
         let config = LoopConfig {
             stage: "build".to_string(),
             spec: Some("auth".to_string()),
-            afk: false,
+            mode: Mode::Interactive,
             no_push: false,
             iterations: 30,
-            interactive: false,
             ralph_binary: None,
             skip_preflight: false,
-            prompt_template: None,
         };
         let args = build_ralph_args(
             &config,
@@ -493,13 +478,11 @@ mod tests {
         let config = LoopConfig {
             stage: "build".to_string(),
             spec: None,
-            afk: false,
+            mode: Mode::Interactive,
             no_push: false,
             iterations: 30,
-            interactive: false,
             ralph_binary: Some("/custom/ralph".to_string()),
             skip_preflight: false,
-            prompt_template: None,
         };
         assert_eq!(resolve_ralph_binary(&config), "/custom/ralph");
     }
@@ -520,13 +503,11 @@ mod tests {
         let config = LoopConfig {
             stage: "build".to_string(),
             spec: Some("auth".to_string()),
-            afk: true,
+            mode: Mode::Afk,
             no_push: false,
             iterations: 30,
-            interactive: false,
             ralph_binary: Some(mock),
             skip_preflight: true,
-            prompt_template: None,
         };
 
         let exit_code = run(root, &config).unwrap();
@@ -555,13 +536,11 @@ mod tests {
         let config = LoopConfig {
             stage: "build".to_string(),
             spec: Some("auth".to_string()),
-            afk: true,
+            mode: Mode::Afk,
             no_push: false,
             iterations: 30,
-            interactive: false,
             ralph_binary: Some(mock),
             skip_preflight: true,
-            prompt_template: None,
         };
 
         let exit_code = run(root, &config).unwrap();
@@ -583,13 +562,11 @@ mod tests {
         let config = LoopConfig {
             stage: "verify".to_string(),
             spec: None,
-            afk: true,
+            mode: Mode::Afk,
             no_push: false,
             iterations: 30,
-            interactive: false,
             ralph_binary: Some(mock),
             skip_preflight: true,
-            prompt_template: None,
         };
 
         let exit_code = run(root, &config).unwrap();
@@ -615,13 +592,11 @@ mod tests {
         let config = LoopConfig {
             stage: "build".to_string(),
             spec: Some("auth".to_string()),
-            afk: true,
+            mode: Mode::Afk,
             no_push: false,
             iterations: 30,
-            interactive: false,
             ralph_binary: Some(mock),
             skip_preflight: true,
-            prompt_template: None,
         };
 
         let exit_code = run(root, &config).unwrap();
@@ -654,13 +629,11 @@ mod tests {
         let config = LoopConfig {
             stage: "build".to_string(),
             spec: Some("auth".to_string()),
-            afk: true,
+            mode: Mode::Afk,
             no_push: true,
             iterations: 10,
-            interactive: false,
             ralph_binary: Some(mock),
             skip_preflight: true,
-            prompt_template: None,
         };
 
         let exit_code = run(root, &config).unwrap();
@@ -686,13 +659,11 @@ mod tests {
         let config = LoopConfig {
             stage: "build".to_string(),
             spec: Some("auth".to_string()),
-            afk: true,
+            mode: Mode::Afk,
             no_push: false,
             iterations: 30,
-            interactive: false,
             ralph_binary: Some(mock),
             skip_preflight: true,
-            prompt_template: None,
         };
 
         run(root, &config).unwrap();
@@ -723,13 +694,11 @@ mod tests {
         let config = LoopConfig {
             stage: "verify".to_string(),
             spec: None,
-            afk: true,
+            mode: Mode::Afk,
             no_push: false,
             iterations: 30,
-            interactive: false,
             ralph_binary: Some(mock),
             skip_preflight: true,
-            prompt_template: None,
         };
 
         let exit_code = run(root, &config).unwrap();
@@ -758,13 +727,11 @@ mod tests {
         let config = LoopConfig {
             stage: "test".to_string(),
             spec: Some("auth".to_string()),
-            afk: true,
+            mode: Mode::Afk,
             no_push: false,
             iterations: 30,
-            interactive: false,
             ralph_binary: Some(mock),
             skip_preflight: true,
-            prompt_template: None,
         };
 
         let exit_code = run(root, &config).unwrap();
@@ -792,13 +759,11 @@ mod tests {
         let config = LoopConfig {
             stage: "test-plan".to_string(),
             spec: None,
-            afk: true,
+            mode: Mode::Afk,
             no_push: false,
             iterations: 30,
-            interactive: false,
             ralph_binary: Some(mock),
             skip_preflight: true,
-            prompt_template: None,
         };
 
         let exit_code = run(root, &config).unwrap();
@@ -809,7 +774,7 @@ mod tests {
     }
 
     #[test]
-    fn run_non_afk_succeeds() {
+    fn run_afk_passes_afk_flag() {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
         setup_project(root, "build", "Build the spec now.");
@@ -824,13 +789,11 @@ mod tests {
         let config = LoopConfig {
             stage: "build".to_string(),
             spec: Some("auth".to_string()),
-            afk: false,
+            mode: Mode::Afk,
             no_push: false,
             iterations: 30,
-            interactive: false,
             ralph_binary: Some(mock),
             skip_preflight: true,
-            prompt_template: None,
         };
 
         let exit_code = run(root, &config).unwrap();
@@ -839,8 +802,8 @@ mod tests {
         let args_content = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
         let args: Vec<&str> = args_content.trim().split_whitespace().collect();
         assert!(
-            !args.contains(&"-a"),
-            "non-AFK should not pass -a flag, got: {args_content}"
+            args.contains(&"-a"),
+            "AFK mode should pass -a flag, got: {args_content}"
         );
     }
 }
