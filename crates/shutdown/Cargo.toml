@@ -9,5 +9,5 @@ signal-hook = "0.4"
 libc = "0.2"
 
 [dev-dependencies]
-nix = { version = "0.29", features = ["signal"] }
+nix = { version = "0.29", features = ["signal", "process"] }
 serial_test = "3"

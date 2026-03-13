@@ -172,6 +172,31 @@ impl ShutdownController {
     }
 }
 
+pub fn kill_process_group(pid: u32, timeout: Duration) -> bool {
+    let neg_pid = -(pid as i32);
+
+    if unsafe { libc::kill(neg_pid, libc::SIGTERM) } != 0 {
+        let err = io::Error::last_os_error();
+        if err.raw_os_error() == Some(libc::ESRCH) {
+            return false;
+        }
+    }
+
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        thread::sleep(Duration::from_millis(100));
+        if unsafe { libc::kill(pid as i32, 0) } != 0 {
+            let err = io::Error::last_os_error();
+            if err.raw_os_error() == Some(libc::ESRCH) {
+                return true;
+            }
+        }
+    }
+
+    unsafe { libc::kill(neg_pid, libc::SIGKILL) };
+    true
+}
+
 impl Drop for ShutdownController {
     fn drop(&mut self) {
         for id in &self.signal_ids {
@@ -246,6 +271,90 @@ mod tests {
         signal::kill(Pid::this(), Signal::SIGINT).unwrap();
         thread::sleep(Duration::from_millis(10));
         assert_eq!(ctrl.poll(), ShutdownStatus::Shutdown);
+    }
+
+    use std::os::unix::process::CommandExt;
+    use std::process::Command;
+
+    fn spawn_in_new_session(args: &[&str]) -> std::process::Child {
+        let mut cmd = Command::new(args[0]);
+        if args.len() > 1 {
+            cmd.args(&args[1..]);
+        }
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::setsid();
+                Ok(())
+            });
+        }
+        cmd.stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap()
+    }
+
+    fn wait_for_pid_dead(pid: u32, timeout: Duration) -> bool {
+        let start = Instant::now();
+        while start.elapsed() < timeout {
+            if unsafe { libc::kill(pid as i32, 0) } != 0 {
+                return true;
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+        false
+    }
+
+    #[test]
+    fn kill_pg_sends_sigterm_to_group() {
+        let mut child = spawn_in_new_session(&["sleep", "60"]);
+        let pid = child.id();
+        thread::sleep(Duration::from_millis(100));
+
+        let result = kill_process_group(pid, Duration::from_secs(5));
+        assert!(result);
+
+        let status = child.wait().unwrap();
+        assert!(!status.success());
+    }
+
+    #[test]
+    fn kill_pg_escalates_to_sigkill() {
+        let mut child = spawn_in_new_session(&["sh", "-c", "trap '' TERM; sleep 60"]);
+        let pid = child.id();
+        thread::sleep(Duration::from_millis(100));
+
+        let result = kill_process_group(pid, Duration::from_millis(500));
+        assert!(result);
+
+        let status = child.wait().unwrap();
+        assert!(!status.success());
+    }
+
+    #[test]
+    fn kill_pg_already_dead() {
+        let mut child = Command::new("true").spawn().unwrap();
+        let pid = child.id();
+        child.wait().unwrap();
+        thread::sleep(Duration::from_millis(50));
+
+        let result = kill_process_group(pid, Duration::from_secs(1));
+        assert!(!result);
+    }
+
+    #[test]
+    fn kill_pg_kills_descendants() {
+        let mut child = spawn_in_new_session(&["sh", "-c", "sleep 60 & sleep 60 & wait"]);
+        let pid = child.id();
+        thread::sleep(Duration::from_millis(200));
+
+        let result = kill_process_group(pid, Duration::from_secs(5));
+        assert!(result);
+
+        child.wait().unwrap();
+
+        thread::sleep(Duration::from_millis(200));
+        assert!(wait_for_pid_dead(pid, Duration::from_secs(2)));
     }
 
     #[test]
