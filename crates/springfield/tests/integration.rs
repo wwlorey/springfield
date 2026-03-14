@@ -3142,3 +3142,140 @@ fn config_toml_duplicate_alias_errors_at_parse_time() {
         "should report duplicate alias error, got: {stderr}"
     );
 }
+
+// ===========================================================================
+// End-to-end: sgf → ralph → cl → mock claude-wrapper-secret
+// ===========================================================================
+
+fn target_bin_dir() -> PathBuf {
+    let mut dir = PathBuf::from(env!("CARGO_BIN_EXE_sgf"));
+    dir.pop();
+    dir
+}
+
+#[test]
+fn e2e_sgf_ralph_cl_context_files_and_spec_in_append_system_prompt() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    write_config_toml(
+        tmp.path(),
+        "[build]\nmode = \"afk\"\niterations = 1\nauto_push = false\n",
+    );
+    create_spec_and_commit(tmp.path(), "auth");
+
+    // Create context files that cl should detect
+    fs::create_dir_all(tmp.path().join(".sgf")).unwrap();
+    fs::write(tmp.path().join(".sgf/MEMENTO.md"), "memento content").unwrap();
+    fs::write(
+        tmp.path().join(".sgf/BACKPRESSURE.md"),
+        "backpressure content",
+    )
+    .unwrap();
+    fs::write(tmp.path().join("specs/README.md"), "specs readme content").unwrap();
+    git_add_commit(tmp.path(), "add context files");
+
+    let bin_dir = target_bin_dir();
+    let ralph_bin = bin_dir.join("ralph");
+    assert!(
+        ralph_bin.exists(),
+        "ralph binary not found at {}; run `cargo build --workspace` first",
+        ralph_bin.display()
+    );
+    assert!(
+        bin_dir.join("cl").exists(),
+        "cl binary not found at {}; run `cargo build --workspace` first",
+        bin_dir.join("cl").display()
+    );
+
+    // Mock dir: claude-wrapper-secret (captures args) + pn (no-op)
+    let mock_dir = TempDir::new().unwrap();
+    let captured_args = mock_dir.path().join("captured_args.txt");
+
+    create_mock_script(
+        mock_dir.path(),
+        "claude-wrapper-secret",
+        &format!(
+            concat!(
+                "#!/bin/sh\n",
+                "printf '%s\\n' \"$@\" > \"{captured}\"\n",
+                "echo '{{\"type\":\"result\",\"result\":\"done\"}}'\n",
+                "touch \"$PWD/.ralph-complete\"\n",
+            ),
+            captured = captured_args.display(),
+        ),
+    );
+    create_mock_script(mock_dir.path(), "pn", "#!/bin/sh\nexit 0\n");
+
+    // PATH: mock_dir (claude-wrapper-secret, pn) → bin_dir (cl) → system
+    let path = format!(
+        "{}:{}:{}",
+        mock_dir.path().display(),
+        bin_dir.display(),
+        std::env::var("PATH").unwrap_or_default(),
+    );
+
+    let output = sgf_cmd(tmp.path())
+        .args(["build", "auth", "-a"])
+        .env("SGF_RALPH_BINARY", &ralph_bin)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("PATH", &path)
+        .env("HOME", tmp.path().to_str().unwrap())
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "sgf build failed:\nstdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+
+    let args = fs::read_to_string(&captured_args).expect("read captured args from mock agent");
+    let lines: Vec<&str> = args.lines().collect();
+
+    // cl should inject --append-system-prompt with MEMENTO, BACKPRESSURE, specs/README
+    assert!(
+        args.contains("--append-system-prompt"),
+        "missing --append-system-prompt in captured args:\n{args}"
+    );
+    assert!(
+        args.contains("MEMENTO.md"),
+        "missing MEMENTO.md in captured args:\n{args}"
+    );
+    assert!(
+        args.contains("BACKPRESSURE.md"),
+        "missing BACKPRESSURE.md in captured args:\n{args}"
+    );
+    assert!(
+        args.contains("specs/README.md"),
+        "missing specs/README.md in captured args:\n{args}"
+    );
+
+    // ralph should inject --append-system-prompt with study @./specs/auth.md
+    assert!(
+        args.contains("specs/auth.md"),
+        "missing specs/auth.md (from --spec) in captured args:\n{args}"
+    );
+
+    // At least 2 --append-system-prompt args: one from cl, one from ralph
+    let asp_count = lines
+        .iter()
+        .filter(|l| **l == "--append-system-prompt")
+        .count();
+    assert!(
+        asp_count >= 2,
+        "expected >= 2 --append-system-prompt args, got {asp_count}:\n{args}"
+    );
+
+    // ralph should pass AFK-mode flags
+    assert!(lines.contains(&"--verbose"), "missing --verbose:\n{args}");
+    assert!(lines.contains(&"--print"), "missing --print:\n{args}");
+    assert!(
+        lines.contains(&"stream-json"),
+        "missing stream-json output format:\n{args}"
+    );
+    assert!(
+        lines.contains(&"--dangerously-skip-permissions"),
+        "missing --dangerously-skip-permissions:\n{args}"
+    );
+}
