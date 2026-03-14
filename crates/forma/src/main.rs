@@ -1,4 +1,3 @@
-mod daemon;
 mod output;
 
 fn main() {
