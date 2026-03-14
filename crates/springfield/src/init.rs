@@ -21,20 +21,13 @@ const TEMPLATE_INSTALL: &str = include_str!("../templates/install.md");
 const TEMPLATE_CONFIG_TOML: &str = include_str!("../templates/config.toml");
 const TEMPLATE_LOOM_SPECS_README: &str = include_str!("../templates/loom-specs-README.md");
 
-const SPECS_README_CONTENT: &str = "\
-# Specifications
-
-| Spec | Code | Purpose |
-|------|------|---------|
-";
-
 const DIRECTORIES: &[&str] = &[
     ".pensa",
+    ".forma",
     ".sgf",
     ".sgf/logs",
     ".sgf/run",
     ".sgf/prompts",
-    "specs",
 ];
 
 struct TemplateFile {
@@ -94,26 +87,24 @@ struct SkeletonFile {
     content: &'static str,
 }
 
-const SKELETON_FILES: &[SkeletonFile] = &[
-    SkeletonFile {
-        path: "AGENTS.md",
-        content: "",
-    },
-    SkeletonFile {
-        path: "specs/README.md",
-        content: SPECS_README_CONTENT,
-    },
-];
+const SKELETON_FILES: &[SkeletonFile] = &[SkeletonFile {
+    path: "AGENTS.md",
+    content: "",
+}];
 
 const GITIGNORE_FULL: &str = "\
 # Springfield
+.pensa/db.sqlite
+**/.pensa/daemon.port
+**/.pensa/daemon.project
+**/.pensa/daemon.url
+**/.forma/daemon.port
+**/.forma/daemon.project
+**/.forma/daemon.url
 .sgf/logs/
 .sgf/run/
 .ralph-complete
 .ralph-ding
-**/.pensa/daemon.port
-**/.pensa/daemon.project
-**/.pensa/daemon.url
 
 # Rust
 /target
@@ -134,13 +125,17 @@ node_modules/
 ";
 
 const GITIGNORE_ENTRIES: &[&str] = &[
+    ".pensa/db.sqlite",
+    "**/.pensa/daemon.port",
+    "**/.pensa/daemon.project",
+    "**/.pensa/daemon.url",
+    "**/.forma/daemon.port",
+    "**/.forma/daemon.project",
+    "**/.forma/daemon.url",
     ".sgf/logs/",
     ".sgf/run/",
     ".ralph-complete",
     ".ralph-ding",
-    "**/.pensa/daemon.port",
-    "**/.pensa/daemon.project",
-    "**/.pensa/daemon.url",
     "/target",
     "node_modules/",
     ".svelte-kit/",
@@ -183,6 +178,20 @@ repos:
       - id: pensa-import
         name: pensa import
         entry: pn import
+        language: system
+        always_run: true
+        pass_filenames: false
+        stages: [post-merge, post-checkout, post-rewrite]
+      - id: forma-export
+        name: forma export
+        entry: fm export
+        language: system
+        always_run: true
+        pass_filenames: false
+        stages: [pre-commit]
+      - id: forma-import
+        name: forma import
+        entry: fm import
         language: system
         always_run: true
         pass_filenames: false
@@ -339,10 +348,12 @@ fn merge_pre_commit_config(root: &Path) -> io::Result<()> {
             .unwrap_or(false)
     };
 
-    let has_export = has_hook(&doc, "pensa-export");
-    let has_import = has_hook(&doc, "pensa-import");
+    let has_pensa_export = has_hook(&doc, "pensa-export");
+    let has_pensa_import = has_hook(&doc, "pensa-import");
+    let has_forma_export = has_hook(&doc, "forma-export");
+    let has_forma_import = has_hook(&doc, "forma-import");
 
-    if has_export && has_import {
+    if has_pensa_export && has_pensa_import && has_forma_export && has_forma_import {
         return Ok(());
     }
 
@@ -382,20 +393,36 @@ fn merge_pre_commit_config(root: &Path) -> io::Result<()> {
         .as_sequence_mut()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "hooks is not a sequence"))?;
 
-    if !has_export {
-        let export_hook: serde_yaml::Value = serde_yaml::from_str(
+    if !has_pensa_export {
+        let hook: serde_yaml::Value = serde_yaml::from_str(
             "id: pensa-export\nname: pensa export\nentry: pn export\nlanguage: system\nalways_run: true\npass_filenames: false\nstages: [pre-commit]",
         )
         .map_err(io::Error::other)?;
-        hooks_seq.push(export_hook);
+        hooks_seq.push(hook);
     }
 
-    if !has_import {
-        let import_hook: serde_yaml::Value = serde_yaml::from_str(
+    if !has_pensa_import {
+        let hook: serde_yaml::Value = serde_yaml::from_str(
             "id: pensa-import\nname: pensa import\nentry: pn import\nlanguage: system\nalways_run: true\npass_filenames: false\nstages: [post-merge, post-checkout, post-rewrite]",
         )
         .map_err(io::Error::other)?;
-        hooks_seq.push(import_hook);
+        hooks_seq.push(hook);
+    }
+
+    if !has_forma_export {
+        let hook: serde_yaml::Value = serde_yaml::from_str(
+            "id: forma-export\nname: forma export\nentry: fm export\nlanguage: system\nalways_run: true\npass_filenames: false\nstages: [pre-commit]",
+        )
+        .map_err(io::Error::other)?;
+        hooks_seq.push(hook);
+    }
+
+    if !has_forma_import {
+        let hook: serde_yaml::Value = serde_yaml::from_str(
+            "id: forma-import\nname: forma import\nentry: fm import\nlanguage: system\nalways_run: true\npass_filenames: false\nstages: [post-merge, post-checkout, post-rewrite]",
+        )
+        .map_err(io::Error::other)?;
+        hooks_seq.push(hook);
     }
 
     let output = serde_yaml::to_string(&doc).map_err(io::Error::other)?;
@@ -589,7 +616,7 @@ pub fn run(root: &Path, force: bool) -> io::Result<()> {
             .chain(
                 SKELETON_FILES
                     .iter()
-                    .filter(|sf| sf.path != "AGENTS.md" && sf.path != "specs/README.md")
+                    .filter(|sf| sf.path != "AGENTS.md")
                     .map(|sf| sf.path),
             )
             .collect();
@@ -730,6 +757,30 @@ mod tests {
             target.to_str().unwrap(),
             "AGENTS.md",
             "CLAUDE.md should point to AGENTS.md"
+        );
+    }
+
+    #[test]
+    fn forma_directory_created() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+        run(tmp.path(), false).unwrap();
+
+        assert!(
+            tmp.path().join(".forma").is_dir(),
+            ".forma/ directory should be created"
+        );
+    }
+
+    #[test]
+    fn specs_directory_not_created() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+        run(tmp.path(), false).unwrap();
+
+        assert!(
+            !tmp.path().join("specs").exists(),
+            "specs/ directory should NOT be created"
         );
     }
 
@@ -1010,6 +1061,10 @@ mod tests {
         assert!(content.contains("pensa-import"));
         assert!(content.contains("pn export"));
         assert!(content.contains("pn import"));
+        assert!(content.contains("forma-export"));
+        assert!(content.contains("forma-import"));
+        assert!(content.contains("fm export"));
+        assert!(content.contains("fm import"));
     }
 
     #[test]
@@ -1034,6 +1089,8 @@ repos:
         );
         assert!(content.contains("pensa-export"), "pensa-export not added");
         assert!(content.contains("pensa-import"), "pensa-import not added");
+        assert!(content.contains("forma-export"), "forma-export not added");
+        assert!(content.contains("forma-import"), "forma-import not added");
     }
 
     #[test]
@@ -1042,16 +1099,20 @@ repos:
         git_init(tmp.path());
         run(tmp.path(), false).unwrap();
         let first = fs::read_to_string(tmp.path().join(".pre-commit-config.yaml")).unwrap();
-        let first_export_count = first.matches("pensa-export").count();
 
         run(tmp.path(), false).unwrap();
         let second = fs::read_to_string(tmp.path().join(".pre-commit-config.yaml")).unwrap();
-        let second_export_count = second.matches("pensa-export").count();
 
-        assert_eq!(
-            first_export_count, second_export_count,
-            "pensa-export duplicated on rerun"
-        );
+        for hook_id in &[
+            "pensa-export",
+            "pensa-import",
+            "forma-export",
+            "forma-import",
+        ] {
+            let first_count = first.matches(hook_id).count();
+            let second_count = second.matches(hook_id).count();
+            assert_eq!(first_count, second_count, "{hook_id} duplicated on rerun");
+        }
     }
 
     #[test]
@@ -1072,11 +1133,11 @@ repos:
             .filter(|hook| {
                 hook["id"]
                     .as_str()
-                    .is_some_and(|id| id.starts_with("pensa-"))
+                    .is_some_and(|id| id.starts_with("pensa-") || id.starts_with("forma-"))
             })
             .collect();
 
-        assert!(!hooks.is_empty(), "no pensa hooks found");
+        assert_eq!(hooks.len(), 4, "expected 4 hooks (pensa + forma)");
         for hook in &hooks {
             let id = hook["id"].as_str().unwrap();
             assert_eq!(
@@ -1125,7 +1186,12 @@ repos:
                 .clone()
         };
 
-        for hook_id in &["pensa-export", "pensa-import"] {
+        for hook_id in &[
+            "pensa-export",
+            "pensa-import",
+            "forma-export",
+            "forma-import",
+        ] {
             let from_fresh = extract_hook(&fresh, hook_id);
             let from_merge = extract_hook(&merged, hook_id);
             assert_eq!(
@@ -1173,7 +1239,7 @@ repos:
             .chain(
                 SKELETON_FILES
                     .iter()
-                    .filter(|sf| sf.path != "AGENTS.md" && sf.path != "specs/README.md")
+                    .filter(|sf| sf.path != "AGENTS.md")
                     .map(|sf| sf.path),
             )
             .collect();
@@ -1237,26 +1303,6 @@ repos:
         assert_eq!(
             content, TEMPLATE_BUILD,
             "force should restore template content"
-        );
-    }
-
-    #[test]
-    fn force_does_not_overwrite_specs_readme() {
-        let tmp = TempDir::new().unwrap();
-        git_init(tmp.path());
-        run(tmp.path(), false).unwrap();
-
-        let readme_path = tmp.path().join("specs/README.md");
-        let custom = "# My Specs\n\nCustom content\n";
-        fs::write(&readme_path, custom).unwrap();
-        git_add_commit(tmp.path(), "customize specs readme");
-
-        force_init(tmp.path()).unwrap();
-
-        let content = fs::read_to_string(&readme_path).unwrap();
-        assert_eq!(
-            content, custom,
-            "force should not overwrite specs/README.md"
         );
     }
 
