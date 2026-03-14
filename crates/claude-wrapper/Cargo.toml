@@ -1,0 +1,15 @@
+[package]
+name = "claude-wrapper"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "cl"
+path = "src/main.rs"
+
+[dependencies]
+dirs = "6"
+
+[dev-dependencies]
+tempfile = "3"
