@@ -1494,8 +1494,7 @@ impl Db {
                                 && let Some(spec_stem) = spec_val.as_str()
                                 && !spec_stems.contains(spec_stem)
                             {
-                                let id =
-                                    issue.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+                                let id = issue.get("id").and_then(|v| v.as_str()).unwrap_or("?");
                                 warnings.push(CheckFinding {
                                     check: "pensa_spec_refs_valid".to_string(),
                                     message: format!(
@@ -1524,6 +1523,140 @@ impl Db {
             warnings,
         })
     }
+
+    pub fn doctor(&self, fix: bool) -> Result<DoctorReport, FormaError> {
+        let mut findings = Vec::new();
+        let mut fixes_applied = Vec::new();
+
+        // 1. JSONL/SQLite count drift
+        let db_spec_count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM specs", [], |row| row.get(0))
+            .map_err(|e| FormaError::Internal(format!("doctor query failed: {e}")))?;
+        let db_section_count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM sections", [], |row| row.get(0))
+            .map_err(|e| FormaError::Internal(format!("doctor query failed: {e}")))?;
+        let db_ref_count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM refs", [], |row| row.get(0))
+            .map_err(|e| FormaError::Internal(format!("doctor query failed: {e}")))?;
+
+        let jsonl_spec_count = Self::count_jsonl_lines(&self.forma_dir.join("specs.jsonl"));
+        let jsonl_section_count = Self::count_jsonl_lines(&self.forma_dir.join("sections.jsonl"));
+        let jsonl_ref_count = Self::count_jsonl_lines(&self.forma_dir.join("refs.jsonl"));
+
+        if db_spec_count != jsonl_spec_count {
+            findings.push(DoctorFinding {
+                check: "sync_drift".to_string(),
+                message: format!(
+                    "specs count mismatch: SQLite has {db_spec_count}, JSONL has {jsonl_spec_count}"
+                ),
+            });
+        }
+        if db_section_count != jsonl_section_count {
+            findings.push(DoctorFinding {
+                check: "sync_drift".to_string(),
+                message: format!(
+                    "sections count mismatch: SQLite has {db_section_count}, JSONL has {jsonl_section_count}"
+                ),
+            });
+        }
+        if db_ref_count != jsonl_ref_count {
+            findings.push(DoctorFinding {
+                check: "sync_drift".to_string(),
+                message: format!(
+                    "refs count mismatch: SQLite has {db_ref_count}, JSONL has {jsonl_ref_count}"
+                ),
+            });
+        }
+
+        // 2. Orphaned refs
+        let orphaned_refs: Vec<(String, String)> = {
+            let mut stmt = self
+                .conn
+                .prepare(
+                    "SELECT r.from_stem, r.to_stem FROM refs r
+                     WHERE r.from_stem NOT IN (SELECT stem FROM specs)
+                        OR r.to_stem NOT IN (SELECT stem FROM specs)",
+                )
+                .map_err(|e| FormaError::Internal(format!("doctor query failed: {e}")))?;
+            stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .map_err(|e| FormaError::Internal(format!("doctor query failed: {e}")))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| FormaError::Internal(format!("doctor query failed: {e}")))?
+        };
+
+        for (from, to) in &orphaned_refs {
+            findings.push(DoctorFinding {
+                check: "orphaned_ref".to_string(),
+                message: format!("orphaned ref: {from} -> {to}"),
+            });
+        }
+
+        if fix && !orphaned_refs.is_empty() {
+            self.conn
+                .execute(
+                    "DELETE FROM refs WHERE from_stem NOT IN (SELECT stem FROM specs)
+                        OR to_stem NOT IN (SELECT stem FROM specs)",
+                    [],
+                )
+                .map_err(|e| FormaError::Internal(format!("doctor fix failed: {e}")))?;
+            fixes_applied.push(format!("removed {} orphaned ref(s)", orphaned_refs.len()));
+        }
+
+        // 3. Orphaned sections
+        let orphaned_sections: Vec<(String, String)> = {
+            let mut stmt = self
+                .conn
+                .prepare(
+                    "SELECT s.id, s.spec_stem FROM sections s
+                     WHERE s.spec_stem NOT IN (SELECT stem FROM specs)",
+                )
+                .map_err(|e| FormaError::Internal(format!("doctor query failed: {e}")))?;
+            stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .map_err(|e| FormaError::Internal(format!("doctor query failed: {e}")))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| FormaError::Internal(format!("doctor query failed: {e}")))?
+        };
+
+        for (id, spec_stem) in &orphaned_sections {
+            findings.push(DoctorFinding {
+                check: "orphaned_section".to_string(),
+                message: format!(
+                    "orphaned section '{id}' references non-existent spec '{spec_stem}'"
+                ),
+            });
+        }
+
+        if fix && !orphaned_sections.is_empty() {
+            self.conn
+                .execute(
+                    "DELETE FROM sections WHERE spec_stem NOT IN (SELECT stem FROM specs)",
+                    [],
+                )
+                .map_err(|e| FormaError::Internal(format!("doctor fix failed: {e}")))?;
+            fixes_applied.push(format!(
+                "removed {} orphaned section(s)",
+                orphaned_sections.len()
+            ));
+        }
+
+        Ok(DoctorReport {
+            findings,
+            fixes_applied,
+        })
+    }
+
+    fn count_jsonl_lines(path: &Path) -> i64 {
+        match fs::read_to_string(path) {
+            Ok(content) => content
+                .lines()
+                .filter(|line| !line.trim().is_empty())
+                .count() as i64,
+            Err(_) => 0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1551,6 +1684,18 @@ pub struct ImportResult {
     pub specs: usize,
     pub sections: usize,
     pub refs: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DoctorFinding {
+    pub check: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DoctorReport {
+    pub findings: Vec<DoctorFinding>,
+    pub fixes_applied: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -3294,5 +3439,164 @@ mod tests {
                 .iter()
                 .any(|w| w.check == "pensa_spec_refs_valid" && w.message.contains("unreachable"))
         );
+    }
+
+    #[test]
+    fn doctor_healthy_db_no_findings() {
+        let (db, project_dir, _d) = test_db();
+        let crate_dir = project_dir.path().join("crates/mylib");
+        std::fs::create_dir_all(&crate_dir).unwrap();
+        db.create_spec("mylib", "crates/mylib", "Test", None)
+            .unwrap();
+        db.export_jsonl().unwrap();
+
+        let report = db.doctor(false).unwrap();
+        assert!(report.findings.is_empty());
+        assert!(report.fixes_applied.is_empty());
+    }
+
+    #[test]
+    fn doctor_detects_sync_drift() {
+        let (db, project_dir, _d) = test_db();
+        let crate_dir = project_dir.path().join("crates/mylib");
+        std::fs::create_dir_all(&crate_dir).unwrap();
+        db.create_spec("mylib", "crates/mylib", "Test", None)
+            .unwrap();
+        // Don't export — JSONL files don't exist, so count is 0 vs 1 in SQLite
+
+        let report = db.doctor(false).unwrap();
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|f| f.check == "sync_drift" && f.message.contains("specs"))
+        );
+    }
+
+    fn create_orphans(db: &Db) {
+        // Temporarily disable FK checks to create orphaned data
+        db.conn.execute_batch("PRAGMA foreign_keys = OFF").unwrap();
+        db.conn
+            .execute(
+                "INSERT INTO refs (from_stem, to_stem) VALUES ('alpha', 'ghost')",
+                [],
+            )
+            .unwrap();
+        db.conn
+            .execute(
+                "INSERT INTO sections (id, spec_stem, name, slug, kind, body, position, created_at, updated_at)
+                 VALUES ('fm-orphan01', 'ghost', 'Orphan', 'orphan', 'custom', '', 0, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+                [],
+            )
+            .unwrap();
+        db.conn.execute_batch("PRAGMA foreign_keys = ON").unwrap();
+    }
+
+    #[test]
+    fn doctor_detects_orphaned_refs() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("alpha", "crates/a", "Alpha", None).unwrap();
+        create_orphans(&db);
+
+        let report = db.doctor(false).unwrap();
+        assert!(report.findings.iter().any(|f| f.check == "orphaned_ref"));
+        assert!(report.fixes_applied.is_empty());
+    }
+
+    #[test]
+    fn doctor_fixes_orphaned_refs() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("alpha", "crates/a", "Alpha", None).unwrap();
+        create_orphans(&db);
+
+        let report = db.doctor(true).unwrap();
+        assert!(report.findings.iter().any(|f| f.check == "orphaned_ref"));
+        assert!(
+            report
+                .fixes_applied
+                .iter()
+                .any(|f| f.contains("orphaned ref"))
+        );
+
+        let ref_count: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM refs WHERE to_stem = 'ghost'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(ref_count, 0);
+    }
+
+    #[test]
+    fn doctor_detects_orphaned_sections() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("alpha", "crates/a", "Alpha", None).unwrap();
+        create_orphans(&db);
+
+        let report = db.doctor(false).unwrap();
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|f| f.check == "orphaned_section")
+        );
+    }
+
+    #[test]
+    fn doctor_fixes_orphaned_sections() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("alpha", "crates/a", "Alpha", None).unwrap();
+        create_orphans(&db);
+
+        let report = db.doctor(true).unwrap();
+        assert!(
+            report
+                .fixes_applied
+                .iter()
+                .any(|f| f.contains("orphaned section"))
+        );
+
+        let orphan_count: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM sections WHERE spec_stem = 'ghost'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(orphan_count, 0);
+
+        let alpha_count: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM sections WHERE spec_stem = 'alpha'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(alpha_count > 0);
+    }
+
+    #[test]
+    fn doctor_no_fix_does_not_remove() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("alpha", "crates/a", "Alpha", None).unwrap();
+        create_orphans(&db);
+
+        let report = db.doctor(false).unwrap();
+        assert!(!report.findings.is_empty());
+        assert!(report.fixes_applied.is_empty());
+
+        let ref_count: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM refs WHERE to_stem = 'ghost'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(ref_count, 1);
     }
 }

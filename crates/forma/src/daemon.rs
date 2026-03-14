@@ -95,6 +95,7 @@ pub async fn start_with_data_dir(port: u16, project_dir: PathBuf, data_dir: Opti
         .route("/export", post(export_jsonl))
         .route("/import", post(import_jsonl))
         .route("/check", get(check))
+        .route("/doctor", post(doctor))
         // Status
         .route("/status", get(project_status))
         .with_state(state);
@@ -504,6 +505,21 @@ async fn import_jsonl(State(db): State<AppState>) -> Result<Json<serde_json::Val
     let db = db.lock().unwrap();
     let result = db.import_jsonl()?;
     Ok(Json(serde_json::to_value(result).unwrap()))
+}
+
+#[derive(Deserialize)]
+struct DoctorQuery {
+    #[serde(default)]
+    fix: bool,
+}
+
+async fn doctor(
+    State(db): State<AppState>,
+    Query(query): Query<DoctorQuery>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let db = db.lock().unwrap();
+    let report = db.doctor(query.fix)?;
+    Ok(Json(serde_json::to_value(report).unwrap()))
 }
 
 async fn check(State(db): State<AppState>) -> Result<Json<serde_json::Value>, AppError> {

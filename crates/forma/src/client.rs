@@ -347,4 +347,14 @@ impl Client {
     pub fn check(&self) -> Result<Value, FormaError> {
         self.request(|http| http.get(format!("{}/check", self.base_url)).send())
     }
+
+    pub fn doctor(&self, fix: bool) -> Result<Value, FormaError> {
+        self.request(|http| {
+            let mut url = format!("{}/doctor", self.base_url);
+            if fix {
+                url.push_str("?fix=true");
+            }
+            http.post(&url).send()
+        })
+    }
 }

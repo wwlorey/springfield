@@ -333,6 +333,35 @@ pub fn print_check(value: &Value, mode: OutputMode) {
     }
 }
 
+pub fn print_doctor(value: &Value, mode: OutputMode) {
+    match mode {
+        OutputMode::Json => print_json(value),
+        OutputMode::Human => {
+            if let Some(findings) = value["findings"].as_array() {
+                if findings.is_empty() {
+                    println!("doctor: no issues found");
+                } else {
+                    for f in findings {
+                        let check = f["check"].as_str().unwrap_or("?");
+                        let msg = f["message"].as_str().unwrap_or("?");
+                        println!("  [{check}] {msg}");
+                    }
+                }
+            }
+            if let Some(fixes) = value["fixes_applied"].as_array()
+                && !fixes.is_empty()
+            {
+                println!("fixes applied:");
+                for fix in fixes {
+                    if let Some(s) = fix.as_str() {
+                        println!("  {s}");
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub fn print_where(forma_dir: &str, db_dir: &str) {
     println!("jsonl: {forma_dir}");
     println!("db:    {db_dir}");

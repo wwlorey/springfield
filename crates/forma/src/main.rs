@@ -74,6 +74,10 @@ enum Commands {
     Export,
     Import,
     Check,
+    Doctor {
+        #[arg(long, default_value_t = false)]
+        fix: bool,
+    },
     Where,
     Daemon {
         #[arg(long)]
@@ -530,6 +534,14 @@ fn main() {
                         process::exit(1);
                     }
                 }
+                Err(e) => fail(e, mode),
+            }
+        }
+
+        Commands::Doctor { fix } => {
+            let client = Client::new();
+            match client.doctor(fix) {
+                Ok(v) => output::print_doctor(&v, mode),
                 Err(e) => fail(e, mode),
             }
         }
