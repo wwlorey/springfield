@@ -27,3 +27,5 @@ tempfile = "3"
 tokio = { version = "1", features = ["full", "test-util"] }
 portpicker = "0.1"
 proptest = "1"
+forma = { path = "../forma" }
+reqwest = { version = "0.12", features = ["blocking", "json"] }

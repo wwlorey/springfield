@@ -12,7 +12,12 @@ use crate::db::Db;
 use crate::error::{ErrorResponse, PensaError};
 use crate::types::{CreateIssueParams, IssueType, ListFilters, Priority, Status, UpdateFields};
 
-type AppState = Arc<Mutex<Db>>;
+struct DaemonState {
+    db: Mutex<Db>,
+    project_dir: PathBuf,
+}
+
+type AppState = Arc<DaemonState>;
 
 struct AppError(PensaError);
 
@@ -24,6 +29,8 @@ impl IntoResponse for AppError {
             | PensaError::CycleDetected
             | PensaError::InvalidStatusTransition { .. }
             | PensaError::DeleteRequiresForce(_) => StatusCode::CONFLICT,
+            PensaError::SpecNotFound(_) => StatusCode::UNPROCESSABLE_ENTITY,
+            PensaError::FormaUnavailable => StatusCode::SERVICE_UNAVAILABLE,
             PensaError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
         let body = ErrorResponse::from(&self.0);
@@ -44,9 +51,66 @@ fn actor_from_headers(headers: &HeaderMap) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+fn forma_port(project_dir: &std::path::Path) -> u16 {
+    use sha2::{Digest, Sha256};
+    let canonical = project_dir
+        .canonicalize()
+        .unwrap_or_else(|_| project_dir.to_path_buf());
+    let input = format!("forma:{}", canonical.to_string_lossy());
+    let hash: [u8; 32] = Sha256::digest(input.as_bytes()).into();
+    let raw = u16::from_be_bytes([hash[8], hash[9]]);
+    10000 + (raw % 50000)
+}
+
+fn discover_forma_port(project_dir: &std::path::Path) -> u16 {
+    let port_file = project_dir.join(".forma/daemon.port");
+    if let Ok(contents) = std::fs::read_to_string(&port_file)
+        && let Ok(port) = contents.trim().parse::<u16>()
+    {
+        return port;
+    }
+    forma_port(project_dir)
+}
+
+async fn validate_spec_against_forma(
+    project_dir: &std::path::Path,
+    stem: &str,
+) -> Result<(), PensaError> {
+    let port = discover_forma_port(project_dir);
+    let url = format!("http://localhost:{port}/specs/{stem}");
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+        .map_err(|e| PensaError::Internal(format!("http client error: {e}")))?;
+    match client.get(&url).send().await {
+        Ok(resp) if resp.status().is_success() => Ok(()),
+        Ok(resp) if resp.status() == reqwest::StatusCode::NOT_FOUND => {
+            Err(PensaError::SpecNotFound(stem.to_string()))
+        }
+        Ok(resp) => Err(PensaError::Internal(format!(
+            "forma returned unexpected status: {}",
+            resp.status()
+        ))),
+        Err(_) => Err(PensaError::FormaUnavailable),
+    }
+}
+
 pub async fn start(port: u16, project_dir: PathBuf) {
-    let db = Db::open(&project_dir).expect("failed to open database");
-    let state: AppState = Arc::new(Mutex::new(db));
+    start_with_data_dir(port, project_dir, None).await;
+}
+
+pub async fn start_with_data_dir(port: u16, project_dir: PathBuf, data_dir: Option<PathBuf>) {
+    let db = match data_dir {
+        Some(dd) => {
+            let pensa_dir = project_dir.join(".pensa");
+            Db::open_with_data_dir(pensa_dir, dd).expect("failed to open database")
+        }
+        None => Db::open(&project_dir).expect("failed to open database"),
+    };
+    let state: AppState = Arc::new(DaemonState {
+        db: Mutex::new(db),
+        project_dir: project_dir.clone(),
+    });
 
     let app = Router::new()
         .route("/issues", get(list_issues).post(create_issue))
@@ -153,7 +217,7 @@ fn default_priority() -> Priority {
 }
 
 async fn create_issue(
-    State(db): State<AppState>,
+    State(state): State<AppState>,
     headers: HeaderMap,
     Json(body): Json<CreateIssueBody>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -161,6 +225,10 @@ async fn create_issue(
         .actor
         .or_else(|| actor_from_headers(&headers))
         .unwrap_or_else(|| "unknown".to_string());
+
+    if let Some(ref spec) = body.spec {
+        validate_spec_against_forma(&state.project_dir, spec).await?;
+    }
 
     let params = CreateIssueParams {
         title: body.title,
@@ -174,16 +242,16 @@ async fn create_issue(
         actor,
     };
 
-    let db = db.lock().unwrap();
+    let db = state.db.lock().unwrap();
     let issue = db.create_issue(&params)?;
     Ok((StatusCode::CREATED, Json(issue)))
 }
 
 async fn get_issue(
-    State(db): State<AppState>,
+    State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let db = db.lock().unwrap();
+    let db = state.db.lock().unwrap();
     let detail = db.get_issue(&id)?;
     Ok(Json(serde_json::to_value(detail).unwrap()))
 }
@@ -205,7 +273,7 @@ struct UpdateIssueBody {
 }
 
 async fn update_issue(
-    State(db): State<AppState>,
+    State(state): State<AppState>,
     Path(id): Path<String>,
     headers: HeaderMap,
     Json(body): Json<UpdateIssueBody>,
@@ -215,7 +283,11 @@ async fn update_issue(
         .or_else(|| actor_from_headers(&headers))
         .unwrap_or_else(|| "unknown".to_string());
 
-    let db = db.lock().unwrap();
+    if let Some(ref spec) = body.spec {
+        validate_spec_against_forma(&state.project_dir, spec).await?;
+    }
+
+    let db = state.db.lock().unwrap();
 
     if body.claim {
         let issue = db.claim_issue(&id, &actor)?;
@@ -248,11 +320,11 @@ struct DeleteQuery {
 }
 
 async fn delete_issue(
-    State(db): State<AppState>,
+    State(state): State<AppState>,
     Path(id): Path<String>,
     Query(query): Query<DeleteQuery>,
 ) -> Result<StatusCode, AppError> {
-    let db = db.lock().unwrap();
+    let db = state.db.lock().unwrap();
     db.delete_issue(&id, query.force)?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -266,7 +338,7 @@ struct CloseBody {
 }
 
 async fn close_issue(
-    State(db): State<AppState>,
+    State(state): State<AppState>,
     Path(id): Path<String>,
     headers: HeaderMap,
     Json(body): Json<CloseBody>,
@@ -276,7 +348,7 @@ async fn close_issue(
         .or_else(|| actor_from_headers(&headers))
         .unwrap_or_else(|| "unknown".to_string());
 
-    let db = db.lock().unwrap();
+    let db = state.db.lock().unwrap();
     let issue = db.close_issue(&id, body.reason.as_deref(), body.force, &actor)?;
     Ok(Json(serde_json::to_value(issue).unwrap()))
 }
@@ -288,7 +360,7 @@ struct ReopenBody {
 }
 
 async fn reopen_issue(
-    State(db): State<AppState>,
+    State(state): State<AppState>,
     Path(id): Path<String>,
     headers: HeaderMap,
     Json(body): Json<ReopenBody>,
@@ -298,19 +370,19 @@ async fn reopen_issue(
         .or_else(|| actor_from_headers(&headers))
         .unwrap_or_else(|| "unknown".to_string());
 
-    let db = db.lock().unwrap();
+    let db = state.db.lock().unwrap();
     let issue = db.reopen_issue(&id, body.reason.as_deref(), &actor)?;
     Ok(Json(serde_json::to_value(issue).unwrap()))
 }
 
 async fn release_issue(
-    State(db): State<AppState>,
+    State(state): State<AppState>,
     Path(id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let actor = actor_from_headers(&headers).unwrap_or_else(|| "unknown".to_string());
 
-    let db = db.lock().unwrap();
+    let db = state.db.lock().unwrap();
     let issue = db.release_issue(&id, &actor)?;
     Ok(Json(serde_json::to_value(issue).unwrap()))
 }
@@ -330,7 +402,7 @@ struct ListQuery {
 }
 
 async fn list_issues(
-    State(db): State<AppState>,
+    State(state): State<AppState>,
     Query(query): Query<ListQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, AppError> {
     let filters = ListFilters {
@@ -343,7 +415,7 @@ async fn list_issues(
         limit: query.limit,
     };
 
-    let db = db.lock().unwrap();
+    let db = state.db.lock().unwrap();
     let issues = db.list_issues(&filters)?;
     let values: Vec<serde_json::Value> = issues
         .into_iter()
@@ -363,7 +435,7 @@ struct ReadyQuery {
 }
 
 async fn ready_issues(
-    State(db): State<AppState>,
+    State(state): State<AppState>,
     Query(query): Query<ReadyQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, AppError> {
     let filters = ListFilters {
@@ -375,7 +447,7 @@ async fn ready_issues(
         ..Default::default()
     };
 
-    let db = db.lock().unwrap();
+    let db = state.db.lock().unwrap();
     let issues = db.ready_issues(&filters)?;
     let values: Vec<serde_json::Value> = issues
         .into_iter()
@@ -385,9 +457,9 @@ async fn ready_issues(
 }
 
 async fn blocked_issues(
-    State(db): State<AppState>,
+    State(state): State<AppState>,
 ) -> Result<Json<Vec<serde_json::Value>>, AppError> {
-    let db = db.lock().unwrap();
+    let db = state.db.lock().unwrap();
     let issues = db.blocked_issues()?;
     let values: Vec<serde_json::Value> = issues
         .into_iter()
@@ -402,10 +474,10 @@ struct SearchQuery {
 }
 
 async fn search_issues(
-    State(db): State<AppState>,
+    State(state): State<AppState>,
     Query(query): Query<SearchQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, AppError> {
-    let db = db.lock().unwrap();
+    let db = state.db.lock().unwrap();
     let issues = db.search_issues(&query.q)?;
     let values: Vec<serde_json::Value> = issues
         .into_iter()
@@ -427,7 +499,7 @@ struct CountQuery {
 }
 
 async fn count_issues(
-    State(db): State<AppState>,
+    State(state): State<AppState>,
     Query(query): Query<CountQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let mut group_by = Vec::new();
@@ -444,15 +516,15 @@ async fn count_issues(
         group_by.push("assignee");
     }
 
-    let db = db.lock().unwrap();
+    let db = state.db.lock().unwrap();
     let result = db.count_issues(&group_by)?;
     Ok(Json(result))
 }
 
 async fn project_status(
-    State(db): State<AppState>,
+    State(state): State<AppState>,
 ) -> Result<Json<Vec<serde_json::Value>>, AppError> {
-    let db = db.lock().unwrap();
+    let db = state.db.lock().unwrap();
     let entries = db.project_status()?;
     let values: Vec<serde_json::Value> = entries
         .into_iter()
@@ -462,10 +534,10 @@ async fn project_status(
 }
 
 async fn issue_history(
-    State(db): State<AppState>,
+    State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<serde_json::Value>>, AppError> {
-    let db = db.lock().unwrap();
+    let db = state.db.lock().unwrap();
     let events = db.issue_history(&id)?;
     let values: Vec<serde_json::Value> = events
         .into_iter()
@@ -484,7 +556,7 @@ struct AddDepBody {
 }
 
 async fn add_dep(
-    State(db): State<AppState>,
+    State(state): State<AppState>,
     headers: HeaderMap,
     Json(body): Json<AddDepBody>,
 ) -> Result<Json<serde_json::Value>, AppError> {
@@ -493,7 +565,7 @@ async fn add_dep(
         .or_else(|| actor_from_headers(&headers))
         .unwrap_or_else(|| "unknown".to_string());
 
-    let db = db.lock().unwrap();
+    let db = state.db.lock().unwrap();
     db.add_dep(&body.issue_id, &body.depends_on_id, &actor)?;
     Ok(Json(serde_json::json!({
         "status": "added",
@@ -509,13 +581,13 @@ struct RemoveDepQuery {
 }
 
 async fn remove_dep(
-    State(db): State<AppState>,
+    State(state): State<AppState>,
     headers: HeaderMap,
     Query(query): Query<RemoveDepQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let actor = actor_from_headers(&headers).unwrap_or_else(|| "unknown".to_string());
 
-    let db = db.lock().unwrap();
+    let db = state.db.lock().unwrap();
     db.remove_dep(&query.issue_id, &query.depends_on_id, &actor)?;
     Ok(Json(serde_json::json!({
         "status": "removed",
@@ -525,10 +597,10 @@ async fn remove_dep(
 }
 
 async fn list_deps(
-    State(db): State<AppState>,
+    State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<serde_json::Value>>, AppError> {
-    let db = db.lock().unwrap();
+    let db = state.db.lock().unwrap();
     let deps = db.list_deps(&id)?;
     let values: Vec<serde_json::Value> = deps
         .into_iter()
@@ -548,11 +620,11 @@ fn default_direction() -> String {
 }
 
 async fn dep_tree(
-    State(db): State<AppState>,
+    State(state): State<AppState>,
     Path(id): Path<String>,
     Query(query): Query<DepTreeQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, AppError> {
-    let db = db.lock().unwrap();
+    let db = state.db.lock().unwrap();
     let nodes = db.dep_tree(&id, &query.direction)?;
     let values: Vec<serde_json::Value> = nodes
         .into_iter()
@@ -561,8 +633,8 @@ async fn dep_tree(
     Ok(Json(values))
 }
 
-async fn detect_cycles(State(db): State<AppState>) -> Result<Json<Vec<Vec<String>>>, AppError> {
-    let db = db.lock().unwrap();
+async fn detect_cycles(State(state): State<AppState>) -> Result<Json<Vec<Vec<String>>>, AppError> {
+    let db = state.db.lock().unwrap();
     let cycles = db.detect_cycles()?;
     Ok(Json(cycles))
 }
@@ -576,7 +648,7 @@ struct AddCommentBody {
 }
 
 async fn add_comment(
-    State(db): State<AppState>,
+    State(state): State<AppState>,
     Path(id): Path<String>,
     headers: HeaderMap,
     Json(body): Json<AddCommentBody>,
@@ -586,16 +658,16 @@ async fn add_comment(
         .or_else(|| actor_from_headers(&headers))
         .unwrap_or_else(|| "unknown".to_string());
 
-    let db = db.lock().unwrap();
+    let db = state.db.lock().unwrap();
     let comment = db.add_comment(&id, &actor, &body.text)?;
     Ok((StatusCode::CREATED, Json(comment)))
 }
 
 async fn list_comments(
-    State(db): State<AppState>,
+    State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<serde_json::Value>>, AppError> {
-    let db = db.lock().unwrap();
+    let db = state.db.lock().unwrap();
     let comments = db.list_comments(&id)?;
     let values: Vec<serde_json::Value> = comments
         .into_iter()
@@ -606,14 +678,14 @@ async fn list_comments(
 
 // --- Data endpoints ---
 
-async fn export_jsonl(State(db): State<AppState>) -> Result<Json<serde_json::Value>, AppError> {
-    let db = db.lock().unwrap();
+async fn export_jsonl(State(state): State<AppState>) -> Result<Json<serde_json::Value>, AppError> {
+    let db = state.db.lock().unwrap();
     let result = db.export_jsonl()?;
     Ok(Json(serde_json::to_value(result).unwrap()))
 }
 
-async fn import_jsonl(State(db): State<AppState>) -> Result<Json<serde_json::Value>, AppError> {
-    let db = db.lock().unwrap();
+async fn import_jsonl(State(state): State<AppState>) -> Result<Json<serde_json::Value>, AppError> {
+    let db = state.db.lock().unwrap();
     let result = db.import_jsonl()?;
     Ok(Json(serde_json::to_value(result).unwrap()))
 }
@@ -625,10 +697,10 @@ struct DoctorQuery {
 }
 
 async fn doctor(
-    State(db): State<AppState>,
+    State(state): State<AppState>,
     Query(query): Query<DoctorQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let db = db.lock().unwrap();
+    let db = state.db.lock().unwrap();
     let report = db.doctor(query.fix)?;
     Ok(Json(serde_json::to_value(report).unwrap()))
 }

@@ -8,6 +8,8 @@ pub enum PensaError {
     CycleDetected,
     InvalidStatusTransition { from: String, to: String },
     DeleteRequiresForce(String),
+    SpecNotFound(String),
+    FormaUnavailable,
     Internal(String),
 }
 
@@ -25,6 +27,12 @@ impl fmt::Display for PensaError {
             PensaError::DeleteRequiresForce(reason) => {
                 write!(f, "delete requires --force: {reason}")
             }
+            PensaError::SpecNotFound(stem) => {
+                write!(f, "spec '{stem}' not found in forma")
+            }
+            PensaError::FormaUnavailable => {
+                write!(f, "forma daemon not running, cannot validate --spec")
+            }
             PensaError::Internal(msg) => write!(f, "internal error: {msg}"),
         }
     }
@@ -38,6 +46,8 @@ impl PensaError {
             PensaError::CycleDetected => Some("cycle_detected"),
             PensaError::InvalidStatusTransition { .. } => Some("invalid_status_transition"),
             PensaError::DeleteRequiresForce(_) => None,
+            PensaError::SpecNotFound(_) => Some("spec_not_found"),
+            PensaError::FormaUnavailable => Some("forma_unavailable"),
             PensaError::Internal(_) => None,
         }
     }
