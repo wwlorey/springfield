@@ -93,7 +93,7 @@ CREATE TABLE issues (
 - **`test`** — test plan items from the test-plan phase
 - **`chore`** — tech debt, refactoring, dependency updates, CI fixes
 
-**`spec`** (optional) — filename stem of the spec this issue implements (e.g., `auth` for `specs/auth.md`). Populated for `task` items, typically absent for `bug` and `chore` items. There is no separate "implementation plan" entity — the living set of tasks linked to a spec *is* the implementation plan for that spec.
+**`spec`** (optional) — filename stem of the spec this issue implements (e.g., `auth`). Validated against forma at write time: when `--spec` is provided on `pn create` or `pn update`, the pensa daemon calls the forma daemon (`GET /specs/:stem`) to verify the spec exists. If forma returns 404 or is unreachable, pensa rejects the operation with an error. Tasks without `--spec` skip validation. Populated for `task` items, typically absent for `bug` and `chore` items. There is no separate "implementation plan" entity — the living set of tasks linked to a spec *is* the implementation plan for that spec.
 
 **`fixes`** (optional) — ID of a bug that this issue resolves. Multiple issues can share the same `fixes` target (multi-fix). When a task with a `fixes` link is closed, the linked bug is auto-closed **only if all** issues with `fixes` pointing to that bug are now closed. The auto-close reason is `"fixed"`. If other fix tasks remain open or in-progress, the bug stays open.
 
@@ -401,6 +401,28 @@ When the daemon starts:
 
 ---
 
+## Forma Integration
+
+Pensa validates `--spec` values against the forma daemon at write time. This prevents typos and stale references from entering the issue database.
+
+### Validation flow
+
+1. Client sends a `create` or `update` request with a `spec` field.
+2. Pensa daemon calls forma daemon: `GET /specs/:stem`.
+3. Forma returns 200 → pensa proceeds with the operation.
+4. Forma returns 404 → pensa rejects with error: `spec '<stem>' not found in forma` (error code: `spec_not_found`).
+5. Forma daemon unreachable → pensa rejects with error: `forma daemon not running, cannot validate --spec` (error code: `forma_unavailable`).
+
+### Discovery
+
+Pensa discovers the forma daemon using forma's port derivation: SHA-256 of `"forma:" + canonical_project_path`, bytes 8-9 mapped to range [10000, 60000]. The project path is already known to the pensa daemon via `--project-dir`. No additional configuration is needed.
+
+### No-spec operations
+
+Operations without `--spec` (or with `--spec` unchanged on update) do not contact the forma daemon. The `spec` field remains optional — tasks, bugs, tests, and chores can exist without a spec reference.
+
+---
+
 ## Testing Strategy
 
 Pensa should be end-to-end testable from the command line. Tests start a daemon on a random port, run `pn` commands against it via `PN_DAEMON`, and assert on stdout/stderr/exit codes.
@@ -420,3 +442,6 @@ Key scenarios:
 - **Doctor**: create in_progress issues → `doctor --fix` → verify all released to open
 - **Concurrent claims**: two rapid claim attempts on the same issue → exactly one succeeds
 - **JSON output**: verify `--json` output matches documented shapes for each command
+- **Forma spec validation**: start both daemons → `pn create --spec valid-stem` succeeds → `pn create --spec nonexistent` fails with `spec_not_found`
+- **Forma unavailable**: stop forma daemon → `pn create --spec any` fails with `forma_unavailable`
+- **No-spec bypass**: stop forma daemon → `pn create` without `--spec` succeeds (no forma contact)

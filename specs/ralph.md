@@ -97,7 +97,7 @@ The default value `prompt.md` is treated specially: if no explicit prompt is pro
 | `--loop-id` | — | — | Loop identifier (sgf-generated, included in banner output) |
 | `--auto-push` | `RALPH_AUTO_PUSH` | `true` | Auto-push after new commits (requires explicit value: `true`/`false`/`yes`/`no`/`1`/`0`) |
 | `--command` | `RALPH_COMMAND` | — | Override: path to executable replacing agent invocation (for testing) |
-| `--spec` | `SGF_SPEC` | — | Spec stem — adds `./specs/<stem>.md` to the study instruction. Fails with error if the spec file does not exist. |
+| `--spec` | `SGF_SPEC` | — | Spec stem — fetches spec content from forma via `fm show <stem> --json` and injects it via `--append-system-prompt`. Fails with error if the spec does not exist in forma. |
 | `--prompt-file` | — | — | Additional prompt file path (repeatable). Added to the study instruction passed via `--append-system-prompt`. |
 
 ### Exit Codes
@@ -131,14 +131,18 @@ When `--command` is set (testing mode), the command override replaces `cl` — u
 
 ## System Prompt Injection
 
-Ralph passes spec and additional prompt files via `--append-system-prompt`. This is independent of `cl`'s own context injection — both `--append-system-prompt` arguments coexist.
+Ralph passes spec content and additional prompt files via `--append-system-prompt`. This is independent of `cl`'s own context injection — both `--append-system-prompt` arguments coexist.
 
 ### Sources
 
-1. **`--spec <stem>`** — If provided, appends `./specs/<stem>.md`. Fails with exit code 1 and a clear error (e.g., `spec file not found: specs/auth.md`) if the file does not exist.
+1. **`--spec <stem>`** — If provided, ralph calls `fm show <stem> --json` to fetch the full spec (metadata + sections + refs) from the forma daemon. The JSON response is formatted as markdown and passed via `--append-system-prompt`. Fails with exit code 1 if `fm show` returns an error (spec not found, forma daemon unreachable, etc.).
 2. **`--prompt-file <path>`** (repeatable) — Additional explicit files. Missing files are a fatal error (exit code 1).
 
 If neither `--spec` nor `--prompt-file` is provided, no `--append-system-prompt` argument is passed — `cl` still injects its own context files independently.
+
+### Spec Content Formatting
+
+Ralph receives the spec as structured JSON from `fm show <stem> --json` and renders it as markdown for injection into the system prompt. The rendering matches the format produced by `fm export` (see [forma spec](forma.md) — Export: Markdown Generation). This keeps spec content consistent whether an agent reads it via ralph injection or via the exported `.forma/specs/*.md` files.
 
 ### Invocation
 
@@ -147,11 +151,11 @@ cl \
   --verbose \
   --dangerously-skip-permissions \
   --settings '{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}' \
-  --append-system-prompt 'study @./specs/auth.md' \
+  --append-system-prompt '<rendered spec markdown>' \
   @prompt.md
 ```
 
-When `--command` is set (testing mode), the same arguments are passed to the mock command.
+When `--command` is set (testing mode), the same arguments are passed to the mock command. In testing mode, `--spec` still calls `fm show` (the forma daemon must be running for spec-aware tests).
 
 ## Modes
 
@@ -775,4 +779,5 @@ For `afk-session.ndjson`, the formatter should produce output like (ANSI styling
 
 - [springfield](springfield.md) — CLI entry point that orchestrates ralph
 - [pensa](pensa.md) — Agent persistent memory, used by the agent inside ralph iterations
+- [forma](forma.md) — Specification management, ralph reads specs via `fm show --json`
 - [vcs-utils](vcs-utils.md) — Shared VCS utilities (git_head, auto_push_if_changed)

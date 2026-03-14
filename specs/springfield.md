@@ -152,17 +152,16 @@ Scaffolds a new project. Creates the project-local directory structure and confi
 
 ```
 .pensa/                                (directory only — daemon creates db.sqlite on start)
+.forma/                                (directory only — daemon creates db.sqlite on start)
 .sgf/
-├── loom-specs-README.md               (reference format for specs/README.md)
+├── loom-specs-README.md               (reference format for .forma/README.md)
 ├── logs/                              (empty, gitignored)
 └── run/                               (empty, gitignored)
 .claude/settings.json                  (deny rules for .sgf/** and .claude/**)
-.pre-commit-config.yaml                (prek hooks for pensa sync)
+.pre-commit-config.yaml                (prek hooks for pensa + forma sync)
 .gitignore                             (Springfield entries + stack-specific entries)
 AGENTS.md                              (empty file)
 CLAUDE.md                              (`ln -s` to AGENTS.md)
-specs/
-└── README.md                          (empty spec index)
 ```
 
 No `.sgf/prompts/` directory is created — prompts resolve from `~/.sgf/prompts/` by default. Users create `./.sgf/prompts/` manually when they need project-local overrides.
@@ -243,9 +242,21 @@ repos:
         language: system
         always_run: true
         stages: [post-merge, post-checkout, post-rewrite]
+      - id: forma-export
+        name: forma export
+        entry: fm export
+        language: system
+        always_run: true
+        stages: [pre-commit]
+      - id: forma-import
+        name: forma import
+        entry: fm import
+        language: system
+        always_run: true
+        stages: [post-merge, post-checkout, post-rewrite]
 ```
 
-If `.pre-commit-config.yaml` already exists, `sgf init` appends the pensa hooks without duplicating them.
+If `.pre-commit-config.yaml` already exists, `sgf init` appends the pensa and forma hooks without duplicating them.
 
 ### Gitignore
 
@@ -259,6 +270,9 @@ If `.pre-commit-config.yaml` already exists, `sgf init` appends the pensa hooks 
 **/.pensa/daemon.port
 **/.pensa/daemon.project
 **/.pensa/daemon.url
+**/.forma/daemon.port
+**/.forma/daemon.project
+**/.forma/daemon.url
 .sgf/logs/
 .sgf/run/
 .ralph-complete
@@ -288,18 +302,9 @@ All entries are always added regardless of what exists in the directory. If an e
 
 `ln -s` to AGENTS.md.
 
-### specs/README.md
-
-```markdown
-# Specifications
-
-| Spec | Code | Purpose |
-|------|------|---------|
-```
-
 ### Idempotence
 
-`sgf init` is safe to re-run. It skips files that already exist (AGENTS.md, CLAUDE.md, specs/README.md) and only merges additive content (deny rules, git hooks, gitignore entries). It never overwrites existing content. `prek install` is always run to ensure hooks are wired into `.git/hooks/`.
+`sgf init` is safe to re-run. It skips files that already exist (AGENTS.md, CLAUDE.md) and only merges additive content (deny rules, git hooks, gitignore entries). It never overwrites existing content. `prek install` is always run to ensure hooks are wired into `.git/hooks/`.
 
 ### --force
 
@@ -706,16 +711,23 @@ After pre-launch checks, automated stages launch ralph; interactive stages call 
 
 **`SGF_SKIP_PREFLIGHT`** (env var) — When set, skips daemon startup while still running recovery. This allows two-tier control: the `--skip-preflight` CLI flag disables all pre-launch checks (including recovery), while `SGF_SKIP_PREFLIGHT` disables only the infrastructure checks (daemon). Used by integration tests to exercise recovery logic without requiring a running pensa daemon.
 
-### Daemon
+### Daemons
 
-`sgf` starts the pensa daemon automatically before launching any loop (if not already running):
+`sgf` starts both the pensa and forma daemons automatically before launching any loop (if not already running):
+
+#### Pensa daemon
 
 1. Check if the daemon is reachable (`pn daemon status`)
 2. If not, start it: `pn daemon --project-dir <project-root> --port <derived> &` (backgrounded)
 3. Wait for readiness (poll `pn daemon status` with exponential backoff: 50ms initial, doubling up to 800ms cap, 5s total deadline)
-4. Proceed with loop launch
 
-The daemon runs for the duration of the `sgf` session. It stops on SIGTERM or when `sgf` shuts down.
+#### Forma daemon
+
+1. Check if the daemon is reachable (`fm daemon status`)
+2. If not, start it: `fm daemon --project-dir <project-root> --port <derived> &` (backgrounded)
+3. Wait for readiness (poll `fm daemon status` with exponential backoff: 50ms initial, doubling up to 800ms cap, 5s total deadline)
+
+Both daemons are started in parallel. Both must be ready before proceeding with loop launch. The daemons run for the duration of the `sgf` session. They stop on SIGTERM or when `sgf` shuts down.
 
 ---
 

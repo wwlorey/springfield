@@ -45,9 +45,11 @@ No async runtime. No clap (no flag parsing — all args are passthrough).
 
 ## Context File Resolution
 
-`cl` resolves three context files on every invocation. Resolution uses a two-tier lookup: check the local project directory first, then fall back to the global home directory.
+`cl` resolves context files and the spec index on every invocation.
 
-### Lookup Order
+### Context file resolution
+
+Uses a two-tier lookup: check the local project directory first, then fall back to the global home directory.
 
 For each context file:
 
@@ -56,39 +58,43 @@ For each context file:
 
 The first existing path wins. If neither exists, the file is skipped with a warning to stderr.
 
-### Context Files
-
 | File | Local path | Global path | Required |
 |------|-----------|-------------|----------|
 | MEMENTO.md | `./.sgf/MEMENTO.md` | `~/.sgf/MEMENTO.md` | No (warn if missing) |
 | BACKPRESSURE.md | `./.sgf/BACKPRESSURE.md` | `~/.sgf/BACKPRESSURE.md` | No (warn if missing) |
-| specs/README.md | `./specs/README.md` | — | No (warn if missing) |
 
-`specs/README.md` is project-local only — no global fallback (specs are always per-project).
+### Spec index resolution
+
+`cl` calls `fm list --json` to get the current spec index from the forma daemon. The JSON output is formatted as a markdown table (matching the format of `.forma/README.md`) and included in the study instruction.
+
+If `fm list --json` fails (forma daemon not running, `fm` not in PATH), `cl` falls back to reading `./.forma/README.md` if it exists. If neither source is available, the spec index is skipped with a warning to stderr.
 
 ### Resolution Function
 
 ```rust
 pub struct ResolvedContext {
     pub files: Vec<String>,
+    pub spec_index: Option<String>,
 }
 
-pub fn resolve_context_files(cwd: &Path, home: &Path) -> ResolvedContext;
+pub fn resolve_context(cwd: &Path, home: &Path) -> ResolvedContext;
 ```
 
-Pure function. Takes explicit `cwd` and `home` paths for testability.
+Pure function for file resolution. Spec index resolution calls `fm list --json` as a subprocess.
 
 ## Argument Construction
 
-`cl` builds a single `--append-system-prompt` argument from resolved context files, then prepends it to the passthrough args:
+`cl` builds a single `--append-system-prompt` argument from resolved context files and the spec index, then prepends it to the passthrough args:
 
 ```
 claude-wrapper-secret \
-  --append-system-prompt 'study @<resolved-memento>;study @<resolved-backpressure>;study @./specs/README.md' \
+  --append-system-prompt 'study @<resolved-memento>;study @<resolved-backpressure>;<spec-index-content>' \
   [all original args passed to cl]
 ```
 
-If no context files resolve, the `--append-system-prompt` argument is omitted entirely.
+The spec index content is inlined directly (not a file reference) since it comes from `fm list --json` output rendered as markdown.
+
+If no context files resolve and no spec index is available, the `--append-system-prompt` argument is omitted entirely.
 
 If the caller (e.g. ralph) also passes `--append-system-prompt`, both flags are forwarded. The downstream binary receives multiple `--append-system-prompt` arguments — `cl` does not merge them.
 
@@ -103,6 +109,7 @@ If `claude-wrapper-secret` is not found in `$PATH`, `cl` prints an error to stde
 | Scenario | Behavior |
 |----------|----------|
 | Context file missing (both tiers) | Warning to stderr, skip the file |
+| `fm list --json` fails | Fall back to `./.forma/README.md` file; if also missing, skip with warning |
 | `claude-wrapper-secret` not in PATH | Error to stderr, exit 1 |
 | Home directory unresolvable | Warning to stderr, skip global lookups |
 
@@ -113,7 +120,6 @@ If `claude-wrapper-secret` is not found in `$PATH`, `cl` prints an error to stde
 - Local file exists → uses local path
 - Local missing, global exists → uses global path
 - Both missing → skipped, not in result
-- `specs/README.md` only checks local (no global fallback)
 - All files missing → empty result
 - Mixed: some local, some global → correct per-file resolution
 
@@ -126,6 +132,9 @@ If `claude-wrapper-secret` is not found in `$PATH`, `cl` prints an error to stde
 - Missing context files are skipped (no error exit)
 - Passthrough args are forwarded unchanged
 - Multiple `--append-system-prompt` args coexist (one from `cl`, one from caller)
+- Spec index from `fm list --json` appears in `--append-system-prompt`
+- Spec index falls back to `.forma/README.md` when `fm` is unavailable
+- Both spec index sources unavailable → skipped with warning, no error exit
 
 ## Installation
 
@@ -144,4 +153,5 @@ path = "src/main.rs"
 ## Related Specifications
 
 - [ralph](ralph.md) — Iterative agent runner, invokes `cl` directly
+- [forma](forma.md) — Specification management, `cl` injects `.forma/README.md` as context
 - [springfield](springfield.md) — CLI entry point, invokes `cl` for interactive sessions
