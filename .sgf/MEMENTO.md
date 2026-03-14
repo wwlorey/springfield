@@ -1,12 +1,75 @@
 ## Specs
 
-If `specs/` exists in a repo, this houses the specifications for that codebase and is the **source of truth**. `specs/README.md` is the spec lookup table.
+Specifications are the **source of truth** for all code. They are managed exclusively through `fm` (forma). Generated markdown lives in `.forma/specs/*.md` and `.forma/README.md` is the spec index — never edit these files directly.
 
 ## Sandbox
 
 When sandboxed:
 
 - Use relative paths (from the repo root) for file operations, not absolute paths. The sandbox allows writes to . but not to absolute paths outside the explicit allowlist.
+
+## fm — Specification Management
+
+`fm` (forma) is the exclusive specification manager. All spec mutations go through `fm` — never edit spec markdown directly. The generated `.forma/specs/*.md` and `.forma/README.md` are read-only artifacts produced by `fm export`.
+
+### Rules
+
+- Always pass `--json` when reading data.
+- Section bodies are read from **stdin** via `--body-stdin` (not as CLI arguments).
+- Status values: `draft`, `stable`, `proven`.
+- Specs are identified by **stem** (lowercase, alphanumeric + hyphens, e.g., `auth`, `claude-wrapper`).
+- Sections are identified by **slug** (auto-generated from display name, e.g., `error-handling`).
+- Required sections (`overview`, `architecture`, `dependencies`, `error-handling`, `testing`) are auto-scaffolded on `fm create` and cannot be removed.
+
+### How specs relate to pn
+
+- `pn create --spec <stem>` links an issue to a forma spec. Pensa validates the stem against forma.
+- `fm check` cross-validates that all pensa issues with `--spec` values reference existing forma specs.
+
+### Core Commands
+
+| Command | Purpose |
+|---------|---------|
+| `fm create <stem> --crate <path> --purpose "<text>"` | Create a new spec (scaffolds 5 required sections) |
+| `fm show <stem> --json` | Show spec with all sections and refs |
+| `fm list [--status <status>] --json` | List all specs, optionally filtered by status |
+| `fm update <stem> [--status <s>] [--crate <path>] [--purpose "<text>"]` | Update spec metadata |
+| `fm delete <stem> [--force]` | Delete a spec (`--force` if sections have content) |
+| `fm search "<query>" --json` | Case-insensitive search across stems, purposes, section bodies |
+| `fm count [--by-status] --json` | Count specs |
+| `fm status --json` | Summary of specs by status |
+| `fm history <stem> --json` | Event log for a spec |
+
+### Section Commands
+
+| Command | Purpose |
+|---------|---------|
+| `fm section add <stem> "<name>" --body-stdin [--after "<slug>"]` | Add custom section (body from stdin) |
+| `fm section set <stem> "<slug>" --body-stdin` | Replace section body (body from stdin) |
+| `fm section get <stem> "<slug>" --json` | Get a single section |
+| `fm section list <stem> --json` | List all sections for a spec |
+| `fm section remove <stem> "<slug>"` | Remove a custom section (required sections are protected) |
+| `fm section move <stem> "<slug>" --after "<slug>"` | Reorder a section |
+
+### Ref Commands
+
+| Command | Purpose |
+|---------|---------|
+| `fm ref add <stem> <target-stem>` | Add cross-reference (rejects cycles) |
+| `fm ref remove <stem> <target-stem>` | Remove cross-reference |
+| `fm ref list <stem> --json` | List specs this spec references |
+| `fm ref tree <stem> [--direction up\|down] --json` | Recursive ref tree |
+| `fm ref cycles --json` | Detect reference cycles |
+
+### Data & Maintenance Commands
+
+| Command | Purpose |
+|---------|---------|
+| `fm export` | SQLite → JSONL + generated markdown, stages `.forma/` |
+| `fm import` | JSONL → SQLite (used after clone/merge) |
+| `fm check --json` | Validation report (required sections, crate paths, refs, pensa integration) |
+| `fm doctor [--fix] --json` | Health checks; `--fix` removes orphaned data |
+| `fm where` | Print JSONL and DB directory paths |
 
 ## pn — Task & Issue Tracker
 
