@@ -343,4 +343,8 @@ impl Client {
     pub fn import(&self) -> Result<Value, FormaError> {
         self.request(|http| http.post(format!("{}/import", self.base_url)).send())
     }
+
+    pub fn check(&self) -> Result<Value, FormaError> {
+        self.request(|http| http.get(format!("{}/check", self.base_url)).send())
+    }
 }

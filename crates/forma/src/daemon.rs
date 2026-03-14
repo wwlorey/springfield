@@ -94,6 +94,7 @@ pub async fn start_with_data_dir(port: u16, project_dir: PathBuf, data_dir: Opti
         // Data routes
         .route("/export", post(export_jsonl))
         .route("/import", post(import_jsonl))
+        .route("/check", get(check))
         // Status
         .route("/status", get(project_status))
         .with_state(state);
@@ -503,4 +504,15 @@ async fn import_jsonl(State(db): State<AppState>) -> Result<Json<serde_json::Val
     let db = db.lock().unwrap();
     let result = db.import_jsonl()?;
     Ok(Json(serde_json::to_value(result).unwrap()))
+}
+
+async fn check(State(db): State<AppState>) -> Result<Json<serde_json::Value>, AppError> {
+    let db = db.lock().unwrap();
+    let project_dir = db
+        .forma_dir
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let pensa = crate::db::pensa_url(project_dir);
+    let report = db.check(Some(&pensa))?;
+    Ok(Json(serde_json::to_value(report).unwrap()))
 }

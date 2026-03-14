@@ -73,6 +73,7 @@ enum Commands {
     },
     Export,
     Import,
+    Check,
     Where,
     Daemon {
         #[arg(long)]
@@ -515,6 +516,20 @@ fn main() {
             let client = Client::new();
             match client.import() {
                 Ok(v) => output::print_import_export(&v, mode),
+                Err(e) => fail(e, mode),
+            }
+        }
+
+        Commands::Check => {
+            let client = Client::new();
+            match client.check() {
+                Ok(v) => {
+                    output::print_check(&v, mode);
+                    let ok = v.get("ok").and_then(|v| v.as_bool()).unwrap_or(true);
+                    if !ok {
+                        process::exit(1);
+                    }
+                }
                 Err(e) => fail(e, mode),
             }
         }

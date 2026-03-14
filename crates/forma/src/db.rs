@@ -39,6 +39,27 @@ pub fn project_port(project_dir: &Path) -> u16 {
     10000 + (raw % 50000)
 }
 
+pub fn pensa_port(project_dir: &Path) -> u16 {
+    use sha2::{Digest, Sha256};
+    let canonical = project_dir
+        .canonicalize()
+        .unwrap_or_else(|_| project_dir.to_path_buf());
+    let hash: [u8; 32] = Sha256::digest(canonical.to_string_lossy().as_bytes()).into();
+    let raw = u16::from_be_bytes([hash[8], hash[9]]);
+    10000 + (raw % 50000)
+}
+
+pub fn pensa_url(project_dir: &Path) -> String {
+    let pensa_port_file = project_dir.join(".pensa/daemon.port");
+    if let Ok(contents) = std::fs::read_to_string(&pensa_port_file)
+        && let Ok(port) = contents.trim().parse::<u16>()
+    {
+        return format!("http://localhost:{port}");
+    }
+    let port = pensa_port(project_dir);
+    format!("http://localhost:{port}")
+}
+
 pub fn parse_dt(s: &str) -> DateTime<Utc> {
     DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
 }
@@ -1341,6 +1362,181 @@ impl Db {
             refs: all_refs.len(),
         })
     }
+
+    pub fn check(&self, pensa_url: Option<&str>) -> Result<CheckReport, FormaError> {
+        let mut errors = Vec::new();
+        let mut warnings = Vec::new();
+
+        let specs = self.list_specs(None)?;
+        let required_slugs: Vec<&str> = RequiredSection::ALL.iter().map(|rs| rs.slug()).collect();
+
+        for spec in &specs {
+            // Required sections present
+            let mut stmt = self
+                .conn
+                .prepare("SELECT slug FROM sections WHERE spec_stem = ?1 AND kind = 'required'")
+                .map_err(|e| FormaError::Internal(format!("check query failed: {e}")))?;
+            let slugs: Vec<String> = stmt
+                .query_map([&spec.stem], |row| row.get::<_, String>(0))
+                .map_err(|e| FormaError::Internal(format!("check query failed: {e}")))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| FormaError::Internal(format!("check query failed: {e}")))?;
+
+            for &rs in &required_slugs {
+                if !slugs.iter().any(|s| s == rs) {
+                    errors.push(CheckFinding {
+                        check: "required_sections_present".to_string(),
+                        message: format!("spec '{}' missing required section '{}'", spec.stem, rs),
+                    });
+                }
+            }
+
+            // Required sections non-empty
+            let mut stmt = self
+                .conn
+                .prepare(
+                    "SELECT slug, body FROM sections WHERE spec_stem = ?1 AND kind = 'required'",
+                )
+                .map_err(|e| FormaError::Internal(format!("check query failed: {e}")))?;
+            let rows: Vec<(String, String)> = stmt
+                .query_map([&spec.stem], |row| Ok((row.get(0)?, row.get(1)?)))
+                .map_err(|e| FormaError::Internal(format!("check query failed: {e}")))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| FormaError::Internal(format!("check query failed: {e}")))?;
+
+            for (slug, body) in &rows {
+                if body.trim().is_empty() {
+                    warnings.push(CheckFinding {
+                        check: "required_sections_nonempty".to_string(),
+                        message: format!(
+                            "spec '{}' has empty required section '{}'",
+                            spec.stem, slug
+                        ),
+                    });
+                }
+            }
+
+            // Crate paths exist on disk
+            let project_dir = self.forma_dir.parent().unwrap_or(Path::new("."));
+            let crate_path = project_dir.join(&spec.crate_path);
+            if !crate_path.exists() {
+                errors.push(CheckFinding {
+                    check: "crate_paths_exist".to_string(),
+                    message: format!(
+                        "spec '{}' crate_path '{}' does not exist on disk",
+                        spec.stem, spec.crate_path
+                    ),
+                });
+            }
+
+            // No duplicate slugs within a spec
+            let dup_count: i64 = self
+                .conn
+                .query_row(
+                    "SELECT COUNT(*) FROM (SELECT slug FROM sections WHERE spec_stem = ?1 GROUP BY slug HAVING COUNT(*) > 1)",
+                    [&spec.stem],
+                    |row| row.get(0),
+                )
+                .map_err(|e| FormaError::Internal(format!("check query failed: {e}")))?;
+            if dup_count > 0 {
+                errors.push(CheckFinding {
+                    check: "no_duplicate_slugs".to_string(),
+                    message: format!("spec '{}' has duplicate section slugs", spec.stem),
+                });
+            }
+        }
+
+        // Ref targets exist
+        let mut stmt = self
+            .conn
+            .prepare("SELECT from_stem, to_stem FROM refs")
+            .map_err(|e| FormaError::Internal(format!("check query failed: {e}")))?;
+        let refs: Vec<(String, String)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(|e| FormaError::Internal(format!("check query failed: {e}")))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| FormaError::Internal(format!("check query failed: {e}")))?;
+
+        let spec_stems: std::collections::HashSet<&str> =
+            specs.iter().map(|s| s.stem.as_str()).collect();
+
+        for (from, to) in &refs {
+            if !spec_stems.contains(to.as_str()) {
+                errors.push(CheckFinding {
+                    check: "ref_targets_exist".to_string(),
+                    message: format!("ref from '{}' to '{}' targets non-existent spec", from, to),
+                });
+            }
+        }
+
+        // No ref cycles
+        let cycles = self.detect_cycles()?;
+        for cycle in &cycles {
+            errors.push(CheckFinding {
+                check: "no_ref_cycles".to_string(),
+                message: format!("ref cycle detected: {}", cycle.join(" -> ")),
+            });
+        }
+
+        // Pensa integration: validate spec references
+        if let Some(url) = pensa_url {
+            match reqwest::blocking::Client::new()
+                .get(format!("{url}/issues"))
+                .query(&[("status", "open"), ("status", "in_progress")])
+                .timeout(std::time::Duration::from_secs(3))
+                .send()
+            {
+                Ok(resp) if resp.status().is_success() => {
+                    if let Ok(issues) = resp.json::<Vec<serde_json::Value>>() {
+                        for issue in &issues {
+                            if let Some(spec_val) = issue.get("spec")
+                                && !spec_val.is_null()
+                                && let Some(spec_stem) = spec_val.as_str()
+                                && !spec_stems.contains(spec_stem)
+                            {
+                                let id =
+                                    issue.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+                                warnings.push(CheckFinding {
+                                    check: "pensa_spec_refs_valid".to_string(),
+                                    message: format!(
+                                        "pensa issue '{}' references non-existent spec '{}'",
+                                        id, spec_stem
+                                    ),
+                                });
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    warnings.push(CheckFinding {
+                        check: "pensa_spec_refs_valid".to_string(),
+                        message: "pensa daemon unreachable, skipping spec reference validation"
+                            .to_string(),
+                    });
+                }
+            }
+        }
+
+        let ok = errors.is_empty();
+        Ok(CheckReport {
+            ok,
+            errors,
+            warnings,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckFinding {
+    pub check: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckReport {
+    pub ok: bool,
+    pub errors: Vec<CheckFinding>,
+    pub warnings: Vec<CheckFinding>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2986,5 +3182,117 @@ mod tests {
         let forma_dir = project_dir.path().join(".forma");
         assert!(forma_dir.join("specs.jsonl").exists());
         assert!(forma_dir.join("README.md").exists());
+    }
+
+    #[test]
+    fn check_clean_spec_with_content() {
+        let (db, project_dir, _d) = test_db();
+        let crate_dir = project_dir.path().join("crates/mylib");
+        std::fs::create_dir_all(&crate_dir).unwrap();
+        db.create_spec("mylib", "crates/mylib", "Test spec", None)
+            .unwrap();
+        for slug in [
+            "overview",
+            "architecture",
+            "dependencies",
+            "error-handling",
+            "testing",
+        ] {
+            db.set_section("mylib", slug, "Some content here", None)
+                .unwrap();
+        }
+
+        let report = db.check(None).unwrap();
+        assert!(report.ok);
+        assert!(report.errors.is_empty());
+        assert!(report.warnings.is_empty());
+    }
+
+    #[test]
+    fn check_warns_empty_required_sections() {
+        let (db, project_dir, _d) = test_db();
+        let crate_dir = project_dir.path().join("crates/mylib");
+        std::fs::create_dir_all(&crate_dir).unwrap();
+        db.create_spec("mylib", "crates/mylib", "Test spec", None)
+            .unwrap();
+
+        let report = db.check(None).unwrap();
+        assert!(report.ok);
+        assert!(report.errors.is_empty());
+        assert_eq!(report.warnings.len(), 5);
+        assert!(
+            report
+                .warnings
+                .iter()
+                .all(|w| w.check == "required_sections_nonempty")
+        );
+    }
+
+    #[test]
+    fn check_errors_missing_crate_path() {
+        let (db, _project_dir, _d) = test_db();
+        db.create_spec("ghost", "crates/nonexistent", "Does not exist", None)
+            .unwrap();
+
+        let report = db.check(None).unwrap();
+        assert!(!report.ok);
+        assert!(report.errors.iter().any(|e| e.check == "crate_paths_exist"));
+    }
+
+    #[test]
+    fn check_detects_ref_cycles() {
+        let (db, project_dir, _d) = test_db();
+        for name in ["a", "b", "c"] {
+            let crate_dir = project_dir.path().join(format!("crates/{name}"));
+            std::fs::create_dir_all(&crate_dir).unwrap();
+            db.create_spec(
+                name,
+                &format!("crates/{name}"),
+                &format!("Spec {name}"),
+                None,
+            )
+            .unwrap();
+        }
+
+        db.conn
+            .execute(
+                "INSERT INTO refs (from_stem, to_stem) VALUES ('a', 'b')",
+                [],
+            )
+            .unwrap();
+        db.conn
+            .execute(
+                "INSERT INTO refs (from_stem, to_stem) VALUES ('b', 'c')",
+                [],
+            )
+            .unwrap();
+        db.conn
+            .execute(
+                "INSERT INTO refs (from_stem, to_stem) VALUES ('c', 'a')",
+                [],
+            )
+            .unwrap();
+
+        let report = db.check(None).unwrap();
+        assert!(!report.ok);
+        assert!(report.errors.iter().any(|e| e.check == "no_ref_cycles"));
+    }
+
+    #[test]
+    fn check_pensa_unreachable_warns() {
+        let (db, project_dir, _d) = test_db();
+        let crate_dir = project_dir.path().join("crates/mylib");
+        std::fs::create_dir_all(&crate_dir).unwrap();
+        db.create_spec("mylib", "crates/mylib", "Test spec", None)
+            .unwrap();
+
+        let report = db.check(Some("http://localhost:1")).unwrap();
+        assert!(report.ok);
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|w| w.check == "pensa_spec_refs_valid" && w.message.contains("unreachable"))
+        );
     }
 }

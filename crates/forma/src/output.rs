@@ -305,6 +305,34 @@ pub fn print_import_export(value: &Value, mode: OutputMode) {
     }
 }
 
+pub fn print_check(value: &Value, mode: OutputMode) {
+    match mode {
+        OutputMode::Json => print_json(value),
+        OutputMode::Human => {
+            let ok = value["ok"].as_bool().unwrap_or(false);
+            if let Some(errs) = value["errors"].as_array() {
+                for e in errs {
+                    let check = e["check"].as_str().unwrap_or("?");
+                    let msg = e["message"].as_str().unwrap_or("?");
+                    println!("  error [{check}]: {msg}");
+                }
+            }
+            if let Some(warns) = value["warnings"].as_array() {
+                for w in warns {
+                    let check = w["check"].as_str().unwrap_or("?");
+                    let msg = w["message"].as_str().unwrap_or("?");
+                    println!("  warn  [{check}]: {msg}");
+                }
+            }
+            if ok {
+                println!("check: ok");
+            } else {
+                println!("check: errors found");
+            }
+        }
+    }
+}
+
 pub fn print_where(forma_dir: &str, db_dir: &str) {
     println!("jsonl: {forma_dir}");
     println!("db:    {db_dir}");
