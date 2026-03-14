@@ -126,11 +126,11 @@ fn init_creates_all_directories() {
 
     let expected_dirs = [
         ".pensa",
+        ".forma",
         ".sgf",
         ".sgf/logs",
         ".sgf/run",
         ".sgf/prompts",
-        "specs",
     ];
     for dir in expected_dirs {
         assert!(tmp.path().join(dir).is_dir(), "directory missing: {dir}");
@@ -152,7 +152,6 @@ fn init_creates_all_files() {
         ".sgf/prompts/issues-log.md",
         ".sgf/prompts/install.md",
         ".sgf/prompts/config.toml",
-        "specs/README.md",
         ".claude/settings.json",
         ".pre-commit-config.yaml",
         ".gitignore",
@@ -211,7 +210,7 @@ fn init_file_contents() {
 
     // .gitignore
     let gitignore = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
-    assert!(!gitignore.contains(".pensa/db.sqlite"));
+    assert!(gitignore.contains(".pensa/db.sqlite"));
     assert!(gitignore.contains(".sgf/logs/"));
 }
 
@@ -268,8 +267,8 @@ fn init_merges_existing_gitignore() {
     let content = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
     assert!(content.contains("my-secret.key"), "custom entry lost");
     assert!(
-        !content.contains(".pensa/db.sqlite"),
-        "db.sqlite should not be in gitignore"
+        content.contains(".pensa/db.sqlite"),
+        "db.sqlite should be in gitignore"
     );
     assert!(content.contains(".sgf/logs/"), "sgf entry missing");
 }
@@ -871,19 +870,13 @@ fn help_flag() {
 // ===========================================================================
 
 #[test]
-fn init_specs_readme_heading() {
+fn init_no_specs_directory() {
     let tmp = setup_test_dir();
     sgf_cmd(tmp.path()).arg("init").output().unwrap();
 
-    let content = fs::read_to_string(tmp.path().join("specs/README.md")).unwrap();
     assert!(
-        content.starts_with("# Specifications"),
-        "specs/README.md should start with '# Specifications', got: {}",
-        content.lines().next().unwrap_or("")
-    );
-    assert!(
-        !content.starts_with("# Specs\n"),
-        "specs/README.md should NOT use '# Specs'"
+        !tmp.path().join("specs").exists(),
+        "specs/ should not be scaffolded (forma manages specs now)"
     );
 }
 
@@ -1139,11 +1132,10 @@ fn init_force_restores_templates_matching_spec() {
         "BACKPRESSURE.md should contain cargo build command"
     );
 
-    // (4) specs/README.md should NOT be overwritten by --force
-    let specs_readme = fs::read_to_string(tmp.path().join("specs/README.md")).unwrap();
+    // (4) specs/ should not be scaffolded (forma manages specs now)
     assert!(
-        specs_readme.contains("# Specifications"),
-        "specs/README.md should still exist"
+        !tmp.path().join("specs").exists(),
+        "specs/ should not be scaffolded by init"
     );
 
     // (5) Config files should still be intact after force
