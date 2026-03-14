@@ -79,8 +79,6 @@ fn context_files_appear_in_append_system_prompt() {
     fs::create_dir_all(cwd.join(".sgf")).unwrap();
     fs::write(cwd.join(".sgf/MEMENTO.md"), "m").unwrap();
     fs::write(cwd.join(".sgf/BACKPRESSURE.md"), "b").unwrap();
-    fs::create_dir_all(cwd.join("specs")).unwrap();
-    fs::write(cwd.join("specs/README.md"), "s").unwrap();
 
     let mock_dir = TempDir::new().unwrap();
     create_mock_secret(mock_dir.path());
@@ -105,7 +103,6 @@ fn context_files_appear_in_append_system_prompt() {
     assert!(output.contains("study @"));
     assert!(output.contains("MEMENTO.md"));
     assert!(output.contains("BACKPRESSURE.md"));
-    assert!(output.contains("specs/README.md"));
 }
 
 #[test]
@@ -245,4 +242,66 @@ fn exits_1_when_downstream_binary_missing() {
     assert!(!result.status.success());
     let stderr = String::from_utf8_lossy(&result.stderr);
     assert!(stderr.contains("claude-wrapper-secret"), "stderr: {stderr}");
+}
+
+#[test]
+fn spec_index_falls_back_to_forma_readme() {
+    let workdir = TempDir::new().unwrap();
+    let cwd = workdir.path();
+
+    fs::create_dir_all(cwd.join(".forma")).unwrap();
+    fs::write(
+        cwd.join(".forma/README.md"),
+        "# Specifications\n\n| Spec | Code | Purpose |\n|------|------|---------|",
+    )
+    .unwrap();
+
+    let mock_dir = TempDir::new().unwrap();
+    create_mock_secret(mock_dir.path());
+    let output_file = mock_dir.path().join("output.txt");
+
+    let result = Command::new(cl_binary())
+        .current_dir(cwd)
+        .env("HOME", workdir.path().to_str().unwrap())
+        .env("PATH", prepend_to_path(mock_dir.path()))
+        .env("CL_TEST_OUTPUT", &output_file)
+        .output()
+        .unwrap();
+
+    assert!(
+        result.status.success(),
+        "cl failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let output = fs::read_to_string(&output_file).unwrap();
+    assert!(output.contains("--append-system-prompt"));
+    assert!(
+        output.contains("Specifications"),
+        "expected spec index in prompt, got: {output}"
+    );
+}
+
+#[test]
+fn spec_index_unavailable_skipped_no_error_exit() {
+    let workdir = TempDir::new().unwrap();
+    let mock_dir = TempDir::new().unwrap();
+    create_mock_secret(mock_dir.path());
+    let output_file = mock_dir.path().join("output.txt");
+
+    let result = Command::new(cl_binary())
+        .current_dir(workdir.path())
+        .env("HOME", workdir.path().to_str().unwrap())
+        .env("PATH", prepend_to_path(mock_dir.path()))
+        .env("CL_TEST_OUTPUT", &output_file)
+        .output()
+        .unwrap();
+
+    assert!(result.status.success());
+
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(
+        stderr.contains("spec index not available"),
+        "expected warning about spec index, got: {stderr}"
+    );
 }

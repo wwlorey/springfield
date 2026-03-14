@@ -1,7 +1,9 @@
 use std::path::Path;
+use std::process::Command;
 
 pub struct ResolvedContext {
     pub files: Vec<String>,
+    pub spec_index: Option<String>,
 }
 
 pub fn resolve_context_files(cwd: &Path, home: &Path) -> ResolvedContext {
@@ -25,14 +27,57 @@ pub fn resolve_context_files(cwd: &Path, home: &Path) -> ResolvedContext {
         eprintln!("warning: {filename} not found in .sgf/ (local or global), skipping");
     }
 
-    let specs_readme = cwd.join("specs").join("README.md");
-    if specs_readme.exists() {
-        files.push(specs_readme.to_string_lossy().into_owned());
-    } else {
-        eprintln!("warning: specs/README.md not found, skipping");
+    let spec_index = resolve_spec_index(cwd);
+
+    ResolvedContext { files, spec_index }
+}
+
+fn resolve_spec_index(cwd: &Path) -> Option<String> {
+    if let Some(index) = resolve_spec_index_from_fm() {
+        return Some(index);
     }
 
-    ResolvedContext { files }
+    let fallback = cwd.join(".forma").join("README.md");
+    if fallback.exists() {
+        match std::fs::read_to_string(&fallback) {
+            Ok(contents) => return Some(contents),
+            Err(e) => {
+                eprintln!("warning: failed to read .forma/README.md: {e}");
+            }
+        }
+    }
+
+    eprintln!(
+        "warning: spec index not available (fm unreachable and .forma/README.md not found), skipping"
+    );
+    None
+}
+
+fn resolve_spec_index_from_fm() -> Option<String> {
+    let output = Command::new("fm").args(["list", "--json"]).output().ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let json_str = String::from_utf8(output.stdout).ok()?;
+    format_spec_index_as_markdown(&json_str)
+}
+
+fn format_spec_index_as_markdown(json_str: &str) -> Option<String> {
+    let specs: Vec<serde_json::Value> = serde_json::from_str(json_str).ok()?;
+
+    let mut table =
+        String::from("# Specifications\n\n| Spec | Code | Purpose |\n|------|------|---------|");
+
+    for spec in &specs {
+        let stem = spec.get("stem")?.as_str()?;
+        let crate_path = spec.get("crate_path")?.as_str()?;
+        let purpose = spec.get("purpose")?.as_str()?;
+        table.push_str(&format!("\n| {stem} | `{crate_path}` | {purpose} |"));
+    }
+
+    Some(table)
 }
 
 #[cfg(test)]
@@ -58,12 +103,6 @@ mod tests {
         fs::write(home.join(".sgf/MEMENTO.md"), "global").unwrap();
 
         let result = resolve_context_files(cwd, home);
-        assert!(
-            result
-                .files
-                .iter()
-                .any(|f| f.contains("local") || f.starts_with(cwd.to_str().unwrap()))
-        );
         let memento = result
             .files
             .iter()
@@ -96,18 +135,7 @@ mod tests {
         let (cwd_dir, home_dir) = setup();
         let result = resolve_context_files(cwd_dir.path(), home_dir.path());
         assert!(result.files.is_empty());
-    }
-
-    #[test]
-    fn specs_readme_only_checks_local() {
-        let (cwd_dir, home_dir) = setup();
-        let cwd = cwd_dir.path();
-
-        fs::create_dir_all(cwd.join("specs")).unwrap();
-        fs::write(cwd.join("specs/README.md"), "specs").unwrap();
-
-        let result = resolve_context_files(cwd, home_dir.path());
-        assert!(result.files.iter().any(|f| f.contains("specs/README.md")));
+        assert!(result.spec_index.is_none());
     }
 
     #[test]
@@ -115,6 +143,7 @@ mod tests {
         let (cwd_dir, home_dir) = setup();
         let result = resolve_context_files(cwd_dir.path(), home_dir.path());
         assert!(result.files.is_empty());
+        assert!(result.spec_index.is_none());
     }
 
     #[test]
@@ -129,19 +158,63 @@ mod tests {
         fs::create_dir_all(home.join(".sgf")).unwrap();
         fs::write(home.join(".sgf/BACKPRESSURE.md"), "global bp").unwrap();
 
-        fs::create_dir_all(cwd.join("specs")).unwrap();
-        fs::write(cwd.join("specs/README.md"), "specs").unwrap();
-
         let result = resolve_context_files(cwd, home);
-        assert_eq!(result.files.len(), 3);
+        assert_eq!(result.files.len(), 2);
 
         let memento = &result.files[0];
         assert!(memento.starts_with(cwd.to_str().unwrap()));
 
         let bp = &result.files[1];
         assert!(bp.starts_with(home.to_str().unwrap()));
+    }
 
-        let specs = &result.files[2];
-        assert!(specs.contains("specs/README.md"));
+    #[test]
+    fn forma_readme_fallback_used_when_fm_unavailable() {
+        let (cwd_dir, home_dir) = setup();
+        let cwd = cwd_dir.path();
+
+        fs::create_dir_all(cwd.join(".forma")).unwrap();
+        fs::write(
+            cwd.join(".forma/README.md"),
+            "# Specs\n\n| Spec | Code | Purpose |\n",
+        )
+        .unwrap();
+
+        let result = resolve_context_files(cwd, home_dir.path());
+        assert!(result.spec_index.is_some());
+        assert!(result.spec_index.unwrap().contains("# Specs"));
+    }
+
+    #[test]
+    fn spec_index_none_when_no_source_available() {
+        let (cwd_dir, home_dir) = setup();
+        let result = resolve_context_files(cwd_dir.path(), home_dir.path());
+        assert!(result.spec_index.is_none());
+    }
+
+    #[test]
+    fn format_spec_index_as_markdown_produces_table() {
+        let json = r#"[
+            {"stem":"auth","crate_path":"crates/auth/","purpose":"Authentication","status":"stable","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"},
+            {"stem":"ralph","crate_path":"crates/ralph/","purpose":"Runner","status":"draft","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}
+        ]"#;
+        let result = format_spec_index_as_markdown(json).unwrap();
+        assert!(result.contains("# Specifications"));
+        assert!(result.contains("| auth | `crates/auth/` | Authentication |"));
+        assert!(result.contains("| ralph | `crates/ralph/` | Runner |"));
+    }
+
+    #[test]
+    fn format_spec_index_as_markdown_empty_array() {
+        let result = format_spec_index_as_markdown("[]").unwrap();
+        assert!(result.contains("# Specifications"));
+        assert!(result.contains("| Spec | Code | Purpose |"));
+        let lines: Vec<&str> = result.lines().collect();
+        assert_eq!(lines.len(), 4);
+    }
+
+    #[test]
+    fn format_spec_index_as_markdown_invalid_json() {
+        assert!(format_spec_index_as_markdown("not json").is_none());
     }
 }

@@ -23,13 +23,20 @@ fn main() {
 
     let mut args: Vec<String> = Vec::new();
 
-    if !resolved.files.is_empty() {
-        let study_parts: Vec<String> = resolved
+    let has_context = !resolved.files.is_empty() || resolved.spec_index.is_some();
+
+    if has_context {
+        let mut parts: Vec<String> = resolved
             .files
             .iter()
             .map(|f| format!("study @{f}"))
             .collect();
-        let prompt = study_parts.join(";");
+
+        if let Some(ref spec_index) = resolved.spec_index {
+            parts.push(spec_index.clone());
+        }
+
+        let prompt = parts.join(";");
         args.push("--append-system-prompt".to_string());
         args.push(prompt);
     }

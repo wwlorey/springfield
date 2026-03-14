@@ -295,6 +295,7 @@ name = "claude-wrapper"
 version = "0.1.0"
 dependencies = [
  "dirs",
+ "serde_json",
  "tempfile",
 ]
 
