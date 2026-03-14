@@ -75,11 +75,12 @@ fn create_mock_script(dir: &Path, name: &str, script: &str) -> PathBuf {
     path
 }
 
-/// Create a separate temp dir with mock `pn` (exits 0 for everything) and
-/// return (TempDir, PATH string with mock dir prepended).
+/// Create a separate temp dir with mock `pn` and `fm` (both exit 0 for
+/// everything) and return (TempDir, PATH string with mock dir prepended).
 fn setup_mock_pn() -> (TempDir, String) {
     let mock_dir = TempDir::new().unwrap();
     create_mock_script(mock_dir.path(), "pn", "#!/bin/sh\nexit 0\n");
+    create_mock_script(mock_dir.path(), "fm", "#!/bin/sh\nexit 0\n");
     let path = format!(
         "{}:{}",
         mock_dir.path().display(),

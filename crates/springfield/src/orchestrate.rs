@@ -100,7 +100,7 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
 
     if config.mode == Mode::Interactive {
         if !config.skip_preflight {
-            recovery::ensure_daemon(root)?;
+            recovery::ensure_daemons(root)?;
         }
 
         style::print_action_detail(
@@ -140,7 +140,7 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
     if !config.skip_preflight {
         recovery::pre_launch_recovery(root)?;
         if std::env::var("SGF_SKIP_PREFLIGHT").is_err() {
-            recovery::ensure_daemon(root)?;
+            recovery::ensure_daemons(root)?;
         }
     }
 

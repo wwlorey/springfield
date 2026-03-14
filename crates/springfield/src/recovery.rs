@@ -85,49 +85,80 @@ pub fn pre_launch_recovery(root: &Path) -> io::Result<()> {
     Ok(())
 }
 
-pub fn ensure_daemon(root: &Path) -> io::Result<()> {
-    if daemon_is_reachable(root) {
+pub fn ensure_daemons(root: &Path) -> io::Result<()> {
+    let pensa_reachable = daemon_is_reachable("pn", root);
+    let forma_reachable = daemon_is_reachable("fm", root);
+
+    if pensa_reachable && forma_reachable {
         return Ok(());
     }
 
     let port = project_port(root);
-    style::print_action(&format!("starting pensa daemon on port {port}..."));
+    let root_str = root.to_string_lossy();
+    let port_str = port.to_string();
 
-    Command::new("pn")
-        .args([
-            "daemon",
-            "--port",
-            &port.to_string(),
-            "--project-dir",
-            &root.to_string_lossy(),
-        ])
-        .current_dir(root)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map_err(|e| io::Error::other(format!("failed to start pn daemon: {e}")))?;
+    if !pensa_reachable {
+        style::print_action(&format!("starting pensa daemon on port {port}..."));
+        spawn_daemon("pn", &port_str, &root_str, root)?;
+    }
+
+    if !forma_reachable {
+        style::print_action(&format!("starting forma daemon on port {port}..."));
+        spawn_daemon("fm", &port_str, &root_str, root)?;
+    }
 
     let deadline = Instant::now() + Duration::from_secs(5);
     let mut interval = Duration::from_millis(50);
     let max_interval = Duration::from_millis(800);
+    let mut pensa_ready = pensa_reachable;
+    let mut forma_ready = forma_reachable;
+
     while Instant::now() < deadline {
         thread::sleep(interval);
-        if daemon_is_reachable(root) {
+        if !pensa_ready && daemon_is_reachable("pn", root) {
             style::print_success("pensa daemon ready");
+            pensa_ready = true;
+        }
+        if !forma_ready && daemon_is_reachable("fm", root) {
+            style::print_success("forma daemon ready");
+            forma_ready = true;
+        }
+        if pensa_ready && forma_ready {
             return Ok(());
         }
         interval = (interval * 2).min(max_interval);
     }
 
+    let mut missing = Vec::new();
+    if !pensa_ready {
+        missing.push("pensa");
+    }
+    if !forma_ready {
+        missing.push("forma");
+    }
     Err(io::Error::new(
         io::ErrorKind::TimedOut,
-        "pensa daemon did not become ready within 5 seconds",
+        format!(
+            "{} daemon(s) did not become ready within 5 seconds",
+            missing.join(", ")
+        ),
     ))
 }
 
-fn daemon_is_reachable(root: &Path) -> bool {
-    Command::new("pn")
+fn spawn_daemon(bin: &str, port: &str, root_str: &str, root: &Path) -> io::Result<()> {
+    Command::new(bin)
+        .args(["daemon", "--port", port, "--project-dir", root_str])
+        .current_dir(root)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| io::Error::other(format!("failed to start {bin} daemon: {e}")))?;
+    Ok(())
+}
+
+fn daemon_is_reachable(bin: &str, root: &Path) -> bool {
+    Command::new(bin)
         .args(["daemon", "status"])
         .current_dir(root)
         .stdout(std::process::Stdio::null())
