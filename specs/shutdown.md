@@ -120,7 +120,7 @@ sgf creates a `ShutdownController` before spawning ralph or `$AGENT_CMD`. The co
 
 ### AFK Loops
 
-`setsid()` isolates ralph in its own session. sgf creates the controller with `monitor_stdin: true` (stdin is free — no user interaction). The 50ms polling loop calls `controller.poll()`. Both double Ctrl+C and double Ctrl+D trigger shutdown. On `Shutdown`, sgf kills ralph's process group via `kill_process_group(pid, 2s)` — SIGTERM to the group, escalating to SIGKILL after timeout (see [Process Group Kill with Escalation](#process-group-kill-with-escalation)).
+`setsid()` isolates ralph in its own session. sgf creates the controller with `monitor_stdin: true` (stdin is free — no user interaction). The 50ms polling loop calls `controller.poll()`. Both double Ctrl+C and double Ctrl+D trigger shutdown. On `Shutdown`, sgf kills ralph's process group via `kill_process_group(pid, 200ms)` — SIGTERM to the group, escalating to SIGKILL after timeout (see [Process Group Kill with Escalation](#process-group-kill-with-escalation)).
 
 **Stdin isolation**: sgf passes `Stdio::null()` for stdin when spawning ralph in AFK mode. This prevents the agent from inheriting the terminal fd and modifying terminal settings (e.g., disabling ISIG via `tcsetattr`). Without this, the agent can put the terminal in raw mode, causing Ctrl+C to emit byte `0x03` instead of generating SIGINT and Ctrl+D to emit byte `0x04` instead of triggering EOF. With `Stdio::null()`, the terminal fd stays under sgf's exclusive control and ISIG remains enabled.
 
@@ -192,7 +192,7 @@ The `pid` parameter is the group leader's PID (which equals the PGID due to `set
 
 ### Default Timeout
 
-`sgf` and `ralph` both use a 2-second timeout. This is long enough for the agent to clean up tool subprocesses but short enough to avoid hanging indefinitely.
+`sgf` and `ralph` both use a 200ms timeout. After a double-press confirmation, the user has already signaled clear intent to exit — there is no meaningful cleanup for an AI agent subprocess, so a short grace window (enough for buffer flushes) is sufficient before escalating to SIGKILL.
 
 ### Usage by sgf
 
@@ -200,7 +200,7 @@ sgf calls `kill_process_group` when its `ShutdownController` returns `Shutdown`:
 
 ```rust
 fn kill_child(child: &std::process::Child) {
-    shutdown::kill_process_group(child.id(), Duration::from_secs(2));
+    shutdown::kill_process_group(child.id(), Duration::from_millis(200));
 }
 ```
 
@@ -212,7 +212,7 @@ ralph calls `kill_process_group` in both `run_afk` and `run_interactive` when th
 
 ```rust
 if controller.poll() == ShutdownStatus::Shutdown {
-    shutdown::kill_process_group(child.id(), Duration::from_secs(2));
+    shutdown::kill_process_group(child.id(), Duration::from_millis(200));
     let _ = child.wait();
     return;
 }

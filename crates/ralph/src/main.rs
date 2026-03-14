@@ -496,7 +496,7 @@ fn run_interactive(
 
     loop {
         if controller.poll() == ShutdownStatus::Shutdown {
-            kill_process_group(child.id(), Duration::from_secs(2));
+            kill_process_group(child.id(), Duration::from_millis(200));
             let _ = child.wait();
             break;
         }
@@ -595,7 +595,7 @@ fn run_afk(
 
     loop {
         if controller.poll() == ShutdownStatus::Shutdown {
-            kill_process_group(child.id(), Duration::from_secs(2));
+            kill_process_group(child.id(), Duration::from_millis(200));
             let _ = child.wait();
             return;
         }

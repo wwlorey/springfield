@@ -283,7 +283,7 @@ fn run_ralph(
 }
 
 fn kill_child(child: &std::process::Child) {
-    shutdown::kill_process_group(child.id(), Duration::from_secs(2));
+    shutdown::kill_process_group(child.id(), Duration::from_millis(200));
 }
 
 #[cfg(test)]
