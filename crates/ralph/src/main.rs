@@ -86,7 +86,7 @@ fn remove_sentinel() {
     }
 }
 
-/// Iterative Claude Code runner via direct $AGENT_CMD invocation.
+/// Iterative Claude Code runner via direct `cl` invocation.
 ///
 /// Runs Claude Code repeatedly against a prompt file, formatting NDJSON
 /// stream output for readable AFK execution.
@@ -144,60 +144,26 @@ fn resolve_agent_cmd(cli: &Cli) -> String {
     if let Some(ref cmd) = cli.command {
         return cmd.clone();
     }
-    match std::env::var("AGENT_CMD") {
-        Ok(val) if !val.is_empty() => val,
-        _ => {
-            error!(
-                "AGENT_CMD not set. Set AGENT_CMD to the path of the agent binary (e.g., AGENT_CMD=claude)."
-            );
-            std::process::exit(1);
-        }
-    }
+    "cl".to_string()
 }
 
-fn resolve_prompt_files() -> Vec<String> {
-    let default = "$HOME/.MEMENTO.md:./BACKPRESSURE.md:./specs/README.md";
-    let raw = match std::env::var("PROMPT_FILES") {
-        Ok(val) => val,
-        Err(_) => {
-            warn!("PROMPT_FILES not set, using default: {default}");
-            default.to_string()
-        }
-    };
-
-    let home = std::env::var("HOME").unwrap_or_default();
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-
-    let mut files = Vec::new();
-    for entry in raw.split(':') {
-        let entry = entry.trim();
-        if entry.is_empty() {
-            continue;
-        }
-
-        let expanded = entry.replace("$HOME", &home).replace('~', &home);
-
-        let path = if expanded.starts_with("./") || expanded.starts_with("../") {
-            cwd.join(&expanded)
-        } else {
-            PathBuf::from(&expanded)
-        };
-
-        if path.exists() {
-            files.push(expanded);
-        } else {
-            warn!(path = %path.display(), "PROMPT_FILES entry not found, skipping");
+fn check_agent_in_path(agent_cmd: &str) {
+    if let Ok(path_var) = std::env::var("PATH") {
+        for dir in std::env::split_paths(&path_var) {
+            if dir.join(agent_cmd).is_file() {
+                return;
+            }
         }
     }
-
-    files
+    error!("cl not found in PATH");
+    std::process::exit(1);
 }
 
-fn build_study_args(prompt_files: &[String]) -> Vec<String> {
-    if prompt_files.is_empty() {
+fn build_study_args(files: &[String]) -> Vec<String> {
+    if files.is_empty() {
         return Vec::new();
     }
-    let instruction = prompt_files
+    let instruction = files
         .iter()
         .map(|f| format!("study @{f}"))
         .collect::<Vec<_>>()
@@ -206,7 +172,7 @@ fn build_study_args(prompt_files: &[String]) -> Vec<String> {
 }
 
 fn collect_prompt_files(cli: &Cli) -> Vec<String> {
-    let mut files = resolve_prompt_files();
+    let mut files = Vec::new();
 
     if let Some(ref stem) = cli.spec {
         let spec_path = format!("./specs/{stem}.md");
@@ -262,6 +228,10 @@ fn main() {
     };
 
     let agent_cmd = resolve_agent_cmd(&cli);
+
+    if cli.command.is_none() {
+        check_agent_in_path(&agent_cmd);
+    }
 
     let config = ShutdownConfig {
         monitor_stdin: std::env::var("SGF_MANAGED").is_err(),

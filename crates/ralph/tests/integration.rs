@@ -83,7 +83,6 @@ fn ralph_cmd(dir: &TempDir) -> Command {
     cmd.current_dir(dir.path());
     cmd.env("RALPH_AUTO_PUSH", "false");
     cmd.env("RUST_LOG", "warn");
-    cmd.env("PROMPT_FILES", "");
     cmd.env("SGF_MANAGED", "1");
     cmd.stdin(std::process::Stdio::null());
     cmd
@@ -849,49 +848,11 @@ fn spec_via_env_var() {
 }
 
 #[test]
-fn prompt_files_default_warns_when_unset() {
+fn no_append_system_prompt_without_spec_or_prompt_file() {
     let dir = setup_test_dir();
-    let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
-
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ralph"));
-    cmd.current_dir(dir.path());
-    cmd.env("RALPH_AUTO_PUSH", "false");
-    cmd.env("RUST_LOG", "warn");
-    cmd.env_remove("PROMPT_FILES");
-    cmd.args([
-        "--afk",
-        "--command",
-        mock.to_str().unwrap(),
-        "1",
-        "prompt.md",
-    ]);
-
-    let output = cmd.output().expect("run ralph");
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    assert!(
-        stderr.contains("PROMPT_FILES not set"),
-        "should warn when PROMPT_FILES is not set, got stderr:\n{stderr}"
-    );
-}
-
-#[test]
-fn prompt_files_resolves_existing_files() {
-    let dir = setup_test_dir();
-    let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
-
-    fs::write(dir.path().join("BACKPRESSURE.md"), "# BP\n").expect("write bp");
-    fs::write(dir.path().join("README.md"), "# README\n").expect("write readme");
+    let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
 
     let output = ralph_cmd(&dir)
-        .env(
-            "PROMPT_FILES",
-            format!(
-                "{}:{}",
-                dir.path().join("BACKPRESSURE.md").display(),
-                dir.path().join("README.md").display()
-            ),
-        )
         .args([
             "--afk",
             "--command",
@@ -902,133 +863,17 @@ fn prompt_files_resolves_existing_files() {
         .output()
         .expect("run ralph");
 
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    assert!(
-        !stderr.contains("not found"),
-        "should not warn for existing PROMPT_FILES entries, got stderr:\n{stderr}"
-    );
     assert!(
         output.status.success(),
-        "should exit 0 with valid PROMPT_FILES"
+        "should exit 0 without --spec or --prompt-file"
     );
-}
 
-#[test]
-fn prompt_files_warns_on_missing_entries() {
-    let dir = setup_test_dir();
-    let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
-
-    let output = ralph_cmd(&dir)
-        .env("PROMPT_FILES", "/nonexistent/file.md:./also-missing.md")
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let args =
+        fs::read_to_string(dir.path().join("captured-args.txt")).expect("read captured args");
 
     assert!(
-        stderr.contains("PROMPT_FILES entry not found"),
-        "should warn about missing PROMPT_FILES entries, got stderr:\n{stderr}"
-    );
-    assert!(
-        output.status.success(),
-        "should still succeed (missing PROMPT_FILES entries are non-fatal)"
-    );
-}
-
-#[test]
-fn prompt_files_expands_home() {
-    let dir = setup_test_dir();
-    let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
-
-    let fake_home = dir.path().join("fakehome");
-    fs::create_dir_all(&fake_home).expect("create fake home");
-    fs::write(fake_home.join(".ralph-test-prompt-file.md"), "# Test\n").expect("write test file");
-
-    let output = ralph_cmd(&dir)
-        .env("HOME", &fake_home)
-        .env("PROMPT_FILES", "$HOME/.ralph-test-prompt-file.md")
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    assert!(
-        !stderr.contains("not found"),
-        "should resolve $HOME in PROMPT_FILES paths, got stderr:\n{stderr}"
-    );
-}
-
-#[test]
-fn prompt_files_expands_tilde() {
-    let dir = setup_test_dir();
-    let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
-
-    let fake_home = dir.path().join("fakehome");
-    fs::create_dir_all(&fake_home).expect("create fake home");
-    fs::write(fake_home.join(".ralph-test-tilde-file.md"), "# Test\n").expect("write test file");
-
-    let output = ralph_cmd(&dir)
-        .env("HOME", &fake_home)
-        .env("PROMPT_FILES", "~/.ralph-test-tilde-file.md")
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    assert!(
-        !stderr.contains("not found"),
-        "should resolve ~ in PROMPT_FILES paths, got stderr:\n{stderr}"
-    );
-}
-
-#[test]
-fn prompt_files_empty_value_yields_no_files() {
-    let dir = setup_test_dir();
-    let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
-
-    let output = ralph_cmd(&dir)
-        .env("PROMPT_FILES", "")
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    assert!(
-        !stderr.contains("not found"),
-        "empty PROMPT_FILES should not warn about missing files, got stderr:\n{stderr}"
-    );
-    assert!(
-        output.status.success(),
-        "should exit 0 with empty PROMPT_FILES"
+        !args.contains("--append-system-prompt"),
+        "should NOT pass --append-system-prompt when no --spec or --prompt-file, got:\n{args}"
     );
 }
 
@@ -1078,25 +923,22 @@ fn create_arg_capturing_mock(dir: &TempDir, fixture_name: &str) -> PathBuf {
 }
 
 #[test]
-fn prompt_files_passed_as_append_system_prompt_file_args() {
+fn prompt_file_flag_passed_as_append_system_prompt() {
     let dir = setup_test_dir();
     let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
 
-    fs::write(dir.path().join("BACKPRESSURE.md"), "# BP\n").expect("write bp");
     fs::write(dir.path().join("NOTES.md"), "# Notes\n").expect("write notes");
-
-    let bp_path = dir.path().join("BACKPRESSURE.md");
-    let notes_path = dir.path().join("NOTES.md");
+    fs::write(dir.path().join("EXTRA.md"), "# Extra\n").expect("write extra");
 
     let output = ralph_cmd(&dir)
-        .env(
-            "PROMPT_FILES",
-            format!("{}:{}", bp_path.display(), notes_path.display()),
-        )
         .args([
             "--afk",
             "--command",
             mock.to_str().unwrap(),
+            "--prompt-file",
+            "NOTES.md",
+            "--prompt-file",
+            "EXTRA.md",
             "1",
             "prompt.md",
         ])
@@ -1116,7 +958,6 @@ fn prompt_files_passed_as_append_system_prompt_file_args() {
         fs::read_to_string(dir.path().join("captured-args.txt")).expect("read captured args");
     let arg_lines: Vec<&str> = args.lines().collect();
 
-    // Find the --append-system-prompt value containing study instructions
     let asp_value: Option<&str> = arg_lines
         .windows(2)
         .find(|w| w[0] == "--append-system-prompt")
@@ -1125,142 +966,12 @@ fn prompt_files_passed_as_append_system_prompt_file_args() {
     let study = asp_value.expect("should pass --append-system-prompt with study instructions");
 
     assert!(
-        study.contains("study @") && study.contains("BACKPRESSURE.md"),
-        "should include study @...BACKPRESSURE.md, got: {study}"
+        study.contains("study @") && study.contains("NOTES.md"),
+        "should include study @NOTES.md, got: {study}"
     );
     assert!(
-        study.contains("NOTES.md"),
-        "should include study @...NOTES.md, got: {study}"
-    );
-}
-
-#[test]
-fn prompt_files_missing_entries_not_passed_as_args() {
-    let dir = setup_test_dir();
-    let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
-
-    fs::write(dir.path().join("EXISTS.md"), "# Exists\n").expect("write exists");
-
-    let output = ralph_cmd(&dir)
-        .env(
-            "PROMPT_FILES",
-            format!(
-                "{}:/nonexistent/file.md",
-                dir.path().join("EXISTS.md").display()
-            ),
-        )
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    assert!(
-        output.status.success(),
-        "should exit 0, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
-        output.status.code()
-    );
-
-    assert!(
-        stderr.contains("PROMPT_FILES entry not found"),
-        "should warn about missing entry, got stderr:\n{stderr}"
-    );
-
-    let args =
-        fs::read_to_string(dir.path().join("captured-args.txt")).expect("read captured args");
-    let arg_lines: Vec<&str> = args.lines().collect();
-
-    let asp_value: Option<&str> = arg_lines
-        .windows(2)
-        .find(|w| w[0] == "--append-system-prompt")
-        .map(|w| w[1]);
-
-    let study = asp_value.expect("should pass --append-system-prompt with study instructions");
-
-    assert!(
-        study.contains("study @") && study.contains("EXISTS.md"),
-        "should include study @...EXISTS.md, got: {study}"
-    );
-    assert!(
-        !study.contains("nonexistent"),
-        "should NOT include nonexistent file in study instruction, got: {study}"
-    );
-}
-
-#[test]
-fn prompt_files_default_entries_passed_when_unset() {
-    let dir = setup_test_dir();
-    let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
-
-    // Create some of the default PROMPT_FILES entries
-    fs::write(dir.path().join("BACKPRESSURE.md"), "# BP\n").expect("write bp");
-    let specs_dir = dir.path().join("specs");
-    fs::create_dir_all(&specs_dir).expect("create specs dir");
-    fs::write(specs_dir.join("README.md"), "# Specs\n").expect("write specs readme");
-
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_ralph"));
-    cmd.current_dir(dir.path());
-    cmd.env("RALPH_AUTO_PUSH", "false");
-    cmd.env("RUST_LOG", "warn");
-    cmd.env_remove("PROMPT_FILES");
-    cmd.env("SGF_MANAGED", "1");
-    cmd.stdin(std::process::Stdio::null());
-    // Isolate HOME to temp dir so $HOME/.MEMENTO.md won't resolve to host file
-    cmd.env("HOME", dir.path());
-    cmd.args([
-        "--afk",
-        "--command",
-        mock.to_str().unwrap(),
-        "1",
-        "prompt.md",
-    ]);
-
-    let output = cmd.output().expect("run ralph");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    assert!(
-        output.status.success(),
-        "should exit 0, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
-        output.status.code()
-    );
-
-    assert!(
-        stderr.contains("PROMPT_FILES not set"),
-        "should warn about unset PROMPT_FILES, got stderr:\n{stderr}"
-    );
-
-    let args =
-        fs::read_to_string(dir.path().join("captured-args.txt")).expect("read captured args");
-    let arg_lines: Vec<&str> = args.lines().collect();
-
-    let asp_value: Option<&str> = arg_lines
-        .windows(2)
-        .find(|w| w[0] == "--append-system-prompt")
-        .map(|w| w[1]);
-
-    let study = asp_value.expect("should pass --append-system-prompt with study instructions");
-
-    // Default includes ./BACKPRESSURE.md and ./specs/README.md which we created
-    assert!(
-        study.contains("BACKPRESSURE.md"),
-        "default PROMPT_FILES should include BACKPRESSURE.md, got: {study}"
-    );
-    assert!(
-        study.contains("specs/README.md"),
-        "default PROMPT_FILES should include specs/README.md, got: {study}"
-    );
-    // HOME is set to temp dir, so $HOME/.MEMENTO.md should not exist
-    assert!(
-        !study.contains("MEMENTO.md"),
-        "default should skip non-existent $HOME/.MEMENTO.md, got: {study}"
+        study.contains("EXTRA.md"),
+        "should include study @EXTRA.md, got: {study}"
     );
 }
 
@@ -1519,7 +1230,6 @@ fn agent_cmd_required_without_command_override() {
     let dir = setup_test_dir();
 
     let output = ralph_cmd(&dir)
-        .env_remove("AGENT_CMD")
         .env_remove("RALPH_COMMAND")
         .args(["--afk", "1", "prompt.md"])
         .output()
@@ -1530,11 +1240,11 @@ fn agent_cmd_required_without_command_override() {
     assert_eq!(
         output.status.code(),
         Some(1),
-        "should exit 1 when AGENT_CMD is not set and --command is not provided"
+        "should exit 1 when cl is not in PATH and --command is not provided"
     );
     assert!(
-        stderr.contains("AGENT_CMD not set"),
-        "stderr should mention AGENT_CMD not set, got:\n{stderr}"
+        stderr.contains("cl not found in PATH"),
+        "stderr should mention cl not found in PATH, got:\n{stderr}"
     );
 }
 
@@ -1544,7 +1254,6 @@ fn agent_cmd_not_required_with_command_override() {
     let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
 
     let output = ralph_cmd(&dir)
-        .env_remove("AGENT_CMD")
         .args([
             "--afk",
             "--command",
@@ -1557,7 +1266,7 @@ fn agent_cmd_not_required_with_command_override() {
 
     assert!(
         output.status.success(),
-        "should exit 0 when --command is provided even without AGENT_CMD"
+        "should exit 0 when --command is provided (cl PATH check skipped)"
     );
 }
 
@@ -2221,7 +1930,6 @@ fn interactive_restores_terminal_settings_after_agent_corrupts() {
         .current_dir(dir.path())
         .env("RALPH_AUTO_PUSH", "false")
         .env("RUST_LOG", "warn")
-        .env("PROMPT_FILES", "")
         .env("SGF_MANAGED", "1")
         .stdin(std::process::Stdio::from(slave))
         .stdout(std::process::Stdio::piped())
