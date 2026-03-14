@@ -169,6 +169,14 @@ pub struct Ref {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RefTreeNode {
+    pub stem: String,
+    pub purpose: String,
+    pub status: String,
+    pub depth: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Event {
     pub id: i64,
     pub spec_stem: String,

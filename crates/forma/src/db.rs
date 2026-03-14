@@ -7,7 +7,8 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    Event, FormaError, Ref, RequiredSection, Section, SectionKind, Spec, SpecDetail, slugify,
+    Event, FormaError, Ref, RefTreeNode, RequiredSection, Section, SectionKind, Spec, SpecDetail,
+    slugify,
 };
 
 pub struct Db {
@@ -841,6 +842,254 @@ impl Db {
                 section_from_row,
             )
             .map_err(|e| FormaError::Internal(format!("failed to read moved section: {e}")))
+    }
+
+    pub fn add_ref(
+        &self,
+        from_stem: &str,
+        to_stem: &str,
+        actor: Option<&str>,
+    ) -> Result<(), FormaError> {
+        self.conn
+            .query_row(
+                "SELECT stem FROM specs WHERE stem = ?1",
+                [from_stem],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|_| FormaError::NotFound(format!("spec not found: {from_stem}")))?;
+
+        self.conn
+            .query_row("SELECT stem FROM specs WHERE stem = ?1", [to_stem], |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(|_| FormaError::NotFound(format!("spec not found: {to_stem}")))?;
+
+        let exists: bool = self
+            .conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM refs WHERE from_stem = ?1 AND to_stem = ?2)",
+                rusqlite::params![from_stem, to_stem],
+                |row| row.get(0),
+            )
+            .map_err(|e| FormaError::Internal(format!("failed to check ref: {e}")))?;
+        if exists {
+            return Err(FormaError::AlreadyExists(format!(
+                "ref from '{from_stem}' to '{to_stem}' already exists"
+            )));
+        }
+
+        if self.would_create_cycle(from_stem, to_stem)? {
+            return Err(FormaError::CycleDetected);
+        }
+
+        self.conn
+            .execute(
+                "INSERT INTO refs (from_stem, to_stem) VALUES (?1, ?2)",
+                rusqlite::params![from_stem, to_stem],
+            )
+            .map_err(|e| FormaError::Internal(format!("failed to add ref: {e}")))?;
+
+        self.log_event(
+            from_stem,
+            "ref_added",
+            actor,
+            Some(&format!("added ref to {to_stem}")),
+        )?;
+
+        Ok(())
+    }
+
+    pub fn remove_ref(
+        &self,
+        from_stem: &str,
+        to_stem: &str,
+        actor: Option<&str>,
+    ) -> Result<(), FormaError> {
+        let changed = self
+            .conn
+            .execute(
+                "DELETE FROM refs WHERE from_stem = ?1 AND to_stem = ?2",
+                rusqlite::params![from_stem, to_stem],
+            )
+            .map_err(|e| FormaError::Internal(format!("failed to remove ref: {e}")))?;
+
+        if changed == 0 {
+            return Err(FormaError::NotFound(format!(
+                "ref from '{from_stem}' to '{to_stem}' not found"
+            )));
+        }
+
+        self.log_event(
+            from_stem,
+            "ref_removed",
+            actor,
+            Some(&format!("removed ref to {to_stem}")),
+        )?;
+
+        Ok(())
+    }
+
+    pub fn list_refs(&self, stem: &str) -> Result<Vec<Spec>, FormaError> {
+        self.conn
+            .query_row("SELECT stem FROM specs WHERE stem = ?1", [stem], |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(|_| FormaError::NotFound(format!("spec not found: {stem}")))?;
+
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT s.* FROM specs s
+                 INNER JOIN refs r ON s.stem = r.to_stem
+                 WHERE r.from_stem = ?1
+                 ORDER BY s.stem",
+            )
+            .map_err(|e| FormaError::Internal(format!("failed to prepare ref list: {e}")))?;
+
+        let specs = stmt
+            .query_map([stem], spec_from_row)
+            .map_err(|e| FormaError::Internal(format!("failed to list refs: {e}")))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| FormaError::Internal(format!("failed to collect refs: {e}")))?;
+
+        Ok(specs)
+    }
+
+    pub fn ref_tree(&self, stem: &str, direction: &str) -> Result<Vec<RefTreeNode>, FormaError> {
+        self.conn
+            .query_row("SELECT stem FROM specs WHERE stem = ?1", [stem], |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(|_| FormaError::NotFound(format!("spec not found: {stem}")))?;
+
+        let sql = if direction == "up" {
+            "WITH RECURSIVE tree(stem, depth) AS (
+                 SELECT ?1, 0
+                 UNION
+                 SELECT r.from_stem, tree.depth + 1
+                 FROM refs r
+                 INNER JOIN tree ON r.to_stem = tree.stem
+             )
+             SELECT s.stem, s.purpose, s.status, t.depth
+             FROM tree t
+             INNER JOIN specs s ON s.stem = t.stem
+             ORDER BY t.depth, s.stem"
+        } else {
+            "WITH RECURSIVE tree(stem, depth) AS (
+                 SELECT ?1, 0
+                 UNION
+                 SELECT r.to_stem, tree.depth + 1
+                 FROM refs r
+                 INNER JOIN tree ON r.from_stem = tree.stem
+             )
+             SELECT s.stem, s.purpose, s.status, t.depth
+             FROM tree t
+             INNER JOIN specs s ON s.stem = t.stem
+             ORDER BY t.depth, s.stem"
+        };
+
+        let mut stmt = self
+            .conn
+            .prepare(sql)
+            .map_err(|e| FormaError::Internal(format!("failed to prepare ref tree: {e}")))?;
+
+        let nodes = stmt
+            .query_map([stem], |row| {
+                Ok(RefTreeNode {
+                    stem: row.get(0)?,
+                    purpose: row.get(1)?,
+                    status: row.get(2)?,
+                    depth: row.get(3)?,
+                })
+            })
+            .map_err(|e| FormaError::Internal(format!("failed to query ref tree: {e}")))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| FormaError::Internal(format!("failed to collect ref tree: {e}")))?;
+
+        Ok(nodes)
+    }
+
+    pub fn detect_cycles(&self) -> Result<Vec<Vec<String>>, FormaError> {
+        let mut all_refs: HashMap<String, Vec<String>> = HashMap::new();
+        let mut stmt = self
+            .conn
+            .prepare("SELECT from_stem, to_stem FROM refs")
+            .map_err(|e| FormaError::Internal(format!("failed to prepare refs query: {e}")))?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|e| FormaError::Internal(format!("failed to query refs: {e}")))?;
+
+        let mut all_stems: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for row in rows {
+            let (from, to) = row.map_err(|e| FormaError::Internal(format!("row error: {e}")))?;
+            all_stems.insert(from.clone());
+            all_stems.insert(to.clone());
+            all_refs.entry(from).or_default().push(to);
+        }
+
+        let mut cycles: Vec<Vec<String>> = Vec::new();
+        let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        for start in &all_stems {
+            if visited.contains(start) {
+                continue;
+            }
+            let mut stack: Vec<(String, Vec<String>)> = vec![(start.clone(), vec![start.clone()])];
+            let mut in_path: std::collections::HashSet<String> = std::collections::HashSet::new();
+            in_path.insert(start.clone());
+
+            while let Some((node, path)) = stack.pop() {
+                if let Some(neighbors) = all_refs.get(&node) {
+                    for next in neighbors {
+                        if next == start && path.len() > 1 {
+                            let mut cycle = path.clone();
+                            cycle.push(next.clone());
+                            cycles.push(cycle);
+                        } else if !in_path.contains(next) {
+                            in_path.insert(next.clone());
+                            let mut new_path = path.clone();
+                            new_path.push(next.clone());
+                            stack.push((next.clone(), new_path));
+                        }
+                    }
+                }
+                visited.insert(node);
+            }
+        }
+
+        Ok(cycles)
+    }
+
+    fn would_create_cycle(&self, from_stem: &str, to_stem: &str) -> Result<bool, FormaError> {
+        use std::collections::VecDeque;
+        let mut queue = VecDeque::new();
+        let mut seen = std::collections::HashSet::new();
+        queue.push_back(to_stem.to_string());
+        seen.insert(to_stem.to_string());
+
+        while let Some(current) = queue.pop_front() {
+            if current == from_stem {
+                return Ok(true);
+            }
+            let mut stmt = self
+                .conn
+                .prepare("SELECT to_stem FROM refs WHERE from_stem = ?1")
+                .map_err(|e| FormaError::Internal(format!("cycle check failed: {e}")))?;
+            let neighbors = stmt
+                .query_map([&current], |row| row.get::<_, String>(0))
+                .map_err(|e| FormaError::Internal(format!("cycle check failed: {e}")))?;
+            for n in neighbors {
+                let n = n.map_err(|e| FormaError::Internal(format!("cycle check failed: {e}")))?;
+                if seen.insert(n.clone()) {
+                    queue.push_back(n);
+                }
+            }
+        }
+
+        Ok(false)
     }
 
     pub fn import_jsonl(&self) -> Result<ImportResult, FormaError> {
@@ -2182,5 +2431,279 @@ mod tests {
         db.delete_spec("auth", false, Some("alice")).unwrap();
         let all = db.list_specs(None).unwrap();
         assert!(all.is_empty());
+    }
+
+    fn create_two_specs(db: &Db) {
+        db.create_spec("alpha", "crates/alpha/", "Alpha spec", Some("test"))
+            .unwrap();
+        db.create_spec("beta", "crates/beta/", "Beta spec", Some("test"))
+            .unwrap();
+    }
+
+    #[test]
+    fn add_ref_and_list() {
+        let (db, _p, _d) = test_db();
+        create_two_specs(&db);
+
+        db.add_ref("alpha", "beta", Some("alice")).unwrap();
+
+        let refs = db.list_refs("alpha").unwrap();
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].stem, "beta");
+
+        let refs = db.list_refs("beta").unwrap();
+        assert!(refs.is_empty());
+    }
+
+    #[test]
+    fn add_ref_logs_event() {
+        let (db, _p, _d) = test_db();
+        create_two_specs(&db);
+
+        db.add_ref("alpha", "beta", Some("alice")).unwrap();
+
+        let events = db.spec_history("alpha").unwrap();
+        let ref_events: Vec<_> = events
+            .iter()
+            .filter(|e| e.event_type == "ref_added")
+            .collect();
+        assert_eq!(ref_events.len(), 1);
+        assert_eq!(ref_events[0].detail.as_deref(), Some("added ref to beta"));
+    }
+
+    #[test]
+    fn add_ref_nonexistent_source() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("beta", "crates/beta/", "Beta spec", Some("test"))
+            .unwrap();
+
+        let err = db.add_ref("nope", "beta", None).unwrap_err();
+        assert!(matches!(err, FormaError::NotFound(_)));
+    }
+
+    #[test]
+    fn add_ref_nonexistent_target() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("alpha", "crates/alpha/", "Alpha spec", Some("test"))
+            .unwrap();
+
+        let err = db.add_ref("alpha", "nope", None).unwrap_err();
+        assert!(matches!(err, FormaError::NotFound(_)));
+    }
+
+    #[test]
+    fn add_ref_duplicate() {
+        let (db, _p, _d) = test_db();
+        create_two_specs(&db);
+
+        db.add_ref("alpha", "beta", None).unwrap();
+        let err = db.add_ref("alpha", "beta", None).unwrap_err();
+        assert!(matches!(err, FormaError::AlreadyExists(_)));
+    }
+
+    #[test]
+    fn add_ref_self_ref_rejected() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("alpha", "crates/alpha/", "Alpha spec", Some("test"))
+            .unwrap();
+
+        let err = db.add_ref("alpha", "alpha", None);
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn add_ref_cycle_detected() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("a", "crates/a/", "A", Some("test")).unwrap();
+        db.create_spec("b", "crates/b/", "B", Some("test")).unwrap();
+        db.create_spec("c", "crates/c/", "C", Some("test")).unwrap();
+
+        db.add_ref("a", "b", None).unwrap();
+        db.add_ref("b", "c", None).unwrap();
+        let err = db.add_ref("c", "a", None).unwrap_err();
+        assert!(matches!(err, FormaError::CycleDetected));
+    }
+
+    #[test]
+    fn add_ref_no_false_cycle() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("a", "crates/a/", "A", Some("test")).unwrap();
+        db.create_spec("b", "crates/b/", "B", Some("test")).unwrap();
+        db.create_spec("c", "crates/c/", "C", Some("test")).unwrap();
+
+        db.add_ref("a", "b", None).unwrap();
+        db.add_ref("a", "c", None).unwrap();
+        db.add_ref("b", "c", None).unwrap();
+    }
+
+    #[test]
+    fn remove_ref_ok() {
+        let (db, _p, _d) = test_db();
+        create_two_specs(&db);
+
+        db.add_ref("alpha", "beta", None).unwrap();
+        db.remove_ref("alpha", "beta", Some("bob")).unwrap();
+
+        let refs = db.list_refs("alpha").unwrap();
+        assert!(refs.is_empty());
+    }
+
+    #[test]
+    fn remove_ref_logs_event() {
+        let (db, _p, _d) = test_db();
+        create_two_specs(&db);
+
+        db.add_ref("alpha", "beta", None).unwrap();
+        db.remove_ref("alpha", "beta", Some("bob")).unwrap();
+
+        let events = db.spec_history("alpha").unwrap();
+        let ref_events: Vec<_> = events
+            .iter()
+            .filter(|e| e.event_type == "ref_removed")
+            .collect();
+        assert_eq!(ref_events.len(), 1);
+    }
+
+    #[test]
+    fn remove_ref_not_found() {
+        let (db, _p, _d) = test_db();
+        create_two_specs(&db);
+
+        let err = db.remove_ref("alpha", "beta", None).unwrap_err();
+        assert!(matches!(err, FormaError::NotFound(_)));
+    }
+
+    #[test]
+    fn list_refs_spec_not_found() {
+        let (db, _p, _d) = test_db();
+        let err = db.list_refs("nope").unwrap_err();
+        assert!(matches!(err, FormaError::NotFound(_)));
+    }
+
+    #[test]
+    fn ref_tree_down() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("a", "crates/a/", "A spec", Some("test"))
+            .unwrap();
+        db.create_spec("b", "crates/b/", "B spec", Some("test"))
+            .unwrap();
+        db.create_spec("c", "crates/c/", "C spec", Some("test"))
+            .unwrap();
+
+        db.add_ref("a", "b", None).unwrap();
+        db.add_ref("b", "c", None).unwrap();
+
+        let tree = db.ref_tree("a", "down").unwrap();
+        assert_eq!(tree.len(), 3);
+        assert_eq!(tree[0].stem, "a");
+        assert_eq!(tree[0].depth, 0);
+        assert_eq!(tree[1].stem, "b");
+        assert_eq!(tree[1].depth, 1);
+        assert_eq!(tree[2].stem, "c");
+        assert_eq!(tree[2].depth, 2);
+    }
+
+    #[test]
+    fn ref_tree_up() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("a", "crates/a/", "A spec", Some("test"))
+            .unwrap();
+        db.create_spec("b", "crates/b/", "B spec", Some("test"))
+            .unwrap();
+        db.create_spec("c", "crates/c/", "C spec", Some("test"))
+            .unwrap();
+
+        db.add_ref("a", "b", None).unwrap();
+        db.add_ref("b", "c", None).unwrap();
+
+        let tree = db.ref_tree("c", "up").unwrap();
+        assert_eq!(tree.len(), 3);
+        assert_eq!(tree[0].stem, "c");
+        assert_eq!(tree[0].depth, 0);
+        assert_eq!(tree[1].stem, "b");
+        assert_eq!(tree[1].depth, 1);
+        assert_eq!(tree[2].stem, "a");
+        assert_eq!(tree[2].depth, 2);
+    }
+
+    #[test]
+    fn ref_tree_spec_not_found() {
+        let (db, _p, _d) = test_db();
+        let err = db.ref_tree("nope", "down").unwrap_err();
+        assert!(matches!(err, FormaError::NotFound(_)));
+    }
+
+    #[test]
+    fn detect_cycles_empty() {
+        let (db, _p, _d) = test_db();
+        let cycles = db.detect_cycles().unwrap();
+        assert!(cycles.is_empty());
+    }
+
+    #[test]
+    fn detect_cycles_no_cycles() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("a", "crates/a/", "A", Some("test")).unwrap();
+        db.create_spec("b", "crates/b/", "B", Some("test")).unwrap();
+        db.add_ref("a", "b", None).unwrap();
+
+        let cycles = db.detect_cycles().unwrap();
+        assert!(cycles.is_empty());
+    }
+
+    #[test]
+    fn detect_cycles_finds_cycle() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("a", "crates/a/", "A", Some("test")).unwrap();
+        db.create_spec("b", "crates/b/", "B", Some("test")).unwrap();
+        db.create_spec("c", "crates/c/", "C", Some("test")).unwrap();
+
+        db.add_ref("a", "b", None).unwrap();
+        db.add_ref("b", "c", None).unwrap();
+        // Bypass add_ref cycle detection by inserting directly
+        db.conn
+            .execute(
+                "INSERT INTO refs (from_stem, to_stem) VALUES ('c', 'a')",
+                [],
+            )
+            .unwrap();
+
+        let cycles = db.detect_cycles().unwrap();
+        assert!(!cycles.is_empty());
+    }
+
+    #[test]
+    fn ref_tree_single_node() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("solo", "crates/solo/", "Solo spec", Some("test"))
+            .unwrap();
+
+        let tree = db.ref_tree("solo", "down").unwrap();
+        assert_eq!(tree.len(), 1);
+        assert_eq!(tree[0].stem, "solo");
+        assert_eq!(tree[0].depth, 0);
+    }
+
+    #[test]
+    fn get_spec_detail_includes_refs() {
+        let (db, _p, _d) = test_db();
+        create_two_specs(&db);
+        db.add_ref("alpha", "beta", None).unwrap();
+
+        let detail = db.get_spec("alpha").unwrap();
+        assert_eq!(detail.refs.len(), 1);
+        assert_eq!(detail.refs[0].stem, "beta");
+    }
+
+    #[test]
+    fn delete_spec_cascades_refs_cleanup() {
+        let (db, _p, _d) = test_db();
+        create_two_specs(&db);
+        db.add_ref("alpha", "beta", None).unwrap();
+
+        db.delete_spec("beta", false, Some("test")).unwrap();
+
+        let refs = db.list_refs("alpha").unwrap();
+        assert!(refs.is_empty());
     }
 }
