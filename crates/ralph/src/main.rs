@@ -3,6 +3,7 @@ pub(crate) mod format;
 pub(crate) mod style;
 
 use clap::Parser;
+use serde::Deserialize;
 use shutdown::{ShutdownConfig, ShutdownController, ShutdownStatus, kill_process_group};
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
@@ -117,7 +118,7 @@ struct Cli {
     #[arg(long, env = "RALPH_COMMAND")]
     command: Option<String>,
 
-    /// Spec stem — appends ./specs/<stem>.md as a system prompt file
+    /// Spec stem — fetches spec content from forma via fm show and injects via --append-system-prompt
     #[arg(long, env = "SGF_SPEC")]
     spec: Option<String>,
 
@@ -159,29 +160,109 @@ fn check_agent_in_path(agent_cmd: &str) {
     std::process::exit(1);
 }
 
-fn build_study_args(files: &[String]) -> Vec<String> {
-    if files.is_empty() {
+#[derive(Deserialize)]
+struct FmSpecDetail {
+    stem: String,
+    crate_path: String,
+    purpose: String,
+    status: String,
+    sections: Vec<FmSection>,
+    #[serde(default)]
+    refs: Vec<FmRefSpec>,
+}
+
+#[derive(Deserialize)]
+struct FmSection {
+    name: String,
+    body: String,
+}
+
+#[derive(Deserialize)]
+struct FmRefSpec {
+    stem: String,
+    purpose: String,
+}
+
+fn render_spec_markdown(spec: &FmSpecDetail) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("# {} Specification\n\n", spec.stem));
+    out.push_str(&format!("{}\n\n", spec.purpose));
+    out.push_str("| Field | Value |\n|-------|-------|\n");
+    out.push_str(&format!("| Crate | `{}` |\n", spec.crate_path));
+    out.push_str(&format!("| Status | {} |\n", spec.status));
+
+    for section in &spec.sections {
+        out.push_str(&format!("\n## {}\n\n{}\n", section.name, section.body));
+    }
+
+    if !spec.refs.is_empty() {
+        out.push_str("\n## Related Specifications\n\n");
+        for r in &spec.refs {
+            out.push_str(&format!("- [{}]({}.md) — {}\n", r.stem, r.stem, r.purpose));
+        }
+    }
+
+    out
+}
+
+fn fetch_spec_markdown(stem: &str) -> String {
+    let output = Command::new("fm").args(["show", stem, "--json"]).output();
+
+    match output {
+        Ok(o) if o.status.success() => {
+            let json = String::from_utf8_lossy(&o.stdout);
+            match serde_json::from_str::<FmSpecDetail>(&json) {
+                Ok(spec) => render_spec_markdown(&spec),
+                Err(e) => {
+                    error!(stem, error = %e, "failed to parse fm show output");
+                    std::process::exit(1);
+                }
+            }
+        }
+        Ok(o) => {
+            let stderr = String::from_utf8_lossy(&o.stderr);
+            error!(stem, stderr = %stderr.trim(), "fm show failed");
+            std::process::exit(1);
+        }
+        Err(e) => {
+            error!(error = %e, "fm not found or failed to execute");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn build_append_system_prompt_args(
+    spec_content: &Option<String>,
+    prompt_files: &[String],
+) -> Vec<String> {
+    let mut parts = Vec::new();
+
+    if let Some(content) = spec_content {
+        parts.push(content.clone());
+    }
+
+    if !prompt_files.is_empty() {
+        let study = prompt_files
+            .iter()
+            .map(|f| format!("study @{f}"))
+            .collect::<Vec<_>>()
+            .join(";");
+        parts.push(study);
+    }
+
+    if parts.is_empty() {
         return Vec::new();
     }
-    let instruction = files
-        .iter()
-        .map(|f| format!("study @{f}"))
-        .collect::<Vec<_>>()
-        .join(";");
-    vec!["--append-system-prompt".to_string(), instruction]
+
+    vec!["--append-system-prompt".to_string(), parts.join("\n")]
+}
+
+fn resolve_spec_content(cli: &Cli) -> Option<String> {
+    cli.spec.as_ref().map(|stem| fetch_spec_markdown(stem))
 }
 
 fn collect_prompt_files(cli: &Cli) -> Vec<String> {
     let mut files = Vec::new();
-
-    if let Some(ref stem) = cli.spec {
-        let spec_path = format!("./specs/{stem}.md");
-        if !Path::new(&spec_path).exists() {
-            error!("spec file not found: specs/{stem}.md");
-            std::process::exit(1);
-        }
-        files.push(spec_path);
-    }
 
     for path in &cli.prompt_file {
         if !Path::new(path).exists() {
@@ -247,6 +328,7 @@ fn main() {
         std::process::exit(1);
     }
 
+    let spec_content = resolve_spec_content(&cli);
     let prompt_files = collect_prompt_files(&cli);
 
     const MAX_ITERATIONS: u32 = 1000;
@@ -285,9 +367,24 @@ fn main() {
         let head_before = vcs_utils::git_head();
 
         if cli.afk {
-            run_afk(&agent_cmd, &cli, is_file, &prompt_files, &controller, &tee);
+            run_afk(
+                &agent_cmd,
+                &cli,
+                is_file,
+                &spec_content,
+                &prompt_files,
+                &controller,
+                &tee,
+            );
         } else {
-            run_interactive(&agent_cmd, &cli, is_file, &prompt_files, &controller);
+            run_interactive(
+                &agent_cmd,
+                &cli,
+                is_file,
+                &spec_content,
+                &prompt_files,
+                &controller,
+            );
         }
 
         if let Some(ref termios) = saved_termios {
@@ -397,6 +494,9 @@ fn print_banner(
     if let Some(ref id) = cli.loop_id {
         body.push(format!("Loop ID:     {}", id));
     }
+    if let Some(ref stem) = cli.spec {
+        body.push(format!("Spec:        {} (via fm)", stem));
+    }
     if !prompt_files.is_empty() {
         body.push("Prompt files:".to_string());
         for f in prompt_files {
@@ -425,6 +525,7 @@ fn run_interactive(
     agent_cmd: &str,
     cli: &Cli,
     is_file: bool,
+    spec_content: &Option<String>,
     prompt_files: &[String],
     controller: &ShutdownController,
 ) {
@@ -438,7 +539,7 @@ fn run_interactive(
         cli.prompt.clone()
     };
 
-    let study_args = build_study_args(prompt_files);
+    let asp_args = build_append_system_prompt_args(spec_content, prompt_files);
 
     let mut command = Command::new(agent_cmd);
     command.args([
@@ -447,7 +548,7 @@ fn run_interactive(
         "--settings",
         r#"{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}"#,
     ]);
-    command.args(&study_args);
+    command.args(&asp_args);
     let mut child = match command
         .arg(&prompt_arg)
         .stdin(Stdio::inherit())
@@ -499,6 +600,7 @@ fn run_afk(
     agent_cmd: &str,
     cli: &Cli,
     is_file: bool,
+    spec_content: &Option<String>,
     prompt_files: &[String],
     controller: &ShutdownController,
     tee: &TeeWriter,
@@ -514,7 +616,7 @@ fn run_afk(
         cli.prompt.clone()
     };
 
-    let study_args = build_study_args(prompt_files);
+    let asp_args = build_append_system_prompt_args(spec_content, prompt_files);
 
     let mut cmd = Command::new(agent_cmd);
     cmd.args([
@@ -526,7 +628,7 @@ fn run_afk(
         "--settings",
         r#"{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}"#,
     ]);
-    cmd.args(&study_args);
+    cmd.args(&asp_args);
     let child = unsafe {
         cmd.arg(&prompt_arg)
             .stdin(Stdio::null())
@@ -677,5 +779,91 @@ mod tests {
         fs::create_dir_all(&deep).unwrap();
         fs::write(deep.join(SENTINEL), "").unwrap();
         assert!(find_sentinel(dir.path(), 2).is_none());
+    }
+
+    #[test]
+    fn render_spec_markdown_basic() {
+        let spec = FmSpecDetail {
+            stem: "auth".to_string(),
+            crate_path: "crates/auth/".to_string(),
+            purpose: "Authentication and session management".to_string(),
+            status: "stable".to_string(),
+            sections: vec![
+                FmSection {
+                    name: "Overview".to_string(),
+                    body: "Auth handles login and sessions.".to_string(),
+                },
+                FmSection {
+                    name: "Error Handling".to_string(),
+                    body: "Returns 401 on invalid credentials.".to_string(),
+                },
+            ],
+            refs: vec![FmRefSpec {
+                stem: "ralph".to_string(),
+                purpose: "Iterative Claude Code runner".to_string(),
+            }],
+        };
+
+        let md = render_spec_markdown(&spec);
+        assert!(md.contains("# auth Specification"));
+        assert!(md.contains("Authentication and session management"));
+        assert!(md.contains("| Crate | `crates/auth/` |"));
+        assert!(md.contains("| Status | stable |"));
+        assert!(md.contains("## Overview"));
+        assert!(md.contains("Auth handles login and sessions."));
+        assert!(md.contains("## Error Handling"));
+        assert!(md.contains("Returns 401 on invalid credentials."));
+        assert!(md.contains("## Related Specifications"));
+        assert!(md.contains("- [ralph](ralph.md) — Iterative Claude Code runner"));
+    }
+
+    #[test]
+    fn render_spec_markdown_no_refs() {
+        let spec = FmSpecDetail {
+            stem: "test".to_string(),
+            crate_path: "crates/test/".to_string(),
+            purpose: "Test spec".to_string(),
+            status: "draft".to_string(),
+            sections: vec![],
+            refs: vec![],
+        };
+
+        let md = render_spec_markdown(&spec);
+        assert!(md.contains("# test Specification"));
+        assert!(!md.contains("Related Specifications"));
+    }
+
+    #[test]
+    fn build_append_system_prompt_args_spec_only() {
+        let spec = Some("# auth Specification\n\nContent here.".to_string());
+        let args = build_append_system_prompt_args(&spec, &[]);
+        assert_eq!(args.len(), 2);
+        assert_eq!(args[0], "--append-system-prompt");
+        assert!(args[1].contains("# auth Specification"));
+    }
+
+    #[test]
+    fn build_append_system_prompt_args_files_only() {
+        let files = vec!["NOTES.md".to_string()];
+        let args = build_append_system_prompt_args(&None, &files);
+        assert_eq!(args.len(), 2);
+        assert_eq!(args[0], "--append-system-prompt");
+        assert_eq!(args[1], "study @NOTES.md");
+    }
+
+    #[test]
+    fn build_append_system_prompt_args_both() {
+        let spec = Some("# auth Specification".to_string());
+        let files = vec!["NOTES.md".to_string()];
+        let args = build_append_system_prompt_args(&spec, &files);
+        assert_eq!(args.len(), 2);
+        assert!(args[1].contains("# auth Specification"));
+        assert!(args[1].contains("study @NOTES.md"));
+    }
+
+    #[test]
+    fn build_append_system_prompt_args_empty() {
+        let args = build_append_system_prompt_args(&None, &[]);
+        assert!(args.is_empty());
     }
 }
