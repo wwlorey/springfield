@@ -31,19 +31,6 @@ fn resolve_ralph_binary(config: &LoopConfig) -> String {
     std::env::var("SGF_RALPH_BINARY").unwrap_or_else(|_| "ralph".to_string())
 }
 
-fn resolve_agent_cmd() -> io::Result<String> {
-    resolve_agent_cmd_from(std::env::var("AGENT_CMD").ok())
-}
-
-fn resolve_agent_cmd_from(val: Option<String>) -> io::Result<String> {
-    match val {
-        Some(v) if !v.is_empty() => Ok(v),
-        _ => Err(io::Error::other(
-            "AGENT_CMD not set. Set AGENT_CMD to the path of the agent binary (e.g., AGENT_CMD=claude).",
-        )),
-    }
-}
-
 fn export_pensa() {
     match Command::new("pn").arg("export").output() {
         Ok(out) if out.status.success() => {
@@ -147,8 +134,6 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
         return Ok(exit_code);
     }
 
-    resolve_agent_cmd()?;
-
     let loop_id = loop_mgmt::generate_loop_id(&config.stage, config.spec.as_deref());
     let is_afk = config.mode == Mode::Afk;
 
@@ -206,16 +191,15 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
 }
 
 fn run_interactive_claude(prompt_path: &Path, controller: &ShutdownController) -> io::Result<i32> {
-    let cmd = resolve_agent_cmd()?;
     let prompt_arg = format!("@{}", prompt_path.display());
 
-    let mut child = Command::new(&cmd)
+    let mut child = Command::new("cl")
         .args(["--verbose", &prompt_arg])
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .spawn()
-        .map_err(|e| io::Error::other(format!("failed to spawn {cmd}: {e}")))?;
+        .map_err(|e| io::Error::other(format!("failed to spawn cl: {e}")))?;
 
     loop {
         match child.try_wait() {
@@ -356,29 +340,6 @@ mod tests {
             fs::set_permissions(&mock_path, fs::Permissions::from_mode(0o755)).unwrap();
         }
         mock_path.to_string_lossy().to_string()
-    }
-
-    #[test]
-    fn resolve_agent_cmd_missing() {
-        let result = resolve_agent_cmd_from(None);
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(
-            err_msg.contains("AGENT_CMD not set"),
-            "expected AGENT_CMD error, got: {err_msg}"
-        );
-    }
-
-    #[test]
-    fn resolve_agent_cmd_empty() {
-        let result = resolve_agent_cmd_from(Some(String::new()));
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn resolve_agent_cmd_set() {
-        let result = resolve_agent_cmd_from(Some("my-agent".to_string()));
-        assert_eq!(result.unwrap(), "my-agent");
     }
 
     #[test]

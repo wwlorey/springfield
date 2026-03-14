@@ -614,28 +614,27 @@ fn afk_passes_log_file_to_ralph() {
 }
 
 #[test]
-fn spec_runs_interactive_via_agent_cmd() {
+fn spec_runs_interactive_via_cl() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
 
     let (_mock_pn_dir, mock_path) = setup_mock_pn();
 
-    let mock_dir = TempDir::new().unwrap();
-    let args_file = mock_dir.path().join("agent_args.txt");
-    let mock_agent = create_mock_script(
-        mock_dir.path(),
-        "mock_agent.sh",
+    let mock_cl_dir = TempDir::new().unwrap();
+    let args_file = mock_cl_dir.path().join("agent_args.txt");
+    create_mock_script(
+        mock_cl_dir.path(),
+        "cl",
         &format!(
             "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
             args_file.display()
         ),
     );
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
 
     let output = sgf_cmd(tmp.path())
         .arg("spec")
-        .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
-        .env("PROMPT_FILES", "")
-        .env("PATH", &mock_path)
+        .env("PATH", &mock_path_with_cl)
         .env_remove("CLAUDECODE")
         .output()
         .unwrap();
@@ -655,28 +654,27 @@ fn spec_runs_interactive_via_agent_cmd() {
 }
 
 #[test]
-fn issues_log_runs_interactive_via_agent_cmd() {
+fn issues_log_runs_interactive_via_cl() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
 
     let (_mock_pn_dir, mock_path) = setup_mock_pn();
 
-    let mock_dir = TempDir::new().unwrap();
-    let args_file = mock_dir.path().join("agent_args.txt");
-    let mock_agent = create_mock_script(
-        mock_dir.path(),
-        "mock_agent.sh",
+    let mock_cl_dir = TempDir::new().unwrap();
+    let args_file = mock_cl_dir.path().join("agent_args.txt");
+    create_mock_script(
+        mock_cl_dir.path(),
+        "cl",
         &format!(
             "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
             args_file.display()
         ),
     );
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
 
     let output = sgf_cmd(tmp.path())
         .args(["issues-log"])
-        .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
-        .env("PROMPT_FILES", "")
-        .env("PATH", &mock_path)
+        .env("PATH", &mock_path_with_cl)
         .env_remove("CLAUDECODE")
         .output()
         .unwrap();
@@ -1390,11 +1388,11 @@ fn spec_auto_pushes_after_session_with_new_commits() {
 
     let head_before = bare_remote_head(bare.path());
 
-    // Mock agent that creates a new commit
-    let mock_dir = TempDir::new().unwrap();
-    let mock_agent = create_mock_script(
-        mock_dir.path(),
-        "mock_agent.sh",
+    // Mock cl that creates a new commit
+    let mock_cl_dir = TempDir::new().unwrap();
+    create_mock_script(
+        mock_cl_dir.path(),
+        "cl",
         &format!(
             concat!(
                 "#!/bin/sh\n",
@@ -1407,12 +1405,11 @@ fn spec_auto_pushes_after_session_with_new_commits() {
             root = tmp.path().display()
         ),
     );
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
 
     let output = sgf_cmd(tmp.path())
         .arg("spec")
-        .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
-        .env("PROMPT_FILES", "")
-        .env("PATH", &mock_path)
+        .env("PATH", &mock_path_with_cl)
         .env_remove("CLAUDECODE")
         .output()
         .unwrap();
@@ -1446,11 +1443,11 @@ fn spec_no_push_suppresses_auto_push() {
 
     let head_before = bare_remote_head(bare.path());
 
-    // Mock agent that creates a new commit
-    let mock_dir = TempDir::new().unwrap();
-    let mock_agent = create_mock_script(
-        mock_dir.path(),
-        "mock_agent.sh",
+    // Mock cl that creates a new commit
+    let mock_cl_dir = TempDir::new().unwrap();
+    create_mock_script(
+        mock_cl_dir.path(),
+        "cl",
         &format!(
             concat!(
                 "#!/bin/sh\n",
@@ -1463,12 +1460,11 @@ fn spec_no_push_suppresses_auto_push() {
             root = tmp.path().display()
         ),
     );
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
 
     let output = sgf_cmd(tmp.path())
         .args(["spec", "--no-push"])
-        .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
-        .env("PROMPT_FILES", "")
-        .env("PATH", &mock_path)
+        .env("PATH", &mock_path_with_cl)
         .env_remove("CLAUDECODE")
         .output()
         .unwrap();
@@ -1502,15 +1498,14 @@ fn spec_no_push_when_head_unchanged() {
 
     let head_before = bare_remote_head(bare.path());
 
-    // Mock agent that does NOT create any commits
-    let mock_dir = TempDir::new().unwrap();
-    let mock_agent = create_mock_script(mock_dir.path(), "mock_agent.sh", "#!/bin/sh\nexit 0\n");
+    // Mock cl that does NOT create any commits
+    let mock_cl_dir = TempDir::new().unwrap();
+    create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
 
     let output = sgf_cmd(tmp.path())
         .arg("spec")
-        .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
-        .env("PROMPT_FILES", "")
-        .env("PATH", &mock_path)
+        .env("PATH", &mock_path_with_cl)
         .env_remove("CLAUDECODE")
         .output()
         .unwrap();
@@ -1552,10 +1547,10 @@ fn doc_auto_pushes_after_session_with_new_commits() {
 
     let head_before = bare_remote_head(bare.path());
 
-    let mock_dir = TempDir::new().unwrap();
-    let mock_agent = create_mock_script(
-        mock_dir.path(),
-        "mock_agent.sh",
+    let mock_cl_dir = TempDir::new().unwrap();
+    create_mock_script(
+        mock_cl_dir.path(),
+        "cl",
         &format!(
             concat!(
                 "#!/bin/sh\n",
@@ -1568,12 +1563,11 @@ fn doc_auto_pushes_after_session_with_new_commits() {
             root = tmp.path().display()
         ),
     );
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
 
     let output = sgf_cmd(tmp.path())
         .arg("doc")
-        .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
-        .env("PROMPT_FILES", "")
-        .env("PATH", &mock_path)
+        .env("PATH", &mock_path_with_cl)
         .env_remove("CLAUDECODE")
         .output()
         .unwrap();
@@ -1598,28 +1592,27 @@ fn doc_auto_pushes_after_session_with_new_commits() {
 }
 
 #[test]
-fn doc_runs_interactive_via_agent_cmd() {
+fn doc_runs_interactive_via_cl() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
 
     let (_mock_pn_dir, mock_path) = setup_mock_pn();
 
-    let mock_dir = TempDir::new().unwrap();
-    let args_file = mock_dir.path().join("agent_args.txt");
-    let mock_agent = create_mock_script(
-        mock_dir.path(),
-        "mock_agent.sh",
+    let mock_cl_dir = TempDir::new().unwrap();
+    let args_file = mock_cl_dir.path().join("agent_args.txt");
+    create_mock_script(
+        mock_cl_dir.path(),
+        "cl",
         &format!(
             "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
             args_file.display()
         ),
     );
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
 
     let output = sgf_cmd(tmp.path())
         .arg("doc")
-        .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
-        .env("PROMPT_FILES", "")
-        .env("PATH", &mock_path)
+        .env("PATH", &mock_path_with_cl)
         .env_remove("CLAUDECODE")
         .output()
         .unwrap();
@@ -1648,10 +1641,10 @@ fn doc_no_push_suppresses_auto_push() {
 
     let head_before = bare_remote_head(bare.path());
 
-    let mock_dir = TempDir::new().unwrap();
-    let mock_agent = create_mock_script(
-        mock_dir.path(),
-        "mock_agent.sh",
+    let mock_cl_dir = TempDir::new().unwrap();
+    create_mock_script(
+        mock_cl_dir.path(),
+        "cl",
         &format!(
             concat!(
                 "#!/bin/sh\n",
@@ -1664,12 +1657,11 @@ fn doc_no_push_suppresses_auto_push() {
             root = tmp.path().display()
         ),
     );
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
 
     let output = sgf_cmd(tmp.path())
         .args(["doc", "--no-push"])
-        .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
-        .env("PROMPT_FILES", "")
-        .env("PATH", &mock_path)
+        .env("PATH", &mock_path_with_cl)
         .env_remove("CLAUDECODE")
         .output()
         .unwrap();
@@ -1703,14 +1695,13 @@ fn doc_no_push_when_head_unchanged() {
 
     let head_before = bare_remote_head(bare.path());
 
-    let mock_dir = TempDir::new().unwrap();
-    let mock_agent = create_mock_script(mock_dir.path(), "mock_agent.sh", "#!/bin/sh\nexit 0\n");
+    let mock_cl_dir = TempDir::new().unwrap();
+    create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
 
     let output = sgf_cmd(tmp.path())
         .arg("doc")
-        .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
-        .env("PROMPT_FILES", "")
-        .env("PATH", &mock_path)
+        .env("PATH", &mock_path_with_cl)
         .env_remove("CLAUDECODE")
         .output()
         .unwrap();
@@ -2215,23 +2206,22 @@ fn default_build_without_config_runs_interactive() {
 
     let (_mock_pn_dir, mock_path) = setup_mock_pn();
 
-    let mock_dir = TempDir::new().unwrap();
-    let args_file = mock_dir.path().join("agent_args.txt");
-    let mock_agent = create_mock_script(
-        mock_dir.path(),
-        "mock_agent.sh",
+    let mock_cl_dir = TempDir::new().unwrap();
+    let args_file = mock_cl_dir.path().join("agent_args.txt");
+    create_mock_script(
+        mock_cl_dir.path(),
+        "cl",
         &format!(
             "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
             args_file.display()
         ),
     );
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
 
-    // Without config.toml, build defaults to interactive mode (AGENT_CMD, not ralph)
+    // Without config.toml, build defaults to interactive mode (cl, not ralph)
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth"])
-        .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
-        .env("PROMPT_FILES", "")
-        .env("PATH", &mock_path)
+        .env("PATH", &mock_path_with_cl)
         .env_remove("CLAUDECODE")
         .output()
         .unwrap();
@@ -2264,21 +2254,20 @@ fn interactive_mode_stdin_eof_does_not_trigger_shutdown() {
 
     let (_mock_pn_dir, mock_path) = setup_mock_pn();
 
-    // Mock agent that sleeps then exits 0
-    let mock_dir = TempDir::new().unwrap();
-    let mock_agent = create_mock_script(
-        mock_dir.path(),
-        "mock_agent_sleep.sh",
+    // Mock cl that sleeps then exits 0
+    let mock_cl_dir = TempDir::new().unwrap();
+    create_mock_script(
+        mock_cl_dir.path(),
+        "cl",
         "#!/bin/bash\ntrap '' INT\nsleep 2\nexit 0\n",
     );
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
 
     // Interactive mode (default without config): monitor_stdin should be false,
     // so closing stdin should NOT cause shutdown.
     let mut child = sgf_cmd(tmp.path())
         .args(["build", "auth"])
-        .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
-        .env("PROMPT_FILES", "")
-        .env("PATH", &mock_path)
+        .env("PATH", &mock_path_with_cl)
         .env_remove("CLAUDECODE")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -2373,12 +2362,15 @@ fn config_afk_mode_invokes_ralph_with_afk_flag() {
         ),
     );
 
+    let mock_cl_dir = TempDir::new().unwrap();
+    create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
         .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("AGENT_CMD", "true")
-        .env("PATH", &mock_path)
+        .env("PATH", &mock_path_with_cl)
         .output()
         .unwrap();
     assert!(
@@ -2407,23 +2399,22 @@ fn interactive_override_does_not_invoke_ralph() {
 
     let (_mock_pn_dir, mock_path) = setup_mock_pn();
 
-    let mock_dir = TempDir::new().unwrap();
-    let args_file = mock_dir.path().join("agent_args.txt");
-    let mock_agent = create_mock_script(
-        mock_dir.path(),
-        "mock_agent.sh",
+    let mock_cl_dir = TempDir::new().unwrap();
+    let args_file = mock_cl_dir.path().join("agent_args.txt");
+    create_mock_script(
+        mock_cl_dir.path(),
+        "cl",
         &format!(
             "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
             args_file.display()
         ),
     );
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
 
     // -i overrides config mode=afk to interactive
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth", "-i"])
-        .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
-        .env("PROMPT_FILES", "")
-        .env("PATH", &mock_path)
+        .env("PATH", &mock_path_with_cl)
         .env_remove("CLAUDECODE")
         .output()
         .unwrap();
@@ -2436,7 +2427,7 @@ fn interactive_override_does_not_invoke_ralph() {
     let args = fs::read_to_string(&args_file).unwrap();
     assert!(
         args.contains("--verbose"),
-        "-i should force interactive mode using AGENT_CMD"
+        "-i should force interactive mode using cl"
     );
 }
 
@@ -2499,12 +2490,15 @@ fn no_color_badge_falls_back_to_plain_prefix() {
     let mock_dir = TempDir::new().unwrap();
     let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 0\n");
 
+    let mock_cl_dir = TempDir::new().unwrap();
+    create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
         .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("AGENT_CMD", "true")
-        .env("PATH", &mock_path)
+        .env("PATH", &mock_path_with_cl)
         .env("NO_COLOR", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -2543,12 +2537,15 @@ fn colored_output_contains_bold_badge() {
     let mock_dir = TempDir::new().unwrap();
     let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 0\n");
 
+    let mock_cl_dir = TempDir::new().unwrap();
+    create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
         .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("AGENT_CMD", "true")
-        .env("PATH", &mock_path)
+        .env("PATH", &mock_path_with_cl)
         .env_remove("NO_COLOR")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -2583,12 +2580,15 @@ fn exit_0_uses_success_styling() {
     let mock_dir = TempDir::new().unwrap();
     let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 0\n");
 
+    let mock_cl_dir = TempDir::new().unwrap();
+    create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
         .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("AGENT_CMD", "true")
-        .env("PATH", &mock_path)
+        .env("PATH", &mock_path_with_cl)
         .env_remove("NO_COLOR")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -2621,12 +2621,15 @@ fn exit_1_uses_error_styling() {
     let mock_dir = TempDir::new().unwrap();
     let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 1\n");
 
+    let mock_cl_dir = TempDir::new().unwrap();
+    create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
         .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("AGENT_CMD", "true")
-        .env("PATH", &mock_path)
+        .env("PATH", &mock_path_with_cl)
         .env_remove("NO_COLOR")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -2658,12 +2661,15 @@ fn exit_2_uses_warning_styling() {
     let mock_dir = TempDir::new().unwrap();
     let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 2\n");
 
+    let mock_cl_dir = TempDir::new().unwrap();
+    create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+
     let output = sgf_cmd(tmp.path())
         .args(["build", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
         .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("AGENT_CMD", "true")
-        .env("PATH", &mock_path)
+        .env("PATH", &mock_path_with_cl)
         .env_remove("NO_COLOR")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -2693,6 +2699,10 @@ fn no_color_exit_messages_use_plain_prefix() {
 
     let (_mock_pn_dir, mock_path) = setup_mock_pn();
 
+    let mock_cl_dir = TempDir::new().unwrap();
+    create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+
     let mock_dir = TempDir::new().unwrap();
 
     // Test exit 0 (success) with NO_COLOR
@@ -2703,8 +2713,7 @@ fn no_color_exit_messages_use_plain_prefix() {
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph_0)
         .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("AGENT_CMD", "true")
-        .env("PATH", &mock_path)
+        .env("PATH", &mock_path_with_cl)
         .env("NO_COLOR", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -2731,8 +2740,7 @@ fn no_color_exit_messages_use_plain_prefix() {
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph_1)
         .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("AGENT_CMD", "true")
-        .env("PATH", &mock_path)
+        .env("PATH", &mock_path_with_cl)
         .env("NO_COLOR", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -2755,8 +2763,7 @@ fn no_color_exit_messages_use_plain_prefix() {
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph_2)
         .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("AGENT_CMD", "true")
-        .env("PATH", &mock_path)
+        .env("PATH", &mock_path_with_cl)
         .env("NO_COLOR", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -2877,22 +2884,21 @@ fn build_auth_uses_config_defaults() {
 
     let (_mock_pn_dir, mock_path) = setup_mock_pn();
 
-    let mock_dir = TempDir::new().unwrap();
-    let args_file = mock_dir.path().join("agent_args.txt");
-    let mock_agent = create_mock_script(
-        mock_dir.path(),
-        "mock_agent.sh",
+    let mock_cl_dir = TempDir::new().unwrap();
+    let args_file = mock_cl_dir.path().join("agent_args.txt");
+    create_mock_script(
+        mock_cl_dir.path(),
+        "cl",
         &format!(
             "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
             args_file.display()
         ),
     );
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
 
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth"])
-        .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
-        .env("PROMPT_FILES", "")
-        .env("PATH", &mock_path)
+        .env("PATH", &mock_path_with_cl)
         .env_remove("CLAUDECODE")
         .output()
         .unwrap();
@@ -2903,7 +2909,7 @@ fn build_auth_uses_config_defaults() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    // Interactive mode invokes AGENT_CMD, not ralph
+    // Interactive mode invokes cl, not ralph
     let args = fs::read_to_string(&args_file).unwrap();
     assert!(
         args.contains("--verbose"),
@@ -2952,7 +2958,7 @@ fn build_dash_a_overrides_mode_to_afk() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    // -a should invoke ralph (AFK mode), not AGENT_CMD
+    // -a should invoke ralph (AFK mode), not cl
     let args = fs::read_to_string(&args_file).unwrap();
     assert!(args.contains("-a"), "should pass -a to ralph");
     assert!(
@@ -3066,23 +3072,22 @@ fn custom_prompt_without_config_entry_uses_fallback_defaults() {
     let (_mock_pn_dir, mock_path) = setup_mock_pn();
 
     // Fallback defaults: interactive mode, 1 iteration
-    // So it should invoke AGENT_CMD (interactive), not ralph
-    let mock_dir = TempDir::new().unwrap();
-    let args_file = mock_dir.path().join("agent_args.txt");
-    let mock_agent = create_mock_script(
-        mock_dir.path(),
-        "mock_agent.sh",
+    // So it should invoke cl (interactive), not ralph
+    let mock_cl_dir = TempDir::new().unwrap();
+    let args_file = mock_cl_dir.path().join("agent_args.txt");
+    create_mock_script(
+        mock_cl_dir.path(),
+        "cl",
         &format!(
             "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
             args_file.display()
         ),
     );
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
 
     let output = sgf_cmd(tmp.path())
         .arg("deploy")
-        .env("AGENT_CMD", mock_agent.to_string_lossy().as_ref())
-        .env("PROMPT_FILES", "")
-        .env("PATH", &mock_path)
+        .env("PATH", &mock_path_with_cl)
         .env_remove("CLAUDECODE")
         .output()
         .unwrap();
