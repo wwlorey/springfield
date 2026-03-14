@@ -6,7 +6,9 @@ use chrono::{DateTime, Utc};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
-use crate::types::{Event, FormaError, Ref, RequiredSection, Section, Spec, SpecDetail};
+use crate::types::{
+    Event, FormaError, Ref, RequiredSection, Section, SectionKind, Spec, SpecDetail, slugify,
+};
 
 pub struct Db {
     pub conn: Connection,
@@ -173,10 +175,7 @@ impl Db {
     fn generate_id() -> String {
         let uuid = uuid::Uuid::now_v7();
         let bytes = uuid.as_bytes();
-        let hex: String = bytes[12..16]
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
+        let hex: String = bytes[12..16].iter().map(|b| format!("{b:02x}")).collect();
         format!("fm-{hex}")
     }
 
@@ -531,6 +530,317 @@ impl Db {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| FormaError::Internal(format!("failed to read history: {e}")))?;
         Ok(events)
+    }
+
+    pub fn add_section(
+        &self,
+        stem: &str,
+        name: &str,
+        body: &str,
+        after_slug: Option<&str>,
+        actor: Option<&str>,
+    ) -> Result<Section, FormaError> {
+        self.conn
+            .query_row("SELECT stem FROM specs WHERE stem = ?1", [stem], |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(|_| FormaError::NotFound(format!("spec not found: {stem}")))?;
+
+        let slug = slugify(name);
+
+        let exists: bool = self
+            .conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sections WHERE spec_stem = ?1 AND slug = ?2)",
+                rusqlite::params![stem, slug],
+                |row| row.get(0),
+            )
+            .map_err(|e| FormaError::Internal(format!("failed to check slug uniqueness: {e}")))?;
+        if exists {
+            return Err(FormaError::AlreadyExists(format!(
+                "section with slug '{slug}' already exists in spec '{stem}'"
+            )));
+        }
+
+        let position = if let Some(after) = after_slug {
+            let after_pos: i64 = self
+                .conn
+                .query_row(
+                    "SELECT position FROM sections WHERE spec_stem = ?1 AND slug = ?2",
+                    rusqlite::params![stem, after],
+                    |row| row.get(0),
+                )
+                .map_err(|_| {
+                    FormaError::NotFound(format!("section '{after}' not found in spec '{stem}'"))
+                })?;
+
+            self.conn
+                .execute(
+                    "UPDATE sections SET position = position + 1 WHERE spec_stem = ?1 AND position > ?2",
+                    rusqlite::params![stem, after_pos],
+                )
+                .map_err(|e| FormaError::Internal(format!("failed to shift positions: {e}")))?;
+
+            after_pos + 1
+        } else {
+            let max_pos: Option<i64> = self
+                .conn
+                .query_row(
+                    "SELECT MAX(position) FROM sections WHERE spec_stem = ?1",
+                    [stem],
+                    |row| row.get(0),
+                )
+                .map_err(|e| FormaError::Internal(format!("failed to get max position: {e}")))?;
+            max_pos.map_or(0, |p| p + 1)
+        };
+
+        let id = Self::generate_id();
+        let now = Self::now_iso();
+        self.conn
+            .execute(
+                "INSERT INTO sections (id, spec_stem, name, slug, kind, body, position, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, 'custom', ?5, ?6, ?7, ?8)",
+                rusqlite::params![id, stem, name, slug, body, position, now, now],
+            )
+            .map_err(|e| FormaError::Internal(format!("failed to add section: {e}")))?;
+
+        self.log_event(
+            stem,
+            "section_added",
+            actor,
+            Some(&format!("added section '{slug}'")),
+        )?;
+
+        self.conn
+            .query_row(
+                "SELECT * FROM sections WHERE id = ?1",
+                [&id],
+                section_from_row,
+            )
+            .map_err(|e| FormaError::Internal(format!("failed to read added section: {e}")))
+    }
+
+    pub fn set_section(
+        &self,
+        stem: &str,
+        slug: &str,
+        body: &str,
+        actor: Option<&str>,
+    ) -> Result<Section, FormaError> {
+        self.conn
+            .query_row("SELECT stem FROM specs WHERE stem = ?1", [stem], |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(|_| FormaError::NotFound(format!("spec not found: {stem}")))?;
+
+        let now = Self::now_iso();
+        let rows = self
+            .conn
+            .execute(
+                "UPDATE sections SET body = ?1, updated_at = ?2 WHERE spec_stem = ?3 AND slug = ?4",
+                rusqlite::params![body, now, stem, slug],
+            )
+            .map_err(|e| FormaError::Internal(format!("failed to set section body: {e}")))?;
+
+        if rows == 0 {
+            return Err(FormaError::NotFound(format!(
+                "section '{slug}' not found in spec '{stem}'"
+            )));
+        }
+
+        self.log_event(
+            stem,
+            "section_updated",
+            actor,
+            Some(&format!("updated section '{slug}'")),
+        )?;
+
+        self.conn
+            .query_row(
+                "SELECT * FROM sections WHERE spec_stem = ?1 AND slug = ?2",
+                rusqlite::params![stem, slug],
+                section_from_row,
+            )
+            .map_err(|e| FormaError::Internal(format!("failed to read updated section: {e}")))
+    }
+
+    pub fn get_section(&self, stem: &str, slug: &str) -> Result<Section, FormaError> {
+        self.conn
+            .query_row("SELECT stem FROM specs WHERE stem = ?1", [stem], |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(|_| FormaError::NotFound(format!("spec not found: {stem}")))?;
+
+        self.conn
+            .query_row(
+                "SELECT * FROM sections WHERE spec_stem = ?1 AND slug = ?2",
+                rusqlite::params![stem, slug],
+                section_from_row,
+            )
+            .map_err(|_| {
+                FormaError::NotFound(format!("section '{slug}' not found in spec '{stem}'"))
+            })
+    }
+
+    pub fn list_sections(&self, stem: &str) -> Result<Vec<Section>, FormaError> {
+        self.conn
+            .query_row("SELECT stem FROM specs WHERE stem = ?1", [stem], |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(|_| FormaError::NotFound(format!("spec not found: {stem}")))?;
+
+        let mut stmt = self
+            .conn
+            .prepare("SELECT * FROM sections WHERE spec_stem = ?1 ORDER BY position")
+            .map_err(|e| FormaError::Internal(format!("failed to prepare sections query: {e}")))?;
+        let sections = stmt
+            .query_map([stem], section_from_row)
+            .map_err(|e| FormaError::Internal(format!("failed to list sections: {e}")))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| FormaError::Internal(format!("failed to read sections: {e}")))?;
+        Ok(sections)
+    }
+
+    pub fn remove_section(
+        &self,
+        stem: &str,
+        slug: &str,
+        actor: Option<&str>,
+    ) -> Result<(), FormaError> {
+        self.conn
+            .query_row("SELECT stem FROM specs WHERE stem = ?1", [stem], |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(|_| FormaError::NotFound(format!("spec not found: {stem}")))?;
+
+        let (kind_str, position): (String, i64) = self
+            .conn
+            .query_row(
+                "SELECT kind, position FROM sections WHERE spec_stem = ?1 AND slug = ?2",
+                rusqlite::params![stem, slug],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|_| {
+                FormaError::NotFound(format!("section '{slug}' not found in spec '{stem}'"))
+            })?;
+
+        let kind: SectionKind = kind_str.parse().unwrap();
+        if kind == SectionKind::Required {
+            return Err(FormaError::RequiredSection(slug.to_string()));
+        }
+
+        self.conn
+            .execute(
+                "DELETE FROM sections WHERE spec_stem = ?1 AND slug = ?2",
+                rusqlite::params![stem, slug],
+            )
+            .map_err(|e| FormaError::Internal(format!("failed to remove section: {e}")))?;
+
+        self.conn
+            .execute(
+                "UPDATE sections SET position = position - 1 WHERE spec_stem = ?1 AND position > ?2",
+                rusqlite::params![stem, position],
+            )
+            .map_err(|e| FormaError::Internal(format!("failed to renumber positions: {e}")))?;
+
+        self.log_event(
+            stem,
+            "section_removed",
+            actor,
+            Some(&format!("removed section '{slug}'")),
+        )?;
+
+        Ok(())
+    }
+
+    pub fn move_section(
+        &self,
+        stem: &str,
+        slug: &str,
+        after_slug: &str,
+        actor: Option<&str>,
+    ) -> Result<Section, FormaError> {
+        self.conn
+            .query_row("SELECT stem FROM specs WHERE stem = ?1", [stem], |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(|_| FormaError::NotFound(format!("spec not found: {stem}")))?;
+
+        let old_pos: i64 = self
+            .conn
+            .query_row(
+                "SELECT position FROM sections WHERE spec_stem = ?1 AND slug = ?2",
+                rusqlite::params![stem, slug],
+                |row| row.get(0),
+            )
+            .map_err(|_| {
+                FormaError::NotFound(format!("section '{slug}' not found in spec '{stem}'"))
+            })?;
+
+        let after_pos: i64 = self
+            .conn
+            .query_row(
+                "SELECT position FROM sections WHERE spec_stem = ?1 AND slug = ?2",
+                rusqlite::params![stem, after_slug],
+                |row| row.get(0),
+            )
+            .map_err(|_| {
+                FormaError::NotFound(format!("section '{after_slug}' not found in spec '{stem}'"))
+            })?;
+
+        // Use a temporary position to avoid unique constraint issues during renumbering
+        self.conn
+            .execute(
+                "UPDATE sections SET position = -1 WHERE spec_stem = ?1 AND slug = ?2",
+                rusqlite::params![stem, slug],
+            )
+            .map_err(|e| FormaError::Internal(format!("failed to move section: {e}")))?;
+
+        if old_pos < after_pos {
+            // Moving down: shift items between old_pos+1..=after_pos up by -1
+            self.conn
+                .execute(
+                    "UPDATE sections SET position = position - 1 WHERE spec_stem = ?1 AND position > ?2 AND position <= ?3",
+                    rusqlite::params![stem, old_pos, after_pos],
+                )
+                .map_err(|e| FormaError::Internal(format!("failed to shift positions: {e}")))?;
+        } else {
+            // Moving up: shift items between after_pos+1..old_pos-1 down by +1
+            self.conn
+                .execute(
+                    "UPDATE sections SET position = position + 1 WHERE spec_stem = ?1 AND position > ?2 AND position < ?3",
+                    rusqlite::params![stem, after_pos, old_pos],
+                )
+                .map_err(|e| FormaError::Internal(format!("failed to shift positions: {e}")))?;
+        }
+
+        let new_pos = if old_pos < after_pos {
+            after_pos
+        } else {
+            after_pos + 1
+        };
+
+        let now = Self::now_iso();
+        self.conn
+            .execute(
+                "UPDATE sections SET position = ?1, updated_at = ?2 WHERE spec_stem = ?3 AND slug = ?4",
+                rusqlite::params![new_pos, now, stem, slug],
+            )
+            .map_err(|e| FormaError::Internal(format!("failed to set new position: {e}")))?;
+
+        self.log_event(
+            stem,
+            "section_moved",
+            actor,
+            Some(&format!("moved section '{slug}' after '{after_slug}'")),
+        )?;
+
+        self.conn
+            .query_row(
+                "SELECT * FROM sections WHERE spec_stem = ?1 AND slug = ?2",
+                rusqlite::params![stem, slug],
+                section_from_row,
+            )
+            .map_err(|e| FormaError::Internal(format!("failed to read moved section: {e}")))
     }
 
     pub fn import_jsonl(&self) -> Result<ImportResult, FormaError> {
@@ -1453,6 +1763,394 @@ mod tests {
         assert!(id.starts_with("fm-"));
         assert_eq!(id.len(), 11); // "fm-" + 8 hex chars
         assert!(id[3..].chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn add_section_appends_at_end() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("auth", "crates/auth/", "Auth", None)
+            .unwrap();
+
+        let section = db
+            .add_section("auth", "Custom Section", "body text", None, Some("alice"))
+            .unwrap();
+        assert_eq!(section.slug, "custom-section");
+        assert_eq!(section.kind, SectionKind::Custom);
+        assert_eq!(section.body, "body text");
+        assert_eq!(section.position, 5); // after 5 required sections (0-4)
+    }
+
+    #[test]
+    fn add_section_after_specific_slug() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("auth", "crates/auth/", "Auth", None)
+            .unwrap();
+
+        let section = db
+            .add_section("auth", "Security Notes", "notes", Some("overview"), None)
+            .unwrap();
+        assert_eq!(section.position, 1); // after overview (pos 0)
+
+        let sections = db.list_sections("auth").unwrap();
+        assert_eq!(sections[0].slug, "overview");
+        assert_eq!(sections[1].slug, "security-notes");
+        assert_eq!(sections[2].slug, "architecture");
+        assert_eq!(sections[2].position, 2); // shifted from 1
+    }
+
+    #[test]
+    fn add_section_duplicate_slug_fails() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("auth", "crates/auth/", "Auth", None)
+            .unwrap();
+        db.add_section("auth", "Extra", "body", None, None).unwrap();
+
+        let err = db
+            .add_section("auth", "Extra", "other body", None, None)
+            .unwrap_err();
+        assert_eq!(err.code(), "already_exists");
+    }
+
+    #[test]
+    fn add_section_spec_not_found() {
+        let (db, _p, _d) = test_db();
+        let err = db
+            .add_section("nope", "Section", "body", None, None)
+            .unwrap_err();
+        assert_eq!(err.code(), "not_found");
+    }
+
+    #[test]
+    fn add_section_after_nonexistent_slug_fails() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("auth", "crates/auth/", "Auth", None)
+            .unwrap();
+
+        let err = db
+            .add_section("auth", "New", "body", Some("nonexistent"), None)
+            .unwrap_err();
+        assert_eq!(err.code(), "not_found");
+    }
+
+    #[test]
+    fn add_section_logs_event() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("auth", "crates/auth/", "Auth", None)
+            .unwrap();
+        db.add_section("auth", "Extra", "body", None, Some("bob"))
+            .unwrap();
+
+        let events = db.spec_history("auth").unwrap();
+        let added = events
+            .iter()
+            .find(|e| e.event_type == "section_added")
+            .unwrap();
+        assert_eq!(added.actor, Some("bob".to_string()));
+        assert!(added.detail.as_ref().unwrap().contains("extra"));
+    }
+
+    #[test]
+    fn set_section_replaces_body() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("auth", "crates/auth/", "Auth", None)
+            .unwrap();
+
+        let section = db
+            .set_section("auth", "overview", "new body", Some("alice"))
+            .unwrap();
+        assert_eq!(section.body, "new body");
+        assert_eq!(section.slug, "overview");
+    }
+
+    #[test]
+    fn set_section_not_found() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("auth", "crates/auth/", "Auth", None)
+            .unwrap();
+
+        let err = db
+            .set_section("auth", "nonexistent", "body", None)
+            .unwrap_err();
+        assert_eq!(err.code(), "not_found");
+    }
+
+    #[test]
+    fn set_section_spec_not_found() {
+        let (db, _p, _d) = test_db();
+        let err = db
+            .set_section("nope", "overview", "body", None)
+            .unwrap_err();
+        assert_eq!(err.code(), "not_found");
+    }
+
+    #[test]
+    fn set_section_logs_event() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("auth", "crates/auth/", "Auth", None)
+            .unwrap();
+        db.set_section("auth", "overview", "content", Some("charlie"))
+            .unwrap();
+
+        let events = db.spec_history("auth").unwrap();
+        let updated = events
+            .iter()
+            .find(|e| e.event_type == "section_updated")
+            .unwrap();
+        assert_eq!(updated.actor, Some("charlie".to_string()));
+    }
+
+    #[test]
+    fn get_section_returns_section() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("auth", "crates/auth/", "Auth", None)
+            .unwrap();
+        db.set_section("auth", "overview", "hello", None).unwrap();
+
+        let section = db.get_section("auth", "overview").unwrap();
+        assert_eq!(section.slug, "overview");
+        assert_eq!(section.body, "hello");
+        assert_eq!(section.kind, SectionKind::Required);
+    }
+
+    #[test]
+    fn get_section_not_found() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("auth", "crates/auth/", "Auth", None)
+            .unwrap();
+
+        let err = db.get_section("auth", "nonexistent").unwrap_err();
+        assert_eq!(err.code(), "not_found");
+    }
+
+    #[test]
+    fn get_section_spec_not_found() {
+        let (db, _p, _d) = test_db();
+        let err = db.get_section("nope", "overview").unwrap_err();
+        assert_eq!(err.code(), "not_found");
+    }
+
+    #[test]
+    fn list_sections_ordered_by_position() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("auth", "crates/auth/", "Auth", None)
+            .unwrap();
+        db.add_section("auth", "Extra One", "", None, None).unwrap();
+        db.add_section("auth", "Extra Two", "", None, None).unwrap();
+
+        let sections = db.list_sections("auth").unwrap();
+        assert_eq!(sections.len(), 7); // 5 required + 2 custom
+        for (i, section) in sections.iter().enumerate() {
+            assert_eq!(section.position, i as i64);
+        }
+    }
+
+    #[test]
+    fn list_sections_spec_not_found() {
+        let (db, _p, _d) = test_db();
+        let err = db.list_sections("nope").unwrap_err();
+        assert_eq!(err.code(), "not_found");
+    }
+
+    #[test]
+    fn remove_section_custom() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("auth", "crates/auth/", "Auth", None)
+            .unwrap();
+        db.add_section("auth", "Extra", "body", None, None).unwrap();
+
+        db.remove_section("auth", "extra", Some("alice")).unwrap();
+
+        let sections = db.list_sections("auth").unwrap();
+        assert_eq!(sections.len(), 5); // only required sections remain
+    }
+
+    #[test]
+    fn remove_section_required_fails() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("auth", "crates/auth/", "Auth", None)
+            .unwrap();
+
+        let err = db.remove_section("auth", "overview", None).unwrap_err();
+        assert_eq!(err.code(), "required_section");
+    }
+
+    #[test]
+    fn remove_section_not_found() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("auth", "crates/auth/", "Auth", None)
+            .unwrap();
+
+        let err = db.remove_section("auth", "nonexistent", None).unwrap_err();
+        assert_eq!(err.code(), "not_found");
+    }
+
+    #[test]
+    fn remove_section_renumbers_positions() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("auth", "crates/auth/", "Auth", None)
+            .unwrap();
+        db.add_section("auth", "Extra One", "", None, None).unwrap();
+        db.add_section("auth", "Extra Two", "", None, None).unwrap();
+
+        db.remove_section("auth", "extra-one", None).unwrap();
+
+        let sections = db.list_sections("auth").unwrap();
+        assert_eq!(sections.len(), 6); // 5 required + 1 custom
+        for (i, section) in sections.iter().enumerate() {
+            assert_eq!(section.position, i as i64);
+        }
+        assert_eq!(sections[5].slug, "extra-two");
+    }
+
+    #[test]
+    fn remove_section_logs_event() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("auth", "crates/auth/", "Auth", None)
+            .unwrap();
+        db.add_section("auth", "Extra", "", None, None).unwrap();
+        db.remove_section("auth", "extra", Some("dave")).unwrap();
+
+        let events = db.spec_history("auth").unwrap();
+        let removed = events
+            .iter()
+            .find(|e| e.event_type == "section_removed")
+            .unwrap();
+        assert_eq!(removed.actor, Some("dave".to_string()));
+    }
+
+    #[test]
+    fn move_section_down() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("auth", "crates/auth/", "Auth", None)
+            .unwrap();
+
+        // Move overview (pos 0) to after testing (pos 4)
+        let section = db
+            .move_section("auth", "overview", "testing", None)
+            .unwrap();
+        assert_eq!(section.position, 4);
+
+        let sections = db.list_sections("auth").unwrap();
+        assert_eq!(sections[0].slug, "architecture");
+        assert_eq!(sections[0].position, 0);
+        assert_eq!(sections[1].slug, "dependencies");
+        assert_eq!(sections[2].slug, "error-handling");
+        assert_eq!(sections[3].slug, "testing");
+        assert_eq!(sections[4].slug, "overview");
+    }
+
+    #[test]
+    fn move_section_up() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("auth", "crates/auth/", "Auth", None)
+            .unwrap();
+
+        // Move testing (pos 4) to after overview (pos 0)
+        let section = db
+            .move_section("auth", "testing", "overview", None)
+            .unwrap();
+        assert_eq!(section.position, 1);
+
+        let sections = db.list_sections("auth").unwrap();
+        assert_eq!(sections[0].slug, "overview");
+        assert_eq!(sections[1].slug, "testing");
+        assert_eq!(sections[2].slug, "architecture");
+        assert_eq!(sections[3].slug, "dependencies");
+        assert_eq!(sections[4].slug, "error-handling");
+    }
+
+    #[test]
+    fn move_section_not_found() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("auth", "crates/auth/", "Auth", None)
+            .unwrap();
+
+        let err = db
+            .move_section("auth", "nonexistent", "overview", None)
+            .unwrap_err();
+        assert_eq!(err.code(), "not_found");
+    }
+
+    #[test]
+    fn move_section_after_not_found() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("auth", "crates/auth/", "Auth", None)
+            .unwrap();
+
+        let err = db
+            .move_section("auth", "overview", "nonexistent", None)
+            .unwrap_err();
+        assert_eq!(err.code(), "not_found");
+    }
+
+    #[test]
+    fn move_section_logs_event() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("auth", "crates/auth/", "Auth", None)
+            .unwrap();
+        db.move_section("auth", "overview", "testing", Some("eve"))
+            .unwrap();
+
+        let events = db.spec_history("auth").unwrap();
+        let moved = events
+            .iter()
+            .find(|e| e.event_type == "section_moved")
+            .unwrap();
+        assert_eq!(moved.actor, Some("eve".to_string()));
+        assert!(moved.detail.as_ref().unwrap().contains("overview"));
+        assert!(moved.detail.as_ref().unwrap().contains("testing"));
+    }
+
+    #[test]
+    fn section_lifecycle() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("auth", "crates/auth/", "Auth", None)
+            .unwrap();
+
+        // Add custom sections
+        db.add_section("auth", "Security Notes", "initial notes", None, None)
+            .unwrap();
+        db.add_section(
+            "auth",
+            "API Design",
+            "api design content",
+            Some("overview"),
+            None,
+        )
+        .unwrap();
+
+        // Verify positions
+        let sections = db.list_sections("auth").unwrap();
+        assert_eq!(sections.len(), 7);
+        assert_eq!(sections[1].slug, "api-design");
+        assert_eq!(sections[6].slug, "security-notes");
+
+        // Set body
+        let updated = db
+            .set_section("auth", "security-notes", "updated notes", None)
+            .unwrap();
+        assert_eq!(updated.body, "updated notes");
+
+        // Get section
+        let got = db.get_section("auth", "api-design").unwrap();
+        assert_eq!(got.body, "api design content");
+
+        // Move section
+        db.move_section("auth", "security-notes", "api-design", None)
+            .unwrap();
+        let sections = db.list_sections("auth").unwrap();
+        assert_eq!(sections[2].slug, "security-notes");
+
+        // Remove section
+        db.remove_section("auth", "api-design", None).unwrap();
+        let sections = db.list_sections("auth").unwrap();
+        assert_eq!(sections.len(), 6);
+        assert!(!sections.iter().any(|s| s.slug == "api-design"));
+
+        // Verify contiguous positions after removal
+        for (i, section) in sections.iter().enumerate() {
+            assert_eq!(section.position, i as i64);
+        }
     }
 
     #[test]
