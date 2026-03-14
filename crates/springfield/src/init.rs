@@ -1274,10 +1274,7 @@ repos:
         force_init(tmp.path()).unwrap();
 
         let content = fs::read_to_string(&agents_path).unwrap();
-        assert_eq!(
-            content, custom,
-            "force should not overwrite AGENTS.md"
-        );
+        assert_eq!(content, custom, "force should not overwrite AGENTS.md");
     }
 
     #[test]

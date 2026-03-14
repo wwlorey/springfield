@@ -60,7 +60,7 @@ crates/springfield/
 
 **Scaffolding** (`sgf init`): Creates `.sgf/`, `.pensa/`, `specs/`, prompt templates, `memento.md`, `CLAUDE.md`, `specs/README.md`. Merges `.gitignore` entries, `.claude/settings.json` deny rules and native sandbox configuration, and `.pre-commit-config.yaml` hooks idempotently.
 
-**Prompt delivery**: Validates that `.sgf/prompts/<command>.md` exists (directly or via alias), and for spec-dependent commands, that `specs/<spec>.md` exists. Passes the raw template path directly to ralph or `$AGENT_CMD` — no assembly or preprocessing.
+**Prompt delivery**: Validates that `.sgf/prompts/<command>.md` exists (directly or via alias), and for spec-dependent commands, that `specs/<spec>.md` exists. Passes the raw template path directly to ralph or `cl` — no assembly or preprocessing.
 
 **Loop orchestration** (`sgf <command>`): Loads config.toml, merges CLI flags with per-command defaults, runs pre-launch recovery, starts the pensa daemon, validates the prompt, generates a loop ID, writes a PID file, launches ralph with translated flags, tees output in AFK mode, handles exit codes, cleans up PID file.
 
@@ -88,6 +88,6 @@ sgf logs build-auth-20260228T100000
 ## Relationship to Other Crates
 
 - **[pensa](../pensa/)** — Agent persistent memory. `sgf` starts the pensa daemon before loops and uses `pn` for recovery (`pn doctor --fix`).
-- **[ralph](../ralph/)** — Loop runner. `sgf` invokes ralph as a subprocess, passing raw prompt paths, flags, and loop configuration. Ralph owns system prompt injection via `PROMPT_FILES`.
+- **[ralph](../ralph/)** — Loop runner. `sgf` invokes ralph as a subprocess, passing raw prompt paths, flags, and loop configuration. Ralph invokes `cl` (claude-wrapper) which handles layered context injection.
 
 See the [full specification](../../specs/springfield.md) for detailed behavior.
