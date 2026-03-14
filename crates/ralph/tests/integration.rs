@@ -1267,6 +1267,7 @@ fn cl_required_without_command_override() {
 
     let output = ralph_cmd(&dir)
         .env_remove("RALPH_COMMAND")
+        .env("PATH", dir.path().join("empty-bin"))
         .args(["--afk", "1", "prompt.md"])
         .output()
         .expect("run ralph");
