@@ -1,14 +1,14 @@
 # ralph Specification
 
-CLI tool for iterative Claude Code execution. Invokes `$AGENT_CMD` directly (no Docker sandbox) with clean NDJSON stream formatting, sentinel file completion detection, and git auto-push.
+CLI tool for iterative Claude Code execution. Invokes `cl` (claude-wrapper) directly with clean NDJSON stream formatting, sentinel file completion detection, and git auto-push.
 
 ## Overview
 
 `ralph` provides:
 - **Iteration loop**: Run Claude Code repeatedly against a prompt file or inline text, up to N iterations
 - **Two modes**: Interactive (terminal passthrough) and AFK (formatted NDJSON stream)
-- **Direct agent invocation**: Runs `$AGENT_CMD` as a child process — no Docker, no Mutagen, no sandbox lifecycle. `$AGENT_CMD` must be set; ralph fails immediately if the env var is missing or empty.
-- **System prompt injection**: Read `PROMPT_FILES` env var and pass a `study @<file>` instruction via `--append-system-prompt` to Claude Code; optionally append spec files via `--spec`
+- **Direct agent invocation**: Runs `cl` as a child process — no Docker, no Mutagen, no sandbox lifecycle. Context file injection (MEMENTO, BACKPRESSURE, specs/README) is handled by `cl`; ralph only passes spec study args via `--spec`.
+- **Spec study injection**: When `--spec` is provided, pass `study @./specs/<stem>.md` via `--append-system-prompt` to `cl`
 - **NDJSON formatting**: Compact, readable output from Claude's stream-json format
 - **Completion detection**: Exit early when Claude signals task completion by creating the `.ralph-complete` sentinel file
 - **Interactive notification**: Play a sound on the host when Claude needs user input (via `.ralph-ding` sentinel file)
@@ -20,7 +20,7 @@ CLI tool for iterative Claude Code execution. Invokes `$AGENT_CMD` directly (no 
 1. **Readable AFK output**: Styled, Claude Code-like terminal output — ANSI colors, tool call one-liners, truncated tool results, boxed banners
 2. **Testable**: NDJSON formatting is a pure function; full binary testable via command override
 3. **Minimal dependencies**: Only `clap`, `serde`, `serde_json` — no async runtime needed
-4. **No implicit agent binary**: `$AGENT_CMD` is required. Never fall back to a hardcoded binary name.
+4. **Never invoke claude directly**: Ralph always invokes `cl` (claude-wrapper). Never calls `claude` or `claude-wrapper-secret` directly.
 
 ## Architecture
 
@@ -99,8 +99,6 @@ The default value `prompt.md` is treated specially: if no explicit prompt is pro
 | `--command` | `RALPH_COMMAND` | — | Override: path to executable replacing agent invocation (for testing) |
 | `--spec` | `SGF_SPEC` | — | Spec stem — adds `./specs/<stem>.md` to the study instruction. Fails with error if the spec file does not exist. |
 | `--prompt-file` | — | — | Additional prompt file path (repeatable). Added to the study instruction passed via `--append-system-prompt`. |
-| — | `AGENT_CMD` | **(required)** | Path to the agent binary (e.g., `claude`). Ralph fails immediately with exit code 1 if this is unset or empty. |
-| — | `PROMPT_FILES` | `$HOME/.MEMENTO.md:./BACKPRESSURE.md:./specs/README.md` | Colon-separated list of files to include in the study instruction |
 
 ### Exit Codes
 
@@ -114,53 +112,46 @@ The default value `prompt.md` is treated specially: if no explicit prompt is pro
 ### Examples
 
 ```bash
-AGENT_CMD=claude ralph 10                              # Interactive, 10 iterations, prompt.md
-AGENT_CMD=claude ralph -a 5                            # AFK mode, 5 iterations
-AGENT_CMD=claude ralph 10 my-task.md                   # Custom prompt file
-AGENT_CMD=claude ralph 5 "fix the login bug"           # Inline text prompt
-AGENT_CMD=claude ralph -a 3 "refactor auth module"     # AFK mode with inline text
-RALPH_AUTO_PUSH=false AGENT_CMD=claude ralph -a 10     # Disable auto-push
-AGENT_CMD=claude ralph -a --loop-id build-auth-20260226T143000 10 prompt.md  # With loop ID
-AGENT_CMD=claude ralph -a --spec auth 10 .sgf/prompts/build.md              # With spec
-AGENT_CMD=claude ralph --prompt-file ./NOTES.md 5 prompt.md                  # Extra prompt file
+ralph 10                                               # Interactive, 10 iterations, prompt.md
+ralph -a 5                                             # AFK mode, 5 iterations
+ralph 10 my-task.md                                    # Custom prompt file
+ralph 5 "fix the login bug"                            # Inline text prompt
+ralph -a 3 "refactor auth module"                      # AFK mode with inline text
+RALPH_AUTO_PUSH=false ralph -a 10                      # Disable auto-push
+ralph -a --loop-id build-auth-20260226T143000 10 prompt.md  # With loop ID
+ralph -a --spec auth 10 .sgf/prompts/build.md               # With spec
+ralph --prompt-file ./NOTES.md 5 prompt.md                   # Extra prompt file
 ```
 
-## Agent Binary Resolution
+## Agent Invocation
 
-Ralph requires the `AGENT_CMD` environment variable to be set to a non-empty value. This is the path or name of the agent binary (e.g., `claude`). Ralph **never** falls back to a hardcoded binary name — if `AGENT_CMD` is unset or empty, ralph prints an error and exits with code 1 immediately.
+Ralph invokes `cl` (claude-wrapper) directly. It never calls `claude` or `claude-wrapper-secret`. Context file injection (MEMENTO.md, BACKPRESSURE.md, specs/README.md) is handled by `cl` — ralph does not manage these files.
 
-```
-AGENT_CMD not set. Set AGENT_CMD to the path of the agent binary (e.g., AGENT_CMD=claude).
-```
-
-When `--command` is set (testing mode), `AGENT_CMD` is not required — the command override takes precedence.
+When `--command` is set (testing mode), the command override replaces `cl` — used for integration tests with mock scripts.
 
 ## System Prompt Injection
 
-Ralph owns system prompt injection for all automated stages. It collects prompt files from three sources, builds a semicolon-separated `study @<file>` instruction, and passes it as a single `--append-system-prompt` argument to the agent binary invocation. This ensures the agent actively reads and processes the files rather than receiving them as passive system context.
+Ralph passes spec and additional prompt files via `--append-system-prompt`. This is independent of `cl`'s own context injection — both `--append-system-prompt` arguments coexist.
 
-### Sources (in order)
+### Sources
 
-1. **`PROMPT_FILES` env var** — Colon-separated list of files. Default: `$HOME/.MEMENTO.md:./BACKPRESSURE.md:./specs/README.md`. Path resolution: `~` and `$HOME` expand to the home directory; `./` paths resolve relative to cwd. Missing files emit a warning to stderr and are skipped. If `PROMPT_FILES` is not set, a warning is emitted and the default is used.
-2. **`--spec <stem>`** — If provided, appends `./specs/<stem>.md`. Fails with exit code 1 and a clear error (e.g., `spec file not found: specs/auth.md`) if the file does not exist.
-3. **`--prompt-file <path>`** (repeatable) — Additional explicit files. Missing files are a fatal error (exit code 1).
+1. **`--spec <stem>`** — If provided, appends `./specs/<stem>.md`. Fails with exit code 1 and a clear error (e.g., `spec file not found: specs/auth.md`) if the file does not exist.
+2. **`--prompt-file <path>`** (repeatable) — Additional explicit files. Missing files are a fatal error (exit code 1).
 
-### Agent Invocation
+If neither `--spec` nor `--prompt-file` is provided, no `--append-system-prompt` argument is passed — `cl` still injects its own context files independently.
 
-The collected prompt files are combined into a single `--append-system-prompt` argument with `study @<file>` instructions, placed before the prompt argument in the agent invocation:
+### Invocation
 
 ```
-$AGENT_CMD \
+cl \
   --verbose \
   --dangerously-skip-permissions \
   --settings '{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}' \
-  --append-system-prompt 'study @$HOME/.MEMENTO.md;study @./BACKPRESSURE.md;study @./specs/README.md;study @./specs/auth.md' \
+  --append-system-prompt 'study @./specs/auth.md' \
   @prompt.md
 ```
 
-Since the agent runs directly on the host filesystem, all paths (including `$HOME/.MEMENTO.md`) are accessible without staging. The external file staging step is no longer needed.
-
-When `--command` is set (testing mode), the same `--append-system-prompt` argument is passed to the mock command.
+When `--command` is set (testing mode), the same arguments are passed to the mock command.
 
 ## Modes
 
@@ -169,11 +160,11 @@ When `--command` is set (testing mode), the same `--append-system-prompt` argume
 Spawns the agent with full terminal passthrough (stdin/stdout/stderr inherited).
 
 ```
-$AGENT_CMD \
+cl \
   --verbose \
   --dangerously-skip-permissions \
   --settings '{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}' \
-  [--append-system-prompt 'study @<FILE>;...']  # from PROMPT_FILES, --spec, --prompt-file
+  [--append-system-prompt 'study @<FILE>;...']  # from --spec, --prompt-file
   @<PROMPT_FILE>       # file prompt (@ prefix)
   # or: "<inline text>"  # inline text (no @ prefix)
 ```
@@ -187,13 +178,13 @@ In interactive mode, ralph also runs a **notification watcher thread** that moni
 Spawns the agent with piped stdout, stderr inherited.
 
 ```
-$AGENT_CMD \
+cl \
   --verbose \
   --print \
   --output-format stream-json \
   --dangerously-skip-permissions \
   --settings '{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}' \
-  [--append-system-prompt 'study @<FILE>;...']  # from PROMPT_FILES, --spec, --prompt-file
+  [--append-system-prompt 'study @<FILE>;...']  # from --spec, --prompt-file
   @<PROMPT_FILE>       # file prompt (@ prefix)
   # or: "<inline text>"  # inline text (no @ prefix)
 ```
@@ -273,7 +264,7 @@ The save happens once before the main loop. The restore happens after each agent
 
 Stdout is read on a dedicated thread that sends lines through an `mpsc` channel. The main thread uses `recv_timeout` (100ms) to poll the channel, checking both the `interrupted` flag and `sigint_count` between receives. When the abort condition is met (double Ctrl+C in AFK, or single SIGTERM):
 
-1. The child's process group is killed via `shutdown::kill_process_group(child.id(), Duration::from_secs(10))` — sends SIGTERM to the group, waits up to 10s, escalates to SIGKILL
+1. The child's process group is killed via `shutdown::kill_process_group(child.id(), Duration::from_millis(200))` — sends SIGTERM to the group, waits up to 200ms, escalates to SIGKILL
 2. `child.wait()` reaps the process
 3. Control returns to the main loop, which detects the flag and exits with code 130
 
@@ -476,12 +467,8 @@ The Ralph ASCII art is printed as-is (unstyled). The config block beneath it use
 │  Mode:        AFK                              │
 │  Prompt:      prompt.md (file)                 │
 │  Iterations:  10                               │
-│  Agent:       claude                           │
 │  Loop ID:     build-auth-20260311T133300       │
-│  Prompt files:                                 │
-│    - $HOME/.MEMENTO.md                         │
-│    - ./BACKPRESSURE.md                         │
-│    - ./specs/README.md                         │
+│  Spec:        auth                             │
 ╰────────────────────────────────────────────────╯
 ```
 
@@ -585,7 +572,6 @@ Completion detection is handled separately via the `.ralph-complete` sentinel fi
 ## Main Loop
 
 Before the loop:
-- Resolve `AGENT_CMD` from environment. If unset or empty and `--command` is not set, exit 1 with error.
 - Search for and delete any stale `.ralph-complete` sentinel file (from a previous crashed/killed run), searching recursively up to depth 2
 - Delete stale `.ralph-ding` sentinel file if present
 
@@ -594,14 +580,14 @@ Prompt resolution (before the loop):
 - If explicit prompt provided and it is a path to an existing file → use as file prompt (`@` prefix)
 - If explicit prompt provided and it is not an existing file → use as inline text (no `@` prefix)
 
-The startup banner includes mode, prompt source, iteration count, agent binary path, loop ID (if provided via `--loop-id`), and a list of all collected prompt files (each on its own line, prefixed with `  - `).
+The startup banner includes mode, prompt source, iteration count, loop ID (if provided via `--loop-id`), and a list of spec/prompt files passed via `--spec` and `--prompt-file` (each on its own line, prefixed with `  - `).
 
 For each iteration `i` in `1..=iterations`:
 
 1. Remove any stale `.ralph-complete` sentinel
 2. Print iteration banner (includes loop ID if provided)
 3. Record `vcs_utils::git_head()` as `head_before`
-4. Execute agent via `$AGENT_CMD` (or `--command` override):
+4. Execute agent via `cl` (or `--command` override):
    - Interactive: start notification watcher thread, `.status()` with inherited stdio, stop watcher thread
    - AFK: `.spawn()` with piped stdout, read lines via reader thread + channel through `format_line()`
 5. If interrupted: log warning, exit 130
@@ -636,9 +622,9 @@ If all iterations complete without the sentinel file appearing, ralph exits with
 
 ## Command Override (`--command`)
 
-When `--command` (or `RALPH_COMMAND`) is set, ralph runs the specified executable instead of `$AGENT_CMD`. The override executable is invoked with the same arguments and must write NDJSON (AFK mode) or interactive output to stdout.
+When `--command` (or `RALPH_COMMAND`) is set, ralph runs the specified executable instead of `cl`. The override executable is invoked with the same arguments and must write NDJSON (AFK mode) or interactive output to stdout.
 
-This enables integration testing without a real agent binary. Tests create a mock script that emits fixture NDJSON. For completion detection tests, the mock script also creates the `.ralph-complete` sentinel file. When `--command` is set, `AGENT_CMD` is not required.
+This enables integration testing without a real agent binary. Tests create a mock script that emits fixture NDJSON. For completion detection tests, the mock script also creates the `.ralph-complete` sentinel file.
 
 ## Error Handling
 
@@ -646,19 +632,18 @@ No custom error types. Fail loudly, continue when sensible:
 
 | Scenario | Behavior |
 |----------|----------|
-| `AGENT_CMD` not set (no `--command`) | `tracing::error!` + exit 1 (before loop starts) |
+| `cl` not found in PATH (no `--command`) | `tracing::error!` + exit 1 (before loop starts) |
 | Default prompt file missing | `tracing::error!` + exit 1 (before loop starts, only when no explicit prompt provided) |
 | Spec file missing (`--spec`) | `tracing::error!` + exit 1 (e.g., `spec file not found: specs/auth.md`) |
 | Prompt file missing (`--prompt-file`) | `tracing::error!` + exit 1 |
-| `PROMPT_FILES` entry missing | `tracing::warn!` to stderr, skip the file (non-fatal) |
 | Agent/command spawn failure | `tracing::warn!`, continue to next iteration |
 | NDJSON parse error (line starts with `{`) | Skip line, log at debug level |
 | Non-JSON line (no `{` prefix) | Skip line silently (expected verbose debug output) |
 | stdout read error | `tracing::warn!`, continue reading |
 | Git `rev-parse` failure | Return `None`, skip push check |
 | Git push failure | `tracing::warn!`, continue |
-| SIGINT/Ctrl+D received (all modes) | First press: print "Press Ctrl-C again to exit" (or "Press Ctrl-D again to exit") to stderr, start 2s timeout. Second press of same key: kill child process group (SIGTERM→10s→SIGKILL), `tracing::warn!`, exit 130. Timeout: reset counter, continue. |
-| SIGTERM received | Kill child process group (SIGTERM→10s→SIGKILL), `tracing::warn!`, exit 130 (immediate, single signal) |
+| SIGINT/Ctrl+D received (all modes) | First press: print "Press Ctrl-C again to exit" (or "Press Ctrl-D again to exit") to stderr, start 2s timeout. Second press of same key: kill child process group (SIGTERM→200ms→SIGKILL), `tracing::warn!`, exit 130. Timeout: reset counter, continue. |
+| SIGTERM received | Kill child process group (SIGTERM→200ms→SIGKILL), `tracing::warn!`, exit 130 (immediate, single signal) |
 
 ## Testing
 
@@ -705,7 +690,7 @@ Binary-level E2E tests using `cargo test -p ralph`. Each test:
 2. Initializes a git repo in the temp directory
 3. Creates a mock script that emits fixture NDJSON
 4. Runs the `ralph` binary via `std::process::Command` with:
-   - `RALPH_COMMAND` set to the mock script path (bypasses `AGENT_CMD` requirement)
+   - `RALPH_COMMAND` set to the mock script path (bypasses `cl` invocation)
    - `RALPH_AUTO_PUSH=false` (no remote to push to)
    - Working directory set to the temp directory
    - `NO_COLOR=1` for tests that assert on text content (avoids ANSI in assertions)

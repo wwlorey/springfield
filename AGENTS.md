@@ -8,9 +8,7 @@ Rust workspace for orchestrating AI-driven dev via iterative agent loops. CLI: `
 ## Installing
 
 ```
-cargo install --path crates/pensa
-cargo install --path crates/ralph
-cargo install --path crates/springfield
+just install
 ```
 
 ## Code Style

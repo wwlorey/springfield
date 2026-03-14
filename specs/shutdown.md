@@ -116,7 +116,7 @@ When ralph is launched by sgf, sgf sets `SGF_MANAGED=1` in ralph's environment. 
 
 ## Integration with sgf
 
-sgf creates a `ShutdownController` before spawning ralph or `$AGENT_CMD`. The controller configuration varies by mode — AFK mode owns stdin and terminal signals; non-AFK and interactive modes let the child own them.
+sgf creates a `ShutdownController` before spawning ralph or `cl`. The controller configuration varies by mode — AFK mode owns stdin and terminal signals; non-AFK and interactive modes let the child own them.
 
 ### AFK Loops
 

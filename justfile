@@ -1,0 +1,6 @@
+install:
+    cargo install --path crates/pensa
+    cargo install --path crates/ralph
+    cargo install --path crates/springfield
+    cargo install --path crates/claude-wrapper
+    rsync -av --delete --exclude='logs/' --exclude='run/' .sgf/ ~/.sgf/
