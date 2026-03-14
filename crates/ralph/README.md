@@ -1,6 +1,6 @@
 # ralph
 
-Iterative Claude Code runner via direct `$AGENT_CMD` invocation. Runs Claude Code repeatedly against a prompt, up to N iterations, with automatic completion detection and git auto-push.
+Iterative Claude Code runner. Invokes `cl` (claude-wrapper) directly with NDJSON stream formatting, sentinel file completion detection, and git auto-push.
 
 ## Usage
 
@@ -33,13 +33,6 @@ ralph [-a] [--loop-id ID] [--auto-push BOOL] [--max-iterations N] ITERATIONS PRO
 | `--spec` | `SGF_SPEC` | — | Spec stem — appends ./specs/<stem>.md as a system prompt file |
 | `--prompt-file` | — | — | Additional prompt file path (repeatable) |
 | `--log-file` | — | — | Path to log file — ralph tees its output here |
-
-### Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `AGENT_CMD` | Path to the agent binary (e.g., `claude`). Required unless `--command` is set. |
-| `PROMPT_FILES` | Colon-separated list of prompt files to pass as `--append-system-prompt` study instructions. Supports `$HOME` and `~` expansion. |
 
 ### Examples
 
@@ -74,7 +67,7 @@ In both interactive and AFK modes, ralph passes `--settings '{"sandbox": {"allow
 | Code | Meaning |
 |------|---------|
 | `0` | Completion file `.ralph-complete` detected |
-| `1` | Error (prompt file missing, AGENT_CMD not set, etc.) |
+| `1` | Error (prompt file missing, `cl` not found in PATH, etc.) |
 | `2` | Iterations exhausted without completion |
 | `130` | Interrupted by SIGINT (Ctrl+C) or SIGTERM |
 

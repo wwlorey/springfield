@@ -612,7 +612,7 @@ fn no_loop_id_when_not_provided() {
 }
 
 #[test]
-fn agent_cmd_in_banner() {
+fn cl_command_in_banner() {
     let dir = setup_test_dir();
     let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
 
@@ -631,7 +631,7 @@ fn agent_cmd_in_banner() {
 
     assert!(
         stdout.contains(&format!("Agent:       {}", mock.display())),
-        "startup banner should show agent command, got:\n{stdout}"
+        "startup banner should show cl command override, got:\n{stdout}"
     );
 }
 
@@ -1226,7 +1226,7 @@ fn no_log_file_by_default() {
 }
 
 #[test]
-fn agent_cmd_required_without_command_override() {
+fn cl_required_without_command_override() {
     let dir = setup_test_dir();
 
     let output = ralph_cmd(&dir)
@@ -1249,7 +1249,7 @@ fn agent_cmd_required_without_command_override() {
 }
 
 #[test]
-fn agent_cmd_not_required_with_command_override() {
+fn cl_not_required_with_command_override() {
     let dir = setup_test_dir();
     let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
 
