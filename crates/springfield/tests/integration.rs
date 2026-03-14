@@ -3180,7 +3180,7 @@ fn e2e_sgf_ralph_cl_context_files_and_spec_in_append_system_prompt() {
         bin_dir.join("cl").display()
     );
 
-    // Mock dir: claude-wrapper-secret (captures args) + pn (no-op)
+    // Mock dir: claude-wrapper-secret (captures args) + pn (no-op) + fm (returns spec data)
     let mock_dir = TempDir::new().unwrap();
     let captured_args = mock_dir.path().join("captured_args.txt");
 
@@ -3198,6 +3198,24 @@ fn e2e_sgf_ralph_cl_context_files_and_spec_in_append_system_prompt() {
         ),
     );
     create_mock_script(mock_dir.path(), "pn", "#!/bin/sh\nexit 0\n");
+    create_mock_script(
+        mock_dir.path(),
+        "fm",
+        concat!(
+            "#!/bin/sh\n",
+            "case \"$1\" in\n",
+            "  show)\n",
+            "    echo '{\"stem\":\"auth\",\"crate_path\":\"crates/auth/\",\"purpose\":\"Authentication\",\"status\":\"active\",\"sections\":[{\"name\":\"Overview\",\"body\":\"# auth spec\"}],\"refs\":[]}'\n",
+            "    ;;\n",
+            "  list)\n",
+            "    echo '[{\"stem\":\"auth\",\"crate_path\":\"crates/auth/\",\"purpose\":\"Authentication\",\"status\":\"active\",\"created_at\":\"2026-01-01T00:00:00Z\",\"updated_at\":\"2026-01-01T00:00:00Z\"}]'\n",
+            "    ;;\n",
+            "  *)\n",
+            "    exit 0\n",
+            "    ;;\n",
+            "esac\n",
+        ),
+    );
 
     // PATH: mock_dir (claude-wrapper-secret, pn) → bin_dir (cl) → system
     let path = format!(
@@ -3239,15 +3257,16 @@ fn e2e_sgf_ralph_cl_context_files_and_spec_in_append_system_prompt() {
         args.contains("BACKPRESSURE.md"),
         "missing BACKPRESSURE.md in captured args:\n{args}"
     );
+    // cl resolves spec index from fm list --json → markdown table
     assert!(
-        args.contains("specs/README.md"),
-        "missing specs/README.md in captured args:\n{args}"
+        args.contains("# Specifications"),
+        "missing spec index (from fm list) in captured args:\n{args}"
     );
 
-    // ralph should inject --append-system-prompt with study @./specs/auth.md
+    // ralph should inject --append-system-prompt with rendered spec content from fm show
     assert!(
-        args.contains("specs/auth.md"),
-        "missing specs/auth.md (from --spec) in captured args:\n{args}"
+        args.contains("# auth Specification"),
+        "missing rendered auth spec content (from --spec via fm show) in captured args:\n{args}"
     );
 
     // At least 2 --append-system-prompt args: one from cl, one from ralph
