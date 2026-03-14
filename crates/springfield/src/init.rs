@@ -94,10 +94,16 @@ struct SkeletonFile {
     content: &'static str,
 }
 
-const SKELETON_FILES: &[SkeletonFile] = &[SkeletonFile {
-    path: "specs/README.md",
-    content: SPECS_README_CONTENT,
-}];
+const SKELETON_FILES: &[SkeletonFile] = &[
+    SkeletonFile {
+        path: "AGENTS.md",
+        content: "",
+    },
+    SkeletonFile {
+        path: "specs/README.md",
+        content: SPECS_README_CONTENT,
+    },
+];
 
 const GITIGNORE_FULL: &str = "\
 # Springfield
@@ -583,7 +589,7 @@ pub fn run(root: &Path, force: bool) -> io::Result<()> {
             .chain(
                 SKELETON_FILES
                     .iter()
-                    .filter(|sf| sf.path != "specs/README.md")
+                    .filter(|sf| sf.path != "AGENTS.md" && sf.path != "specs/README.md")
                     .map(|sf| sf.path),
             )
             .collect();
@@ -1167,7 +1173,7 @@ repos:
             .chain(
                 SKELETON_FILES
                     .iter()
-                    .filter(|sf| sf.path != "specs/README.md")
+                    .filter(|sf| sf.path != "AGENTS.md" && sf.path != "specs/README.md")
                     .map(|sf| sf.path),
             )
             .collect();
@@ -1251,6 +1257,26 @@ repos:
         assert_eq!(
             content, custom,
             "force should not overwrite specs/README.md"
+        );
+    }
+
+    #[test]
+    fn force_does_not_overwrite_agents_md() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+        run(tmp.path(), false).unwrap();
+
+        let agents_path = tmp.path().join("AGENTS.md");
+        let custom = "Custom AGENTS.md content\n";
+        fs::write(&agents_path, custom).unwrap();
+        git_add_commit(tmp.path(), "customize agents.md");
+
+        force_init(tmp.path()).unwrap();
+
+        let content = fs::read_to_string(&agents_path).unwrap();
+        assert_eq!(
+            content, custom,
+            "force should not overwrite AGENTS.md"
         );
     }
 
