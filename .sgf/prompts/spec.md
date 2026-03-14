@@ -6,11 +6,11 @@ Read the spec(s) that are involved in these changes as I mention them (if applic
 
 After the discussion, produce the following deliverables:
 
-1. Write/update spec files (`specs/*.md`).
-  a. NOTE: Favor updating existing spec files over creating new ones unless doing so makes sense (e.g. we're making a brand new package).
-2. Update `specs/README.md` with any new entries in this format: `| Spec | Code | Purpose |`.
-   (Study `@.sgf/loom-specs-README.md` for the reference format.)
-3. Use `pn` to create implementation items which cite (1) the specification with lookups for the source code and (2) documentation that needs to be viewed/changed/added.
+1. Create or update specs using `fm` (forma) commands.
+  a. NOTE: Favor updating existing specs (`fm update`, `fm section set`) over creating new ones unless doing so makes sense (e.g. we're making a brand new package — use `fm create`).
+  b. Use `fm list --json` to see existing specs. Use `fm show <stem> --json` to inspect a spec.
+  c. After making changes, run `fm export` to regenerate the markdown artifacts.
+2. Use `pn` to create implementation items which cite (1) the specification with lookups for the source code and (2) documentation that needs to be viewed/changed/added.
   a. NOTE: Implementation items should be scoped to atomic changes—the smallest self-contained modifications to the codebase that can be implemented and tested independently.
 
 The implementation plan should END with:
