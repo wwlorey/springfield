@@ -1191,6 +1191,163 @@ impl Db {
             refs: ref_count,
         })
     }
+
+    pub fn export_jsonl(&self) -> Result<ExportResult, FormaError> {
+        let specs = self.list_specs(None)?;
+
+        let all_sections: Vec<Section> = {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT * FROM sections ORDER BY spec_stem, position")
+                .map_err(|e| {
+                    FormaError::Internal(format!("failed to prepare sections export: {e}"))
+                })?;
+            stmt.query_map([], section_from_row)
+                .map_err(|e| FormaError::Internal(format!("failed to export sections: {e}")))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| FormaError::Internal(format!("failed to read sections: {e}")))?
+        };
+
+        let all_refs: Vec<Ref> = {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT from_stem, to_stem FROM refs ORDER BY from_stem, to_stem")
+                .map_err(|e| FormaError::Internal(format!("failed to prepare refs export: {e}")))?;
+            stmt.query_map([], |row| {
+                Ok(Ref {
+                    from_stem: row.get(0)?,
+                    to_stem: row.get(1)?,
+                })
+            })
+            .map_err(|e| FormaError::Internal(format!("failed to export refs: {e}")))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| FormaError::Internal(format!("failed to read refs: {e}")))?
+        };
+
+        // Write JSONL files
+        let mut specs_jsonl = String::new();
+        for spec in &specs {
+            specs_jsonl.push_str(
+                &serde_json::to_string(spec)
+                    .map_err(|e| FormaError::Internal(format!("failed to serialize spec: {e}")))?,
+            );
+            specs_jsonl.push('\n');
+        }
+        fs::write(self.forma_dir.join("specs.jsonl"), &specs_jsonl)
+            .map_err(|e| FormaError::Internal(format!("failed to write specs.jsonl: {e}")))?;
+
+        let mut sections_jsonl = String::new();
+        for section in &all_sections {
+            sections_jsonl.push_str(
+                &serde_json::to_string(section).map_err(|e| {
+                    FormaError::Internal(format!("failed to serialize section: {e}"))
+                })?,
+            );
+            sections_jsonl.push('\n');
+        }
+        fs::write(self.forma_dir.join("sections.jsonl"), &sections_jsonl)
+            .map_err(|e| FormaError::Internal(format!("failed to write sections.jsonl: {e}")))?;
+
+        let mut refs_jsonl = String::new();
+        for r in &all_refs {
+            refs_jsonl.push_str(
+                &serde_json::to_string(r)
+                    .map_err(|e| FormaError::Internal(format!("failed to serialize ref: {e}")))?,
+            );
+            refs_jsonl.push('\n');
+        }
+        fs::write(self.forma_dir.join("refs.jsonl"), &refs_jsonl)
+            .map_err(|e| FormaError::Internal(format!("failed to write refs.jsonl: {e}")))?;
+
+        // Generate markdown specs
+        let specs_md_dir = self.forma_dir.join("specs");
+        fs::create_dir_all(&specs_md_dir)
+            .map_err(|e| FormaError::Internal(format!("failed to create specs dir: {e}")))?;
+
+        let refs_by_stem: HashMap<String, Vec<&Ref>> = {
+            let mut map: HashMap<String, Vec<&Ref>> = HashMap::new();
+            for r in &all_refs {
+                map.entry(r.from_stem.clone()).or_default().push(r);
+            }
+            map
+        };
+
+        let spec_map: HashMap<&str, &Spec> = specs.iter().map(|s| (s.stem.as_str(), s)).collect();
+
+        let sections_by_stem: HashMap<String, Vec<&Section>> = {
+            let mut map: HashMap<String, Vec<&Section>> = HashMap::new();
+            for sec in &all_sections {
+                if let Some(stem) = &sec.spec_stem {
+                    map.entry(stem.clone()).or_default().push(sec);
+                }
+            }
+            map
+        };
+
+        for spec in &specs {
+            let mut md = String::new();
+            md.push_str(&format!("# {} Specification\n\n", spec.stem));
+            md.push_str(&format!("{}\n\n", spec.purpose));
+            md.push_str("| Field | Value |\n");
+            md.push_str("|-------|-------|\n");
+            md.push_str(&format!("| Crate | `{}` |\n", spec.crate_path));
+            md.push_str(&format!("| Status | {} |\n", spec.status));
+
+            if let Some(sections) = sections_by_stem.get(&spec.stem) {
+                for sec in sections {
+                    md.push_str(&format!("\n## {}\n\n", sec.name));
+                    md.push_str(&sec.body);
+                    if !sec.body.is_empty() && !sec.body.ends_with('\n') {
+                        md.push('\n');
+                    }
+                }
+            }
+
+            if let Some(refs) = refs_by_stem.get(&spec.stem) {
+                md.push_str("\n## Related Specifications\n\n");
+                for r in refs {
+                    let purpose = spec_map
+                        .get(r.to_stem.as_str())
+                        .map(|s| s.purpose.as_str())
+                        .unwrap_or("");
+                    md.push_str(&format!(
+                        "- [{}]({}.md) — {}\n",
+                        r.to_stem, r.to_stem, purpose
+                    ));
+                }
+            }
+
+            fs::write(specs_md_dir.join(format!("{}.md", spec.stem)), &md)
+                .map_err(|e| FormaError::Internal(format!("failed to write spec markdown: {e}")))?;
+        }
+
+        // Generate README.md
+        let mut readme = String::new();
+        readme.push_str("# Specifications\n\n");
+        readme.push_str("| Spec | Code | Status | Purpose |\n");
+        readme.push_str("|------|------|--------|--------|\n");
+        for spec in &specs {
+            readme.push_str(&format!(
+                "| [{}](specs/{}.md) | `{}` | {} | {} |\n",
+                spec.stem, spec.stem, spec.crate_path, spec.status, spec.purpose
+            ));
+        }
+        fs::write(self.forma_dir.join("README.md"), &readme)
+            .map_err(|e| FormaError::Internal(format!("failed to write README.md: {e}")))?;
+
+        Ok(ExportResult {
+            specs: specs.len(),
+            sections: all_sections.len(),
+            refs: all_refs.len(),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportResult {
+    pub specs: usize,
+    pub sections: usize,
+    pub refs: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2705,5 +2862,129 @@ mod tests {
 
         let refs = db.list_refs("alpha").unwrap();
         assert!(refs.is_empty());
+    }
+
+    #[test]
+    fn export_writes_jsonl_files() {
+        let (db, project_dir, _d) = test_db();
+        db.create_spec("auth", "crates/auth/", "Authentication", Some("test"))
+            .unwrap();
+        db.create_spec("ralph", "crates/ralph/", "Iterative runner", Some("test"))
+            .unwrap();
+
+        let result = db.export_jsonl().unwrap();
+        assert_eq!(result.specs, 2);
+        assert_eq!(result.sections, 10); // 5 required per spec
+        assert_eq!(result.refs, 0);
+
+        let forma_dir = project_dir.path().join(".forma");
+        assert!(forma_dir.join("specs.jsonl").exists());
+        assert!(forma_dir.join("sections.jsonl").exists());
+        assert!(forma_dir.join("refs.jsonl").exists());
+
+        let specs_content = fs::read_to_string(forma_dir.join("specs.jsonl")).unwrap();
+        let lines: Vec<&str> = specs_content.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].contains("\"auth\""));
+        assert!(lines[1].contains("\"ralph\""));
+    }
+
+    #[test]
+    fn export_writes_spec_markdown() {
+        let (db, project_dir, _d) = test_db();
+        db.create_spec("auth", "crates/auth/", "Authentication", Some("test"))
+            .unwrap();
+        db.set_section("auth", "overview", "Auth overview body.", Some("test"))
+            .unwrap();
+
+        db.export_jsonl().unwrap();
+
+        let forma_dir = project_dir.path().join(".forma");
+        let md = fs::read_to_string(forma_dir.join("specs/auth.md")).unwrap();
+        assert!(md.starts_with("# auth Specification"));
+        assert!(md.contains("Authentication"));
+        assert!(md.contains("| Crate | `crates/auth/` |"));
+        assert!(md.contains("| Status | draft |"));
+        assert!(md.contains("## Overview"));
+        assert!(md.contains("Auth overview body."));
+        assert!(!md.contains("## Related Specifications"));
+    }
+
+    #[test]
+    fn export_markdown_includes_refs() {
+        let (db, project_dir, _d) = test_db();
+        db.create_spec("auth", "crates/auth/", "Authentication", Some("test"))
+            .unwrap();
+        db.create_spec("ralph", "crates/ralph/", "Iterative runner", Some("test"))
+            .unwrap();
+        db.add_ref("auth", "ralph", Some("test")).unwrap();
+
+        db.export_jsonl().unwrap();
+
+        let forma_dir = project_dir.path().join(".forma");
+        let md = fs::read_to_string(forma_dir.join("specs/auth.md")).unwrap();
+        assert!(md.contains("## Related Specifications"));
+        assert!(md.contains("[ralph](ralph.md) — Iterative runner"));
+    }
+
+    #[test]
+    fn export_writes_readme() {
+        let (db, project_dir, _d) = test_db();
+        db.create_spec("auth", "crates/auth/", "Authentication", Some("test"))
+            .unwrap();
+        db.create_spec("ralph", "crates/ralph/", "Iterative runner", Some("test"))
+            .unwrap();
+
+        db.export_jsonl().unwrap();
+
+        let forma_dir = project_dir.path().join(".forma");
+        let readme = fs::read_to_string(forma_dir.join("README.md")).unwrap();
+        assert!(readme.starts_with("# Specifications"));
+        assert!(readme.contains("| Spec | Code | Status | Purpose |"));
+        assert!(readme.contains("[auth](specs/auth.md)"));
+        assert!(readme.contains("[ralph](specs/ralph.md)"));
+        assert!(readme.contains("`crates/auth/`"));
+    }
+
+    #[test]
+    fn export_import_roundtrip() {
+        let (db, _p, _d) = test_db();
+        db.create_spec("auth", "crates/auth/", "Authentication", Some("test"))
+            .unwrap();
+        db.create_spec("ralph", "crates/ralph/", "Iterative runner", Some("test"))
+            .unwrap();
+        db.set_section("auth", "overview", "Auth overview.", Some("test"))
+            .unwrap();
+        db.add_ref("auth", "ralph", Some("test")).unwrap();
+
+        let export_result = db.export_jsonl().unwrap();
+        assert_eq!(export_result.specs, 2);
+        assert_eq!(export_result.refs, 1);
+
+        let import_result = db.import_jsonl().unwrap();
+        assert_eq!(import_result.specs, 2);
+        assert_eq!(import_result.sections, 10);
+        assert_eq!(import_result.refs, 1);
+
+        let detail = db.get_spec("auth").unwrap();
+        assert_eq!(detail.spec.purpose, "Authentication");
+        assert_eq!(detail.refs.len(), 1);
+        assert_eq!(detail.refs[0].stem, "ralph");
+
+        let overview = db.get_section("auth", "overview").unwrap();
+        assert_eq!(overview.body, "Auth overview.");
+    }
+
+    #[test]
+    fn export_empty_db() {
+        let (db, project_dir, _d) = test_db();
+        let result = db.export_jsonl().unwrap();
+        assert_eq!(result.specs, 0);
+        assert_eq!(result.sections, 0);
+        assert_eq!(result.refs, 0);
+
+        let forma_dir = project_dir.path().join(".forma");
+        assert!(forma_dir.join("specs.jsonl").exists());
+        assert!(forma_dir.join("README.md").exists());
     }
 }

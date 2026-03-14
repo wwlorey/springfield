@@ -336,6 +336,10 @@ impl Client {
         self.request(|http| http.get(format!("{}/refs/cycles", self.base_url)).send())
     }
 
+    pub fn export(&self) -> Result<Value, FormaError> {
+        self.request(|http| http.post(format!("{}/export", self.base_url)).send())
+    }
+
     pub fn import(&self) -> Result<Value, FormaError> {
         self.request(|http| http.post(format!("{}/import", self.base_url)).send())
     }

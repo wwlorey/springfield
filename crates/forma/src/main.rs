@@ -71,6 +71,7 @@ enum Commands {
         #[command(subcommand)]
         subcmd: RefSubcommand,
     },
+    Export,
     Import,
     Where,
     Daemon {
@@ -492,6 +493,21 @@ fn main() {
                     Ok(v) => output::print_cycles(&v, mode),
                     Err(e) => fail(e, mode),
                 },
+            }
+        }
+
+        Commands::Export => {
+            let client = Client::new();
+            match client.export() {
+                Ok(v) => {
+                    output::print_import_export(&v, mode);
+                    let _ = Command::new("git")
+                        .args(["add", ".forma/"])
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .status();
+                }
+                Err(e) => fail(e, mode),
             }
         }
 

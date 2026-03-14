@@ -92,6 +92,7 @@ pub async fn start_with_data_dir(port: u16, project_dir: PathBuf, data_dir: Opti
         .route("/specs/{stem}/refs/{target}", delete(remove_ref))
         .route("/refs/cycles", get(ref_cycles))
         // Data routes
+        .route("/export", post(export_jsonl))
         .route("/import", post(import_jsonl))
         // Status
         .route("/status", get(project_status))
@@ -486,6 +487,17 @@ async fn ref_cycles(State(db): State<AppState>) -> Result<Json<Vec<Vec<String>>>
 }
 
 // --- Data endpoints ---
+
+async fn export_jsonl(State(db): State<AppState>) -> Result<Json<serde_json::Value>, AppError> {
+    let db = db.lock().unwrap();
+    let result = db.export_jsonl()?;
+    Ok(Json(serde_json::json!({
+        "status": "ok",
+        "specs": result.specs,
+        "sections": result.sections,
+        "refs": result.refs,
+    })))
+}
 
 async fn import_jsonl(State(db): State<AppState>) -> Result<Json<serde_json::Value>, AppError> {
     let db = db.lock().unwrap();
