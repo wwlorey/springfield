@@ -31,6 +31,47 @@ fn prepend_to_path(dir: &std::path::Path) -> String {
 }
 
 #[test]
+fn invokes_claude_wrapper_secret_not_claude() {
+    let workdir = TempDir::new().unwrap();
+    let mock_dir = TempDir::new().unwrap();
+
+    create_mock_secret(mock_dir.path());
+
+    let claude_marker = mock_dir.path().join("claude_was_called");
+    let claude_script = mock_dir.path().join("claude");
+    fs::write(
+        &claude_script,
+        format!("#!/bin/sh\ntouch '{}'\n", claude_marker.to_string_lossy()),
+    )
+    .unwrap();
+    fs::set_permissions(&claude_script, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let output_file = mock_dir.path().join("output.txt");
+
+    let result = Command::new(cl_binary())
+        .current_dir(workdir.path())
+        .env("HOME", workdir.path().to_str().unwrap())
+        .env("PATH", prepend_to_path(mock_dir.path()))
+        .env("CL_TEST_OUTPUT", &output_file)
+        .output()
+        .unwrap();
+
+    assert!(
+        result.status.success(),
+        "cl failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(
+        output_file.exists(),
+        "claude-wrapper-secret was not invoked"
+    );
+    assert!(
+        !claude_marker.exists(),
+        "claude binary was invoked directly — cl must call claude-wrapper-secret, not claude"
+    );
+}
+
+#[test]
 fn context_files_appear_in_append_system_prompt() {
     let workdir = TempDir::new().unwrap();
     let cwd = workdir.path();
