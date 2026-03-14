@@ -23,6 +23,11 @@
         "crates.io",
         "*.crates.io"
       ]
+    },
+    "filesystem": {
+      "allowWrite": [
+        "~/.sgf"
+      ]
     }
   }
 }
