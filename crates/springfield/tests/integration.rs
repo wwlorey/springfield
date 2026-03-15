@@ -2,6 +2,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use tempfile::TempDir;
@@ -10,6 +11,71 @@ use tempfile::TempDir;
 // Helpers
 // ---------------------------------------------------------------------------
 
+const PROMPT_NAMES: &[&str] = &[
+    "build", "spec", "verify", "test-plan", "test", "issues-log", "doc", "install",
+];
+
+const CONFIG_TOML: &str = "\
+[install]
+alias = \"i\"
+mode = \"afk\"
+iterations = 1
+auto_push = true
+
+[spec]
+alias = \"s\"
+mode = \"interactive\"
+iterations = 1
+auto_push = false
+
+[build]
+alias = \"b\"
+mode = \"interactive\"
+iterations = 30
+auto_push = true
+
+[verify]
+alias = \"v\"
+mode = \"afk\"
+iterations = 30
+auto_push = true
+
+[test-plan]
+mode = \"afk\"
+iterations = 30
+auto_push = true
+
+[test]
+mode = \"afk\"
+iterations = 30
+auto_push = true
+
+[issues-log]
+mode = \"interactive\"
+iterations = 1
+auto_push = false
+
+[doc]
+mode = \"interactive\"
+iterations = 1
+auto_push = false
+";
+
+static FAKE_HOME: LazyLock<TempDir> = LazyLock::new(|| {
+    let home = TempDir::new().unwrap();
+    let prompts = home.path().join(".sgf/prompts");
+    fs::create_dir_all(&prompts).unwrap();
+    for name in PROMPT_NAMES {
+        fs::write(prompts.join(format!("{name}.md")), format!("{name} prompt\n")).unwrap();
+    }
+    fs::write(prompts.join("config.toml"), CONFIG_TOML).unwrap();
+    home
+});
+
+fn fake_home() -> &'static Path {
+    FAKE_HOME.path()
+}
+
 fn sgf_bin() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_sgf"))
 }
@@ -17,6 +83,7 @@ fn sgf_bin() -> PathBuf {
 fn sgf_cmd(dir: &Path) -> Command {
     let mut cmd = Command::new(sgf_bin());
     cmd.current_dir(dir);
+    cmd.env("HOME", fake_home());
     cmd
 }
 
@@ -98,8 +165,9 @@ fn sgf_init_and_commit(dir: &Path) {
 
 /// Write a config.toml into .sgf/prompts/ with the given TOML content and commit.
 fn write_config_toml(dir: &Path, content: &str) {
-    let config_path = dir.join(".sgf/prompts/config.toml");
-    fs::write(&config_path, content).unwrap();
+    let prompts_dir = dir.join(".sgf/prompts");
+    fs::create_dir_all(&prompts_dir).unwrap();
+    fs::write(prompts_dir.join("config.toml"), content).unwrap();
     git_add_commit(dir, "add config.toml");
 }
 
@@ -130,7 +198,6 @@ fn init_creates_all_directories() {
         ".sgf",
         ".sgf/logs",
         ".sgf/run",
-        ".sgf/prompts",
     ];
     for dir in expected_dirs {
         assert!(tmp.path().join(dir).is_dir(), "directory missing: {dir}");
@@ -143,22 +210,26 @@ fn init_creates_all_files() {
     sgf_cmd(tmp.path()).arg("init").output().unwrap();
 
     let expected_files = [
-        "BACKPRESSURE.md",
-        ".sgf/prompts/spec.md",
-        ".sgf/prompts/build.md",
-        ".sgf/prompts/verify.md",
-        ".sgf/prompts/test-plan.md",
-        ".sgf/prompts/test.md",
-        ".sgf/prompts/issues-log.md",
-        ".sgf/prompts/install.md",
-        ".sgf/prompts/config.toml",
         ".claude/settings.json",
         ".pre-commit-config.yaml",
         ".gitignore",
+        "AGENTS.md",
     ];
     for f in expected_files {
         assert!(tmp.path().join(f).is_file(), "file missing: {f}");
     }
+
+    // Prompts should NOT be scaffolded locally
+    assert!(
+        !tmp.path().join(".sgf/prompts").exists(),
+        ".sgf/prompts/ should NOT be created by init"
+    );
+
+    // BACKPRESSURE.md should NOT be scaffolded
+    assert!(
+        !tmp.path().join("BACKPRESSURE.md").exists(),
+        "BACKPRESSURE.md should NOT be created by init"
+    );
 
     // CLAUDE.md should exist as a symlink
     let claude_md = tmp.path().join("CLAUDE.md");
@@ -220,21 +291,11 @@ fn init_idempotent() {
 
     sgf_cmd(tmp.path()).arg("init").output().unwrap();
 
-    // Modify a prompt template
-    let build_path = tmp.path().join(".sgf/prompts/build.md");
-    fs::write(&build_path, "custom build prompt").unwrap();
-
     // Snapshot config files
     let gitignore1 = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
     let settings1 = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
 
     sgf_cmd(tmp.path()).arg("init").output().unwrap();
-
-    // Modified template should persist (not overwritten)
-    assert_eq!(
-        fs::read_to_string(&build_path).unwrap(),
-        "custom build prompt"
-    );
 
     // No duplicate gitignore lines
     let gitignore2 = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
@@ -436,7 +497,7 @@ fn prompt_validate_missing_template() {
     fs::create_dir_all(tmp.path().join(".sgf/prompts")).unwrap();
 
     let err = springfield::prompt::validate(tmp.path(), "nonexistent", None).unwrap_err();
-    assert!(err.to_string().contains("template not found"));
+    assert!(err.to_string().contains("prompt not found"));
 }
 
 #[test]
@@ -881,51 +942,17 @@ fn init_no_specs_directory() {
 }
 
 #[test]
-fn templates_no_read_memento_directive() {
+fn prompts_not_scaffolded_by_init() {
     let tmp = setup_test_dir();
     sgf_cmd(tmp.path()).arg("init").output().unwrap();
 
-    let templates = [
-        ".sgf/prompts/spec.md",
-        ".sgf/prompts/build.md",
-        ".sgf/prompts/verify.md",
-        ".sgf/prompts/test-plan.md",
-        ".sgf/prompts/test.md",
-        ".sgf/prompts/issues-log.md",
-    ];
-
-    for tmpl in templates {
-        let content = fs::read_to_string(tmp.path().join(tmpl)).unwrap();
-        assert!(
-            !content.contains("Read `memento.md`"),
-            "{tmpl} should NOT contain 'Read `memento.md`' (sgf handles injection)"
-        );
-    }
-}
-
-#[test]
-fn templates_reference_uppercase_filenames() {
-    let tmp = setup_test_dir();
-    sgf_cmd(tmp.path()).arg("init").output().unwrap();
-
-    // test.md should reference root BACKPRESSURE.md (uppercase, not inside .sgf/)
-    let test = fs::read_to_string(tmp.path().join(".sgf/prompts/test.md")).unwrap();
     assert!(
-        test.contains("BACKPRESSURE.md"),
-        "test.md should reference BACKPRESSURE.md (uppercase)"
+        !tmp.path().join(".sgf/prompts").exists(),
+        "init should NOT create .sgf/prompts/"
     );
     assert!(
-        !test.contains("backpressure.md"),
-        "test.md should NOT reference backpressure.md (lowercase)"
-    );
-    // test.md should use pn claim workflow, not reference .sgf/PENSA.md
-    assert!(
-        test.contains("pn claim workflow"),
-        "test.md should reference pn claim workflow"
-    );
-    assert!(
-        !test.contains(".sgf/PENSA.md"),
-        "test.md should NOT reference .sgf/PENSA.md"
+        !tmp.path().join("BACKPRESSURE.md").exists(),
+        "init should NOT create BACKPRESSURE.md"
     );
 }
 
@@ -992,159 +1019,41 @@ fn end_to_end_build_passes_raw_path_and_spec() {
 }
 
 // ===========================================================================
-// End-to-end: sgf init with root-level BACKPRESSURE.md
+// End-to-end: sgf init does not scaffold prompts or backpressure
 // ===========================================================================
 
 #[test]
-fn init_end_to_end_root_backpressure() {
+fn init_does_not_scaffold_context_files() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
 
-    // (1) BACKPRESSURE.md exists at root with expected template content
-    let bp_path = tmp.path().join("BACKPRESSURE.md");
     assert!(
-        bp_path.is_file(),
-        "BACKPRESSURE.md should exist at project root"
+        !tmp.path().join("BACKPRESSURE.md").exists(),
+        "BACKPRESSURE.md should NOT be scaffolded at root"
     );
-    let bp_content = fs::read_to_string(&bp_path).unwrap();
-    assert!(
-        bp_content.contains("# Backpressure"),
-        "BACKPRESSURE.md should contain expected heading"
-    );
-    assert!(
-        bp_content.contains("cargo build"),
-        "BACKPRESSURE.md should contain Rust build commands"
-    );
-    assert!(
-        bp_content.contains("cargo test"),
-        "BACKPRESSURE.md should contain Rust test commands"
-    );
-    assert!(
-        bp_content.contains("cargo clippy"),
-        "BACKPRESSURE.md should contain Rust lint commands"
-    );
-
-    // (2) .sgf/BACKPRESSURE.md does NOT exist
     assert!(
         !tmp.path().join(".sgf/BACKPRESSURE.md").exists(),
-        "BACKPRESSURE.md should NOT exist inside .sgf/"
+        ".sgf/BACKPRESSURE.md should NOT be scaffolded"
     );
-
-    // (3) .sgf/MEMENTO.md and .sgf/PENSA.md should NOT exist
     assert!(
         !tmp.path().join(".sgf/MEMENTO.md").exists(),
-        ".sgf/MEMENTO.md should NOT be created"
+        ".sgf/MEMENTO.md should NOT be scaffolded"
     );
     assert!(
-        !tmp.path().join(".sgf/PENSA.md").exists(),
-        ".sgf/PENSA.md should NOT be created"
+        !tmp.path().join(".sgf/prompts").exists(),
+        ".sgf/prompts/ should NOT be created"
+    );
+    assert!(
+        !tmp.path().join("specs").exists(),
+        "specs/ should NOT be created"
     );
 
-    // (4) .claude/settings.json deny rules do NOT cover root BACKPRESSURE.md
     let settings = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
     let doc: serde_json::Value = serde_json::from_str(&settings).unwrap();
     let deny = doc["permissions"]["deny"].as_array().unwrap();
-    // All deny rules target .sgf/** — root BACKPRESSURE.md is not blocked
-    for rule in deny {
-        let rule_str = rule.as_str().unwrap();
-        assert!(
-            !rule_str.contains("BACKPRESSURE"),
-            "deny rules should not block root BACKPRESSURE.md, found: {rule_str}"
-        );
-    }
-    // Confirm .sgf/** rules exist (they protect .sgf/ contents, not root files)
     assert!(
         deny.contains(&serde_json::Value::String("Edit .sgf/**".to_string())),
         "deny rules should protect .sgf/ contents"
-    );
-}
-
-// ===========================================================================
-// End-to-end: sgf init --force restores templates matching spec
-// ===========================================================================
-
-#[test]
-fn init_force_restores_templates_matching_spec() {
-    let tmp = setup_test_dir();
-
-    let output = sgf_cmd(tmp.path()).arg("init").output().unwrap();
-    assert!(output.status.success(), "sgf init failed");
-
-    // Remove pre-commit hook so git commits succeed in the test env
-    let _ = fs::remove_file(tmp.path().join(".git/hooks/pre-commit"));
-
-    git_add_commit(tmp.path(), "sgf init");
-
-    // Modify templates with stale content
-    fs::write(
-        tmp.path().join(".sgf/prompts/build.md"),
-        "stale build prompt with old task wording\n",
-    )
-    .unwrap();
-    fs::write(tmp.path().join("BACKPRESSURE.md"), "stale backpressure\n").unwrap();
-    git_add_commit(tmp.path(), "stale templates");
-
-    // Run sgf init --force, piping "y" to confirm
-    let output = sgf_cmd(tmp.path())
-        .args(["init", "--force"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .and_then(|mut child| {
-            use std::io::Write;
-            child.stdin.take().unwrap().write_all(b"y\n").unwrap();
-            child.wait_with_output()
-        })
-        .unwrap();
-
-    assert!(
-        output.status.success(),
-        "sgf init --force failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    // (1) .sgf/PENSA.md should NOT exist
-    assert!(
-        !tmp.path().join(".sgf/PENSA.md").exists(),
-        ".sgf/PENSA.md should NOT be created by force init"
-    );
-
-    // (2) .sgf/prompts/build.md restored — uses 'issue' terminology
-    let build = fs::read_to_string(tmp.path().join(".sgf/prompts/build.md")).unwrap();
-    assert!(
-        build.contains("issue"),
-        "build.md should use 'issue' terminology"
-    );
-    assert!(
-        !build.contains("stale"),
-        "build.md should have been overwritten (no stale content)"
-    );
-
-    // (3) BACKPRESSURE.md at root restored with real content
-    let bp = fs::read_to_string(tmp.path().join("BACKPRESSURE.md")).unwrap();
-    assert!(
-        bp.contains("# Backpressure"),
-        "BACKPRESSURE.md should be restored with template content"
-    );
-    assert!(
-        bp.contains("cargo build"),
-        "BACKPRESSURE.md should contain cargo build command"
-    );
-
-    // (4) specs/ should not be scaffolded (forma manages specs now)
-    assert!(
-        !tmp.path().join("specs").exists(),
-        "specs/ should not be scaffolded by init"
-    );
-
-    // (5) Config files should still be intact after force
-    let settings = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
-    let doc: serde_json::Value = serde_json::from_str(&settings).unwrap();
-    let deny = doc["permissions"]["deny"].as_array().unwrap();
-    assert!(
-        deny.contains(&serde_json::Value::String("Edit .sgf/**".to_string())),
-        "deny rules should still be present after force init"
     );
 }
 
@@ -3055,6 +2964,7 @@ fn custom_prompt_without_config_entry_uses_fallback_defaults() {
     sgf_init_and_commit(tmp.path());
 
     // Create a custom prompt file with no config.toml entry
+    fs::create_dir_all(tmp.path().join(".sgf/prompts")).unwrap();
     fs::write(
         tmp.path().join(".sgf/prompts/deploy.md"),
         "Deploy the project.",
@@ -3165,6 +3075,14 @@ fn e2e_sgf_ralph_cl_context_files_and_spec_in_append_system_prompt() {
     )
     .unwrap();
     fs::write(tmp.path().join("specs/README.md"), "specs readme content").unwrap();
+
+    // Set up prompts in the HOME/.sgf/prompts/ directory so prompt resolution works
+    let home_prompts = tmp.path().join(".sgf/prompts");
+    fs::create_dir_all(&home_prompts).unwrap();
+    for name in PROMPT_NAMES {
+        fs::write(home_prompts.join(format!("{name}.md")), format!("{name} prompt\n")).unwrap();
+    }
+    fs::write(home_prompts.join("config.toml"), CONFIG_TOML).unwrap();
     git_add_commit(tmp.path(), "add context files");
 
     let bin_dir = target_bin_dir();

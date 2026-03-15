@@ -163,7 +163,9 @@ AGENTS.md                              (empty file)
 CLAUDE.md                              (`ln -s` to AGENTS.md)
 ```
 
-No `.sgf/prompts/` directory is created — prompts resolve from `~/.sgf/prompts/` by default. Users create `./.sgf/prompts/` manually when they need project-local overrides.
+No `.sgf/prompts/` directory is created — prompts and config.toml resolve via layered lookup (local `./.sgf/prompts/` → global `~/.sgf/prompts/`). Users create `./.sgf/prompts/` manually when they need project-local overrides.
+
+Warns if `.sgf/MEMENTO.md` or `.sgf/BACKPRESSURE.md` is missing — agents need these for fm/pn workflow reference and build/test/lint commands. These files are not scaffolded; they are authored per-project.
 
 ### Claude settings
 
@@ -307,7 +309,7 @@ All entries are always added regardless of what exists in the directory. If an e
 
 ### --force
 
-`sgf init --force` overwrites skeleton files with built-in defaults, **except `AGENTS.md` and `specs/README.md`** which are never overwritten.
+`sgf init --force` overwrites skeleton files with built-in defaults, **except `AGENTS.md`** which is never overwritten. Since init no longer scaffolds prompt files or templates, `--force` primarily affects skeleton files.
 
 Safety checks:
 - Fails if any target file has uncommitted changes or is untracked by git.
@@ -328,15 +330,14 @@ After `sgf init` and ongoing development, a project contains:
 ├── deps.jsonl                 (committed)
 └── comments.jsonl             (committed)
 .sgf/
-├── loom-specs-README.md       (committed — reference format for specs/README.md)
+├── MEMENTO.md                 (fm/pn workflow reference — authored per-project)
+├── BACKPRESSURE.md            (build/test/lint/format reference — authored per-project)
 ├── logs/                      (gitignored — AFK loop output)
 │   └── <loop-id>.log
 ├── run/                       (gitignored — PID files for running loops)
 │   └── <loop-id>.pid
-├── prompts/                   (optional — project-local overrides only)
-│   └── build.md               (example: overrides just build.md, other prompts fall through to ~/.sgf/)
-├── BACKPRESSURE.md            (optional — project-specific backpressure override)
-└── MEMENTO.md                 (optional — project-specific memento override)
+└── prompts/                   (optional — project-local overrides only)
+    └── build.md               (example: overrides just build.md, other prompts fall through to ~/.sgf/)
 .pre-commit-config.yaml        (prek hooks for pensa sync)
 AGENTS.md                      (hand-authored operational guidance)
 CLAUDE.md                      (`ln -s` to AGENTS.md)
@@ -353,9 +354,8 @@ Populated by `just install` (rsync from the springfield repo's `.sgf/`):
 
 ```
 ~/.sgf/
-├── MEMENTO.md                 (universal agent instructions — pn workflows, conventions)
+├── MEMENTO.md                 (universal agent instructions — fm/pn workflows, conventions)
 ├── BACKPRESSURE.md            (universal build/test/lint/format reference)
-├── loom-specs-README.md       (reference format for specs/README.md)
 └── prompts/
     ├── config.toml            (per-command defaults: mode, iterations, auto_push, alias)
     ├── build.md               (default prompts for all projects)
@@ -380,23 +380,19 @@ install:
     rsync -av --delete --exclude='logs/' --exclude='run/' .sgf/ ~/.sgf/
 ```
 
-The rsync copies prompts, config, MEMENTO.md, BACKPRESSURE.md, and loom-specs-README.md to `~/.sgf/`. The `--delete` flag removes files from `~/.sgf/` that no longer exist in the repo. Runtime directories (`logs/`, `run/`) are excluded.
+The rsync copies prompts, config, MEMENTO.md, and BACKPRESSURE.md to `~/.sgf/`. The `--delete` flag removes files from `~/.sgf/` that no longer exist in the repo. Runtime directories (`logs/`, `run/`) are excluded.
 
 ### File Purposes
 
-**`specs/README.md`** — Agent-maintained spec index, matching the loom format (reference copy at `.sgf/loom-specs-README.md`). Categorized tables with `| Spec | Code | Purpose |` columns mapping each spec to its implementation location and a one-line summary. Agents update this file when adding or revising specs.
-
 **`~/.sgf/BACKPRESSURE.md`** — Universal build, test, lint, and format commands. Developer-editable. Override per-project by placing a `BACKPRESSURE.md` in `./.sgf/`. Injected into every Claude session by `cl` (see [claude-wrapper spec](claude-wrapper.md)).
 
-**`~/.sgf/MEMENTO.md`** — Universal agent instructions (pn workflows, conventions, sandbox rules). Override per-project by placing a `MEMENTO.md` in `./.sgf/`. Injected into every Claude session by `cl`.
-
-**`.sgf/loom-specs-README.md`** — Reference example showing how to format `specs/README.md`. Demonstrates categorized tables with `| Spec | Code | Purpose |` columns. Agents read this to learn the expected index format. Protected by Claude deny settings.
+**`~/.sgf/MEMENTO.md`** — Universal agent instructions (fm/pn workflows, conventions, sandbox rules). Override per-project by placing a `MEMENTO.md` in `./.sgf/`. Injected into every Claude session by `cl`.
 
 **`AGENTS.md`** — Hand-authored operational guidance. Contains code style preferences, runtime notes, and special instructions. Created as an empty file by `sgf init`.
 
 **`CLAUDE.md`** — Entry point for Claude Code. Symlinks to AGENTS.md. Auto-loaded by Claude Code at the start of every session.
 
-**`config.toml`** — Per-command defaults. Defines `mode`, `iterations`, `auto_push`, and optional `alias` for each prompt. Lives in `~/.sgf/prompts/` (global) with optional per-project override in `./.sgf/prompts/config.toml` (merged key-by-key). See [Prompt Configuration](#prompt-configuration).
+**`config.toml`** — Per-command defaults. Defines `mode`, `iterations`, `auto_push`, and optional `alias` for each prompt. Lives in `~/.sgf/prompts/` (global) with optional per-project override in `./.sgf/prompts/config.toml`. Local config sections override global ones by key; global sections not overridden locally are preserved. See [Prompt Configuration](#prompt-configuration).
 
 **`~/.sgf/prompts/`** — Default prompts for all projects. Synced from the springfield repo via `just install`. To override a prompt for a specific project, create `./.sgf/prompts/<name>.md` — that file takes precedence for that project only. Adding a new `.md` file to either location makes it available as `sgf <name>` immediately (with fallback defaults if no config.toml entry exists).
 
@@ -672,6 +668,8 @@ Every `eprintln!("sgf: ...")` and `println!(...)` call in the springfield crate 
 | ralph exited with unexpected code [{loop_id}] | error | orchestrate.rs |
 | New commits detected, pushing... | action | orchestrate.rs (auto-push callback) |
 | push failed (non-fatal): {err} | warning | orchestrate.rs (auto-push callback) |
+| .sgf/MEMENTO.md not found — agents won't have fm/pn workflow reference | warning | init.rs |
+| .sgf/BACKPRESSURE.md not found — agents won't have build/test/lint reference | warning | init.rs |
 | project scaffolded successfully | success | init.rs |
 | {stage}: {e} | error | main.rs |
 
@@ -785,10 +783,9 @@ The fix tasks appear in subsequent `pn ready` calls and are implemented as norma
 
 Opens an interactive Claude Code session with the spec prompt. Calls `cl` directly (no ralph). The developer provides an outline of what to build, the agent interviews them to fill in gaps, and then generates deliverables:
 
-1. Write spec files to `specs/`
-2. Update `specs/README.md` with new index entries (loom-style `| Spec | Code | Purpose |` rows)
-3. Create implementation plan items via `pn create -t task --spec <stem>`, with dependencies and priorities
-4. Commit and push
+1. Create or update specs via `fm` (Spec Create and/or Spec Update Workflow from MEMENTO)
+2. Create implementation plan items via `pn create -t task --spec <stem>`, with dependencies and priorities
+3. Commit and push
 
 The interview and generation happen in a single session. The agent asks clarifying questions as needed, but the goal is always to produce specs and a plan. The prompt instructs the agent to design specs so the result can be end-to-end tested from the command line.
 
@@ -798,7 +795,7 @@ Tasks linked to a spec *are* the implementation plan. Query with `pn list -t tas
 1. Reviews existing tasks for the spec: `pn list --spec <stem> --json`
 2. Closes tasks that are no longer relevant: `pn close <id> --reason "superseded by revised spec"`
 3. Creates new tasks for the delta: `pn create "..." -t task --spec <stem>`
-4. Updates the spec file in `specs/`
+4. Updates the spec via `fm`
 5. Restart build loops after revision is committed
 
 ### 2. Build (`sgf build [spec]`)
@@ -813,8 +810,8 @@ Run interactively first for a few supervised rounds, then switch to AFK mode (`-
 
 Runs via ralph using `.sgf/prompts/verify.md`. Each iteration handles one spec:
 
-1. Read the spec index from `specs/README.md`
-2. Pick one unverified spec and investigate it against the codebase
+1. List all specs via `fm list --json`
+2. Pick one unverified spec and investigate it against the codebase (read via `fm show <stem> --json`)
 3. Mark conformance: ✅ Matches spec, ⚠️ Partial match, ❌ Missing/different
 4. Update `verification-report.md`
 5. Log any gaps as pensa bugs: `pn create "..." -t bug`
@@ -890,49 +887,6 @@ Users can add custom prompts by creating a new `.md` file in `./.sgf/prompts/` (
 ## Backpressure
 
 `BACKPRESSURE.md` lives in the springfield repo's `.sgf/` directory and is synced to `~/.sgf/` via `just install`. It contains universal build, test, lint, and format commands for common project types. The developer deletes sections that don't apply to their project by creating a project-local override in `./.sgf/BACKPRESSURE.md`.
-
----
-
-## Loom Specs README Reference
-
-The following is the full content of `.sgf/loom-specs-README.md` that `sgf init` writes. It serves as a reference example for how agents should format `specs/README.md` — categorized tables with `| Spec | Code | Purpose |` columns.
-
-```markdown
-# Loom Specifications
-
-Design documentation for Loom, an AI-powered coding agent in Rust.
-
-## Core Architecture
-
-| Spec | Code | Purpose |
-|------|------|---------|
-| [architecture.md](./architecture.md) | [crates/](../crates/) | Crate structure, server-side LLM proxy design |
-| [state-machine.md](./state-machine.md) | [loom-core](../crates/loom-core/) | Agent state machine for conversation flow |
-| [tool-system.md](./tool-system.md) | [loom-tools](../crates/loom-tools/) | Tool registry and execution framework |
-| [thread-system.md](./thread-system.md) | [loom-thread](../crates/loom-thread/) | Thread persistence and sync |
-| [streaming.md](./streaming.md) | [loom-llm-service](../crates/loom-llm-service/) | SSE streaming for real-time LLM responses |
-| [error-handling.md](./error-handling.md) | [loom-core](../crates/loom-core/) | Error types using `thiserror` |
-
-## Observability Suite
-
-Loom's integrated observability platform: analytics, crash tracking, cron monitoring, and session health.
-
-| Spec | Code | Purpose |
-|------|------|---------|
-| [analytics-system.md](./analytics-system.md) | [loom-analytics-core](../crates/loom-analytics-core/), [loom-analytics](../crates/loom-analytics/), [loom-server-analytics](../crates/loom-server-analytics/) | Product analytics with PostHog-style identity resolution |
-| [crash-system.md](./crash-system.md) | [loom-crash-core](../crates/loom-crash-core/), [loom-crash](../crates/loom-crash/), [loom-crash-symbolicate](../crates/loom-crash-symbolicate/), [loom-server-crash](../crates/loom-server-crash/) | Crash analytics with source maps, regression detection |
-| [sessions-system.md](./sessions-system.md) | [loom-sessions-core](../crates/loom-sessions-core/), [loom-server-sessions](../crates/loom-server-sessions/) | Session analytics with release health and crash-free rate |
-
-## LLM Integration
-
-| Spec | Code | Purpose |
-|------|------|---------|
-| [llm-client.md](./llm-client.md) | [loom-llm-anthropic](../crates/loom-llm-anthropic/), [loom-llm-openai](../crates/loom-llm-openai/), [loom-server-llm-zai](../crates/loom-server-llm-zai/) | `LlmClient` trait for providers |
-| [anthropic-oauth-pool.md](./anthropic-oauth-pool.md) | [loom-llm-anthropic](../crates/loom-llm-anthropic/) | Claude subscription pooling with failover |
-| [claude-subscription-auth.md](./claude-subscription-auth.md) | [loom-llm-anthropic](../crates/loom-llm-anthropic/) | OAuth 2.0 PKCE for Claude Pro/Max |
-```
-
----
 
 ---
 

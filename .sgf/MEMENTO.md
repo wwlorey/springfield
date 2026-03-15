@@ -21,6 +21,22 @@ When sandboxed:
 - Sections are identified by **slug** (auto-generated from display name, e.g., `error-handling`).
 - Required sections (`overview`, `architecture`, `dependencies`, `error-handling`, `testing`) are auto-scaffolded on `fm create` and cannot be removed.
 
+### Spec Create Workflow
+
+1. Create the spec: `fm create <stem> --crate <path> --purpose "<text>"`
+2. Fill in required sections (pipe body via stdin):
+   `echo "body content" | fm section set <stem> "<slug>" --body-stdin`
+3. Add custom sections as needed:
+   `echo "body content" | fm section add <stem> "<name>" --body-stdin`
+4. Add cross-references to related specs: `fm ref add <stem> <target-stem>`
+
+### Spec Update Workflow
+
+1. Read the current spec: `fm show <stem> --json`
+2. Update metadata: `fm update <stem> [--status <s>] [--crate <path>] [--purpose "<text>"]`
+3. Update section bodies (pipe body via stdin):
+   `echo "body content" | fm section set <stem> "<slug>" --body-stdin`
+
 ### How specs relate to pn
 
 - `pn create --spec <stem>` links an issue to a forma spec. Pensa validates the stem against forma.

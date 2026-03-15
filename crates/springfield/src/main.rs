@@ -111,17 +111,15 @@ fn parse_dynamic_args(args: Vec<OsString>) -> Result<DynamicArgs, String> {
 }
 
 fn resolve_command(root: &Path, name: &str) -> Result<String, String> {
-    let prompt_path = root.join(format!(".sgf/prompts/{name}.md"));
-    if prompt_path.exists() {
+    if springfield::prompt::resolve(root, name).is_some() {
         return Ok(name.to_string());
     }
 
     let configs = config::load(root).map_err(|e| format!("failed to load config: {e}"))?;
-    if let Some(resolved) = config::resolve_alias(&configs, name) {
-        let resolved_path = root.join(format!(".sgf/prompts/{resolved}.md"));
-        if resolved_path.exists() {
-            return Ok(resolved.to_string());
-        }
+    if let Some(resolved) = config::resolve_alias(&configs, name)
+        && springfield::prompt::resolve(root, resolved).is_some()
+    {
+        return Ok(resolved.to_string());
     }
 
     Err(format!("unknown command: {name}"))

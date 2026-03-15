@@ -1,14 +1,31 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-pub fn validate(root: &Path, stage: &str, spec: Option<&str>) -> io::Result<PathBuf> {
-    let template_path = root.join(format!(".sgf/prompts/{stage}.md"));
-    if !template_path.exists() {
-        return Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            format!("template not found: {}", template_path.display()),
-        ));
+fn global_prompts_dir() -> Option<PathBuf> {
+    std::env::var("HOME")
+        .ok()
+        .map(|h| PathBuf::from(h).join(".sgf/prompts"))
+}
+
+pub fn resolve(root: &Path, name: &str) -> Option<PathBuf> {
+    let local = root.join(format!(".sgf/prompts/{name}.md"));
+    if local.exists() {
+        return Some(local);
     }
+    let global = global_prompts_dir()?.join(format!("{name}.md"));
+    if global.exists() {
+        return Some(global);
+    }
+    None
+}
+
+pub fn validate(root: &Path, stage: &str, spec: Option<&str>) -> io::Result<PathBuf> {
+    let template_path = resolve(root, stage).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("prompt not found: {stage}.md (checked .sgf/prompts/ and ~/.sgf/prompts/)"),
+        )
+    })?;
 
     if let Some(stem) = spec {
         let spec_path = root.join(format!("specs/{stem}.md"));
@@ -50,7 +67,7 @@ mod tests {
 
         let err = validate(tmp.path(), "nonexistent", None).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::NotFound);
-        assert!(err.to_string().contains("template not found"));
+        assert!(err.to_string().contains("prompt not found"));
         assert!(err.to_string().contains("nonexistent.md"));
     }
 
