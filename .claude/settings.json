@@ -14,6 +14,11 @@
   "sandbox": {
     "autoAllowBashIfSandboxed": true,
     "enabled": true,
+    "filesystem": {
+      "allowWrite": [
+        "~/.sgf"
+      ]
+    },
     "network": {
       "allowLocalBinding": true,
       "allowedDomains": [
@@ -22,11 +27,6 @@
         "*.githubusercontent.com",
         "crates.io",
         "*.crates.io"
-      ]
-    },
-    "filesystem": {
-      "allowWrite": [
-        "~/.sgf"
       ]
     }
   }

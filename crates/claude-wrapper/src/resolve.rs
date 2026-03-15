@@ -27,29 +27,17 @@ pub fn resolve_context_files(cwd: &Path, home: &Path) -> ResolvedContext {
         eprintln!("warning: {filename} not found in .sgf/ (local or global), skipping");
     }
 
-    let spec_index = resolve_spec_index(cwd);
+    let spec_index = resolve_spec_index();
 
     ResolvedContext { files, spec_index }
 }
 
-fn resolve_spec_index(cwd: &Path) -> Option<String> {
+fn resolve_spec_index() -> Option<String> {
     if let Some(index) = resolve_spec_index_from_fm() {
         return Some(index);
     }
 
-    let fallback = cwd.join(".forma").join("README.md");
-    if fallback.exists() {
-        match std::fs::read_to_string(&fallback) {
-            Ok(contents) => return Some(contents),
-            Err(e) => {
-                eprintln!("warning: failed to read .forma/README.md: {e}");
-            }
-        }
-    }
-
-    eprintln!(
-        "warning: spec index not available (fm unreachable and .forma/README.md not found), skipping"
-    );
+    eprintln!("warning: spec index not available (fm unreachable), skipping");
     None
 }
 
@@ -166,23 +154,6 @@ mod tests {
 
         let bp = &result.files[1];
         assert!(bp.starts_with(home.to_str().unwrap()));
-    }
-
-    #[test]
-    fn forma_readme_fallback_used_when_fm_unavailable() {
-        let (cwd_dir, home_dir) = setup();
-        let cwd = cwd_dir.path();
-
-        fs::create_dir_all(cwd.join(".forma")).unwrap();
-        fs::write(
-            cwd.join(".forma/README.md"),
-            "# Specs\n\n| Spec | Code | Purpose |\n",
-        )
-        .unwrap();
-
-        let result = resolve_context_files(cwd, home_dir.path());
-        assert!(result.spec_index.is_some());
-        assert!(result.spec_index.unwrap().contains("# Specs"));
     }
 
     #[test]

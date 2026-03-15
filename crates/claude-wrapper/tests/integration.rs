@@ -245,44 +245,6 @@ fn exits_1_when_downstream_binary_missing() {
 }
 
 #[test]
-fn spec_index_falls_back_to_forma_readme() {
-    let workdir = TempDir::new().unwrap();
-    let cwd = workdir.path();
-
-    fs::create_dir_all(cwd.join(".forma")).unwrap();
-    fs::write(
-        cwd.join(".forma/README.md"),
-        "# Specifications\n\n| Spec | Code | Purpose |\n|------|------|---------|",
-    )
-    .unwrap();
-
-    let mock_dir = TempDir::new().unwrap();
-    create_mock_secret(mock_dir.path());
-    let output_file = mock_dir.path().join("output.txt");
-
-    let result = Command::new(cl_binary())
-        .current_dir(cwd)
-        .env("HOME", workdir.path().to_str().unwrap())
-        .env("PATH", prepend_to_path(mock_dir.path()))
-        .env("CL_TEST_OUTPUT", &output_file)
-        .output()
-        .unwrap();
-
-    assert!(
-        result.status.success(),
-        "cl failed: {}",
-        String::from_utf8_lossy(&result.stderr)
-    );
-
-    let output = fs::read_to_string(&output_file).unwrap();
-    assert!(output.contains("--append-system-prompt"));
-    assert!(
-        output.contains("Specifications"),
-        "expected spec index in prompt, got: {output}"
-    );
-}
-
-#[test]
 fn spec_index_unavailable_skipped_no_error_exit() {
     let workdir = TempDir::new().unwrap();
     let mock_dir = TempDir::new().unwrap();

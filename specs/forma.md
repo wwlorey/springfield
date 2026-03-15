@@ -645,5 +645,5 @@ Key scenarios:
 
 - [pensa](pensa.md) — Issue tracker, validates `--spec` against forma
 - [ralph](ralph.md) — Reads specs via `fm show --json` for system prompt injection
-- [claude-wrapper](claude-wrapper.md) — Injects `.forma/README.md` as context
+- [claude-wrapper](claude-wrapper.md) — Queries `fm list --json` for spec index
 - [springfield](springfield.md) — Manages forma daemon lifecycle, scaffolds `.forma/` on init

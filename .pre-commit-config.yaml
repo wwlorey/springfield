@@ -1,17 +1,39 @@
 repos:
-  - repo: local
-    hooks:
-      - id: pensa-export
-        name: pensa export
-        entry: pn export
-        language: system
-        always_run: true
-        pass_filenames: false
-        stages: [pre-commit]
-      - id: pensa-import
-        name: pensa import
-        entry: pn import
-        language: system
-        always_run: true
-        pass_filenames: false
-        stages: [post-merge, post-checkout, post-rewrite]
+- repo: local
+  hooks:
+  - id: pensa-export
+    name: pensa export
+    entry: pn export
+    language: system
+    always_run: true
+    pass_filenames: false
+    stages:
+    - pre-commit
+  - id: pensa-import
+    name: pensa import
+    entry: pn import
+    language: system
+    always_run: true
+    pass_filenames: false
+    stages:
+    - post-merge
+    - post-checkout
+    - post-rewrite
+  - id: forma-export
+    name: forma export
+    entry: fm export
+    language: system
+    always_run: true
+    pass_filenames: false
+    stages:
+    - pre-commit
+  - id: forma-import
+    name: forma import
+    entry: fm import
+    language: system
+    always_run: true
+    pass_filenames: false
+    stages:
+    - post-merge
+    - post-checkout
+    - post-rewrite

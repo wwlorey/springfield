@@ -65,9 +65,9 @@ The first existing path wins. If neither exists, the file is skipped with a warn
 
 ### Spec index resolution
 
-`cl` calls `fm list --json` to get the current spec index from the forma daemon. The JSON output is formatted as a markdown table (matching the format of `.forma/README.md`) and included in the study instruction.
+`cl` calls `fm list --json` to get the current spec index from the forma daemon. The JSON output is formatted as a markdown table and included in the study instruction.
 
-If `fm list --json` fails (forma daemon not running, `fm` not in PATH), `cl` falls back to reading `./.forma/README.md` if it exists. If neither source is available, the spec index is skipped with a warning to stderr.
+If `fm list --json` fails (forma daemon not running, `fm` not in PATH), the spec index is skipped with a warning to stderr.
 
 ### Resolution Function
 
@@ -109,7 +109,7 @@ If `claude-wrapper-secret` is not found in `$PATH`, `cl` prints an error to stde
 | Scenario | Behavior |
 |----------|----------|
 | Context file missing (both tiers) | Warning to stderr, skip the file |
-| `fm list --json` fails | Fall back to `./.forma/README.md` file; if also missing, skip with warning |
+| `fm list --json` fails | Warning to stderr, skip spec index |
 | `claude-wrapper-secret` not in PATH | Error to stderr, exit 1 |
 | Home directory unresolvable | Warning to stderr, skip global lookups |
 
@@ -133,8 +133,7 @@ If `claude-wrapper-secret` is not found in `$PATH`, `cl` prints an error to stde
 - Passthrough args are forwarded unchanged
 - Multiple `--append-system-prompt` args coexist (one from `cl`, one from caller)
 - Spec index from `fm list --json` appears in `--append-system-prompt`
-- Spec index falls back to `.forma/README.md` when `fm` is unavailable
-- Both spec index sources unavailable → skipped with warning, no error exit
+- `fm` unavailable → spec index skipped with warning, no error exit
 
 ## Installation
 
@@ -153,5 +152,5 @@ path = "src/main.rs"
 ## Related Specifications
 
 - [ralph](ralph.md) — Iterative agent runner, invokes `cl` directly
-- [forma](forma.md) — Specification management, `cl` injects `.forma/README.md` as context
+- [forma](forma.md) — Specification management, `cl` queries `fm list --json` for spec index
 - [springfield](springfield.md) — CLI entry point, invokes `cl` for interactive sessions
