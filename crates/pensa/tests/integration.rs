@@ -514,3 +514,133 @@ fn forma_spec_validation_on_update() {
     let body: Value = resp.json().unwrap();
     assert_eq!(body["code"], "spec_not_found");
 }
+
+#[test]
+fn e2e_pensa_forma_tight_coupling() {
+    let dir = TempDir::new().expect("create temp dir");
+    let pensa_port = portpicker::pick_unused_port().expect("no free port");
+    let forma_port = portpicker::pick_unused_port().expect("no free port");
+    let project_dir = dir.path().to_path_buf();
+
+    let pd = project_dir.clone();
+    let pensa_data = dir.path().join("pensa-data");
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(pensa::daemon::start_with_data_dir(
+            pensa_port,
+            pd,
+            Some(pensa_data),
+        ));
+    });
+
+    let pd = project_dir.clone();
+    let forma_data = dir.path().join("forma-data");
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(forma::daemon::start_with_data_dir(
+            forma_port,
+            pd,
+            Some(forma_data),
+        ));
+    });
+
+    let client = reqwest::blocking::Client::new();
+    let pensa_base = format!("http://localhost:{pensa_port}");
+    let forma_base = format!("http://localhost:{forma_port}");
+
+    let mut ready = false;
+    for _ in 0..50 {
+        let p_ok = client.get(format!("{pensa_base}/status")).send().is_ok();
+        let f_ok = client.get(format!("{forma_base}/status")).send().is_ok();
+        if p_ok && f_ok {
+            let forma_dir = dir.path().join(".forma");
+            let _ = std::fs::create_dir_all(&forma_dir);
+            std::fs::write(forma_dir.join("daemon.port"), forma_port.to_string()).unwrap();
+            ready = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    assert!(ready, "daemons did not start in time");
+
+    // Create a spec in forma
+    let resp = client
+        .post(format!("{forma_base}/specs"))
+        .json(&serde_json::json!({
+            "stem": "auth",
+            "crate_path": "crates/auth/",
+            "purpose": "Authentication module"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201, "forma spec creation should succeed");
+
+    // pn create --spec valid-stem succeeds
+    let resp = client
+        .post(format!("{pensa_base}/issues"))
+        .json(&serde_json::json!({
+            "title": "Implement auth flow",
+            "issue_type": "task",
+            "spec": "auth"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201, "create with valid spec should succeed");
+    let body: Value = resp.json().unwrap();
+    assert_eq!(body["spec"], "auth");
+
+    // pn create --spec nonexistent fails with spec_not_found
+    let resp = client
+        .post(format!("{pensa_base}/issues"))
+        .json(&serde_json::json!({
+            "title": "Something",
+            "issue_type": "task",
+            "spec": "nonexistent"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        422,
+        "create with nonexistent spec should fail"
+    );
+    let body: Value = resp.json().unwrap();
+    assert_eq!(body["code"], "spec_not_found");
+
+    // Simulate stopping forma: redirect port file to a dead port
+    let dead_port = portpicker::pick_unused_port().expect("no free port");
+    std::fs::write(dir.path().join(".forma/daemon.port"), dead_port.to_string()).unwrap();
+
+    // pn create --spec any fails with forma_unavailable
+    let resp = client
+        .post(format!("{pensa_base}/issues"))
+        .json(&serde_json::json!({
+            "title": "Another task",
+            "issue_type": "task",
+            "spec": "anything"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        503,
+        "create with spec should fail when forma is unreachable"
+    );
+    let body: Value = resp.json().unwrap();
+    assert_eq!(body["code"], "forma_unavailable");
+
+    // pn create without --spec succeeds regardless of forma state
+    let resp = client
+        .post(format!("{pensa_base}/issues"))
+        .json(&serde_json::json!({
+            "title": "No-spec task",
+            "issue_type": "bug"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        201,
+        "create without spec should succeed regardless of forma state"
+    );
+}
