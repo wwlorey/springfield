@@ -154,7 +154,6 @@ Scaffolds a new project. Creates the project-local directory structure and confi
 .pensa/                                (directory only — daemon creates db.sqlite on start)
 .forma/                                (directory only — daemon creates db.sqlite on start)
 .sgf/
-├── loom-specs-README.md               (reference format for .forma/README.md)
 ├── logs/                              (empty, gitignored)
 └── run/                               (empty, gitignored)
 .claude/settings.json                  (deny rules for .sgf/** and .claude/**)
@@ -658,7 +657,9 @@ Every `eprintln!("sgf: ...")` and `println!(...)` call in the springfield crate 
 | pn doctor --fix exited with {status} | warning | recovery.rs |
 | pn doctor --fix failed: {e} | warning | recovery.rs |
 | starting pensa daemon on port {port}... | action | recovery.rs |
+| starting forma daemon on port {port}... | action | recovery.rs |
 | pensa daemon ready | success | recovery.rs |
+| forma daemon ready | success | recovery.rs |
 | pn export ok | success | orchestrate.rs |
 | pn export failed: {err} | error | orchestrate.rs |
 | pn export skipped (pn not found: {e}) | warning | orchestrate.rs |
@@ -705,7 +706,7 @@ Before launching any loop, `sgf` runs pre-launch checks. The checks vary by stag
 **All stages** (build, verify, test-plan, test, spec, issues log):
 
 1. **Recovery** — clean up stale state from crashed iterations (see Recovery)
-2. **Daemon** — start the pensa daemon if not already running
+2. **Daemons** — start the pensa and forma daemons if not already running
 
 After pre-launch checks, automated stages launch ralph; interactive stages call `cl` directly with `--verbose @{prompt_path}`, inheriting stdio.
 
@@ -715,16 +716,25 @@ After pre-launch checks, automated stages launch ralph; interactive stages call 
 
 `sgf` starts both the pensa and forma daemons automatically before launching any loop (if not already running):
 
+#### Port derivation
+
+Each daemon uses its own port derivation to avoid collisions:
+
+- **Pensa**: `SHA256(canonical_project_path)`, bytes [8,9] mapped to range [10000, 60000]
+- **Forma**: `SHA256("forma:" + canonical_project_path)`, bytes [8,9] mapped to range [10000, 60000]
+
+The `"forma:"` prefix ensures forma and pensa derive different ports for the same project. Springfield's `pensa_port()` and `forma_port()` in `recovery.rs` must match the derivation logic in each daemon's own crate.
+
 #### Pensa daemon
 
 1. Check if the daemon is reachable (`pn daemon status`)
-2. If not, start it: `pn daemon --project-dir <project-root> --port <derived> &` (backgrounded)
+2. If not, start it: `pn daemon --project-dir <project-root> --port <pensa-derived> &` (backgrounded)
 3. Wait for readiness (poll `pn daemon status` with exponential backoff: 50ms initial, doubling up to 800ms cap, 5s total deadline)
 
 #### Forma daemon
 
 1. Check if the daemon is reachable (`fm daemon status`)
-2. If not, start it: `fm daemon --project-dir <project-root> --port <derived> &` (backgrounded)
+2. If not, start it: `fm daemon --project-dir <project-root> --port <forma-derived> &` (backgrounded)
 3. Wait for readiness (poll `fm daemon status` with exponential backoff: 50ms initial, doubling up to 800ms cap, 5s total deadline)
 
 Both daemons are started in parallel. Both must be ready before proceeding with loop launch. The daemons run for the duration of the `sgf` session. They stop on SIGTERM or when `sgf` shuts down.
@@ -935,7 +945,8 @@ Per-command defaults live in `.sgf/prompts/config.toml` (see [Prompt Configurati
 | Mode | `interactive` | `-a` / `-i` flags |
 | Iterations | `1` | `-n` / `--iterations` |
 | Auto-push | `false` | `--no-push` flag (disables), config.toml `auto_push` field |
-| Pensa daemon port | per-project derived | `--port` flag on `pn daemon` |
+| Pensa daemon port | per-project derived (`SHA256(path)`) | `--port` flag on `pn daemon` |
+| Forma daemon port | per-project derived (`SHA256("forma:" + path)`) | `--port` flag on `fm daemon` |
 
 ---
 

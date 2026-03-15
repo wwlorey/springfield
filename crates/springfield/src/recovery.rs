@@ -7,10 +7,19 @@ use std::time::{Duration, Instant};
 use crate::loop_mgmt;
 use crate::style;
 
-pub(crate) fn project_port(root: &Path) -> u16 {
+pub(crate) fn pensa_port(root: &Path) -> u16 {
     use sha2::{Digest, Sha256};
     let canonical = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
     let hash: [u8; 32] = Sha256::digest(canonical.to_string_lossy().as_bytes()).into();
+    let raw = u16::from_be_bytes([hash[8], hash[9]]);
+    10000 + (raw % 50000)
+}
+
+pub(crate) fn forma_port(root: &Path) -> u16 {
+    use sha2::{Digest, Sha256};
+    let canonical = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let input = format!("forma:{}", canonical.to_string_lossy());
+    let hash: [u8; 32] = Sha256::digest(input.as_bytes()).into();
     let raw = u16::from_be_bytes([hash[8], hash[9]]);
     10000 + (raw % 50000)
 }
@@ -93,18 +102,18 @@ pub fn ensure_daemons(root: &Path) -> io::Result<()> {
         return Ok(());
     }
 
-    let port = project_port(root);
     let root_str = root.to_string_lossy();
-    let port_str = port.to_string();
 
     if !pensa_reachable {
+        let port = pensa_port(root);
         style::print_action(&format!("starting pensa daemon on port {port}..."));
-        spawn_daemon("pn", &port_str, &root_str, root)?;
+        spawn_daemon("pn", &port.to_string(), &root_str, root)?;
     }
 
     if !forma_reachable {
+        let port = forma_port(root);
         style::print_action(&format!("starting forma daemon on port {port}..."));
-        spawn_daemon("fm", &port_str, &root_str, root)?;
+        spawn_daemon("fm", &port.to_string(), &root_str, root)?;
     }
 
     let deadline = Instant::now() + Duration::from_secs(5);
