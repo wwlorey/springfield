@@ -523,12 +523,16 @@ async fn doctor(
 }
 
 async fn check(State(db): State<AppState>) -> Result<Json<serde_json::Value>, AppError> {
-    let db = db.lock().unwrap();
-    let project_dir = db
-        .forma_dir
-        .parent()
-        .unwrap_or_else(|| std::path::Path::new("."));
-    let pensa = crate::db::pensa_url(project_dir);
-    let report = db.check(Some(&pensa))?;
+    let report = tokio::task::spawn_blocking(move || {
+        let db = db.lock().unwrap();
+        let project_dir = db
+            .forma_dir
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."));
+        let pensa = crate::db::pensa_url(project_dir);
+        db.check(Some(&pensa))
+    })
+    .await
+    .map_err(|e| AppError(FormaError::Internal(format!("check task failed: {e}"))))??;
     Ok(Json(serde_json::to_value(report).unwrap()))
 }

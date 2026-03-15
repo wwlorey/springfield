@@ -524,3 +524,442 @@ fn delete_spec_without_force_with_content_fails() {
     let body: Value = resp.json().unwrap();
     assert_eq!(body["code"], "validation_failed");
 }
+
+#[test]
+fn status_transitions_draft_stable_proven() {
+    let d = TestDaemon::start();
+    let resp = d.post(
+        "/specs",
+        &json!({"stem": "lifecycle", "crate_path": "crates/lifecycle/", "purpose": "Lifecycle test"}),
+    );
+    let spec: Value = resp.json().unwrap();
+    assert_eq!(spec["status"], "draft");
+
+    let resp = d.patch("/specs/lifecycle", &json!({"status": "stable"}));
+    assert_eq!(resp.status(), 200);
+    let spec: Value = resp.json().unwrap();
+    assert_eq!(spec["status"], "stable");
+
+    let resp = d.patch("/specs/lifecycle", &json!({"status": "proven"}));
+    assert_eq!(resp.status(), 200);
+    let spec: Value = resp.json().unwrap();
+    assert_eq!(spec["status"], "proven");
+}
+
+#[test]
+fn export_import_round_trip() {
+    let d = TestDaemon::start();
+
+    d.post(
+        "/specs",
+        &json!({"stem": "alpha", "crate_path": "crates/alpha/", "purpose": "Alpha spec"}),
+    );
+    d.post(
+        "/specs",
+        &json!({"stem": "beta", "crate_path": "crates/beta/", "purpose": "Beta spec"}),
+    );
+    d.put(
+        "/specs/alpha/sections/overview",
+        &json!({"body": "Alpha overview content"}),
+    );
+    d.post(
+        "/specs/alpha/sections",
+        &json!({"name": "Custom Part", "body": "Custom body here"}),
+    );
+    d.post("/specs/alpha/refs", &json!({"target": "beta"}));
+
+    // Export
+    let resp = d.post("/export", &json!({}));
+    assert_eq!(resp.status(), 200);
+    let result: Value = resp.json().unwrap();
+    assert_eq!(result["status"], "ok");
+    assert_eq!(result["specs"], 2);
+    assert_eq!(result["sections"], 11); // 5 required * 2 + 1 custom
+    assert_eq!(result["refs"], 1);
+
+    // Verify JSONL files exist
+    let forma_dir = d._dir.path().join(".forma");
+    assert!(forma_dir.join("specs.jsonl").exists());
+    assert!(forma_dir.join("sections.jsonl").exists());
+    assert!(forma_dir.join("refs.jsonl").exists());
+
+    // Import (rebuilds from JSONL)
+    let resp = d.post("/import", &json!({}));
+    assert_eq!(resp.status(), 200);
+    let result: Value = resp.json().unwrap();
+    assert_eq!(result["specs"], 2);
+    assert_eq!(result["sections"], 11);
+    assert_eq!(result["refs"], 1);
+
+    // Verify data survived the round-trip
+    let resp = d.get("/specs/alpha");
+    assert_eq!(resp.status(), 200);
+    let detail: Value = resp.json().unwrap();
+    assert_eq!(detail["stem"], "alpha");
+    assert_eq!(detail["purpose"], "Alpha spec");
+    let sections = detail["sections"].as_array().unwrap();
+    assert_eq!(sections.len(), 6);
+
+    let overview = sections.iter().find(|s| s["slug"] == "overview").unwrap();
+    assert_eq!(overview["body"], "Alpha overview content");
+
+    let custom = sections
+        .iter()
+        .find(|s| s["slug"] == "custom-part")
+        .unwrap();
+    assert_eq!(custom["body"], "Custom body here");
+
+    let refs = detail["refs"].as_array().unwrap();
+    assert_eq!(refs.len(), 1);
+    assert_eq!(refs[0]["stem"], "beta");
+}
+
+#[test]
+fn export_generates_markdown() {
+    let d = TestDaemon::start();
+
+    d.post(
+        "/specs",
+        &json!({"stem": "myspec", "crate_path": "crates/myspec/", "purpose": "My spec purpose"}),
+    );
+    d.put(
+        "/specs/myspec/sections/overview",
+        &json!({"body": "This is the overview."}),
+    );
+
+    d.post("/export", &json!({}));
+
+    let forma_dir = d._dir.path().join(".forma");
+    let md_path = forma_dir.join("specs/myspec.md");
+    assert!(md_path.exists(), "markdown file should be generated");
+
+    let md = std::fs::read_to_string(&md_path).unwrap();
+    assert!(md.contains("# myspec Specification"));
+    assert!(md.contains("My spec purpose"));
+    assert!(md.contains("| Crate | `crates/myspec/` |"));
+    assert!(md.contains("| Status | draft |"));
+    assert!(md.contains("## Overview"));
+    assert!(md.contains("This is the overview."));
+}
+
+#[test]
+fn export_generates_markdown_with_refs() {
+    let d = TestDaemon::start();
+
+    d.post(
+        "/specs",
+        &json!({"stem": "src", "crate_path": "crates/src/", "purpose": "Source"}),
+    );
+    d.post(
+        "/specs",
+        &json!({"stem": "dep", "crate_path": "crates/dep/", "purpose": "Dependency"}),
+    );
+    d.post("/specs/src/refs", &json!({"target": "dep"}));
+
+    d.post("/export", &json!({}));
+
+    let md = std::fs::read_to_string(d._dir.path().join(".forma/specs/src.md")).unwrap();
+    assert!(md.contains("## Related Specifications"));
+    assert!(md.contains("[dep](dep.md)"));
+    assert!(md.contains("Dependency"));
+
+    // Spec without refs should not have Related Specifications section
+    let dep_md = std::fs::read_to_string(d._dir.path().join(".forma/specs/dep.md")).unwrap();
+    assert!(!dep_md.contains("Related Specifications"));
+}
+
+#[test]
+fn export_generates_readme() {
+    let d = TestDaemon::start();
+
+    d.post(
+        "/specs",
+        &json!({"stem": "alpha", "crate_path": "crates/alpha/", "purpose": "Alpha module"}),
+    );
+    d.post(
+        "/specs",
+        &json!({"stem": "beta", "crate_path": "crates/beta/", "purpose": "Beta module"}),
+    );
+
+    d.post("/export", &json!({}));
+
+    let readme_path = d._dir.path().join(".forma/README.md");
+    assert!(readme_path.exists());
+
+    let readme = std::fs::read_to_string(&readme_path).unwrap();
+    assert!(readme.contains("# Specifications"));
+    assert!(readme.contains("| Spec | Code | Status | Purpose |"));
+    assert!(readme.contains("[alpha](specs/alpha.md)"));
+    assert!(readme.contains("`crates/alpha/`"));
+    assert!(readme.contains("Alpha module"));
+    assert!(readme.contains("[beta](specs/beta.md)"));
+}
+
+#[test]
+fn check_reports_empty_required_sections_as_warnings() {
+    let d = TestDaemon::start();
+
+    // Create a spec — its required sections will have empty bodies
+    d.post(
+        "/specs",
+        &json!({"stem": "bare", "crate_path": "crates/bare/", "purpose": "Bare spec"}),
+    );
+    // Create the crate_path directory so crate_paths_exist check passes
+    std::fs::create_dir_all(d._dir.path().join("crates/bare")).unwrap();
+
+    let resp = d.get("/check");
+    assert_eq!(resp.status(), 200);
+    let report: Value = resp.json().unwrap();
+
+    let warnings = report["warnings"].as_array().unwrap();
+    let empty_warnings: Vec<_> = warnings
+        .iter()
+        .filter(|w| w["check"] == "required_sections_nonempty")
+        .collect();
+    assert_eq!(
+        empty_warnings.len(),
+        5,
+        "all 5 required sections should warn as empty"
+    );
+}
+
+#[test]
+fn check_reports_missing_crate_path_as_error() {
+    let d = TestDaemon::start();
+
+    d.post(
+        "/specs",
+        &json!({"stem": "ghost", "crate_path": "crates/nonexistent/", "purpose": "Ghost"}),
+    );
+
+    let resp = d.get("/check");
+    let report: Value = resp.json().unwrap();
+    assert!(!report["ok"].as_bool().unwrap());
+
+    let errors = report["errors"].as_array().unwrap();
+    let path_errors: Vec<_> = errors
+        .iter()
+        .filter(|e| e["check"] == "crate_paths_exist")
+        .collect();
+    assert!(!path_errors.is_empty());
+}
+
+#[test]
+fn check_ok_field_and_shape() {
+    let d = TestDaemon::start();
+
+    let resp = d.get("/check");
+    assert_eq!(resp.status(), 200);
+    let report: Value = resp.json().unwrap();
+    assert!(report["ok"].is_boolean());
+    assert!(report["errors"].is_array());
+    assert!(report["warnings"].is_array());
+}
+
+#[test]
+fn doctor_reports_sync_drift() {
+    let d = TestDaemon::start();
+
+    d.post(
+        "/specs",
+        &json!({"stem": "drifted", "crate_path": "crates/drifted/", "purpose": "Drift test"}),
+    );
+    // No export has been done, so JSONL has 0 entries but SQLite has 1 spec
+
+    let resp = d.post("/doctor", &json!({}));
+    assert_eq!(resp.status(), 200);
+    let report: Value = resp.json().unwrap();
+
+    let findings = report["findings"].as_array().unwrap();
+    let drift: Vec<_> = findings
+        .iter()
+        .filter(|f| f["check"] == "sync_drift")
+        .collect();
+    assert!(
+        !drift.is_empty(),
+        "should detect JSONL/SQLite count mismatch"
+    );
+}
+
+#[test]
+fn doctor_shape() {
+    let d = TestDaemon::start();
+
+    let resp = d.post("/doctor", &json!({}));
+    assert_eq!(resp.status(), 200);
+    let report: Value = resp.json().unwrap();
+    assert!(report["findings"].is_array());
+    assert!(report["fixes_applied"].is_array());
+}
+
+#[test]
+fn history_tracks_section_events() {
+    let d = TestDaemon::start();
+    d.post(
+        "/specs",
+        &json!({"stem": "hist", "crate_path": "crates/hist/", "purpose": "History"}),
+    );
+    d.put("/specs/hist/sections/overview", &json!({"body": "content"}));
+    d.post(
+        "/specs/hist/sections",
+        &json!({"name": "Extra", "body": "extra body"}),
+    );
+
+    let resp = d.get("/specs/hist/history");
+    let events: Vec<Value> = resp.json().unwrap();
+    let types: Vec<&str> = events
+        .iter()
+        .map(|e| e["event_type"].as_str().unwrap())
+        .collect();
+    assert!(types.contains(&"section_added"));
+    assert!(types.contains(&"section_updated"));
+    assert!(types.contains(&"created"));
+}
+
+#[test]
+fn slug_generation() {
+    let d = TestDaemon::start();
+    d.post(
+        "/specs",
+        &json!({"stem": "slugtest", "crate_path": "crates/slugtest/", "purpose": "Slug test"}),
+    );
+
+    // "Error Handling" -> "error-handling" (already a required section)
+    let resp = d.get("/specs/slugtest/sections/error-handling");
+    assert_eq!(resp.status(), 200);
+    let section: Value = resp.json().unwrap();
+    assert_eq!(section["slug"], "error-handling");
+    assert_eq!(section["name"], "Error Handling");
+
+    // Custom section with mixed case
+    let resp = d.post(
+        "/specs/slugtest/sections",
+        &json!({"name": "NDJSON Stream Formatting", "body": ""}),
+    );
+    assert_eq!(resp.status(), 201);
+    let section: Value = resp.json().unwrap();
+    assert_eq!(section["slug"], "ndjson-stream-formatting");
+}
+
+#[test]
+fn section_add_with_after() {
+    let d = TestDaemon::start();
+    d.post(
+        "/specs",
+        &json!({"stem": "ordered", "crate_path": "crates/ordered/", "purpose": "Ordering test"}),
+    );
+
+    // Add a custom section after "overview"
+    let resp = d.post(
+        "/specs/ordered/sections",
+        &json!({"name": "Inserted", "body": "inserted here", "after": "overview"}),
+    );
+    assert_eq!(resp.status(), 201);
+
+    let resp = d.get("/specs/ordered/sections");
+    let sections: Vec<Value> = resp.json().unwrap();
+    let slugs: Vec<&str> = sections
+        .iter()
+        .map(|s| s["slug"].as_str().unwrap())
+        .collect();
+    assert_eq!(slugs[0], "overview");
+    assert_eq!(slugs[1], "inserted");
+}
+
+#[test]
+fn json_output_shapes_spec_object() {
+    let d = TestDaemon::start();
+    let resp = d.post(
+        "/specs",
+        &json!({"stem": "shapes", "crate_path": "crates/shapes/", "purpose": "Shape test"}),
+    );
+    let spec: Value = resp.json().unwrap();
+    assert!(spec["stem"].is_string());
+    assert!(spec["crate_path"].is_string());
+    assert!(spec["purpose"].is_string());
+    assert!(spec["status"].is_string());
+    assert!(spec["created_at"].is_string());
+    assert!(spec["updated_at"].is_string());
+}
+
+#[test]
+fn json_output_shapes_spec_detail() {
+    let d = TestDaemon::start();
+    d.post(
+        "/specs",
+        &json!({"stem": "detail", "crate_path": "crates/detail/", "purpose": "Detail test"}),
+    );
+
+    let resp = d.get("/specs/detail");
+    let detail: Value = resp.json().unwrap();
+    assert!(detail["stem"].is_string());
+    assert!(detail["sections"].is_array());
+    assert!(detail["refs"].is_array());
+
+    let section = &detail["sections"][0];
+    assert!(section["name"].is_string());
+    assert!(section["slug"].is_string());
+    assert!(section["kind"].is_string());
+    assert!(section["body"].is_string());
+    assert!(section["position"].is_number());
+}
+
+#[test]
+fn json_output_shapes_event_object() {
+    let d = TestDaemon::start();
+    d.post(
+        "/specs",
+        &json!({"stem": "evshape", "crate_path": "crates/evshape/", "purpose": "Event shapes"}),
+    );
+
+    let resp = d.get("/specs/evshape/history");
+    let events: Vec<Value> = resp.json().unwrap();
+    assert!(!events.is_empty());
+    let ev = &events[0];
+    assert!(ev["id"].is_number());
+    assert!(ev["spec_stem"].is_string());
+    assert!(ev["event_type"].is_string());
+    assert!(ev["created_at"].is_string());
+}
+
+#[test]
+fn ref_tree_up_direction() {
+    let d = TestDaemon::start();
+    d.post(
+        "/specs",
+        &json!({"stem": "top", "crate_path": "crates/top/", "purpose": "Top"}),
+    );
+    d.post(
+        "/specs",
+        &json!({"stem": "bottom", "crate_path": "crates/bottom/", "purpose": "Bottom"}),
+    );
+    d.post("/specs/top/refs", &json!({"target": "bottom"}));
+
+    let resp = d.get("/specs/bottom/refs/tree?direction=up");
+    assert_eq!(resp.status(), 200);
+    let nodes: Vec<Value> = resp.json().unwrap();
+    assert!(nodes.len() >= 2);
+    assert_eq!(nodes[0]["stem"], "bottom");
+    assert_eq!(nodes[0]["depth"], 0);
+    let stems: Vec<&str> = nodes.iter().map(|n| n["stem"].as_str().unwrap()).collect();
+    assert!(stems.contains(&"top"));
+}
+
+#[test]
+fn search_matches_section_body() {
+    let d = TestDaemon::start();
+    d.post(
+        "/specs",
+        &json!({"stem": "searchable", "crate_path": "crates/searchable/", "purpose": "Generic"}),
+    );
+    d.put(
+        "/specs/searchable/sections/overview",
+        &json!({"body": "Contains unique-search-term-xyz here"}),
+    );
+
+    let resp = d.get("/specs/search?q=unique-search-term-xyz");
+    assert_eq!(resp.status(), 200);
+    let results: Vec<Value> = resp.json().unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0]["stem"], "searchable");
+}
