@@ -30,7 +30,7 @@ Changes span two crates:
 
 ### ralph (crates/ralph/)
 
-- `main.rs`: New `--resume <session_id>` CLI flag, passed through to `cl` as `--resume <session_id>`. New `--session-id <uuid>` flag, passed through to `cl` as `--session-id <uuid>`. Extract and return the last session_id from NDJSON result events (AFK mode).
+- `main.rs`: New `--resume <session_id>` CLI flag, passed through to `cl` as `--resume <session_id>`. New `--session-id <uuid>` flag, passed through to `cl` as `--session-id <uuid>`. On iteration 1, uses `--session-id` to create a new session. On iterations 2+, uses `--resume` with the same UUID to continue the existing session (and omits the prompt argument). This prevents "session ID already in use" errors from Claude Code on multi-iteration runs.
 
 ### Session Metadata File
 
@@ -47,9 +47,16 @@ sgf                                    ralph                        cl (claude-w
  │                                      │                            │
  ├─ generate session UUID ──────────────┤                            │
  ├─ write metadata (status: running) ───┤                            │
- ├─ pass --session-id <uuid> ───────────┼─ pass --session-id <uuid> ─┤
+ ├─ pass --session-id <uuid> ───────────┤                            │
  │                                      │                            │
- │  [session runs]                      │                            │
+ │  [iteration 1]                       │                            │
+ │                                      ├─ pass --session-id <uuid> ─┤
+ │                                      │                            │
+ │  [iterations 2+]                     │                            │
+ │                                      ├─ pass --resume <uuid> ─────┤
+ │                                      │  (prompt arg omitted)      │
+ │                                      │                            │
+ │  [session ends]                      │                            │
  │                                      │                            │
  ├─ update metadata (status: final) ────┤                            │
  │                                      │                            │

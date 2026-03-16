@@ -324,12 +324,14 @@ cl \
   --verbose \
   --dangerously-skip-permissions \
   --settings '{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}' \
+  [--session-id <uuid>]           # iteration 1 only
+  [--resume <uuid>]               # iteration 2+ only (omits prompt arg)
   [--append-system-prompt 'study @<FILE>;...']  # from --spec, --prompt-file
-  @<PROMPT_FILE>       # file prompt (@ prefix)
-  # or: "<inline text>"  # inline text (no @ prefix)
+  @<PROMPT_FILE>       # file prompt (@ prefix), iteration 1 only
+  # or: "<inline text>"  # inline text (no @ prefix), iteration 1 only
 ```
 
-No output processing. The user interacts with the agent directly. After each iteration, ralph checks for the `.ralph-complete` sentinel file to detect task completion.
+On iteration 1, `--session-id <uuid>` creates a new Claude session. On iterations 2+, `--resume <uuid>` continues the existing session and the prompt argument is omitted. No output processing. The user interacts with the agent directly. After each iteration, ralph checks for the `.ralph-complete` sentinel file to detect task completion.
 
 In interactive mode, ralph also runs a **notification watcher thread** that monitors for the `.ralph-ding` sentinel file. When detected, ralph plays a notification sound on the host machine to alert the user that Claude needs input. See [Interactive Notification](#interactive-notification).
 
@@ -344,10 +346,14 @@ cl \
   --output-format stream-json \
   --dangerously-skip-permissions \
   --settings '{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}' \
+  [--session-id <uuid>]           # iteration 1 only
+  [--resume <uuid>]               # iteration 2+ only (omits prompt arg)
   [--append-system-prompt 'study @<FILE>;...']  # from --spec, --prompt-file
-  @<PROMPT_FILE>       # file prompt (@ prefix)
-  # or: "<inline text>"  # inline text (no @ prefix)
+  @<PROMPT_FILE>       # file prompt (@ prefix), iteration 1 only
+  # or: "<inline text>"  # inline text (no @ prefix), iteration 1 only
 ```
+
+On iteration 1, `--session-id <uuid>` creates a new Claude session. On iterations 2+, `--resume <uuid>` continues the existing session and the prompt argument is omitted.
 
 Stdout is read line-by-line via `BufRead`, parsed as NDJSON, and formatted with ANSI-styled output. Lines not starting with `{` are skipped silently (handles verbose debug output). Each output line is prefixed with `\r\x1b[2K` (carriage return + ANSI clear-line). This prefix is applied per line (not per block) because text content from the agent contains embedded newlines.
 
@@ -748,6 +754,7 @@ For each iteration `i` in `1..=iterations`:
 2. Print iteration banner (includes loop ID if provided)
 3. Record `vcs_utils::git_head()` as `head_before`
 4. Execute agent via `cl` (or `--command` override):
+   - **Session ID handling**: On iteration 1, pass `--session-id <uuid>` to create a new Claude session. On iterations 2+, pass `--resume <uuid>` to continue the existing session (the prompt argument is omitted on resume). This prevents "session ID already in use" errors from Claude Code.
    - Interactive: start notification watcher thread, `.status()` with inherited stdio, stop watcher thread
    - AFK: `.spawn()` with piped stdout, read lines via reader thread + channel through `format_line()`
 5. If interrupted: log warning, exit 130

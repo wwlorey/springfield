@@ -33,14 +33,26 @@
 1. Comment on the issue (`pn comment add <id> "<insights>"`):
   a. crucial, useful lessons learned (if any)
   b. notable design/testing decisions made (if any)
+  c. root cause of issue (if applicable)
 2. Close or release:
   a. IF BUG: release with `pn release <bug-id>`
   b. ELSE: close with `pn close <id> --reason "<what was done>"`
-3. Commit your changes with `[<issue-id>]` prefix (e.g., `[pn-a1b2c3d4] Implement login validation`)
+3. Commit YOUR changes with `[<issue-id>]` prefix (e.g., `[pn-a1b2c3d4] Implement login validation`)
 
-### Bug Logging Workflow
+### Bug Log Workflow
 
 `pn create "<description>" -t bug`
+
+### Bug Fix Workflow
+
+- Study the codebase to understand the bug.
+- IF the fix is small enough to quickly implement in this iteration:
+  1. Fix it.
+  2. Follow the Spec Update Workflow as appropriate.
+- ELSE IF the fix is too large (multiple files/crates, significant refactor):
+  1. Follow the Issue Create Workflow to create implementation items.
+    a. Link the relevant bug with `--fixes <bug-id>`.
+  2. Release the bug: `pn release <bug-id>`
 
 ### Core Commands
 
@@ -183,6 +195,8 @@ All spec mutations go through `fm`—never edit spec markdown directly. The gene
     + `cl -p --dangerously-skip-permissions --max-turns 50 "task description here"`
   * Run multiple in parallel via background bash calls.
   * Do NOT use your Agent tool or any other built-in functionality for spawning agents.
+- **When asked about what has been built**:
+  * Read the logs in `./.sgf/logs` to help formulate your answer.
 
 ### Session Start
 

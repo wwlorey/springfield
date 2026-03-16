@@ -4,14 +4,10 @@ IF there are no more issues:
 - touch `.ralph-complete` and end.
 
 ELSE IF the claimed item is a **bug** (`issue_type == "bug"`):
-- Study the codebase to understand the bug.
-- IF the fix is small enough to quickly implement in this iteration, fix it directly — treat it like a normal task (implement, test, backpressure, close).
-- ELSE IF the fix is too large (multiple files/crates, significant refactor), decompose it to atomic tasks then release:
-  1. Create fix task(s): `pn create -t task "fix: <description>" --fixes <bug-id> [--spec <stem>] [-p <priority>] [--dep <id>]`
-  2. Release the bug: `pn release <bug-id>`
+- Follow the Bug Fix Workflow.
 
 ELSE:
-- implement the issue. Use subagents.
+- Implement the issue. Use subagents.
 
 NOTE:
 - Make sure if you change any build flags, etc., to work on Linux that you make the DEFAULT run on Mac (for instance: building with Metal enabled).
