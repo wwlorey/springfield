@@ -44,14 +44,15 @@ pub fn print_spec_detail(value: &Value, mode: OutputMode) {
         OutputMode::Human => {
             let stem = value["stem"].as_str().unwrap_or("?");
             let purpose = value["purpose"].as_str().unwrap_or("");
-            let crate_path = value["crate_path"].as_str().unwrap_or("?");
             let status = value["status"].as_str().unwrap_or("?");
 
             println!("# {stem} Specification\n");
             println!("{purpose}\n");
             println!("| Field | Value |");
             println!("|-------|-------|");
-            println!("| Crate | `{crate_path}` |");
+            if let Some(src) = value["src"].as_str() {
+                println!("| Src | `{src}` |");
+            }
             println!("| Status | {status} |");
 
             if let Some(sections) = value["sections"].as_array() {

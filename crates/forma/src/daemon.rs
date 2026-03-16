@@ -160,7 +160,7 @@ async fn shutdown_signal() {
 #[derive(Deserialize)]
 struct CreateSpecBody {
     stem: String,
-    crate_path: String,
+    src: Option<String>,
     purpose: String,
 }
 
@@ -173,7 +173,7 @@ async fn create_spec(
     let db = db.lock().unwrap();
     let spec = db.create_spec(
         &body.stem,
-        &body.crate_path,
+        body.src.as_deref(),
         &body.purpose,
         actor.as_deref(),
     )?;
@@ -210,7 +210,7 @@ async fn list_specs(
 #[derive(Deserialize)]
 struct UpdateSpecBody {
     status: Option<String>,
-    crate_path: Option<String>,
+    src: Option<String>,
     purpose: Option<String>,
 }
 
@@ -225,7 +225,7 @@ async fn update_spec(
     let spec = db.update_spec(
         &stem,
         body.status.as_deref(),
-        body.crate_path.as_deref(),
+        body.src.as_deref(),
         body.purpose.as_deref(),
         actor.as_deref(),
     )?;

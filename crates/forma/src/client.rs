@@ -113,15 +113,17 @@ impl Client {
     pub fn create_spec(
         &self,
         stem: &str,
-        crate_path: &str,
+        src: Option<&str>,
         purpose: &str,
         actor: &str,
     ) -> Result<Value, FormaError> {
-        let body = serde_json::json!({
+        let mut body = serde_json::json!({
             "stem": stem,
-            "crate_path": crate_path,
             "purpose": purpose,
         });
+        if let Some(s) = src {
+            body["src"] = Value::String(s.to_string());
+        }
         self.request(|http| {
             http.post(format!("{}/specs", self.base_url))
                 .header("x-forma-actor", actor)
@@ -148,7 +150,7 @@ impl Client {
         &self,
         stem: &str,
         status: Option<&str>,
-        crate_path: Option<&str>,
+        src: Option<&str>,
         purpose: Option<&str>,
         actor: &str,
     ) -> Result<Value, FormaError> {
@@ -156,8 +158,8 @@ impl Client {
         if let Some(s) = status {
             body.insert("status".into(), Value::String(s.to_string()));
         }
-        if let Some(c) = crate_path {
-            body.insert("crate_path".into(), Value::String(c.to_string()));
+        if let Some(s) = src {
+            body.insert("src".into(), Value::String(s.to_string()));
         }
         if let Some(p) = purpose {
             body.insert("purpose".into(), Value::String(p.to_string()));

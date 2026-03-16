@@ -1,12 +1,22 @@
-## pn — Task & Issue Tracker
+## pn — Issue Tracker
 
-`pn` (pensa) is the exclusive task and issue tracker. Never use TodoWrite, TaskCreate, or markdown files for tracking work.
+`pn` (pensa) is the exclusive issue (i.e. work item) tracker. Never use TodoWrite, TaskCreate, or markdown files for tracking work.
 
 ### Rules
 
 - Always pass `--json` when reading data.
 - There is NO `pn claim` subcommand. Use `pn update <id> --claim`.
 - Status values use **underscores**: `open`, `in_progress`, `closed`. Never use hyphens (`in-progress` is invalid).
+
+### Issue Create Workflow
+
+1. Create the issue linked to its spec:
+   `pn create "<title>" -t <type> --spec <stem> [-p <priority>] [--dep <id>] [--description "<desc>"]`
+   a. NOTE: Issues should be scoped to atomic changes—the smallest self-contained modifications to the codebase that can be implemented and tested independently.
+2. Attach source code references (files to view/change/add):
+   `pn src-ref add <id> <path> --reason "<what and why>"`
+3. Attach documentation references (docs to view/change/add):
+   `pn doc-ref add <id> <path> --reason "<what and why>"`
 
 ### Issue Claim Workflow
 
@@ -26,7 +36,7 @@
 2. Close or release:
   a. IF BUG: release with `pn release <bug-id>`
   b. ELSE: close with `pn close <id> --reason "<what was done>"`
-3. Commit your changes with `[<task-id>]` prefix (e.g., `[pn-a1b2c3d4] Implement login validation`)
+3. Commit your changes with `[<issue-id>]` prefix (e.g., `[pn-a1b2c3d4] Implement login validation`)
 
 ### Bug Logging Workflow
 
@@ -84,6 +94,11 @@ Specifications are the **source of truth** for all code. They are managed exclus
 
 All spec mutations go through `fm`—never edit spec markdown directly. The generated `.forma/specs/*.md` and `.forma/README.md` are read-only artifacts produced by `fm export`.
 
+### How `fm` relates to `pn`
+
+- `pn create --spec <stem>` links an issue to a forma spec. Pensa validates the stem against forma.
+- `fm check` cross-validates that all pensa issues with `--spec` values reference existing forma specs.
+
 ### Rules
 
 - Always pass `--json` when reading data.
@@ -95,6 +110,7 @@ All spec mutations go through `fm`—never edit spec markdown directly. The gene
 
 ### Spec Create Workflow
 
+0. NOTE: Favor updating existing specs (`fm update`, `fm section set`) over creating new ones unless doing so makes sense (e.g. we're making a brand new package — use `fm create`).
 1. Create the spec: `fm create <stem> --crate <path> --purpose "<text>"`
 2. Fill in required sections (pipe body via stdin):
    `echo "body content" | fm section set <stem> "<slug>" --body-stdin`
@@ -108,11 +124,6 @@ All spec mutations go through `fm`—never edit spec markdown directly. The gene
 2. Update metadata: `fm update <stem> [--status <s>] [--crate <path>] [--purpose "<text>"]`
 3. Update section bodies (pipe body via stdin):
    `echo "body content" | fm section set <stem> "<slug>" --body-stdin`
-
-### How specs relate to pn
-
-- `pn create --spec <stem>` links an issue to a forma spec. Pensa validates the stem against forma.
-- `fm check` cross-validates that all pensa issues with `--spec` values reference existing forma specs.
 
 ### Commands
 

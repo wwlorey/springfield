@@ -70,7 +70,7 @@ pub fn spec_from_row(row: &rusqlite::Row) -> Result<Spec, rusqlite::Error> {
     let updated_at_str: String = row.get("updated_at")?;
     Ok(Spec {
         stem: row.get("stem")?,
-        crate_path: row.get("crate_path")?,
+        src: row.get("src")?,
         purpose: row.get("purpose")?,
         status: status_str.parse().unwrap(),
         created_at: parse_dt(&created_at_str),
@@ -153,7 +153,7 @@ impl Db {
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS specs (
                 stem       TEXT PRIMARY KEY,
-                crate_path TEXT NOT NULL,
+                src        TEXT,
                 purpose    TEXT NOT NULL,
                 status     TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'stable', 'proven')),
                 created_at TEXT NOT NULL,
@@ -191,6 +191,25 @@ impl Db {
         )
         .map_err(|e| FormaError::Internal(format!("migration failed: {e}")))?;
 
+        let has_crate_path: bool = conn
+            .prepare("PRAGMA table_info(specs)")
+            .and_then(|mut stmt| {
+                let cols: Vec<String> = stmt
+                    .query_map([], |row| row.get::<_, String>(1))
+                    .unwrap()
+                    .filter_map(|r| r.ok())
+                    .collect();
+                Ok(cols.contains(&"crate_path".to_string()))
+            })
+            .unwrap_or(false);
+
+        if has_crate_path {
+            conn.execute_batch(
+                "ALTER TABLE specs RENAME COLUMN crate_path TO src;",
+            )
+            .map_err(|e| FormaError::Internal(format!("migration (crate_path->src) failed: {e}")))?;
+        }
+
         Ok(())
     }
 
@@ -225,7 +244,7 @@ impl Db {
     pub fn create_spec(
         &self,
         stem: &str,
-        crate_path: &str,
+        src: Option<&str>,
         purpose: &str,
         actor: Option<&str>,
     ) -> Result<Spec, FormaError> {
@@ -233,8 +252,8 @@ impl Db {
 
         self.conn
             .execute(
-                "INSERT INTO specs (stem, crate_path, purpose, status, created_at, updated_at) VALUES (?1, ?2, ?3, 'draft', ?4, ?5)",
-                rusqlite::params![stem, crate_path, purpose, now, now],
+                "INSERT INTO specs (stem, src, purpose, status, created_at, updated_at) VALUES (?1, ?2, ?3, 'draft', ?4, ?5)",
+                rusqlite::params![stem, src, purpose, now, now],
             )
             .map_err(|e| {
                 if e.to_string().contains("UNIQUE constraint failed") {
@@ -259,7 +278,8 @@ impl Db {
             "created",
             actor,
             Some(&format!(
-                "created spec with crate_path={crate_path}, purpose={purpose}"
+                "created spec with src={}, purpose={purpose}",
+                src.unwrap_or("(none)")
             )),
         )?;
 
@@ -328,7 +348,7 @@ impl Db {
         &self,
         stem: &str,
         status: Option<&str>,
-        crate_path: Option<&str>,
+        src: Option<&str>,
         purpose: Option<&str>,
         actor: Option<&str>,
     ) -> Result<Spec, FormaError> {
@@ -339,7 +359,7 @@ impl Db {
             })
             .map_err(|_| FormaError::NotFound(format!("spec not found: {stem}")))?;
 
-        if status.is_none() && crate_path.is_none() && purpose.is_none() {
+        if status.is_none() && src.is_none() && purpose.is_none() {
             return Err(FormaError::ValidationFailed(
                 "at least one field must be provided for update".to_string(),
             ));
@@ -366,10 +386,10 @@ impl Db {
             detail_parts.push(format!("status={s}"));
             param_idx += 1;
         }
-        if let Some(c) = crate_path {
-            updates.push(format!("crate_path = ?{param_idx}"));
-            params.values.push(c.to_string());
-            detail_parts.push(format!("crate_path={c}"));
+        if let Some(s) = src {
+            updates.push(format!("src = ?{param_idx}"));
+            params.values.push(s.to_string());
+            detail_parts.push(format!("src={s}"));
             param_idx += 1;
         }
         if let Some(p) = purpose {
@@ -1139,11 +1159,11 @@ impl Db {
                     .map_err(|e| FormaError::Internal(format!("failed to parse spec: {e}")))?;
                 self.conn
                     .execute(
-                        "INSERT INTO specs (stem, crate_path, purpose, status, created_at, updated_at)
+                        "INSERT INTO specs (stem, src, purpose, status, created_at, updated_at)
                          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                         rusqlite::params![
                             spec.stem,
-                            spec.crate_path,
+                            spec.src,
                             spec.purpose,
                             spec.status.as_str(),
                             spec.created_at.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
@@ -1311,7 +1331,9 @@ impl Db {
             md.push_str(&format!("{}\n\n", spec.purpose));
             md.push_str("| Field | Value |\n");
             md.push_str("|-------|-------|\n");
-            md.push_str(&format!("| Crate | `{}` |\n", spec.crate_path));
+            if let Some(src) = &spec.src {
+                md.push_str(&format!("| Src | `{src}` |\n"));
+            }
             md.push_str(&format!("| Status | {} |\n", spec.status));
 
             if let Some(sections) = sections_by_stem.get(&spec.stem) {
@@ -1345,12 +1367,17 @@ impl Db {
         // Generate README.md
         let mut readme = String::new();
         readme.push_str("# Specifications\n\n");
-        readme.push_str("| Spec | Code | Status | Purpose |\n");
-        readme.push_str("|------|------|--------|--------|\n");
+        readme.push_str("| Spec | Src | Status | Purpose |\n");
+        readme.push_str("|------|-----|--------|--------|\n");
         for spec in &specs {
+            let src_col = spec
+                .src
+                .as_deref()
+                .map(|s| format!("`{s}`"))
+                .unwrap_or_default();
             readme.push_str(&format!(
-                "| [{}](specs/{}.md) | `{}` | {} | {} |\n",
-                spec.stem, spec.stem, spec.crate_path, spec.status, spec.purpose
+                "| [{}](specs/{}.md) | {} | {} | {} |\n",
+                spec.stem, spec.stem, src_col, spec.status, spec.purpose
             ));
         }
         fs::write(self.forma_dir.join("README.md"), &readme)
@@ -1416,17 +1443,18 @@ impl Db {
                 }
             }
 
-            // Crate paths exist on disk
-            let project_dir = self.forma_dir.parent().unwrap_or(Path::new("."));
-            let crate_path = project_dir.join(&spec.crate_path);
-            if !crate_path.exists() {
-                errors.push(CheckFinding {
-                    check: "crate_paths_exist".to_string(),
-                    message: format!(
-                        "spec '{}' crate_path '{}' does not exist on disk",
-                        spec.stem, spec.crate_path
-                    ),
-                });
+            if let Some(src) = &spec.src {
+                let project_dir = self.forma_dir.parent().unwrap_or(Path::new("."));
+                let src_path = project_dir.join(src);
+                if !src_path.exists() {
+                    errors.push(CheckFinding {
+                        check: "src_paths_exist".to_string(),
+                        message: format!(
+                            "spec '{}' src '{}' does not exist on disk",
+                            spec.stem, src
+                        ),
+                    });
+                }
             }
 
             // No duplicate slugs within a spec
@@ -1775,7 +1803,7 @@ mod tests {
         let now = "2026-03-14T14:30:00Z";
         db.conn
             .execute(
-                "INSERT INTO specs (stem, crate_path, purpose, status, created_at, updated_at)
+                "INSERT INTO specs (stem, src, purpose, status, created_at, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 rusqlite::params!["auth", "crates/auth/", "Authentication", "draft", now, now],
             )
@@ -1790,7 +1818,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(spec.stem, "auth");
-        assert_eq!(spec.crate_path, "crates/auth/");
+        assert_eq!(spec.src.as_deref(), Some("crates/auth/"));
         assert_eq!(spec.purpose, "Authentication");
         assert_eq!(spec.status, Status::Draft);
     }
@@ -1801,7 +1829,7 @@ mod tests {
         let now = "2026-03-14T14:30:00Z";
         db.conn
             .execute(
-                "INSERT INTO specs (stem, crate_path, purpose, status, created_at, updated_at)
+                "INSERT INTO specs (stem, src, purpose, status, created_at, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 rusqlite::params!["auth", "crates/auth/", "Auth", "draft", now, now],
             )
@@ -1845,7 +1873,7 @@ mod tests {
         let now = "2026-03-14T14:30:00Z";
         db.conn
             .execute(
-                "INSERT INTO specs (stem, crate_path, purpose, status, created_at, updated_at)
+                "INSERT INTO specs (stem, src, purpose, status, created_at, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 rusqlite::params!["auth", "crates/auth/", "Auth", "draft", now, now],
             )
@@ -1872,7 +1900,7 @@ mod tests {
         let now = "2026-03-14T14:30:00Z";
         db.conn
             .execute(
-                "INSERT INTO specs (stem, crate_path, purpose, status, created_at, updated_at)
+                "INSERT INTO specs (stem, src, purpose, status, created_at, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 rusqlite::params!["auth", "crates/auth/", "Auth", "draft", now, now],
             )
@@ -1901,7 +1929,7 @@ mod tests {
         let now = "2026-03-14T14:30:00Z";
         db.conn
             .execute(
-                "INSERT INTO specs (stem, crate_path, purpose, status, created_at, updated_at)
+                "INSERT INTO specs (stem, src, purpose, status, created_at, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 rusqlite::params!["auth", "crates/auth/", "Auth", "draft", now, now],
             )
@@ -1932,7 +1960,7 @@ mod tests {
         let (db, _p, _d) = test_db();
         let now = "2026-03-14T14:30:00Z";
         let result = db.conn.execute(
-            "INSERT INTO specs (stem, crate_path, purpose, status, created_at, updated_at)
+            "INSERT INTO specs (stem, src, purpose, status, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             rusqlite::params!["auth", "crates/auth/", "Auth", "invalid_status", now, now],
         );
@@ -1945,7 +1973,7 @@ mod tests {
         let now = "2026-03-14T14:30:00Z";
         db.conn
             .execute(
-                "INSERT INTO specs (stem, crate_path, purpose, status, created_at, updated_at)
+                "INSERT INTO specs (stem, src, purpose, status, created_at, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 rusqlite::params!["auth", "crates/auth/", "Auth", "draft", now, now],
             )
@@ -1983,7 +2011,7 @@ mod tests {
 
         fs::write(
             forma_dir.join("specs.jsonl"),
-            r#"{"stem":"auth","crate_path":"crates/auth/","purpose":"Authentication","status":"draft","created_at":"2026-03-14T14:30:00Z","updated_at":"2026-03-14T14:30:00Z"}"#,
+            r#"{"stem":"auth","src":"crates/auth/","purpose":"Authentication","status":"draft","created_at":"2026-03-14T14:30:00Z","updated_at":"2026-03-14T14:30:00Z"}"#,
         )
         .unwrap();
         fs::write(
@@ -2015,8 +2043,8 @@ mod tests {
         let forma_dir = project_dir.path().join(".forma");
         fs::create_dir_all(&forma_dir).unwrap();
 
-        let specs = r#"{"stem":"auth","crate_path":"crates/auth/","purpose":"Auth","status":"draft","created_at":"2026-03-14T14:30:00Z","updated_at":"2026-03-14T14:30:00Z"}
-{"stem":"ralph","crate_path":"crates/ralph/","purpose":"Runner","status":"stable","created_at":"2026-03-14T14:30:00Z","updated_at":"2026-03-14T14:30:00Z"}"#;
+        let specs = r#"{"stem":"auth","src":"crates/auth/","purpose":"Auth","status":"draft","created_at":"2026-03-14T14:30:00Z","updated_at":"2026-03-14T14:30:00Z"}
+{"stem":"ralph","src":"crates/ralph/","purpose":"Runner","status":"stable","created_at":"2026-03-14T14:30:00Z","updated_at":"2026-03-14T14:30:00Z"}"#;
         fs::write(forma_dir.join("specs.jsonl"), specs).unwrap();
         fs::write(forma_dir.join("sections.jsonl"), "").unwrap();
         fs::write(
@@ -2050,7 +2078,7 @@ mod tests {
         let now = "2026-03-14T14:30:00Z";
         db.conn
             .execute(
-                "INSERT INTO specs (stem, crate_path, purpose, status, created_at, updated_at)
+                "INSERT INTO specs (stem, src, purpose, status, created_at, updated_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 rusqlite::params!["auth", "crates/auth/", "Auth", "draft", now, now],
             )
@@ -2069,10 +2097,10 @@ mod tests {
     fn create_spec_returns_draft_with_required_sections() {
         let (db, _p, _d) = test_db();
         let spec = db
-            .create_spec("auth", "crates/auth/", "Authentication", Some("tester"))
+            .create_spec("auth", Some("crates/auth/"), "Authentication", Some("tester"))
             .unwrap();
         assert_eq!(spec.stem, "auth");
-        assert_eq!(spec.crate_path, "crates/auth/");
+        assert_eq!(spec.src.as_deref(), Some("crates/auth/"));
         assert_eq!(spec.purpose, "Authentication");
         assert_eq!(spec.status, Status::Draft);
 
@@ -2100,7 +2128,7 @@ mod tests {
     #[test]
     fn create_spec_scaffolds_correct_slugs() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
 
         let mut stmt = db
@@ -2127,10 +2155,10 @@ mod tests {
     #[test]
     fn create_spec_duplicate_fails() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
         let err = db
-            .create_spec("auth", "crates/auth/", "Auth again", None)
+            .create_spec("auth", Some("crates/auth/"), "Auth again", None)
             .unwrap_err();
         assert_eq!(err.code(), "already_exists");
     }
@@ -2138,7 +2166,7 @@ mod tests {
     #[test]
     fn create_spec_logs_event() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", Some("alice"))
+        db.create_spec("auth", Some("crates/auth/"), "Auth", Some("alice"))
             .unwrap();
         let events = db.spec_history("auth").unwrap();
         assert_eq!(events.len(), 1);
@@ -2149,7 +2177,7 @@ mod tests {
     #[test]
     fn get_spec_returns_detail() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Authentication", None)
+        db.create_spec("auth", Some("crates/auth/"), "Authentication", None)
             .unwrap();
         let detail = db.get_spec("auth").unwrap();
         assert_eq!(detail.spec.stem, "auth");
@@ -2167,9 +2195,9 @@ mod tests {
     #[test]
     fn get_spec_includes_refs() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
-        db.create_spec("ralph", "crates/ralph/", "Runner", None)
+        db.create_spec("ralph", Some("crates/ralph/"), "Runner", None)
             .unwrap();
         db.conn
             .execute(
@@ -2186,9 +2214,9 @@ mod tests {
     #[test]
     fn list_specs_returns_all() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
-        db.create_spec("ralph", "crates/ralph/", "Runner", None)
+        db.create_spec("ralph", Some("crates/ralph/"), "Runner", None)
             .unwrap();
 
         let specs = db.list_specs(None).unwrap();
@@ -2200,9 +2228,9 @@ mod tests {
     #[test]
     fn list_specs_filters_by_status() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
-        db.create_spec("ralph", "crates/ralph/", "Runner", None)
+        db.create_spec("ralph", Some("crates/ralph/"), "Runner", None)
             .unwrap();
         db.update_spec("ralph", Some("stable"), None, None, None)
             .unwrap();
@@ -2219,7 +2247,7 @@ mod tests {
     #[test]
     fn update_spec_changes_fields() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
 
         let updated = db
@@ -2232,21 +2260,21 @@ mod tests {
             )
             .unwrap();
         assert_eq!(updated.status, Status::Stable);
-        assert_eq!(updated.crate_path, "crates/auth-v2/");
+        assert_eq!(updated.src.as_deref(), Some("crates/auth-v2/"));
         assert_eq!(updated.purpose, "Authentication v2");
     }
 
     #[test]
     fn update_spec_partial() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
 
         let updated = db
             .update_spec("auth", Some("proven"), None, None, None)
             .unwrap();
         assert_eq!(updated.status, Status::Proven);
-        assert_eq!(updated.crate_path, "crates/auth/");
+        assert_eq!(updated.src.as_deref(), Some("crates/auth/"));
         assert_eq!(updated.purpose, "Auth");
     }
 
@@ -2262,7 +2290,7 @@ mod tests {
     #[test]
     fn update_spec_no_fields_fails() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
         let err = db.update_spec("auth", None, None, None, None).unwrap_err();
         assert_eq!(err.code(), "validation_failed");
@@ -2271,7 +2299,7 @@ mod tests {
     #[test]
     fn update_spec_logs_event() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
         db.update_spec("auth", Some("stable"), None, None, Some("bob"))
             .unwrap();
@@ -2285,7 +2313,7 @@ mod tests {
     #[test]
     fn delete_spec_empty_bodies_no_force() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
         db.delete_spec("auth", false, None).unwrap();
 
@@ -2296,7 +2324,7 @@ mod tests {
     #[test]
     fn delete_spec_with_content_requires_force() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
         db.conn
             .execute(
@@ -2323,9 +2351,9 @@ mod tests {
     #[test]
     fn delete_spec_removes_sections_refs_events() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
-        db.create_spec("ralph", "crates/ralph/", "Runner", None)
+        db.create_spec("ralph", Some("crates/ralph/"), "Runner", None)
             .unwrap();
         db.conn
             .execute(
@@ -2366,9 +2394,9 @@ mod tests {
     #[test]
     fn search_specs_matches_stem() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Login system", None)
+        db.create_spec("auth", Some("crates/auth/"), "Login system", None)
             .unwrap();
-        db.create_spec("ralph", "crates/ralph/", "Runner", None)
+        db.create_spec("ralph", Some("crates/ralph/"), "Runner", None)
             .unwrap();
 
         let results = db.search_specs("auth").unwrap();
@@ -2379,9 +2407,9 @@ mod tests {
     #[test]
     fn search_specs_matches_purpose() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Login system", None)
+        db.create_spec("auth", Some("crates/auth/"), "Login system", None)
             .unwrap();
-        db.create_spec("ralph", "crates/ralph/", "Runner", None)
+        db.create_spec("ralph", Some("crates/ralph/"), "Runner", None)
             .unwrap();
 
         let results = db.search_specs("Login").unwrap();
@@ -2392,7 +2420,7 @@ mod tests {
     #[test]
     fn search_specs_matches_section_body() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
         db.conn
             .execute(
@@ -2409,7 +2437,7 @@ mod tests {
     #[test]
     fn search_specs_case_insensitive() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Authentication", None)
+        db.create_spec("auth", Some("crates/auth/"), "Authentication", None)
             .unwrap();
 
         let results = db.search_specs("AUTHENTICATION").unwrap();
@@ -2419,7 +2447,7 @@ mod tests {
     #[test]
     fn search_specs_no_duplicates() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "auth system", None)
+        db.create_spec("auth", Some("crates/auth/"), "auth system", None)
             .unwrap();
         db.conn
             .execute(
@@ -2435,9 +2463,9 @@ mod tests {
     #[test]
     fn count_specs_total_only() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
-        db.create_spec("ralph", "crates/ralph/", "Runner", None)
+        db.create_spec("ralph", Some("crates/ralph/"), "Runner", None)
             .unwrap();
 
         let result = db.count_specs(false).unwrap();
@@ -2448,9 +2476,9 @@ mod tests {
     #[test]
     fn count_specs_by_status() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
-        db.create_spec("ralph", "crates/ralph/", "Runner", None)
+        db.create_spec("ralph", Some("crates/ralph/"), "Runner", None)
             .unwrap();
         db.update_spec("ralph", Some("stable"), None, None, None)
             .unwrap();
@@ -2469,9 +2497,9 @@ mod tests {
     #[test]
     fn project_status_returns_status_map() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
-        db.create_spec("ralph", "crates/ralph/", "Runner", None)
+        db.create_spec("ralph", Some("crates/ralph/"), "Runner", None)
             .unwrap();
         db.update_spec("ralph", Some("proven"), None, None, None)
             .unwrap();
@@ -2484,7 +2512,7 @@ mod tests {
     #[test]
     fn spec_history_ordered_newest_first() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
         db.update_spec("auth", Some("stable"), None, None, None)
             .unwrap();
@@ -2515,7 +2543,7 @@ mod tests {
     #[test]
     fn add_section_appends_at_end() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
 
         let section = db
@@ -2530,7 +2558,7 @@ mod tests {
     #[test]
     fn add_section_after_specific_slug() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
 
         let section = db
@@ -2548,7 +2576,7 @@ mod tests {
     #[test]
     fn add_section_duplicate_slug_fails() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
         db.add_section("auth", "Extra", "body", None, None).unwrap();
 
@@ -2570,7 +2598,7 @@ mod tests {
     #[test]
     fn add_section_after_nonexistent_slug_fails() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
 
         let err = db
@@ -2582,7 +2610,7 @@ mod tests {
     #[test]
     fn add_section_logs_event() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
         db.add_section("auth", "Extra", "body", None, Some("bob"))
             .unwrap();
@@ -2599,7 +2627,7 @@ mod tests {
     #[test]
     fn set_section_replaces_body() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
 
         let section = db
@@ -2612,7 +2640,7 @@ mod tests {
     #[test]
     fn set_section_not_found() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
 
         let err = db
@@ -2633,7 +2661,7 @@ mod tests {
     #[test]
     fn set_section_logs_event() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
         db.set_section("auth", "overview", "content", Some("charlie"))
             .unwrap();
@@ -2649,7 +2677,7 @@ mod tests {
     #[test]
     fn get_section_returns_section() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
         db.set_section("auth", "overview", "hello", None).unwrap();
 
@@ -2662,7 +2690,7 @@ mod tests {
     #[test]
     fn get_section_not_found() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
 
         let err = db.get_section("auth", "nonexistent").unwrap_err();
@@ -2679,7 +2707,7 @@ mod tests {
     #[test]
     fn list_sections_ordered_by_position() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
         db.add_section("auth", "Extra One", "", None, None).unwrap();
         db.add_section("auth", "Extra Two", "", None, None).unwrap();
@@ -2701,7 +2729,7 @@ mod tests {
     #[test]
     fn remove_section_custom() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
         db.add_section("auth", "Extra", "body", None, None).unwrap();
 
@@ -2714,7 +2742,7 @@ mod tests {
     #[test]
     fn remove_section_required_fails() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
 
         let err = db.remove_section("auth", "overview", None).unwrap_err();
@@ -2724,7 +2752,7 @@ mod tests {
     #[test]
     fn remove_section_not_found() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
 
         let err = db.remove_section("auth", "nonexistent", None).unwrap_err();
@@ -2734,7 +2762,7 @@ mod tests {
     #[test]
     fn remove_section_renumbers_positions() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
         db.add_section("auth", "Extra One", "", None, None).unwrap();
         db.add_section("auth", "Extra Two", "", None, None).unwrap();
@@ -2752,7 +2780,7 @@ mod tests {
     #[test]
     fn remove_section_logs_event() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
         db.add_section("auth", "Extra", "", None, None).unwrap();
         db.remove_section("auth", "extra", Some("dave")).unwrap();
@@ -2768,7 +2796,7 @@ mod tests {
     #[test]
     fn move_section_down() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
 
         // Move overview (pos 0) to after testing (pos 4)
@@ -2789,7 +2817,7 @@ mod tests {
     #[test]
     fn move_section_up() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
 
         // Move testing (pos 4) to after overview (pos 0)
@@ -2809,7 +2837,7 @@ mod tests {
     #[test]
     fn move_section_not_found() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
 
         let err = db
@@ -2821,7 +2849,7 @@ mod tests {
     #[test]
     fn move_section_after_not_found() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
 
         let err = db
@@ -2833,7 +2861,7 @@ mod tests {
     #[test]
     fn move_section_logs_event() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
         db.move_section("auth", "overview", "testing", Some("eve"))
             .unwrap();
@@ -2851,7 +2879,7 @@ mod tests {
     #[test]
     fn section_lifecycle() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Auth", None)
+        db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
 
         // Add custom sections
@@ -2905,7 +2933,7 @@ mod tests {
         let (db, _p, _d) = test_db();
 
         let spec = db
-            .create_spec("auth", "crates/auth/", "Authentication", Some("alice"))
+            .create_spec("auth", Some("crates/auth/"), "Authentication", Some("alice"))
             .unwrap();
         assert_eq!(spec.status, Status::Draft);
 
@@ -2932,9 +2960,9 @@ mod tests {
     }
 
     fn create_two_specs(db: &Db) {
-        db.create_spec("alpha", "crates/alpha/", "Alpha spec", Some("test"))
+        db.create_spec("alpha", Some("crates/alpha/"), "Alpha spec", Some("test"))
             .unwrap();
-        db.create_spec("beta", "crates/beta/", "Beta spec", Some("test"))
+        db.create_spec("beta", Some("crates/beta/"), "Beta spec", Some("test"))
             .unwrap();
     }
 
@@ -2972,7 +3000,7 @@ mod tests {
     #[test]
     fn add_ref_nonexistent_source() {
         let (db, _p, _d) = test_db();
-        db.create_spec("beta", "crates/beta/", "Beta spec", Some("test"))
+        db.create_spec("beta", Some("crates/beta/"), "Beta spec", Some("test"))
             .unwrap();
 
         let err = db.add_ref("nope", "beta", None).unwrap_err();
@@ -2982,7 +3010,7 @@ mod tests {
     #[test]
     fn add_ref_nonexistent_target() {
         let (db, _p, _d) = test_db();
-        db.create_spec("alpha", "crates/alpha/", "Alpha spec", Some("test"))
+        db.create_spec("alpha", Some("crates/alpha/"), "Alpha spec", Some("test"))
             .unwrap();
 
         let err = db.add_ref("alpha", "nope", None).unwrap_err();
@@ -3002,7 +3030,7 @@ mod tests {
     #[test]
     fn add_ref_self_ref_rejected() {
         let (db, _p, _d) = test_db();
-        db.create_spec("alpha", "crates/alpha/", "Alpha spec", Some("test"))
+        db.create_spec("alpha", Some("crates/alpha/"), "Alpha spec", Some("test"))
             .unwrap();
 
         let err = db.add_ref("alpha", "alpha", None);
@@ -3012,9 +3040,9 @@ mod tests {
     #[test]
     fn add_ref_cycle_detected() {
         let (db, _p, _d) = test_db();
-        db.create_spec("a", "crates/a/", "A", Some("test")).unwrap();
-        db.create_spec("b", "crates/b/", "B", Some("test")).unwrap();
-        db.create_spec("c", "crates/c/", "C", Some("test")).unwrap();
+        db.create_spec("a", Some("crates/a/"), "A", Some("test")).unwrap();
+        db.create_spec("b", Some("crates/b/"), "B", Some("test")).unwrap();
+        db.create_spec("c", Some("crates/c/"), "C", Some("test")).unwrap();
 
         db.add_ref("a", "b", None).unwrap();
         db.add_ref("b", "c", None).unwrap();
@@ -3025,9 +3053,9 @@ mod tests {
     #[test]
     fn add_ref_no_false_cycle() {
         let (db, _p, _d) = test_db();
-        db.create_spec("a", "crates/a/", "A", Some("test")).unwrap();
-        db.create_spec("b", "crates/b/", "B", Some("test")).unwrap();
-        db.create_spec("c", "crates/c/", "C", Some("test")).unwrap();
+        db.create_spec("a", Some("crates/a/"), "A", Some("test")).unwrap();
+        db.create_spec("b", Some("crates/b/"), "B", Some("test")).unwrap();
+        db.create_spec("c", Some("crates/c/"), "C", Some("test")).unwrap();
 
         db.add_ref("a", "b", None).unwrap();
         db.add_ref("a", "c", None).unwrap();
@@ -3081,11 +3109,11 @@ mod tests {
     #[test]
     fn ref_tree_down() {
         let (db, _p, _d) = test_db();
-        db.create_spec("a", "crates/a/", "A spec", Some("test"))
+        db.create_spec("a", Some("crates/a/"), "A spec", Some("test"))
             .unwrap();
-        db.create_spec("b", "crates/b/", "B spec", Some("test"))
+        db.create_spec("b", Some("crates/b/"), "B spec", Some("test"))
             .unwrap();
-        db.create_spec("c", "crates/c/", "C spec", Some("test"))
+        db.create_spec("c", Some("crates/c/"), "C spec", Some("test"))
             .unwrap();
 
         db.add_ref("a", "b", None).unwrap();
@@ -3104,11 +3132,11 @@ mod tests {
     #[test]
     fn ref_tree_up() {
         let (db, _p, _d) = test_db();
-        db.create_spec("a", "crates/a/", "A spec", Some("test"))
+        db.create_spec("a", Some("crates/a/"), "A spec", Some("test"))
             .unwrap();
-        db.create_spec("b", "crates/b/", "B spec", Some("test"))
+        db.create_spec("b", Some("crates/b/"), "B spec", Some("test"))
             .unwrap();
-        db.create_spec("c", "crates/c/", "C spec", Some("test"))
+        db.create_spec("c", Some("crates/c/"), "C spec", Some("test"))
             .unwrap();
 
         db.add_ref("a", "b", None).unwrap();
@@ -3141,8 +3169,8 @@ mod tests {
     #[test]
     fn detect_cycles_no_cycles() {
         let (db, _p, _d) = test_db();
-        db.create_spec("a", "crates/a/", "A", Some("test")).unwrap();
-        db.create_spec("b", "crates/b/", "B", Some("test")).unwrap();
+        db.create_spec("a", Some("crates/a/"), "A", Some("test")).unwrap();
+        db.create_spec("b", Some("crates/b/"), "B", Some("test")).unwrap();
         db.add_ref("a", "b", None).unwrap();
 
         let cycles = db.detect_cycles().unwrap();
@@ -3152,9 +3180,9 @@ mod tests {
     #[test]
     fn detect_cycles_finds_cycle() {
         let (db, _p, _d) = test_db();
-        db.create_spec("a", "crates/a/", "A", Some("test")).unwrap();
-        db.create_spec("b", "crates/b/", "B", Some("test")).unwrap();
-        db.create_spec("c", "crates/c/", "C", Some("test")).unwrap();
+        db.create_spec("a", Some("crates/a/"), "A", Some("test")).unwrap();
+        db.create_spec("b", Some("crates/b/"), "B", Some("test")).unwrap();
+        db.create_spec("c", Some("crates/c/"), "C", Some("test")).unwrap();
 
         db.add_ref("a", "b", None).unwrap();
         db.add_ref("b", "c", None).unwrap();
@@ -3173,7 +3201,7 @@ mod tests {
     #[test]
     fn ref_tree_single_node() {
         let (db, _p, _d) = test_db();
-        db.create_spec("solo", "crates/solo/", "Solo spec", Some("test"))
+        db.create_spec("solo", Some("crates/solo/"), "Solo spec", Some("test"))
             .unwrap();
 
         let tree = db.ref_tree("solo", "down").unwrap();
@@ -3208,9 +3236,9 @@ mod tests {
     #[test]
     fn export_writes_jsonl_files() {
         let (db, project_dir, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Authentication", Some("test"))
+        db.create_spec("auth", Some("crates/auth/"), "Authentication", Some("test"))
             .unwrap();
-        db.create_spec("ralph", "crates/ralph/", "Iterative runner", Some("test"))
+        db.create_spec("ralph", Some("crates/ralph/"), "Iterative runner", Some("test"))
             .unwrap();
 
         let result = db.export_jsonl().unwrap();
@@ -3233,7 +3261,7 @@ mod tests {
     #[test]
     fn export_writes_spec_markdown() {
         let (db, project_dir, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Authentication", Some("test"))
+        db.create_spec("auth", Some("crates/auth/"), "Authentication", Some("test"))
             .unwrap();
         db.set_section("auth", "overview", "Auth overview body.", Some("test"))
             .unwrap();
@@ -3254,9 +3282,9 @@ mod tests {
     #[test]
     fn export_markdown_includes_refs() {
         let (db, project_dir, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Authentication", Some("test"))
+        db.create_spec("auth", Some("crates/auth/"), "Authentication", Some("test"))
             .unwrap();
-        db.create_spec("ralph", "crates/ralph/", "Iterative runner", Some("test"))
+        db.create_spec("ralph", Some("crates/ralph/"), "Iterative runner", Some("test"))
             .unwrap();
         db.add_ref("auth", "ralph", Some("test")).unwrap();
 
@@ -3271,9 +3299,9 @@ mod tests {
     #[test]
     fn export_writes_readme() {
         let (db, project_dir, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Authentication", Some("test"))
+        db.create_spec("auth", Some("crates/auth/"), "Authentication", Some("test"))
             .unwrap();
-        db.create_spec("ralph", "crates/ralph/", "Iterative runner", Some("test"))
+        db.create_spec("ralph", Some("crates/ralph/"), "Iterative runner", Some("test"))
             .unwrap();
 
         db.export_jsonl().unwrap();
@@ -3290,9 +3318,9 @@ mod tests {
     #[test]
     fn export_import_roundtrip() {
         let (db, _p, _d) = test_db();
-        db.create_spec("auth", "crates/auth/", "Authentication", Some("test"))
+        db.create_spec("auth", Some("crates/auth/"), "Authentication", Some("test"))
             .unwrap();
-        db.create_spec("ralph", "crates/ralph/", "Iterative runner", Some("test"))
+        db.create_spec("ralph", Some("crates/ralph/"), "Iterative runner", Some("test"))
             .unwrap();
         db.set_section("auth", "overview", "Auth overview.", Some("test"))
             .unwrap();
@@ -3334,7 +3362,7 @@ mod tests {
         let (db, project_dir, _d) = test_db();
         let crate_dir = project_dir.path().join("crates/mylib");
         std::fs::create_dir_all(&crate_dir).unwrap();
-        db.create_spec("mylib", "crates/mylib", "Test spec", None)
+        db.create_spec("mylib", Some("crates/mylib"), "Test spec", None)
             .unwrap();
         for slug in [
             "overview",
@@ -3358,7 +3386,7 @@ mod tests {
         let (db, project_dir, _d) = test_db();
         let crate_dir = project_dir.path().join("crates/mylib");
         std::fs::create_dir_all(&crate_dir).unwrap();
-        db.create_spec("mylib", "crates/mylib", "Test spec", None)
+        db.create_spec("mylib", Some("crates/mylib"), "Test spec", None)
             .unwrap();
 
         let report = db.check(None).unwrap();
@@ -3374,9 +3402,9 @@ mod tests {
     }
 
     #[test]
-    fn check_errors_missing_crate_path() {
+    fn check_errors_missing_src_path() {
         let (db, _project_dir, _d) = test_db();
-        db.create_spec("ghost", "crates/nonexistent", "Does not exist", None)
+        db.create_spec("ghost", Some("crates/nonexistent"), "Does not exist", None)
             .unwrap();
 
         let report = db.check(None).unwrap();
@@ -3428,7 +3456,7 @@ mod tests {
         let (db, project_dir, _d) = test_db();
         let crate_dir = project_dir.path().join("crates/mylib");
         std::fs::create_dir_all(&crate_dir).unwrap();
-        db.create_spec("mylib", "crates/mylib", "Test spec", None)
+        db.create_spec("mylib", Some("crates/mylib"), "Test spec", None)
             .unwrap();
 
         let report = db.check(Some("http://localhost:1")).unwrap();
@@ -3446,7 +3474,7 @@ mod tests {
         let (db, project_dir, _d) = test_db();
         let crate_dir = project_dir.path().join("crates/mylib");
         std::fs::create_dir_all(&crate_dir).unwrap();
-        db.create_spec("mylib", "crates/mylib", "Test", None)
+        db.create_spec("mylib", Some("crates/mylib"), "Test", None)
             .unwrap();
         db.export_jsonl().unwrap();
 
@@ -3460,7 +3488,7 @@ mod tests {
         let (db, project_dir, _d) = test_db();
         let crate_dir = project_dir.path().join("crates/mylib");
         std::fs::create_dir_all(&crate_dir).unwrap();
-        db.create_spec("mylib", "crates/mylib", "Test", None)
+        db.create_spec("mylib", Some("crates/mylib"), "Test", None)
             .unwrap();
         // Don't export — JSONL files don't exist, so count is 0 vs 1 in SQLite
 
@@ -3495,7 +3523,7 @@ mod tests {
     #[test]
     fn doctor_detects_orphaned_refs() {
         let (db, _p, _d) = test_db();
-        db.create_spec("alpha", "crates/a", "Alpha", None).unwrap();
+        db.create_spec("alpha", Some("crates/a"), "Alpha", None).unwrap();
         create_orphans(&db);
 
         let report = db.doctor(false).unwrap();
@@ -3506,7 +3534,7 @@ mod tests {
     #[test]
     fn doctor_fixes_orphaned_refs() {
         let (db, _p, _d) = test_db();
-        db.create_spec("alpha", "crates/a", "Alpha", None).unwrap();
+        db.create_spec("alpha", Some("crates/a"), "Alpha", None).unwrap();
         create_orphans(&db);
 
         let report = db.doctor(true).unwrap();
@@ -3532,7 +3560,7 @@ mod tests {
     #[test]
     fn doctor_detects_orphaned_sections() {
         let (db, _p, _d) = test_db();
-        db.create_spec("alpha", "crates/a", "Alpha", None).unwrap();
+        db.create_spec("alpha", Some("crates/a"), "Alpha", None).unwrap();
         create_orphans(&db);
 
         let report = db.doctor(false).unwrap();
@@ -3547,7 +3575,7 @@ mod tests {
     #[test]
     fn doctor_fixes_orphaned_sections() {
         let (db, _p, _d) = test_db();
-        db.create_spec("alpha", "crates/a", "Alpha", None).unwrap();
+        db.create_spec("alpha", Some("crates/a"), "Alpha", None).unwrap();
         create_orphans(&db);
 
         let report = db.doctor(true).unwrap();
@@ -3582,7 +3610,7 @@ mod tests {
     #[test]
     fn doctor_no_fix_does_not_remove() {
         let (db, _p, _d) = test_db();
-        db.create_spec("alpha", "crates/a", "Alpha", None).unwrap();
+        db.create_spec("alpha", Some("crates/a"), "Alpha", None).unwrap();
         create_orphans(&db);
 
         let report = db.doctor(false).unwrap();

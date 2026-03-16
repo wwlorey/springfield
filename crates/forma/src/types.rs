@@ -130,7 +130,8 @@ impl RequiredSection {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Spec {
     pub stem: String,
-    pub crate_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub src: Option<String>,
     pub purpose: String,
     pub status: Status,
     pub created_at: DateTime<Utc>,
@@ -344,7 +345,7 @@ mod tests {
     fn spec_serde_roundtrip() {
         let spec = Spec {
             stem: "auth".to_string(),
-            crate_path: "crates/auth/".to_string(),
+            src: Some("crates/auth/".to_string()),
             purpose: "Authentication".to_string(),
             status: Status::Draft,
             created_at: Utc::now(),

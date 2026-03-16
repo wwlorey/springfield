@@ -26,8 +26,8 @@ struct Cli {
 enum Commands {
     Create {
         stem: String,
-        #[arg(long = "crate")]
-        crate_path: String,
+        #[arg(long)]
+        src: Option<String>,
         #[arg(long)]
         purpose: String,
     },
@@ -42,8 +42,8 @@ enum Commands {
         stem: String,
         #[arg(long)]
         status: Option<String>,
-        #[arg(long = "crate")]
-        crate_path: Option<String>,
+        #[arg(long)]
+        src: Option<String>,
         #[arg(long)]
         purpose: Option<String>,
     },
@@ -327,11 +327,11 @@ fn main() {
 
         Commands::Create {
             stem,
-            crate_path,
+            src,
             purpose,
         } => {
             let client = Client::new();
-            match client.create_spec(&stem, &crate_path, &purpose, &actor) {
+            match client.create_spec(&stem, src.as_deref(), &purpose, &actor) {
                 Ok(v) => output::print_spec(&v, mode),
                 Err(e) => fail(e, mode),
             }
@@ -356,14 +356,14 @@ fn main() {
         Commands::Update {
             stem,
             status,
-            crate_path,
+            src,
             purpose,
         } => {
             let client = Client::new();
             match client.update_spec(
                 &stem,
                 status.as_deref(),
-                crate_path.as_deref(),
+                src.as_deref(),
                 purpose.as_deref(),
                 &actor,
             ) {
