@@ -9,11 +9,11 @@ Specification management — forma daemon and fm CLI
 
 ## Overview
 
-Forma is a Rust CLI (\`fm\`) that manages specifications for any repository. It replaces manual markdown-based spec tracking with a single command interface backed by SQLite. A single command like \`fm create auth --src crates/auth/ --purpose "Authentication"\` replaces the error-prone process of creating markdown files and updating index tables by hand.
+Forma is a Rust CLI (`fm`) that manages specifications for any repository. It replaces manual markdown-based spec tracking with a single command interface backed by SQLite. A single command like `fm create auth --src crates/auth/ --purpose "Authentication"` replaces the error-prone process of creating markdown files and updating index tables by hand.
 
-Specs are the source of truth for all code. Forma ensures they are structured, validated, and queryable. All spec mutations go through \`fm\` — agents and humans read the generated markdown, but never edit it directly.
+Specs are the source of truth for all code. Forma ensures they are structured, validated, and queryable. All spec mutations go through `fm` — agents and humans read the generated markdown, but never edit it directly.
 
-Forma lives at \`crates/forma/\` in the Springfield workspace. It produces one binary: \`fm\`.
+Forma lives at `crates/forma/` in the Springfield workspace. It produces one binary: `fm`.
 
 ## Architecture
 
@@ -34,44 +34,44 @@ crates/forma/
 
 | Crate | Purpose |
 |-------|---------|
-| \`clap\` (4, derive) | CLI argument parsing with env var support |
-| \`axum\` (0.7) | Daemon HTTP server |
-| \`tokio\` (1, full) | Async runtime for daemon |
-| \`reqwest\` (0.12, blocking) | CLI HTTP client |
-| \`rusqlite\` (0.31, bundled) | SQLite with bundled SQLite |
-| \`serde\` (1, derive) | Serialization |
-| \`serde_json\` (1) | JSON handling |
-| \`uuid\` (1, v7) | UUIDv7 ID generation |
-| \`chrono\` (0.4) | Timestamp generation |
-| \`sha2\` (0.10) | SHA-256 for port/path derivation |
-| \`tracing\` (0.1) | Structured logging |
-| \`tracing-subscriber\` (0.3) | Log output formatting |
+| `clap` (4, derive) | CLI argument parsing with env var support |
+| `axum` (0.7) | Daemon HTTP server |
+| `tokio` (1, full) | Async runtime for daemon |
+| `reqwest` (0.12, blocking) | CLI HTTP client |
+| `rusqlite` (0.31, bundled) | SQLite with bundled SQLite |
+| `serde` (1, derive) | Serialization |
+| `serde_json` (1) | JSON handling |
+| `uuid` (1, v7) | UUIDv7 ID generation |
+| `chrono` (0.4) | Timestamp generation |
+| `sha2` (0.10) | SHA-256 for port/path derivation |
+| `tracing` (0.1) | Structured logging |
+| `tracing-subscriber` (0.3) | Log output formatting |
 
 Dev dependencies:
 
 | Crate | Purpose |
 |-------|---------|
-| \`tempfile\` (3) | Temporary directories for test isolation |
+| `tempfile` (3) | Temporary directories for test isolation |
 
 ## Error Handling
 
 | Scenario | Behavior |
 |----------|----------|
-| Spec not found | \`not_found\` error, exit 1 |
-| Spec already exists | \`already_exists\` error, exit 1 |
-| Section not found | \`not_found\` error, exit 1 |
-| Remove required section | \`required_section\` error, exit 1 |
-| Ref cycle detected | \`cycle_detected\` error, exit 1 |
-| Ref target doesn't exist | \`not_found\` error, exit 1 |
+| Spec not found | `not_found` error, exit 1 |
+| Spec already exists | `already_exists` error, exit 1 |
+| Section not found | `not_found` error, exit 1 |
+| Remove required section | `required_section` error, exit 1 |
+| Ref cycle detected | `cycle_detected` error, exit 1 |
+| Ref target doesn't exist | `not_found` error, exit 1 |
 | Daemon unreachable (local) | Auto-start daemon, retry |
 | Daemon unreachable (remote) | Error, exit 1 |
-| Pensa daemon unreachable (during \`fm check\`) | Skip pensa validation, warn |
-| Empty stdin on \`--body-stdin\` | Accept empty body (valid for clearing a section) |
+| Pensa daemon unreachable (during `fm check`) | Skip pensa validation, warn |
+| Empty stdin on `--body-stdin` | Accept empty body (valid for clearing a section) |
 | Invalid stem (spaces, uppercase) | Reject at CLI level with validation error |
 
 ## Testing
 
-Forma should be end-to-end testable from the command line. Tests start a daemon on a random port, run \`fm\` commands against it via \`FM_DAEMON\`, and assert on stdout/stderr/exit codes.
+Forma should be end-to-end testable from the command line. Tests start a daemon on a random port, run `fm` commands against it via `FM_DAEMON`, and assert on stdout/stderr/exit codes.
 
 Key scenarios:
 
@@ -80,7 +80,7 @@ Key scenarios:
 - **Required sections scaffolded**: create spec → section list → verify 5 required sections exist
 - **Required sections protected**: create spec → section remove on required slug → verify error
 - **Ref lifecycle**: create two specs → ref add → ref list → ref remove
-- **Ref cycle detection**: A refs B → B refs C → C refs A → verify \`cycle_detected\` error
+- **Ref cycle detection**: A refs B → B refs C → C refs A → verify `cycle_detected` error
 - **Ref tree**: create chain A → B → C → verify tree output shows depth
 - **Status transitions**: create (draft) → update stable → update proven
 - **Search**: create specs with known content → search → verify matches
@@ -90,69 +90,69 @@ Key scenarios:
 - **fm check**: create spec with empty required section → check → verify warning. Create ref to non-existent spec → check → verify error
 - **fm doctor**: create orphaned data → doctor --fix → verify cleaned up
 - **History**: create spec → update → section set → verify history shows all events
-- **JSON output**: verify \`--json\` output matches documented shapes for each command
-- **Pensa integration**: start both daemons → \`pn create --spec valid-stem\` succeeds → \`pn create --spec nonexistent\` fails
-- **Slug generation**: verify "Error Handling" → \`error-handling\`, "NDJSON Stream Formatting" → \`ndjson-stream-formatting\`
+- **JSON output**: verify `--json` output matches documented shapes for each command
+- **Pensa integration**: start both daemons → `pn create --spec valid-stem` succeeds → `pn create --spec nonexistent` fails
+- **Slug generation**: verify "Error Handling" → `error-handling`, "NDJSON Stream Formatting" → `ndjson-stream-formatting`
 
 ## Storage Model
 
 Dual-layer storage:
 
-- **\`~/.local/share/forma/<project-hash>/db.sqlite\`** — the working database, stored outside the workspace to keep binary files out of git. Lives on the host, owned by the forma daemon. Rebuilt from JSONL on clone. The \`<project-hash>\` is a 16-hex-char hash of the canonical project directory path (SHA-256, first 8 bytes as hex).
-- **\`.forma/*.jsonl\`** — the git-committed exports. Separate files per entity: \`specs.jsonl\`, \`sections.jsonl\`, \`refs.jsonl\`. Events are not exported (derivable from history, avoids monotonic file growth). Human-readable, diffs cleanly. JSONL files are never read at runtime — they capture a snapshot at commit time via \`fm export\` and are only used to rebuild SQLite on clone or post-merge via \`fm import\`.
+- **`~/.local/share/forma/<project-hash>/db.sqlite`** — the working database, stored outside the workspace to keep binary files out of git. Lives on the host, owned by the forma daemon. Rebuilt from JSONL on clone. The `<project-hash>` is a 16-hex-char hash of the canonical project directory path (SHA-256, first 8 bytes as hex).
+- **`.forma/*.jsonl`** — the git-committed exports. Separate files per entity: `specs.jsonl`, `sections.jsonl`, `refs.jsonl`. Events are not exported (derivable from history, avoids monotonic file growth). Human-readable, diffs cleanly. JSONL files are never read at runtime — they capture a snapshot at commit time via `fm export` and are only used to rebuild SQLite on clone or post-merge via `fm import`.
 
-Generated artifacts (also committed, produced by \`fm export\`):
+Generated artifacts (also committed, produced by `fm export`):
 
-- **\`.forma/specs/*.md\`** — generated markdown for each spec. Human-readable, reviewable in PRs, browsable on GitHub. Never edited directly.
-- **\`.forma/README.md\`** — generated spec index table. Replaces the old manual \`specs/README.md\`.
+- **`.forma/specs/*.md`** — generated markdown for each spec. Human-readable, reviewable in PRs, browsable on GitHub. Never edited directly.
+- **`.forma/README.md`** — generated spec index table. Replaces the old manual `specs/README.md`.
 
 Transient files (gitignored):
 
-- **\`.forma/daemon.port\`** — written by the daemon on startup, contains the port number.
-- **\`.forma/daemon.project\`** — written by the daemon on startup, contains the canonical project directory path. Used by the CLI to detect stale daemons.
-- **\`.forma/daemon.url\`** — optional override for daemon address. If present, \`fm\` treats the daemon as remote (no auto-start).
+- **`.forma/daemon.port`** — written by the daemon on startup, contains the port number.
+- **`.forma/daemon.project`** — written by the daemon on startup, contains the canonical project directory path. Used by the CLI to detect stale daemons.
+- **`.forma/daemon.url`** — optional override for daemon address. If present, `fm` treats the daemon as remote (no auto-start).
 
 Git sync is automated via prek (git hooks):
 
-- **Pre-commit hook**: runs \`fm export\` to write SQLite → JSONL + markdown and stage the files.
-- **Post-merge/post-checkout/post-rewrite hooks**: run \`fm import\` to rebuild JSONL → SQLite.
+- **Pre-commit hook**: runs `fm export` to write SQLite → JSONL + markdown and stage the files.
+- **Post-merge/post-checkout/post-rewrite hooks**: run `fm import` to rebuild JSONL → SQLite.
 
 ## Runtime Architecture
 
-Forma uses a client/daemon model. The daemon runs on the host, owns the SQLite database, and handles all reads and writes. The \`fm\` CLI is a thin client that connects to the daemon over HTTP.
+Forma uses a client/daemon model. The daemon runs on the host, owns the SQLite database, and handles all reads and writes. The `fm` CLI is a thin client that connects to the daemon over HTTP.
 
 ### Why a daemon?
 
-SQLite needs serialized write access. Multiple agents may update different specs concurrently during parallel \`sgf build\` loops. The daemon keeps all reads and writes behind a single process, preventing concurrent SQLite writers.
+SQLite needs serialized write access. Multiple agents may update different specs concurrently during parallel `sgf build` loops. The daemon keeps all reads and writes behind a single process, preventing concurrent SQLite writers.
 
-### Daemon (\`fm daemon\`)
+### Daemon (`fm daemon`)
 
-- Listens on a per-project derived port. Port derivation: SHA-256 of \`"forma:" + canonical_project_path\`, bytes 8-9 mapped to range [10000, 60000]. The \`"forma:"\` prefix ensures forma and pensa derive different ports for the same project.
-- Owns the database directly via \`rusqlite\`.
-- Sets pragmas on every connection: \`busy_timeout=5000\`, \`foreign_keys=ON\`.
+- Listens on a per-project derived port. Port derivation: SHA-256 of `"forma:" + canonical_project_path`, bytes 8-9 mapped to range [10000, 60000]. The `"forma:"` prefix ensures forma and pensa derive different ports for the same project.
+- Owns the database directly via `rusqlite`.
+- Sets pragmas on every connection: `busy_timeout=5000`, `foreign_keys=ON`.
 - All mutation is serialized through the daemon — no concurrent SQLite writers.
-- Runs in the foreground (daemonization is the caller's responsibility — \`sgf\` backgrounds it).
+- Runs in the foreground (daemonization is the caller's responsibility — `sgf` backgrounds it).
 - Stops on SIGTERM.
-- The daemon needs to know the project root (where \`.forma/\` lives). It accepts a \`--project-dir\` flag, defaulting to the current working directory.
+- The daemon needs to know the project root (where `.forma/` lives). It accepts a `--project-dir` flag, defaulting to the current working directory.
 
 ### CLI client
 
-- Every \`fm\` command (create, list, show, etc.) sends an HTTP request to the daemon.
-- The CLI discovers the daemon address via env vars and port discovery. Resolution order: (1) if \`FM_DAEMON_HOST\` is set and non-empty, use \`http://<host>:<port>\` with port from discovery; (2) if \`FM_DAEMON\` is set, use it as the full URL; (3) if \`.forma/daemon.url\` exists and contains a non-empty URL, use it; (4) otherwise use \`http://localhost:<port>\`. Port discovery checks \`.forma/daemon.port\` (written by the daemon on startup), falling back to SHA-256 derivation of the project directory.
-- If the daemon is unreachable and a remote host is configured — \`FM_DAEMON_HOST\` is set to something other than empty/\`localhost\`/\`127.0.0.1\`/\`::1\`, \`FM_DAEMON\` is explicitly set, or \`.forma/daemon.url\` exists with content — the CLI prints an error and exits (exit code 1). It never auto-starts a daemon when a remote daemon address is configured. Otherwise (local host), the CLI auto-starts it (spawning \`fm daemon\` in the background with the current working directory as \`--project-dir\`), waits up to 5 seconds for it to become ready, then proceeds. If the daemon still isn't reachable after 5 seconds, the command continues anyway (the HTTP call will fail with a clear error). The \`daemon\` and \`where\` subcommands skip auto-start.
-- **Stale daemon detection**: before checking reachability, the CLI reads \`.forma/daemon.project\` (if it exists) and compares the path inside to the current working directory. If they differ, the daemon was started for a different project directory. The CLI removes \`.forma/daemon.port\` and \`.forma/daemon.project\`, then proceeds to start a fresh daemon.
+- Every `fm` command (create, list, show, etc.) sends an HTTP request to the daemon.
+- The CLI discovers the daemon address via env vars and port discovery. Resolution order: (1) if `FM_DAEMON_HOST` is set and non-empty, use `http://<host>:<port>` with port from discovery; (2) if `FM_DAEMON` is set, use it as the full URL; (3) if `.forma/daemon.url` exists and contains a non-empty URL, use it; (4) otherwise use `http://localhost:<port>`. Port discovery checks `.forma/daemon.port` (written by the daemon on startup), falling back to SHA-256 derivation of the project directory.
+- If the daemon is unreachable and a remote host is configured — `FM_DAEMON_HOST` is set to something other than empty/`localhost`/`127.0.0.1`/`::1`, `FM_DAEMON` is explicitly set, or `.forma/daemon.url` exists with content — the CLI prints an error and exits (exit code 1). It never auto-starts a daemon when a remote daemon address is configured. Otherwise (local host), the CLI auto-starts it (spawning `fm daemon` in the background with the current working directory as `--project-dir`), waits up to 5 seconds for it to become ready, then proceeds. If the daemon still isn't reachable after 5 seconds, the command continues anyway (the HTTP call will fail with a clear error). The `daemon` and `where` subcommands skip auto-start.
+- **Stale daemon detection**: before checking reachability, the CLI reads `.forma/daemon.project` (if it exists) and compares the path inside to the current working directory. If they differ, the daemon was started for a different project directory. The CLI removes `.forma/daemon.port` and `.forma/daemon.project`, then proceeds to start a fresh daemon.
 
 ### Technology choices
 
-- **Daemon HTTP server**: \`axum\` (tokio-based).
-- **CLI HTTP client**: \`reqwest\` (blocking mode — the CLI doesn't need async).
-- **SQLite**: \`rusqlite\` with bundled SQLite (the \`bundled\` feature).
+- **Daemon HTTP server**: `axum` (tokio-based).
+- **CLI HTTP client**: `reqwest` (blocking mode — the CLI doesn't need async).
+- **SQLite**: `rusqlite` with bundled SQLite (the `bundled` feature).
 
 ## Schema
 
 ### Specs table
 
-\`\`\`sql
+```sql
 CREATE TABLE specs (
     stem       TEXT PRIMARY KEY,
     src        TEXT,
@@ -161,22 +161,22 @@ CREATE TABLE specs (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
-\`\`\`
+```
 
-**\`stem\`** — the unique identifier for the spec. Lowercase, alphanumeric + hyphens. Examples: \`auth\`, \`ralph\`, \`claude-wrapper\`. Used as the primary key and in all CLI commands.
+**`stem`** — the unique identifier for the spec. Lowercase, alphanumeric + hyphens. Examples: `auth`, `ralph`, `claude-wrapper`. Used as the primary key and in all CLI commands.
 
-**\`src\`** — optional relative path to the source directory (e.g., \`crates/auth/\`, \`frontend/src/auth/\`). Null for specs not tied to a specific directory.
+**`src`** — optional relative path to the source directory (e.g., `crates/auth/`, `frontend/src/auth/`). Null for specs not tied to a specific directory.
 
-**\`purpose\`** — one-line description of what the spec covers.
+**`purpose`** — one-line description of what the spec covers.
 
-**\`status\`** — lifecycle state:
-- **\`draft\`** — spec is being written, not yet implementable.
-- **\`stable\`** — spec is approved and implementation can proceed.
-- **\`proven\`** — spec is fully reflected in the codebase (implementation complete, tests passing).
+**`status`** — lifecycle state:
+- **`draft`** — spec is being written, not yet implementable.
+- **`stable`** — spec is approved and implementation can proceed.
+- **`proven`** — spec is fully reflected in the codebase (implementation complete, tests passing).
 
 ### Sections table
 
-\`\`\`sql
+```sql
 CREATE TABLE sections (
     id         TEXT PRIMARY KEY,
     spec_stem  TEXT NOT NULL REFERENCES specs(stem),
@@ -189,48 +189,48 @@ CREATE TABLE sections (
     updated_at TEXT NOT NULL,
     UNIQUE(spec_stem, slug)
 );
-\`\`\`
+```
 
-**\`id\`** — Format: \`fm-\` prefix + 8 hex chars from UUIDv7. Example: \`fm-a1b2c3d4\`.
+**`id`** — Format: `fm-` prefix + 8 hex chars from UUIDv7. Example: `fm-a1b2c3d4`.
 
-**\`slug\`** — URL-safe identifier derived from the display name. Lowercase, spaces to hyphens, non-alphanumeric characters stripped. Examples: \`overview\`, \`error-handling\`, \`ndjson-stream-formatting\`. Used in CLI commands and HTTP routes.
+**`slug`** — URL-safe identifier derived from the display name. Lowercase, spaces to hyphens, non-alphanumeric characters stripped. Examples: `overview`, `error-handling`, `ndjson-stream-formatting`. Used in CLI commands and HTTP routes.
 
-**\`name\`** — human-readable display name. Examples: \`Overview\`, \`Error Handling\`, \`NDJSON Stream Formatting\`.
+**`name`** — human-readable display name. Examples: `Overview`, `Error Handling`, `NDJSON Stream Formatting`.
 
-**\`kind\`** — \`required\` for the five standard sections, \`custom\` for everything else.
+**`kind`** — `required` for the five standard sections, `custom` for everything else.
 
-**\`position\`** — integer ordering within the spec. Required sections are scaffolded at positions 0-4. Custom sections are inserted at the end by default, or after a specified section via \`--after\`.
+**`position`** — integer ordering within the spec. Required sections are scaffolded at positions 0-4. Custom sections are inserted at the end by default, or after a specified section via `--after`.
 
 ### Required sections
 
-Five required sections are created automatically when a spec is created via \`fm create\`:
+Five required sections are created automatically when a spec is created via `fm create`:
 
 | Position | Name | Slug | Purpose |
 |----------|------|------|---------|
-| 0 | Overview | \`overview\` | What this crate/module does |
-| 1 | Architecture | \`architecture\` | Directory structure, module layout |
-| 2 | Dependencies | \`dependencies\` | Crate/package dependencies |
-| 3 | Error Handling | \`error-handling\` | Error types, failure modes, recovery |
-| 4 | Testing | \`testing\` | Test strategy, key scenarios |
+| 0 | Overview | `overview` | What this crate/module does |
+| 1 | Architecture | `architecture` | Directory structure, module layout |
+| 2 | Dependencies | `dependencies` | Crate/package dependencies |
+| 3 | Error Handling | `error-handling` | Error types, failure modes, recovery |
+| 4 | Testing | `testing` | Test strategy, key scenarios |
 
-Required sections cannot be removed via \`fm section remove\`. Their bodies start empty — \`fm check\` flags empty required sections as warnings.
+Required sections cannot be removed via `fm section remove`. Their bodies start empty — `fm check` flags empty required sections as warnings.
 
 ### Refs table
 
-\`\`\`sql
+```sql
 CREATE TABLE refs (
     from_stem TEXT NOT NULL REFERENCES specs(stem),
     to_stem   TEXT NOT NULL REFERENCES specs(stem),
     PRIMARY KEY (from_stem, to_stem),
     CHECK (from_stem \!= to_stem)
 );
-\`\`\`
+```
 
-Models directional cross-references between specs. \`fm ref add auth ralph\` means the auth spec references the ralph spec. Used to auto-generate the "Related Specifications" section in exported markdown.
+Models directional cross-references between specs. `fm ref add auth ralph` means the auth spec references the ralph spec. Used to auto-generate the "Related Specifications" section in exported markdown.
 
 ### Events table (audit log)
 
-\`\`\`sql
+```sql
 CREATE TABLE events (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     spec_stem  TEXT NOT NULL REFERENCES specs(stem),
@@ -239,15 +239,15 @@ CREATE TABLE events (
     detail     TEXT,
     created_at TEXT NOT NULL
 );
-\`\`\`
+```
 
-Every mutation (create, update, delete, section add/set/remove/move, ref add/remove) gets logged. Powers \`fm history\`. Events are not exported to JSONL.
+Every mutation (create, update, delete, section add/set/remove/move, ref add/remove) gets logged. Powers `fm history`. Events are not exported to JSONL.
 
-Known event types: \`created\`, \`updated\`, \`deleted\`, \`section_added\`, \`section_updated\`, \`section_removed\`, \`section_moved\`, \`ref_added\`, \`ref_removed\`.
+Known event types: `created`, `updated`, `deleted`, `section_added`, `section_updated`, `section_removed`, `section_moved`, `ref_added`, `ref_removed`.
 
 ### Timestamps
 
-All timestamps are ISO 8601 UTC strings (\`2026-03-14T14:30:00Z\`). Generated by the daemon, not the client.
+All timestamps are ISO 8601 UTC strings (`2026-03-14T14:30:00Z`). Generated by the daemon, not the client.
 
 ## CLI Commands
 

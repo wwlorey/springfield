@@ -107,6 +107,7 @@ All spec mutations go through `fm`—never edit spec markdown directly. The gene
 - Specs are identified by **stem** (lowercase, alphanumeric + hyphens, e.g., `auth`, `claude-wrapper`).
 - Sections are identified by **slug** (auto-generated from display name, e.g., `error-handling`).
 - Required sections (`overview`, `architecture`, `dependencies`, `error-handling`, `testing`) are auto-scaffolded on `fm create` and cannot be removed.
+- When passing body content to `fm section set --body-stdin`, always pipe raw content directly. Use `cat <file> |` or a Python/heredoc approach. Never use `echo "$var"` or unquoted shell expansion, as this can introduce backslash escaping artifacts.
 
 ### Spec Create Workflow
 
