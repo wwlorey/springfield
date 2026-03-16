@@ -129,6 +129,14 @@ struct Cli {
     /// Path to log file — ralph tees its output here
     #[arg(long)]
     log_file: Option<PathBuf>,
+
+    /// Pre-assigned Claude session ID (UUID), passed through to cl as --session-id
+    #[arg(long, conflicts_with = "resume")]
+    session_id: Option<String>,
+
+    /// Resume a previous Claude session by session ID, passed through to cl as --resume
+    #[arg(long, conflicts_with = "session_id")]
+    resume: Option<String>,
 }
 
 fn parse_bool(s: &str) -> Result<bool, String> {
@@ -325,7 +333,7 @@ fn main() {
     let is_default_prompt = cli.prompt == "prompt.md";
     let is_file = Path::new(&cli.prompt).exists();
 
-    if is_default_prompt && !is_file {
+    if cli.resume.is_none() && is_default_prompt && !is_file {
         error!(prompt = %cli.prompt, "prompt file not found");
         std::process::exit(1);
     }
@@ -535,12 +543,6 @@ fn run_interactive(
     let stop_clone = stop.clone();
     let watcher = thread::spawn(move || ding_watcher(&stop_clone));
 
-    let prompt_arg = if is_file {
-        format!("@{}", cli.prompt)
-    } else {
-        cli.prompt.clone()
-    };
-
     let asp_args = build_append_system_prompt_args(spec_content, prompt_files);
 
     let mut command = Command::new(agent_cmd);
@@ -550,9 +552,21 @@ fn run_interactive(
         "--settings",
         r#"{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}"#,
     ]);
+    if let Some(ref sid) = cli.session_id {
+        command.args(["--session-id", sid]);
+    }
     command.args(&asp_args);
+    if let Some(ref rid) = cli.resume {
+        command.args(["--resume", rid]);
+    } else {
+        let prompt_arg = if is_file {
+            format!("@{}", cli.prompt)
+        } else {
+            cli.prompt.clone()
+        };
+        command.arg(&prompt_arg);
+    }
     let mut child = match command
-        .arg(&prompt_arg)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
@@ -612,12 +626,6 @@ fn run_afk(
         Ok(())
     };
 
-    let prompt_arg = if is_file {
-        format!("@{}", cli.prompt)
-    } else {
-        cli.prompt.clone()
-    };
-
     let asp_args = build_append_system_prompt_args(spec_content, prompt_files);
 
     let mut cmd = Command::new(agent_cmd);
@@ -630,10 +638,22 @@ fn run_afk(
         "--settings",
         r#"{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}"#,
     ]);
+    if let Some(ref sid) = cli.session_id {
+        cmd.args(["--session-id", sid]);
+    }
     cmd.args(&asp_args);
+    if let Some(ref rid) = cli.resume {
+        cmd.args(["--resume", rid]);
+    } else {
+        let prompt_arg = if is_file {
+            format!("@{}", cli.prompt)
+        } else {
+            cli.prompt.clone()
+        };
+        cmd.arg(&prompt_arg);
+    }
     let child = unsafe {
-        cmd.arg(&prompt_arg)
-            .stdin(Stdio::null())
+        cmd.stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .pre_exec(setsid_hook)
@@ -867,5 +887,42 @@ mod tests {
     fn build_append_system_prompt_args_empty() {
         let args = build_append_system_prompt_args(&None, &[]);
         assert!(args.is_empty());
+    }
+
+    #[test]
+    fn cli_session_id_flag_parses() {
+        let cli = Cli::parse_from([
+            "ralph",
+            "--session-id",
+            "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+            "1",
+            "prompt.md",
+        ]);
+        assert_eq!(
+            cli.session_id.as_deref(),
+            Some("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+        );
+        assert!(cli.resume.is_none());
+    }
+
+    #[test]
+    fn cli_resume_flag_parses() {
+        let cli = Cli::parse_from([
+            "ralph",
+            "--resume",
+            "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+            "1",
+        ]);
+        assert_eq!(
+            cli.resume.as_deref(),
+            Some("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+        );
+        assert!(cli.session_id.is_none());
+    }
+
+    #[test]
+    fn cli_session_id_and_resume_conflict() {
+        let result = Cli::try_parse_from(["ralph", "--session-id", "id1", "--resume", "id2", "1"]);
+        assert!(result.is_err());
     }
 }
