@@ -10,24 +10,5 @@
       "Bash rm .claude/**",
       "Bash mv .claude/**"
     ]
-  },
-  "sandbox": {
-    "autoAllowBashIfSandboxed": true,
-    "enabled": true,
-    "filesystem": {
-      "allowWrite": [
-        "~/.sgf"
-      ]
-    },
-    "network": {
-      "allowLocalBinding": true,
-      "allowedDomains": [
-        "localhost",
-        "github.com",
-        "*.githubusercontent.com",
-        "crates.io",
-        "*.crates.io"
-      ]
-    }
   }
 }
