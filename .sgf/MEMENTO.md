@@ -77,6 +77,7 @@
 | `p3` | Low | Nice-to-have — polish, minor improvements, can wait indefinitely |
 
 
+
 ## fm — Specification Management
 
 Specifications are the **source of truth** for all code. They are managed exclusively through `fm` (forma).
@@ -113,7 +114,9 @@ All spec mutations go through `fm`—never edit spec markdown directly. The gene
 - `pn create --spec <stem>` links an issue to a forma spec. Pensa validates the stem against forma.
 - `fm check` cross-validates that all pensa issues with `--spec` values reference existing forma specs.
 
-### Core Commands
+### Commands
+
+#### Core Commands
 
 | Command | Purpose |
 |---------|---------|
@@ -127,7 +130,7 @@ All spec mutations go through `fm`—never edit spec markdown directly. The gene
 | `fm status --json` | Summary of specs by status |
 | `fm history <stem> --json` | Event log for a spec |
 
-### Section Commands
+#### Section Commands
 
 | Command | Purpose |
 |---------|---------|
@@ -138,7 +141,7 @@ All spec mutations go through `fm`—never edit spec markdown directly. The gene
 | `fm section remove <stem> "<slug>"` | Remove a custom section (required sections are protected) |
 | `fm section move <stem> "<slug>" --after "<slug>"` | Reorder a section |
 
-### Ref Commands
+#### Ref Commands
 
 | Command | Purpose |
 |---------|---------|
@@ -148,7 +151,7 @@ All spec mutations go through `fm`—never edit spec markdown directly. The gene
 | `fm ref tree <stem> [--direction up\|down] --json` | Recursive ref tree |
 | `fm ref cycles --json` | Detect reference cycles |
 
-### Data & Maintenance Commands
+#### Data & Maintenance Commands
 
 | Command | Purpose |
 |---------|---------|
@@ -157,6 +160,7 @@ All spec mutations go through `fm`—never edit spec markdown directly. The gene
 | `fm check --json` | Validation report (required sections, crate paths, refs, pensa integration) |
 | `fm doctor [--fix] --json` | Health checks; `--fix` removes orphaned data |
 | `fm where` | Print JSONL and DB directory paths |
+
 
 
 ## Important
