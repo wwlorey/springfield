@@ -120,7 +120,7 @@ All spec mutations go through `fm`—never edit spec markdown directly. The gene
 - Sections are identified by **slug** (auto-generated from display name, e.g., `error-handling`).
 - Required sections (`overview`, `architecture`, `dependencies`, `error-handling`, `testing`) are auto-scaffolded on `fm create` and cannot be removed.
 - When passing body content to `fm section set --body-stdin`, always pipe raw content directly. Use `cat <file> |` or a Python/heredoc approach. Never use `echo "$var"` or unquoted shell expansion, as this can introduce backslash escaping artifacts.
-- When updating and/or creating specs: **we are NOT documenting changes in the specs.** **Instead, we are updating or writing the specs to simply reflect the new content we agreed upon.** (e.g., We want "the 'hello world' crate prints 'hello world'," instead of "instead of printing 'goodbye world,' the 'hello world' crate now prints 'hello world.'")
+- When updating and/or creating specs: **we are NOT documenting changes in the specs.** **INSTEAD, we are updating or writing the specs to simply reflect the new content we agreed upon.** (e.g., We want "the 'hello world' crate prints 'hello world'," instead of "instead of printing 'goodbye world,' the 'hello world' crate now prints 'hello world.'")
 
 ### Spec Create Workflow
 
