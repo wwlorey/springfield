@@ -2,3 +2,10 @@
 {"id":"pn-0aecf106","issue_id":"pn-b2fefee0","path":"crates/springfield/src/main.rs","reason":"sgf resume built-in command implementation","created_at":"2026-03-16T21:06:41Z"}
 {"id":"pn-3c12f144","issue_id":"pn-b2fefee0","path":"crates/springfield/src/loop_mgmt.rs","reason":"SessionMetadata struct and read/write/list functions","created_at":"2026-03-16T21:06:41Z"}
 {"id":"pn-4cd3c32b","issue_id":"pn-8f23da55","path":"crates/ralph/src/main.rs","reason":"run_afk and run_interactive now accept iteration parameter; session ID vs resume logic","created_at":"2026-03-16T21:20:14Z"}
+{"id":"pn-084914b7","issue_id":"pn-74d17681","path":"crates/ralph/src/main.rs","reason":"run_afk and run_interactive functions need session ID logic rewritten","created_at":"2026-03-16T21:44:26Z"}
+{"id":"pn-f9eff0ac","issue_id":"pn-00cdcf6f","path":"crates/springfield/src/loop_mgmt.rs","reason":"SessionMetadata struct and CRUD functions need iterations array","created_at":"2026-03-16T21:44:39Z"}
+{"id":"pn-96fcd80d","issue_id":"pn-cf0cd47b","path":"crates/springfield/src/orchestrate.rs","reason":"Session UUID generation and metadata write logic per iteration","created_at":"2026-03-16T21:45:01Z"}
+{"id":"pn-9971e1c5","issue_id":"pn-b9a44d7f","path":"crates/springfield/src/orchestrate.rs","reason":"Resume picker display and session selection logic","created_at":"2026-03-16T21:45:11Z"}
+{"id":"pn-ce47820d","issue_id":"pn-b9a44d7f","path":"crates/springfield/src/main.rs","reason":"Resume command handler","created_at":"2026-03-16T21:45:11Z"}
+{"id":"pn-ba75f94c","issue_id":"pn-8190660c","path":"crates/ralph/tests/","reason":"Ralph iteration session ID tests","created_at":"2026-03-16T21:45:31Z"}
+{"id":"pn-0613063b","issue_id":"pn-8190660c","path":"crates/springfield/tests/","reason":"Springfield resume and metadata tests","created_at":"2026-03-16T21:45:31Z"}

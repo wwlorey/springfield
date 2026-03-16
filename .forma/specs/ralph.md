@@ -251,8 +251,8 @@ The default value `prompt.md` is treated specially: if no explicit prompt is pro
 | `--command` | `RALPH_COMMAND` | — | Override: path to executable replacing agent invocation (for testing) |
 | `--spec` | `SGF_SPEC` | — | Spec stem — fetches spec content from forma via `fm show <stem> --json` and injects it via `--append-system-prompt`. Fails with error if the spec does not exist in forma. |
 | `--prompt-file` | — | — | Additional prompt file path (repeatable). Added to the study instruction passed via `--append-system-prompt`. |
-| `--session-id` | — | — | Pre-assigned Claude session ID (UUID). Passed through to `cl` as `--session-id <uuid>`. |
-| `--resume` | — | — | Resume a previous Claude session. Passed through to `cl` as `--resume <session_id>`. Mutually exclusive with `--session-id`. When set, the prompt argument is omitted from the `cl` invocation. |
+| `--session-id` | — | — | Pre-assigned Claude session ID (UUID). Passed through to `cl` as `--session-id <uuid>` on iteration 1. On iterations 2+, ralph generates a fresh UUID for each iteration. |
+| `--resume` | — | — | Resume a previous Claude session. Passed through to `cl` as `--resume <session_id>`. Mutually exclusive with `--session-id`. Only applies to iteration 1. |
 
 ### Exit Codes
 
@@ -324,14 +324,13 @@ cl \
   --verbose \
   --dangerously-skip-permissions \
   --settings '{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}' \
-  [--session-id <uuid>]           # iteration 1 only
-  [--resume <uuid>]               # iteration 2+ only (omits prompt arg)
+  [--session-id <uuid>]           # always (CLI-provided on iter 1, generated on iter 2+)
   [--append-system-prompt 'study @<FILE>;...']  # from --spec, --prompt-file
-  @<PROMPT_FILE>       # file prompt (@ prefix), iteration 1 only
-  # or: "<inline text>"  # inline text (no @ prefix), iteration 1 only
+  @<PROMPT_FILE>       # always included
+  # or: "<inline text>"  # always included
 ```
 
-On iteration 1, `--session-id <uuid>` creates a new Claude session. On iterations 2+, `--resume <uuid>` continues the existing session and the prompt argument is omitted. No output processing. The user interacts with the agent directly. After each iteration, ralph checks for the `.ralph-complete` sentinel file to detect task completion.
+Each iteration is an independent agent invocation. A session ID is always passed via `--session-id`: the CLI-provided UUID on iteration 1, or a freshly generated UUID on iterations 2+. The prompt is always included. No output processing. The user interacts with the agent directly. After each iteration, ralph checks for the `.ralph-complete` sentinel file to detect task completion.
 
 In interactive mode, ralph also runs a **notification watcher thread** that monitors for the `.ralph-ding` sentinel file. When detected, ralph plays a notification sound on the host machine to alert the user that Claude needs input. See [Interactive Notification](#interactive-notification).
 
@@ -346,14 +345,13 @@ cl \
   --output-format stream-json \
   --dangerously-skip-permissions \
   --settings '{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}' \
-  [--session-id <uuid>]           # iteration 1 only
-  [--resume <uuid>]               # iteration 2+ only (omits prompt arg)
+  [--session-id <uuid>]           # always (CLI-provided on iter 1, generated on iter 2+)
   [--append-system-prompt 'study @<FILE>;...']  # from --spec, --prompt-file
-  @<PROMPT_FILE>       # file prompt (@ prefix), iteration 1 only
-  # or: "<inline text>"  # inline text (no @ prefix), iteration 1 only
+  @<PROMPT_FILE>       # always included
+  # or: "<inline text>"  # always included
 ```
 
-On iteration 1, `--session-id <uuid>` creates a new Claude session. On iterations 2+, `--resume <uuid>` continues the existing session and the prompt argument is omitted.
+Each iteration is an independent agent invocation. A session ID is always passed via `--session-id`: the CLI-provided UUID on iteration 1, or a freshly generated UUID on iterations 2+. The prompt is always included.
 
 Stdout is read line-by-line via `BufRead`, parsed as NDJSON, and formatted with ANSI-styled output. Lines not starting with `{` are skipped silently (handles verbose debug output). Each output line is prefixed with `\r\x1b[2K` (carriage return + ANSI clear-line). This prefix is applied per line (not per block) because text content from the agent contains embedded newlines.
 
@@ -754,7 +752,8 @@ For each iteration `i` in `1..=iterations`:
 2. Print iteration banner (includes loop ID if provided)
 3. Record `vcs_utils::git_head()` as `head_before`
 4. Execute agent via `cl` (or `--command` override):
-   - **Session ID handling**: On iteration 1, pass `--session-id <uuid>` to create a new Claude session. On iterations 2+, pass `--resume <uuid>` to continue the existing session (the prompt argument is omitted on resume). This prevents "session ID already in use" errors from Claude Code.
+   - **Session ID handling**: Each iteration receives a fresh `--session-id <uuid>`. On iteration 1, the CLI-provided UUID is used (if given); on iterations 2+, ralph generates a new UUID. The prompt is always passed.
+   - **Resume handling**: If `--resume` is provided from the CLI, it only applies on iteration 1. On iteration 1, pass `--resume <session_id>` to `cl` instead of `--session-id`, and still include the prompt.
    - Interactive: start notification watcher thread, `.status()` with inherited stdio, stop watcher thread
    - AFK: `.spawn()` with piped stdout, read lines via reader thread + channel through `format_line()`
 5. If interrupted: log warning, exit 130
