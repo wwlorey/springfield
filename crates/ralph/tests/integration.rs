@@ -1863,6 +1863,249 @@ fn afk_hides_test_result_lines() {
     );
 }
 
+#[test]
+fn session_id_passed_to_command_args() {
+    let dir = setup_test_dir();
+    let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "--session-id",
+            "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+            "1",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "should exit 0, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        output.status.code()
+    );
+
+    let args =
+        fs::read_to_string(dir.path().join("captured-args.txt")).expect("read captured args");
+    let arg_lines: Vec<&str> = args.lines().collect();
+
+    let sid_idx = arg_lines
+        .iter()
+        .position(|&a| a == "--session-id")
+        .expect("should pass --session-id to command");
+    assert_eq!(
+        arg_lines[sid_idx + 1],
+        "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        "session id value should follow --session-id flag"
+    );
+
+    let last_arg = arg_lines.last().expect("should have args");
+    assert_eq!(
+        *last_arg, "@prompt.md",
+        "prompt arg should still be present with --session-id, got: {last_arg}"
+    );
+}
+
+#[test]
+fn resume_passed_to_command_args() {
+    let dir = setup_test_dir();
+    let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "--resume",
+            "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+            "1",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "should exit 0, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        output.status.code()
+    );
+
+    let args =
+        fs::read_to_string(dir.path().join("captured-args.txt")).expect("read captured args");
+    let arg_lines: Vec<&str> = args.lines().collect();
+
+    let rid_idx = arg_lines
+        .iter()
+        .position(|&a| a == "--resume")
+        .expect("should pass --resume to command");
+    assert_eq!(
+        arg_lines[rid_idx + 1],
+        "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        "resume id value should follow --resume flag"
+    );
+}
+
+#[test]
+fn resume_omits_prompt_arg() {
+    let dir = setup_test_dir();
+    let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "--resume",
+            "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+            "1",
+        ])
+        .output()
+        .expect("run ralph");
+
+    assert!(
+        output.status.success(),
+        "should exit 0, got: {:?}",
+        output.status.code()
+    );
+
+    let args =
+        fs::read_to_string(dir.path().join("captured-args.txt")).expect("read captured args");
+    let arg_lines: Vec<&str> = args.lines().collect();
+
+    assert!(
+        !arg_lines
+            .iter()
+            .any(|a| a.starts_with('@') || *a == "prompt.md"),
+        "should NOT pass prompt arg when --resume is used, got args:\n{args}"
+    );
+}
+
+#[test]
+fn session_id_and_resume_mutually_exclusive() {
+    let dir = setup_test_dir();
+    let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "--session-id",
+            "id1",
+            "--resume",
+            "id2",
+            "1",
+        ])
+        .output()
+        .expect("run ralph");
+
+    assert!(
+        !output.status.success(),
+        "should fail when both --session-id and --resume are provided"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--session-id") || stderr.contains("--resume"),
+        "error should mention conflicting flags, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn interactive_session_id_passed_to_command_args() {
+    let dir = setup_test_dir();
+    let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .args([
+            "--command",
+            mock.to_str().unwrap(),
+            "--session-id",
+            "deadbeef-1234-5678-9abc-def012345678",
+            "1",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "should exit 0, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        output.status.code()
+    );
+
+    let args =
+        fs::read_to_string(dir.path().join("captured-args.txt")).expect("read captured args");
+    let arg_lines: Vec<&str> = args.lines().collect();
+
+    let sid_idx = arg_lines
+        .iter()
+        .position(|&a| a == "--session-id")
+        .expect("should pass --session-id in interactive mode");
+    assert_eq!(
+        arg_lines[sid_idx + 1],
+        "deadbeef-1234-5678-9abc-def012345678",
+        "session id value should follow --session-id flag in interactive mode"
+    );
+}
+
+#[test]
+fn interactive_resume_passed_to_command_args_and_omits_prompt() {
+    let dir = setup_test_dir();
+    let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .args([
+            "--command",
+            mock.to_str().unwrap(),
+            "--resume",
+            "deadbeef-1234-5678-9abc-def012345678",
+            "1",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "should exit 0, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        output.status.code()
+    );
+
+    let args =
+        fs::read_to_string(dir.path().join("captured-args.txt")).expect("read captured args");
+    let arg_lines: Vec<&str> = args.lines().collect();
+
+    let rid_idx = arg_lines
+        .iter()
+        .position(|&a| a == "--resume")
+        .expect("should pass --resume in interactive mode");
+    assert_eq!(
+        arg_lines[rid_idx + 1],
+        "deadbeef-1234-5678-9abc-def012345678",
+        "resume id value should follow --resume flag in interactive mode"
+    );
+
+    assert!(
+        !arg_lines
+            .iter()
+            .any(|a| a.starts_with('@') || *a == "prompt.md"),
+        "should NOT pass prompt arg when --resume is used in interactive mode, got args:\n{args}"
+    );
+}
+
 fn open_pty() -> Option<(std::os::fd::OwnedFd, std::os::fd::OwnedFd)> {
     use std::os::fd::FromRawFd;
     unsafe {
