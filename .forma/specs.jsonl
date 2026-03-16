@@ -1,0 +1,7 @@
+{"stem":"claude-wrapper","src":"crates/claude-wrapper/","purpose":"Agent wrapper — layered .sgf/ context injection, cl binary","status":"draft","created_at":"2026-03-16T17:37:31Z","updated_at":"2026-03-16T17:37:31Z"}
+{"stem":"forma","src":"crates/forma/","purpose":"Specification management — forma daemon and fm CLI","status":"draft","created_at":"2026-03-16T17:40:12Z","updated_at":"2026-03-16T17:40:12Z"}
+{"stem":"pensa","src":"crates/pensa/","purpose":"Agent persistent memory — SQLite-backed issue/task tracker with pn CLI","status":"draft","created_at":"2026-03-16T17:36:24Z","updated_at":"2026-03-16T17:38:00Z"}
+{"stem":"ralph","src":"crates/ralph/","purpose":"Iterative Claude Code runner — invokes cl (claude-wrapper) with NDJSON formatting, completion detection, and git auto-push","status":"draft","created_at":"2026-03-16T17:37:25Z","updated_at":"2026-03-16T17:37:25Z"}
+{"stem":"shutdown","src":"crates/shutdown/","purpose":"Shared graceful shutdown — double-press Ctrl+C/Ctrl+D detection with confirmation prompts","status":"draft","created_at":"2026-03-16T17:37:01Z","updated_at":"2026-03-16T17:37:05Z"}
+{"stem":"springfield","src":"crates/springfield/","purpose":"CLI entry point — scaffolding, prompt delivery, loop orchestration, recovery, and daemon lifecycle","status":"draft","created_at":"2026-03-16T17:38:08Z","updated_at":"2026-03-16T17:45:03Z"}
+{"stem":"vcs-utils","src":"crates/vcs-utils/","purpose":"Shared VCS utilities — git HEAD detection, auto-push","status":"draft","created_at":"2026-03-16T17:39:24Z","updated_at":"2026-03-16T17:39:24Z"}
