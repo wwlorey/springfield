@@ -391,4 +391,18 @@ mod tests {
         let result = read_session_metadata(tmp.path(), "nonexistent").unwrap();
         assert!(result.is_none());
     }
+
+    #[test]
+    fn write_metadata_atomic_no_tmp_left_behind() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let meta = make_metadata("build-auth-20260316T120000", "2026-03-16T12:00:00Z");
+
+        write_session_metadata(root, &meta).unwrap();
+
+        let run_dir = root.join(".sgf/run");
+        let tmp_file = run_dir.join("build-auth-20260316T120000.json.tmp");
+        assert!(!tmp_file.exists(), "tmp file should be renamed away");
+        assert!(run_dir.join("build-auth-20260316T120000.json").exists());
+    }
 }
