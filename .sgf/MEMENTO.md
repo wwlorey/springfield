@@ -21,7 +21,7 @@
 ### Issue Claim Workflow
 
 1. Query for issues (e.g., `pn ready --json` or `pn ready --spec auth --json`).
-   IMPORTANT: **Do NOT run `pn list` to see open issues. Use `pn ready`.**
+  a. IMPORTANT: **Do NOT run `pn list` to see open issues. Use `pn ready`.**
 2. **If there are no issues returned from `pn ready`, there are no available issues to claim right now.**
 3. Pick ONE issue and claim: `pn update <id> --claim`.
 4. If claim fails (`already_claimed`) → re-query and pick another.
