@@ -3,6 +3,71 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use chrono::Local;
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SessionMetadata {
+    pub loop_id: String,
+    pub session_id: String,
+    pub stage: String,
+    pub spec: Option<String>,
+    pub mode: String,
+    pub prompt: String,
+    pub iterations_completed: u32,
+    pub iterations_total: u32,
+    pub status: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+pub fn write_session_metadata(root: &Path, metadata: &SessionMetadata) -> io::Result<()> {
+    let run_dir = root.join(".sgf/run");
+    fs::create_dir_all(&run_dir)?;
+    let target = run_dir.join(format!("{}.json", metadata.loop_id));
+    let tmp = run_dir.join(format!("{}.json.tmp", metadata.loop_id));
+    let json = serde_json::to_string_pretty(metadata)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    fs::write(&tmp, json)?;
+    fs::rename(&tmp, &target)?;
+    Ok(())
+}
+
+pub fn read_session_metadata(root: &Path, loop_id: &str) -> io::Result<Option<SessionMetadata>> {
+    let path = root.join(".sgf/run").join(format!("{loop_id}.json"));
+    if !path.exists() {
+        return Ok(None);
+    }
+    let contents = fs::read_to_string(&path)?;
+    match serde_json::from_str::<SessionMetadata>(&contents) {
+        Ok(m) => Ok(Some(m)),
+        Err(e) => Err(io::Error::new(io::ErrorKind::InvalidData, e)),
+    }
+}
+
+pub fn list_session_metadata(root: &Path) -> io::Result<Vec<SessionMetadata>> {
+    let run_dir = root.join(".sgf/run");
+    let entries = match fs::read_dir(&run_dir) {
+        Ok(e) => e,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e),
+    };
+
+    let mut sessions = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(contents) = fs::read_to_string(&path) else {
+            continue;
+        };
+        if let Ok(meta) = serde_json::from_str::<SessionMetadata>(&contents) {
+            sessions.push(meta);
+        }
+    }
+    sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    Ok(sessions)
+}
 
 pub fn generate_loop_id(stage: &str, spec: Option<&str>) -> String {
     let ts = Local::now().format("%Y%m%dT%H%M%S");
@@ -215,5 +280,115 @@ mod tests {
         let err = run_logs(tmp.path(), "nonexistent").unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::NotFound);
         assert!(err.to_string().contains("log file not found"));
+    }
+
+    fn make_metadata(loop_id: &str, updated_at: &str) -> SessionMetadata {
+        SessionMetadata {
+            loop_id: loop_id.to_string(),
+            session_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee".to_string(),
+            stage: "build".to_string(),
+            spec: Some("auth".to_string()),
+            mode: "interactive".to_string(),
+            prompt: ".sgf/prompts/build.md".to_string(),
+            iterations_completed: 1,
+            iterations_total: 3,
+            status: "completed".to_string(),
+            created_at: "2026-03-16T12:00:00Z".to_string(),
+            updated_at: updated_at.to_string(),
+        }
+    }
+
+    #[test]
+    fn session_metadata_write_and_read_roundtrip() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let meta = make_metadata("build-auth-20260316T120000", "2026-03-16T12:05:30Z");
+
+        write_session_metadata(root, &meta).unwrap();
+
+        let json_path = root.join(".sgf/run/build-auth-20260316T120000.json");
+        assert!(json_path.exists());
+
+        let read_back = read_session_metadata(root, "build-auth-20260316T120000")
+            .unwrap()
+            .expect("should return Some");
+        assert_eq!(read_back.loop_id, meta.loop_id);
+        assert_eq!(read_back.session_id, meta.session_id);
+        assert_eq!(read_back.stage, meta.stage);
+        assert_eq!(read_back.spec, meta.spec);
+        assert_eq!(read_back.mode, meta.mode);
+        assert_eq!(read_back.prompt, meta.prompt);
+        assert_eq!(read_back.iterations_completed, meta.iterations_completed);
+        assert_eq!(read_back.iterations_total, meta.iterations_total);
+        assert_eq!(read_back.status, meta.status);
+        assert_eq!(read_back.created_at, meta.created_at);
+        assert_eq!(read_back.updated_at, meta.updated_at);
+    }
+
+    #[test]
+    fn list_sessions_sorted_by_updated_at_desc() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+
+        let older = make_metadata("build-auth-20260316T100000", "2026-03-16T10:00:00Z");
+        let newer = make_metadata("spec-20260316T120000", "2026-03-16T12:00:00Z");
+        let middle = make_metadata("verify-20260316T110000", "2026-03-16T11:00:00Z");
+
+        write_session_metadata(root, &older).unwrap();
+        write_session_metadata(root, &newer).unwrap();
+        write_session_metadata(root, &middle).unwrap();
+
+        let sessions = list_session_metadata(root).unwrap();
+        assert_eq!(sessions.len(), 3);
+        assert_eq!(sessions[0].loop_id, "spec-20260316T120000");
+        assert_eq!(sessions[1].loop_id, "verify-20260316T110000");
+        assert_eq!(sessions[2].loop_id, "build-auth-20260316T100000");
+    }
+
+    #[test]
+    fn list_sessions_skips_corrupt_json() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let run_dir = root.join(".sgf/run");
+        fs::create_dir_all(&run_dir).unwrap();
+
+        let valid = make_metadata("build-auth-20260316T120000", "2026-03-16T12:00:00Z");
+        write_session_metadata(root, &valid).unwrap();
+
+        fs::write(
+            run_dir.join("corrupt-20260316T130000.json"),
+            "not valid json{{{",
+        )
+        .unwrap();
+
+        let sessions = list_session_metadata(root).unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].loop_id, "build-auth-20260316T120000");
+    }
+
+    #[test]
+    fn list_sessions_returns_empty_when_no_json_files() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        fs::create_dir_all(root.join(".sgf/run")).unwrap();
+
+        fs::write(root.join(".sgf/run/something.pid"), "12345").unwrap();
+
+        let sessions = list_session_metadata(root).unwrap();
+        assert!(sessions.is_empty());
+    }
+
+    #[test]
+    fn list_sessions_returns_empty_when_run_dir_missing() {
+        let tmp = TempDir::new().unwrap();
+        let sessions = list_session_metadata(tmp.path()).unwrap();
+        assert!(sessions.is_empty());
+    }
+
+    #[test]
+    fn read_metadata_nonexistent_loop_id() {
+        let tmp = TempDir::new().unwrap();
+        let result = read_session_metadata(tmp.path(), "nonexistent").unwrap();
+        assert!(result.is_none());
     }
 }

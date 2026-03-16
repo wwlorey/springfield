@@ -1919,6 +1919,7 @@ dependencies = [
  "shutdown",
  "tempfile",
  "toml",
+ "uuid",
  "vcs-utils",
 ]
 
