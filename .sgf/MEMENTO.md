@@ -185,3 +185,8 @@ All spec mutations go through `fm`—never edit spec markdown directly. The gene
     + `cl -p --dangerously-skip-permissions --max-turns 50 "task description here"`
   * Run multiple in parallel via background Bash calls. This ensures context injection (MEMENTO, BACKPRESSURE, etc.) and bypasses permission hooks. The OS-level sandbox still applies.
   * Do NOT use your `Agent` tool or any other built-in functionality for spawning agents.
+
+### Session Start
+
+- **Run this command at the beginning of EACH SESSION** to understand the structure of this project's specifications:
+  * `fm list --json` — list all specifications (the source of truth for implementation)

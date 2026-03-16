@@ -243,27 +243,3 @@ fn exits_1_when_downstream_binary_missing() {
     let stderr = String::from_utf8_lossy(&result.stderr);
     assert!(stderr.contains("claude-wrapper-secret"), "stderr: {stderr}");
 }
-
-#[test]
-fn spec_index_unavailable_skipped_no_error_exit() {
-    let workdir = TempDir::new().unwrap();
-    let mock_dir = TempDir::new().unwrap();
-    create_mock_secret(mock_dir.path());
-    let output_file = mock_dir.path().join("output.txt");
-
-    let result = Command::new(cl_binary())
-        .current_dir(workdir.path())
-        .env("HOME", workdir.path().to_str().unwrap())
-        .env("PATH", prepend_to_path(mock_dir.path()))
-        .env("CL_TEST_OUTPUT", &output_file)
-        .output()
-        .unwrap();
-
-    assert!(result.status.success());
-
-    let stderr = String::from_utf8_lossy(&result.stderr);
-    assert!(
-        stderr.contains("spec index not available"),
-        "expected warning about spec index, got: {stderr}"
-    );
-}

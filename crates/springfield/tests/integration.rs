@@ -3184,12 +3184,6 @@ fn e2e_sgf_ralph_cl_context_files_and_spec_in_append_system_prompt() {
         args.contains("BACKPRESSURE.md"),
         "missing BACKPRESSURE.md in captured args:\n{args}"
     );
-    // cl resolves spec index from fm list --json → markdown table
-    assert!(
-        args.contains("# Specifications"),
-        "missing spec index (from fm list) in captured args:\n{args}"
-    );
-
     // ralph should inject --append-system-prompt with rendered spec content from fm show
     assert!(
         args.contains("# auth Specification"),

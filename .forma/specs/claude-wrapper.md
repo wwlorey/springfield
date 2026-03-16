@@ -10,7 +10,7 @@ Agent wrapper — layered .sgf/ context injection, cl binary
 ## Overview
 
 `cl` provides:
-- **Context resolution**: Resolve MEMENTO.md, BACKPRESSURE.md, and specs/README.md using layered `.sgf/` lookup (local → global)
+- **Context resolution**: Resolve MEMENTO.md and BACKPRESSURE.md using layered `.sgf/` lookup (local → global)
 - **Study injection**: Build `--append-system-prompt "study @<file>;..."` from resolved context files
 - **Transparent forwarding**: Pass all arguments through to `claude-wrapper-secret` (opaque downstream binary)
 
@@ -46,7 +46,6 @@ No async runtime. No clap (no flag parsing — all args are passthrough).
 | Scenario | Behavior |
 |----------|----------|
 | Context file missing (both tiers) | Warning to stderr, skip the file |
-| `fm list --json` fails | Warning to stderr, skip spec index |
 | `claude-wrapper-secret` not in PATH | Error to stderr, exit 1 |
 | Home directory unresolvable | Warning to stderr, skip global lookups |
 
@@ -69,8 +68,6 @@ No async runtime. No clap (no flag parsing — all args are passthrough).
 - Missing context files are skipped (no error exit)
 - Passthrough args are forwarded unchanged
 - Multiple `--append-system-prompt` args coexist (one from `cl`, one from caller)
-- Spec index from `fm list --json` appears in `--append-system-prompt`
-- `fm` unavailable → spec index skipped with warning, no error exit
 
 ## Design Goals
 
@@ -81,9 +78,7 @@ No async runtime. No clap (no flag parsing — all args are passthrough).
 
 ## Context File Resolution
 
-`cl` resolves context files and the spec index on every invocation.
-
-### Context file resolution
+`cl` resolves context files on every invocation.
 
 Uses a two-tier lookup: check the local project directory first, then fall back to the global home directory.
 
@@ -99,38 +94,25 @@ The first existing path wins. If neither exists, the file is skipped with a warn
 | MEMENTO.md | `./.sgf/MEMENTO.md` | `~/.sgf/MEMENTO.md` | No (warn if missing) |
 | BACKPRESSURE.md | `./.sgf/BACKPRESSURE.md` | `~/.sgf/BACKPRESSURE.md` | No (warn if missing) |
 
-### Spec index resolution
-
-`cl` calls `fm list --json` to get the current spec index from the forma daemon. The JSON output is formatted as a markdown table and included in the study instruction.
-
-If `fm list --json` fails (forma daemon not running, `fm` not in PATH), the spec index is skipped with a warning to stderr.
-
 ### Resolution Function
 
 ```rust
-pub struct ResolvedContext {
-    pub files: Vec<String>,
-    pub spec_index: Option<String>,
-}
-
-pub fn resolve_context(cwd: &Path, home: &Path) -> ResolvedContext;
+pub fn resolve_context(cwd: &Path, home: &Path) -> Vec<String>;
 ```
 
-Pure function for file resolution. Spec index resolution calls `fm list --json` as a subprocess.
+Pure function. Returns a list of absolute file paths.
 
 ## Argument Construction
 
-`cl` builds a single `--append-system-prompt` argument from resolved context files and the spec index, then prepends it to the passthrough args:
+`cl` builds a single `--append-system-prompt` argument from resolved context files, then prepends it to the passthrough args:
 
 ```
 claude-wrapper-secret \
-  --append-system-prompt 'study @<resolved-memento>;study @<resolved-backpressure>;<spec-index-content>' \
+  --append-system-prompt 'study @<resolved-memento>;study @<resolved-backpressure>' \
   [all original args passed to cl]
 ```
 
-The spec index content is inlined directly (not a file reference) since it comes from `fm list --json` output rendered as markdown.
-
-If no context files resolve and no spec index is available, the `--append-system-prompt` argument is omitted entirely.
+If no context files resolve, the `--append-system-prompt` argument is omitted entirely.
 
 If the caller (e.g. ralph) also passes `--append-system-prompt`, both flags are forwarded. The downstream binary receives multiple `--append-system-prompt` arguments — `cl` does not merge them.
 

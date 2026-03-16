@@ -17,26 +17,18 @@ fn main() {
         cwd.clone()
     });
 
-    let resolved = resolve::resolve_context_files(&cwd, &home);
+    let files = resolve::resolve_context_files(&cwd, &home);
 
     let passthrough_args: Vec<String> = env::args().skip(1).collect();
 
     let mut args: Vec<String> = Vec::new();
 
-    let has_context = !resolved.files.is_empty() || resolved.spec_index.is_some();
-
-    if has_context {
-        let mut parts: Vec<String> = resolved
-            .files
+    if !files.is_empty() {
+        let prompt = files
             .iter()
             .map(|f| format!("study @{f}"))
-            .collect();
-
-        if let Some(ref spec_index) = resolved.spec_index {
-            parts.push(spec_index.clone());
-        }
-
-        let prompt = parts.join(";");
+            .collect::<Vec<_>>()
+            .join(";");
         args.push("--append-system-prompt".to_string());
         args.push(prompt);
     }
