@@ -35,7 +35,7 @@
   b. notable design/testing decisions made (if any)
   c. root cause of issue (if applicable)
 2. Close or release:
-  a. IF BUG: release with `pn release <bug-id>`
+  a. IF BUG that has NOT yet been fixed: release with `pn release <bug-id>`
   b. ELSE: close with `pn close <id> --reason "<what was done>"`
 3. Commit YOUR changes with `[<issue-id>]` prefix (e.g., `[pn-a1b2c3d4] Implement login validation`)
 
@@ -52,7 +52,7 @@
 - ELSE IF the fix is too large (multiple files/crates, significant refactor):
   1. Follow the Issue Create Workflow to create implementation items.
     a. Link the relevant bug with `--fixes <bug-id>`.
-  2. Release the bug: `pn release <bug-id>`
+- Follow Issue Close Workflow.
 
 ### Core Commands
 
