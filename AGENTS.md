@@ -20,4 +20,4 @@ just install
 
 ## IMPORTANT
 
-- Always read the given prompt files at the beginning of each session.
+- **ALWAYS read the given prompt files at the beginning of each session.**

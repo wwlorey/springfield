@@ -196,7 +196,7 @@ All spec mutations go through `fm`—never edit spec markdown directly. The gene
     + `cl -p --dangerously-skip-permissions --max-turns 50 "task description here"`
   * Run multiple in parallel via background bash calls.
   * Do NOT use your Agent tool or any other built-in functionality for spawning agents.
-- **When asked about what has been built**:
+- **When asked about what has been built** IN GENERAL or ON A PARTICULAR DAY/TIME:
   * Read the logs in `./.sgf/logs` to help formulate your answer.
 
 ### Session Start
