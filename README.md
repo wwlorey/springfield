@@ -74,7 +74,40 @@ sgf test-plan               # generate test items
 sgf test [spec]             # execute test items
 sgf issues log              # log bugs interactively
 sgf logs <loop-id>          # tail a running loop's output
+sgf resume                  # resume a previous session (interactive picker)
+sgf resume <loop-id>        # resume a specific session by loop ID
 ```
+
+### Session Resume
+
+Springfield persists Claude Code session IDs so you can resume interrupted or completed sessions. Session metadata is stored as JSON sidecar files in `.sgf/run/{loop_id}.json` (gitignored).
+
+**How it works:**
+
+1. Before each `cl` invocation, sgf generates a UUID and passes it via `--session-id <uuid>`
+2. On exit, sgf writes session metadata (session ID, stage, mode, status, iterations) to `.sgf/run/{loop_id}.json`
+3. `sgf resume` reads the metadata and passes `--resume <session_id>` to `cl`
+
+**Usage:**
+
+```sh
+sgf resume              # show interactive picker of recent sessions
+sgf resume <loop-id>    # resume a specific session directly
+```
+
+The interactive picker displays recent sessions sorted newest-first:
+
+```
+Recent sessions:
+  1. spec-20260316T120000       interactive  interrupted  2m ago
+  2. build-auth-20260316T110000 afk          exhausted    1h ago
+  3. verify-20260315T090000     afk          completed    1d ago
+Select session (1-3):
+```
+
+Resumed sessions always run in interactive mode (full terminal passthrough) regardless of the original mode.
+
+**Ralph flags:** ralph accepts `--session-id <uuid>` (for new sessions) and `--resume <session_id>` (for resuming), both passed through to `cl`.
 
 ### Development
 
