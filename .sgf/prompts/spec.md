@@ -8,10 +8,9 @@ After the discussion, produce the following deliverables:
 
 1. Follow the (1) Spec Create Workflow and/or (2) Spec Update Workflow (as appropriate) to create and/or update specs.
 2. Follow the Issue Create Workflow to create implementation items.
-
-The list of implementation items should END with:
-1. Outstanding documentation tasks (README.md, etc. as appropriate).
-2. Integration test tasks that verify the feature works end-to-end.
+  a. The list of implementation items should END with:
+    i. Outstanding documentation tasks (README.md, etc. as appropriate).
+    ii. Integration test tasks that verify the feature works end-to-end.
 
 IMPORTANT:
 - **The spec should be designed so that the result can be end-to-end tested from the command line.** If more tools are required to achieve this, make that known.
