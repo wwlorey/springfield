@@ -111,8 +111,8 @@ All spec mutations go through `fm`—never edit spec markdown directly. The gene
 
 ### Spec Create Workflow
 
-0. NOTE: Favor updating existing specs (`fm update`, `fm section set`) over creating new ones unless doing so makes sense (e.g. we're making a brand new package — use `fm create`).
 1. Create the spec: `fm create <stem> [--src <path>] --purpose "<text>"`
+  a. NOTE: Favor updating existing specs (`fm update`, `fm section set`) over creating new ones unless doing so makes sense (e.g. we're making a brand new package — use `fm create`).
 2. Fill in required sections (pipe body via stdin):
    `echo "body content" | fm section set <stem> "<slug>" --body-stdin`
 3. Add custom sections as needed:
