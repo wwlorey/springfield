@@ -357,6 +357,132 @@ fn kill_child(child: &std::process::Child) {
     shutdown::kill_process_group(child.id(), Duration::from_millis(200));
 }
 
+fn humanize_relative_time(updated_at: &str) -> String {
+    let Ok(updated) = chrono::DateTime::parse_from_rfc3339(updated_at) else {
+        return "unknown".to_string();
+    };
+    let now = Utc::now();
+    let delta = now.signed_duration_since(updated);
+    let secs = delta.num_seconds();
+    if secs < 0 {
+        return "just now".to_string();
+    }
+    if secs < 60 {
+        return format!("{secs}s ago");
+    }
+    let mins = delta.num_minutes();
+    if mins < 60 {
+        return format!("{mins}m ago");
+    }
+    let hours = delta.num_hours();
+    if hours < 24 {
+        return format!("{hours}h ago");
+    }
+    let days = delta.num_days();
+    format!("{days}d ago")
+}
+
+fn run_resume_session(root: &Path, meta: &SessionMetadata) -> io::Result<i32> {
+    let loop_id = &meta.loop_id;
+    let session_id = &meta.session_id;
+
+    style::print_action_detail(
+        &format!("resuming session [{loop_id}]"),
+        &format!("session: {session_id}"),
+    );
+
+    let controller = ShutdownController::new(ShutdownConfig {
+        monitor_stdin: false,
+        ..Default::default()
+    })?;
+
+    let mut child = Command::new("cl")
+        .args(["--verbose", "--resume", session_id])
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .map_err(|e| io::Error::other(format!("failed to spawn cl: {e}")))?;
+
+    let exit_code = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status.code().unwrap_or(1),
+            Ok(None) => {
+                if controller.poll() == ShutdownStatus::Shutdown {
+                    kill_child(&child);
+                    let _ = child.wait();
+                    break 130;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(e) => return Err(e),
+        }
+    };
+
+    update_metadata_on_exit(root, loop_id, exit_code);
+
+    Ok(exit_code)
+}
+
+pub fn run_resume(root: &Path, loop_id: Option<&str>) -> io::Result<i32> {
+    if let Some(id) = loop_id {
+        let meta = loop_mgmt::read_session_metadata(root, id)?;
+        match meta {
+            Some(m) => return run_resume_session(root, &m),
+            None => {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("Session not found: {id}"),
+                ));
+            }
+        }
+    }
+
+    let sessions = loop_mgmt::list_session_metadata(root)?;
+    if sessions.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "No sessions found.",
+        ));
+    }
+
+    let display: Vec<&SessionMetadata> = sessions.iter().take(20).collect();
+
+    eprintln!("Recent sessions:");
+    for (i, s) in display.iter().enumerate() {
+        let relative = humanize_relative_time(&s.updated_at);
+        eprintln!(
+            "  {:>2}. {:<40} {:<12} {:<12} {}",
+            i + 1,
+            s.loop_id,
+            s.mode,
+            s.status,
+            relative
+        );
+    }
+    eprint!("Select session (1-{}): ", display.len());
+
+    let mut input = String::new();
+    if io::stdin().read_line(&mut input).is_err() || input.trim().is_empty() {
+        return Ok(0);
+    }
+
+    let choice: usize = input
+        .trim()
+        .parse()
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid selection"))?;
+
+    if choice < 1 || choice > display.len() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Selection out of range: {choice}"),
+        ));
+    }
+
+    let selected = display[choice - 1];
+    run_resume_session(root, selected)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1026,5 +1152,146 @@ mod tests {
         assert!(sessions[0].loop_id.starts_with("verify-"));
         assert!(sessions[0].spec.is_none());
         assert_eq!(sessions[0].mode, "afk");
+    }
+
+    #[test]
+    fn humanize_seconds() {
+        let now = Utc::now();
+        let ts = (now - chrono::Duration::seconds(30)).to_rfc3339();
+        let result = humanize_relative_time(&ts);
+        assert!(result.ends_with("s ago"), "got: {result}");
+    }
+
+    #[test]
+    fn humanize_minutes() {
+        let now = Utc::now();
+        let ts = (now - chrono::Duration::minutes(5)).to_rfc3339();
+        let result = humanize_relative_time(&ts);
+        assert!(result.ends_with("m ago"), "got: {result}");
+    }
+
+    #[test]
+    fn humanize_hours() {
+        let now = Utc::now();
+        let ts = (now - chrono::Duration::hours(3)).to_rfc3339();
+        let result = humanize_relative_time(&ts);
+        assert!(result.ends_with("h ago"), "got: {result}");
+    }
+
+    #[test]
+    fn humanize_days() {
+        let now = Utc::now();
+        let ts = (now - chrono::Duration::days(2)).to_rfc3339();
+        let result = humanize_relative_time(&ts);
+        assert!(result.ends_with("d ago"), "got: {result}");
+    }
+
+    #[test]
+    fn humanize_invalid_timestamp() {
+        assert_eq!(humanize_relative_time("not-a-date"), "unknown");
+    }
+
+    #[test]
+    fn humanize_future_timestamp() {
+        let now = Utc::now();
+        let ts = (now + chrono::Duration::hours(1)).to_rfc3339();
+        let result = humanize_relative_time(&ts);
+        assert_eq!(result, "just now");
+    }
+
+    #[test]
+    fn resume_no_sessions_returns_error() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        fs::create_dir_all(root.join(".sgf/run")).unwrap();
+
+        let err = run_resume(root, None).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::NotFound);
+        assert!(err.to_string().contains("No sessions found"));
+    }
+
+    #[test]
+    fn resume_unknown_loop_id_returns_error() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        fs::create_dir_all(root.join(".sgf/run")).unwrap();
+
+        let err = run_resume(root, Some("nonexistent-id")).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::NotFound);
+        assert!(
+            err.to_string()
+                .contains("Session not found: nonexistent-id"),
+            "got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn resume_with_valid_loop_id_launches_cl_with_resume_flag() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        fs::create_dir_all(root.join(".sgf/run")).unwrap();
+
+        let session_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+        let meta = SessionMetadata {
+            loop_id: "build-auth-20260316T120000".to_string(),
+            session_id: session_id.to_string(),
+            stage: "build".to_string(),
+            spec: Some("auth".to_string()),
+            mode: "interactive".to_string(),
+            prompt: ".sgf/prompts/build.md".to_string(),
+            iterations_completed: 1,
+            iterations_total: 3,
+            status: "interrupted".to_string(),
+            created_at: "2026-03-16T12:00:00Z".to_string(),
+            updated_at: "2026-03-16T12:05:30Z".to_string(),
+        };
+        loop_mgmt::write_session_metadata(root, &meta).unwrap();
+
+        let mock_cl = root.join("mock_cl.sh");
+        fs::write(
+            &mock_cl,
+            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/cl_args.txt\"\nexit 0\n",
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&mock_cl, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let original_path = std::env::var("PATH").unwrap_or_default();
+        let new_path = format!("{}:{}", root.display(), original_path);
+        unsafe { std::env::set_var("PATH", &new_path) };
+
+        // Rename mock to `cl`
+        let cl_path = root.join("cl");
+        fs::rename(&mock_cl, &cl_path).unwrap();
+
+        let result = run_resume(root, Some("build-auth-20260316T120000"));
+
+        unsafe { std::env::set_var("PATH", &original_path) };
+
+        let exit_code = result.unwrap();
+        assert_eq!(exit_code, 0);
+
+        let cl_args = fs::read_to_string(root.join("cl_args.txt")).unwrap();
+        assert!(
+            cl_args.contains("--resume"),
+            "cl should receive --resume, got: {cl_args}"
+        );
+        assert!(
+            cl_args.contains(session_id),
+            "cl should receive session_id, got: {cl_args}"
+        );
+        assert!(
+            cl_args.contains("--verbose"),
+            "cl should receive --verbose, got: {cl_args}"
+        );
+
+        let updated = loop_mgmt::read_session_metadata(root, "build-auth-20260316T120000")
+            .unwrap()
+            .unwrap();
+        assert_eq!(updated.status, "completed");
     }
 }

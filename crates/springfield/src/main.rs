@@ -30,6 +30,12 @@ enum Commands {
         loop_id: String,
     },
 
+    /// Resume a previous session
+    Resume {
+        /// Loop ID to resume (omit for interactive picker)
+        loop_id: Option<String>,
+    },
+
     #[command(external_subcommand)]
     Dynamic(Vec<OsString>),
 }
@@ -188,6 +194,16 @@ fn main() {
             if let Err(e) = springfield::loop_mgmt::run_logs(&root, &loop_id) {
                 springfield::style::print_error(&format!("logs: {e}"));
                 std::process::exit(1);
+            }
+        }
+        Commands::Resume { loop_id } => {
+            let root = std::env::current_dir().expect("failed to get current directory");
+            match springfield::orchestrate::run_resume(&root, loop_id.as_deref()) {
+                Ok(code) => std::process::exit(code),
+                Err(e) => {
+                    springfield::style::print_error(&format!("resume: {e}"));
+                    std::process::exit(1);
+                }
             }
         }
         Commands::Dynamic(args) => {
