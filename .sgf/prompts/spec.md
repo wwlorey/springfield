@@ -2,6 +2,8 @@ Let's have a discussion and you can interview me about what I want to build (as 
 
 Read the pertinent spec(s) sections that are involved in these changes as they come up in conversation.
 
+Do not write ANY code or create ANY `fm` or `pn` issues until you get explicit approval from the user.
+
 ---
 
 After the discussion, you will update the project specs to reflect the changes we discussed.
