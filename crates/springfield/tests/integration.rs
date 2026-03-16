@@ -3275,12 +3275,15 @@ fn afk_session_writes_metadata_with_session_id() {
         "loop_id should start with build-auth-, got: {}",
         meta["loop_id"]
     );
-    let session_id = meta["session_id"].as_str().unwrap();
+    let iterations = meta["iterations"].as_array().unwrap();
+    assert!(!iterations.is_empty(), "iterations should not be empty");
+    let session_id = iterations[0]["session_id"].as_str().unwrap();
     assert!(!session_id.is_empty(), "session_id should not be empty");
     assert!(
         session_id.contains('-'),
         "session_id should be a UUID, got: {session_id}"
     );
+    assert_eq!(iterations[0]["iteration"], 1);
     assert_eq!(meta["mode"], "afk");
     assert_eq!(meta["status"], "completed");
     assert_eq!(meta["stage"], "build");
@@ -3344,7 +3347,9 @@ fn interactive_session_writes_metadata_with_session_id() {
         "loop_id should start with spec-, got: {}",
         meta["loop_id"]
     );
-    let session_id = meta["session_id"].as_str().unwrap();
+    let iterations = meta["iterations"].as_array().unwrap();
+    assert!(!iterations.is_empty(), "iterations should not be empty");
+    let session_id = iterations[0]["session_id"].as_str().unwrap();
     assert!(
         !session_id.is_empty() && session_id.contains('-'),
         "session_id should be a UUID, got: {session_id}"
@@ -3379,12 +3384,17 @@ fn resume_with_loop_id_passes_resume_flag_to_cl() {
     fs::create_dir_all(&run_dir).unwrap();
     let metadata = serde_json::json!({
         "loop_id": loop_id,
-        "session_id": session_id,
+        "iterations": [
+            {
+                "iteration": 1,
+                "session_id": session_id,
+                "completed_at": "2026-03-16T12:02:30Z"
+            }
+        ],
         "stage": "build",
         "spec": "auth",
         "mode": "interactive",
         "prompt": ".sgf/prompts/build.md",
-        "iterations_completed": 1,
         "iterations_total": 3,
         "status": "interrupted",
         "created_at": "2026-03-16T12:00:00Z",
@@ -3522,10 +3532,12 @@ fn metadata_survives_interrupted_session() {
     let output = child.wait_with_output().expect("wait for sgf");
     assert_eq!(output.status.code(), Some(130));
 
-    // Metadata should exist and have session_id + interrupted status
+    // Metadata should exist and have iterations + interrupted status
     let meta = read_single_session_metadata(tmp.path());
 
-    let session_id = meta["session_id"].as_str().unwrap();
+    let iterations = meta["iterations"].as_array().unwrap();
+    assert!(!iterations.is_empty(), "iterations should not be empty");
+    let session_id = iterations[0]["session_id"].as_str().unwrap();
     assert!(
         !session_id.is_empty() && session_id.contains('-'),
         "session_id should be a valid UUID, got: {session_id}"

@@ -6,14 +6,20 @@ use chrono::Local;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct IterationRecord {
+    pub iteration: u32,
+    pub session_id: String,
+    pub completed_at: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SessionMetadata {
     pub loop_id: String,
-    pub session_id: String,
+    pub iterations: Vec<IterationRecord>,
     pub stage: String,
     pub spec: Option<String>,
     pub mode: String,
     pub prompt: String,
-    pub iterations_completed: u32,
     pub iterations_total: u32,
     pub status: String,
     pub created_at: String,
@@ -285,12 +291,15 @@ mod tests {
     fn make_metadata(loop_id: &str, updated_at: &str) -> SessionMetadata {
         SessionMetadata {
             loop_id: loop_id.to_string(),
-            session_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee".to_string(),
+            iterations: vec![IterationRecord {
+                iteration: 1,
+                session_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee".to_string(),
+                completed_at: "2026-03-16T12:02:30Z".to_string(),
+            }],
             stage: "build".to_string(),
             spec: Some("auth".to_string()),
             mode: "interactive".to_string(),
             prompt: ".sgf/prompts/build.md".to_string(),
-            iterations_completed: 1,
             iterations_total: 3,
             status: "completed".to_string(),
             created_at: "2026-03-16T12:00:00Z".to_string(),
@@ -313,12 +322,17 @@ mod tests {
             .unwrap()
             .expect("should return Some");
         assert_eq!(read_back.loop_id, meta.loop_id);
-        assert_eq!(read_back.session_id, meta.session_id);
+        assert_eq!(read_back.iterations.len(), 1);
+        assert_eq!(read_back.iterations[0].iteration, 1);
+        assert_eq!(
+            read_back.iterations[0].session_id,
+            "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        );
+        assert_eq!(read_back.iterations[0].completed_at, "2026-03-16T12:02:30Z");
         assert_eq!(read_back.stage, meta.stage);
         assert_eq!(read_back.spec, meta.spec);
         assert_eq!(read_back.mode, meta.mode);
         assert_eq!(read_back.prompt, meta.prompt);
-        assert_eq!(read_back.iterations_completed, meta.iterations_completed);
         assert_eq!(read_back.iterations_total, meta.iterations_total);
         assert_eq!(read_back.status, meta.status);
         assert_eq!(read_back.created_at, meta.created_at);
@@ -404,5 +418,138 @@ mod tests {
         let tmp_file = run_dir.join("build-auth-20260316T120000.json.tmp");
         assert!(!tmp_file.exists(), "tmp file should be renamed away");
         assert!(run_dir.join("build-auth-20260316T120000.json").exists());
+    }
+
+    #[test]
+    fn iterations_len_replaces_iterations_completed() {
+        let meta = make_metadata("test-loop", "2026-03-16T12:00:00Z");
+        assert_eq!(meta.iterations.len(), 1);
+
+        let mut meta2 = meta;
+        meta2.iterations.push(IterationRecord {
+            iteration: 2,
+            session_id: "bbbbbbbb-cccc-dddd-eeee-ffffffffffff".to_string(),
+            completed_at: "2026-03-16T12:05:30Z".to_string(),
+        });
+        assert_eq!(meta2.iterations.len(), 2);
+    }
+
+    #[test]
+    fn empty_iterations_roundtrip() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let meta = SessionMetadata {
+            loop_id: "empty-iter-loop".to_string(),
+            iterations: Vec::new(),
+            stage: "build".to_string(),
+            spec: None,
+            mode: "afk".to_string(),
+            prompt: ".sgf/prompts/build.md".to_string(),
+            iterations_total: 5,
+            status: "running".to_string(),
+            created_at: "2026-03-16T12:00:00Z".to_string(),
+            updated_at: "2026-03-16T12:00:00Z".to_string(),
+        };
+
+        write_session_metadata(root, &meta).unwrap();
+        let read_back = read_session_metadata(root, "empty-iter-loop")
+            .unwrap()
+            .unwrap();
+        assert!(read_back.iterations.is_empty());
+        assert_eq!(read_back.status, "running");
+    }
+
+    #[test]
+    fn multiple_iterations_roundtrip() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let meta = SessionMetadata {
+            loop_id: "multi-iter-loop".to_string(),
+            iterations: vec![
+                IterationRecord {
+                    iteration: 1,
+                    session_id: "aaaa-1111".to_string(),
+                    completed_at: "2026-03-16T12:01:00Z".to_string(),
+                },
+                IterationRecord {
+                    iteration: 2,
+                    session_id: "bbbb-2222".to_string(),
+                    completed_at: "2026-03-16T12:03:00Z".to_string(),
+                },
+                IterationRecord {
+                    iteration: 3,
+                    session_id: "cccc-3333".to_string(),
+                    completed_at: "2026-03-16T12:05:00Z".to_string(),
+                },
+            ],
+            stage: "build".to_string(),
+            spec: Some("auth".to_string()),
+            mode: "afk".to_string(),
+            prompt: ".sgf/prompts/build.md".to_string(),
+            iterations_total: 5,
+            status: "exhausted".to_string(),
+            created_at: "2026-03-16T12:00:00Z".to_string(),
+            updated_at: "2026-03-16T12:05:00Z".to_string(),
+        };
+
+        write_session_metadata(root, &meta).unwrap();
+        let read_back = read_session_metadata(root, "multi-iter-loop")
+            .unwrap()
+            .unwrap();
+        assert_eq!(read_back.iterations.len(), 3);
+        assert_eq!(read_back.iterations[0].iteration, 1);
+        assert_eq!(read_back.iterations[0].session_id, "aaaa-1111");
+        assert_eq!(read_back.iterations[1].iteration, 2);
+        assert_eq!(read_back.iterations[1].session_id, "bbbb-2222");
+        assert_eq!(read_back.iterations[2].iteration, 3);
+        assert_eq!(read_back.iterations[2].session_id, "cccc-3333");
+    }
+
+    #[test]
+    fn append_iteration_via_write() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+
+        let mut meta = SessionMetadata {
+            loop_id: "append-test".to_string(),
+            iterations: Vec::new(),
+            stage: "build".to_string(),
+            spec: None,
+            mode: "afk".to_string(),
+            prompt: ".sgf/prompts/build.md".to_string(),
+            iterations_total: 3,
+            status: "running".to_string(),
+            created_at: "2026-03-16T12:00:00Z".to_string(),
+            updated_at: "2026-03-16T12:00:00Z".to_string(),
+        };
+        write_session_metadata(root, &meta).unwrap();
+
+        meta.iterations.push(IterationRecord {
+            iteration: 1,
+            session_id: "uuid-iter-1".to_string(),
+            completed_at: "2026-03-16T12:01:00Z".to_string(),
+        });
+        meta.updated_at = "2026-03-16T12:01:00Z".to_string();
+        write_session_metadata(root, &meta).unwrap();
+
+        let read_back = read_session_metadata(root, "append-test")
+            .unwrap()
+            .unwrap();
+        assert_eq!(read_back.iterations.len(), 1);
+        assert_eq!(read_back.iterations[0].session_id, "uuid-iter-1");
+
+        meta.iterations.push(IterationRecord {
+            iteration: 2,
+            session_id: "uuid-iter-2".to_string(),
+            completed_at: "2026-03-16T12:02:00Z".to_string(),
+        });
+        meta.updated_at = "2026-03-16T12:02:00Z".to_string();
+        write_session_metadata(root, &meta).unwrap();
+
+        let read_back = read_session_metadata(root, "append-test")
+            .unwrap()
+            .unwrap();
+        assert_eq!(read_back.iterations.len(), 2);
+        assert_eq!(read_back.iterations[1].session_id, "uuid-iter-2");
     }
 }

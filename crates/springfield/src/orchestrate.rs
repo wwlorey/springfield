@@ -9,7 +9,7 @@ use shutdown::{ShutdownConfig, ShutdownController, ShutdownStatus};
 use uuid::Uuid;
 
 use crate::config::Mode;
-use crate::loop_mgmt::{self, SessionMetadata};
+use crate::loop_mgmt::{self, IterationRecord, SessionMetadata};
 use crate::prompt;
 use crate::recovery;
 use crate::style;
@@ -109,13 +109,7 @@ fn print_exit_message(code: i32, loop_id: &str) {
     }
 }
 
-fn write_initial_metadata(
-    root: &Path,
-    loop_id: &str,
-    session_id: &str,
-    config: &LoopConfig,
-    prompt_path: &Path,
-) {
+fn write_initial_metadata(root: &Path, loop_id: &str, config: &LoopConfig, prompt_path: &Path) {
     let now = Utc::now().to_rfc3339();
     let mode_str = match config.mode {
         Mode::Interactive => "interactive",
@@ -123,12 +117,11 @@ fn write_initial_metadata(
     };
     let metadata = SessionMetadata {
         loop_id: loop_id.to_string(),
-        session_id: session_id.to_string(),
+        iterations: Vec::new(),
         stage: config.stage.clone(),
         spec: config.spec.clone(),
         mode: mode_str.to_string(),
         prompt: prompt_path.to_string_lossy().to_string(),
-        iterations_completed: 0,
         iterations_total: config.iterations,
         status: "running".to_string(),
         created_at: now.clone(),
@@ -136,6 +129,32 @@ fn write_initial_metadata(
     };
     if let Err(e) = loop_mgmt::write_session_metadata(root, &metadata) {
         style::print_warning(&format!("failed to write session metadata: {e}"));
+    }
+}
+
+fn append_iteration_to_metadata(root: &Path, loop_id: &str, iteration: u32, session_id: &str) {
+    match loop_mgmt::read_session_metadata(root, loop_id) {
+        Ok(Some(mut meta)) => {
+            meta.iterations.push(IterationRecord {
+                iteration,
+                session_id: session_id.to_string(),
+                completed_at: Utc::now().to_rfc3339(),
+            });
+            meta.updated_at = Utc::now().to_rfc3339();
+            if let Err(e) = loop_mgmt::write_session_metadata(root, &meta) {
+                style::print_warning(&format!("failed to append iteration to metadata: {e}"));
+            }
+        }
+        Ok(None) => {
+            style::print_warning(&format!(
+                "session metadata not found for {loop_id}, skipping iteration append"
+            ));
+        }
+        Err(e) => {
+            style::print_warning(&format!(
+                "failed to read session metadata for {loop_id}: {e}"
+            ));
+        }
     }
 }
 
@@ -172,7 +191,7 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
             recovery::ensure_daemons(root)?;
         }
 
-        write_initial_metadata(root, &loop_id, &session_id, config, &prompt_path);
+        write_initial_metadata(root, &loop_id, config, &prompt_path);
 
         style::print_action_detail(
             &format!("launching interactive session [{loop_id}]"),
@@ -192,6 +211,7 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
 
         let exit_code = run_interactive_claude(&prompt_path, &session_id, &controller)?;
 
+        append_iteration_to_metadata(root, &loop_id, 1, &session_id);
         update_metadata_on_exit(root, &loop_id, exit_code);
 
         if let Some(ref before) = head_before {
@@ -221,7 +241,7 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
 
     loop_mgmt::write_pid_file(root, &loop_id)?;
 
-    write_initial_metadata(root, &loop_id, &session_id, config, &prompt_path);
+    write_initial_metadata(root, &loop_id, config, &prompt_path);
 
     let binary = resolve_ralph_binary(config);
 
@@ -264,6 +284,7 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
 
     let exit_code = run_ralph(&binary, &args, is_afk, config.spec.as_deref(), &controller)?;
 
+    append_iteration_to_metadata(root, &loop_id, 1, &session_id);
     update_metadata_on_exit(root, &loop_id, exit_code);
 
     loop_mgmt::remove_pid_file(root, &loop_id);
@@ -382,9 +403,8 @@ fn humanize_relative_time(updated_at: &str) -> String {
     format!("{days}d ago")
 }
 
-fn run_resume_session(root: &Path, meta: &SessionMetadata) -> io::Result<i32> {
+fn run_resume_session(root: &Path, meta: &SessionMetadata, session_id: &str) -> io::Result<i32> {
     let loop_id = &meta.loop_id;
-    let session_id = &meta.session_id;
 
     style::print_action_detail(
         &format!("resuming session [{loop_id}]"),
@@ -428,7 +448,19 @@ pub fn run_resume(root: &Path, loop_id: Option<&str>) -> io::Result<i32> {
     if let Some(id) = loop_id {
         let meta = loop_mgmt::read_session_metadata(root, id)?;
         match meta {
-            Some(m) => return run_resume_session(root, &m),
+            Some(m) => {
+                let session_id = m
+                    .iterations
+                    .last()
+                    .map(|it| it.session_id.as_str())
+                    .ok_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            format!("No iterations found for session: {id}"),
+                        )
+                    })?;
+                return run_resume_session(root, &m, session_id);
+            }
             None => {
                 return Err(io::Error::new(
                     io::ErrorKind::NotFound,
@@ -446,21 +478,44 @@ pub fn run_resume(root: &Path, loop_id: Option<&str>) -> io::Result<i32> {
         ));
     }
 
-    let display: Vec<&SessionMetadata> = sessions.iter().take(20).collect();
+    struct DisplayEntry<'a> {
+        meta: &'a SessionMetadata,
+        iteration: &'a IterationRecord,
+    }
+
+    let mut entries: Vec<DisplayEntry> = Vec::new();
+    for s in &sessions {
+        for it in &s.iterations {
+            entries.push(DisplayEntry {
+                meta: s,
+                iteration: it,
+            });
+        }
+    }
+    entries.sort_by(|a, b| b.iteration.completed_at.cmp(&a.iteration.completed_at));
+    entries.truncate(20);
+
+    if entries.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "No sessions found.",
+        ));
+    }
 
     eprintln!("Recent sessions:");
-    for (i, s) in display.iter().enumerate() {
-        let relative = humanize_relative_time(&s.updated_at);
+    for (i, e) in entries.iter().enumerate() {
+        let relative = humanize_relative_time(&e.iteration.completed_at);
         eprintln!(
-            "  {:>2}. {:<40} {:<12} {:<12} {}",
+            "  {:>2}. {:<40} iter {:<4} {:<12} {:<12} {}",
             i + 1,
-            s.loop_id,
-            s.mode,
-            s.status,
+            e.meta.loop_id,
+            e.iteration.iteration,
+            e.meta.mode,
+            e.meta.status,
             relative
         );
     }
-    eprint!("Select session (1-{}): ", display.len());
+    eprint!("Select session (1-{}): ", entries.len());
 
     let mut input = String::new();
     if io::stdin().read_line(&mut input).is_err() || input.trim().is_empty() {
@@ -472,15 +527,15 @@ pub fn run_resume(root: &Path, loop_id: Option<&str>) -> io::Result<i32> {
         .parse()
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid selection"))?;
 
-    if choice < 1 || choice > display.len() {
+    if choice < 1 || choice > entries.len() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             format!("Selection out of range: {choice}"),
         ));
     }
 
-    let selected = display[choice - 1];
-    run_resume_session(root, selected)
+    let selected = &entries[choice - 1];
+    run_resume_session(root, selected.meta, &selected.iteration.session_id)
 }
 
 #[cfg(test)]
@@ -1022,7 +1077,9 @@ mod tests {
         assert_eq!(sessions.len(), 1);
         let meta = &sessions[0];
         assert!(meta.loop_id.starts_with("build-auth-"));
-        assert!(!meta.session_id.is_empty());
+        assert_eq!(meta.iterations.len(), 1);
+        assert_eq!(meta.iterations[0].iteration, 1);
+        assert!(!meta.iterations[0].session_id.is_empty());
         assert_eq!(meta.stage, "build");
         assert_eq!(meta.spec.as_deref(), Some("auth"));
         assert_eq!(meta.mode, "afk");
@@ -1120,8 +1177,9 @@ mod tests {
 
         let sessions = loop_mgmt::list_session_metadata(root).unwrap();
         let meta = &sessions[0];
+        assert_eq!(meta.iterations.len(), 1);
         assert!(
-            args_content.contains(&meta.session_id),
+            args_content.contains(&meta.iterations[0].session_id),
             "ralph should receive the same session_id as metadata, got: {args_content}"
         );
     }
@@ -1235,12 +1293,15 @@ mod tests {
         let session_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
         let meta = SessionMetadata {
             loop_id: "build-auth-20260316T120000".to_string(),
-            session_id: session_id.to_string(),
+            iterations: vec![IterationRecord {
+                iteration: 1,
+                session_id: session_id.to_string(),
+                completed_at: "2026-03-16T12:02:30Z".to_string(),
+            }],
             stage: "build".to_string(),
             spec: Some("auth".to_string()),
             mode: "interactive".to_string(),
             prompt: ".sgf/prompts/build.md".to_string(),
-            iterations_completed: 1,
             iterations_total: 3,
             status: "interrupted".to_string(),
             created_at: "2026-03-16T12:00:00Z".to_string(),
