@@ -222,7 +222,7 @@ ralph [OPTIONS] [ITERATIONS] [PROMPT]
 When invoked by `sgf`, the full command looks like:
 
 ```
-SGF_SPEC=auth ralph [-a] [--loop-id ID] [--auto-push BOOL] [--spec auth] ITERATIONS PROMPT
+[SGF_SPEC=auth] ralph [-a] [--loop-id ID] [--auto-push BOOL] [--spec auth] [--session-id UUID] ITERATIONS PROMPT
 ```
 
 ### Arguments
@@ -251,6 +251,8 @@ The default value `prompt.md` is treated specially: if no explicit prompt is pro
 | `--command` | `RALPH_COMMAND` | — | Override: path to executable replacing agent invocation (for testing) |
 | `--spec` | `SGF_SPEC` | — | Spec stem — fetches spec content from forma via `fm show <stem> --json` and injects it via `--append-system-prompt`. Fails with error if the spec does not exist in forma. |
 | `--prompt-file` | — | — | Additional prompt file path (repeatable). Added to the study instruction passed via `--append-system-prompt`. |
+| `--session-id` | — | — | Pre-assigned Claude session ID (UUID). Passed through to `cl` as `--session-id <uuid>`. |
+| `--resume` | — | — | Resume a previous Claude session. Passed through to `cl` as `--resume <session_id>`. Mutually exclusive with `--session-id`. When set, the prompt argument is omitted from the `cl` invocation. |
 
 ### Exit Codes
 
@@ -273,6 +275,8 @@ RALPH_AUTO_PUSH=false ralph -a 10                      # Disable auto-push
 ralph -a --loop-id build-auth-20260226T143000 10 prompt.md  # With loop ID
 ralph -a --spec auth 10 .sgf/prompts/build.md               # With spec
 ralph --prompt-file ./NOTES.md 5 prompt.md                   # Extra prompt file
+ralph --session-id a1b2c3d4-e5f6-... 10 prompt.md           # With pre-assigned session ID
+ralph --resume a1b2c3d4-e5f6-... 1 prompt.md                # Resume a previous session
 ```
 
 ## Agent Invocation

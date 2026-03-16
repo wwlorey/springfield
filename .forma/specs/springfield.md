@@ -36,8 +36,9 @@ After `sgf init` and ongoing development, a project contains:
 ├── BACKPRESSURE.md            (build/test/lint/format reference — authored per-project)
 ├── logs/                      (gitignored — AFK loop output)
 │   └── <loop-id>.log
-├── run/                       (gitignored — PID files for running loops)
-│   └── <loop-id>.pid
+├── run/                       (gitignored — PID files and session metadata for running/completed loops)
+│   ├── <loop-id>.pid
+│   └── <loop-id>.json         (session metadata — session_id, loop config, status; see session-resume spec)
 └── prompts/                   (optional — project-local overrides only)
     └── build.md               (example: overrides just build.md, other prompts fall through to ~/.sgf/)
 .pre-commit-config.yaml        (prek hooks for pensa sync)
@@ -98,6 +99,8 @@ The rsync copies prompts, config, MEMENTO.md, and BACKPRESSURE.md to `~/.sgf/`. 
 
 **`~/.sgf/prompts/`** — Default prompts for all projects. Synced from the springfield repo via `just install`. To override a prompt for a specific project, create `./.sgf/prompts/<name>.md` — that file takes precedence for that project only. Adding a new `.md` file to either location makes it available as `sgf <name>` immediately (with fallback defaults if no config.toml entry exists).
 
+**`.sgf/run/{loop_id}.json`** — Session metadata file. Contains `session_id` (UUID), loop config (`stage`, `spec`, `mode`, `prompt`, `iterations_completed`, `iterations_total`), and `status` (`running`, `completed`, `interrupted`, `exhausted`). Written before spawning cl/ralph and updated on exit. Enables `sgf resume` to restart previous sessions. See [session-resume spec](session-resume.md) for the full schema.
+
 **`.sgf/` and `.claude/` protection** — Both `.sgf/` and `.claude/` are protected from agent modification via Claude deny settings. `sgf init` scaffolds these rules. `.sgf/` protection prevents agents from modifying local overrides and reference files. `.claude/` protection prevents agents from weakening sandbox configuration or deny rules.
 
 **`SGF_SPEC`** (env var) — Spec stem for build/test stages. Set by sgf in ralph's environment (e.g., `SGF_SPEC=auth`). Ralph includes `./specs/${SGF_SPEC}.md` in its `study` instruction. Prompt files reference this env var directly (e.g., `$SGF_SPEC`).
@@ -139,6 +142,7 @@ Springfield is tested via integration tests that exercise the full CLI. Key scen
 sgf <command> [spec] [-a | -i] [-n N] [--no-push]   — run a prompt-driven command
 sgf init [--force]                                    — scaffold a new project
 sgf logs <loop-id>                                    — tail a running loop's output
+sgf resume [loop-id]                                  — resume a previous session
 sgf status                                            — show project state (future work)
 ```
 
@@ -146,11 +150,19 @@ Where `<command>` resolves to a prompt file via layered `.sgf/` lookup. Commands
 
 ### Command Resolution
 
-1. Check if `<command>` matches a reserved built-in (`init`, `logs`, `status`). If so, run the built-in.
+1. Check if `<command>` matches a reserved built-in (`init`, `logs`, `resume`, `status`). If so, run the built-in.
 2. Check if `./.sgf/prompts/<command>.md` exists (local override). If so, run it.
 3. Check if `~/.sgf/prompts/<command>.md` exists (global default). If so, run it.
 4. Check if `<command>` matches an alias in the resolved `config.toml` (see Layered Resolution). If so, resolve to the aliased prompt and run it.
 5. Error: `unknown command: <command>`.
+
+### Reserved Built-in: `resume`
+
+```
+sgf resume [loop_id]
+```
+
+Resume a previous Claude session. With `loop_id`: reads session metadata from `.sgf/run/{loop_id}.json`, launches `cl --resume <session_id>` in interactive mode. Without `loop_id`: displays an interactive picker showing recent sessions (newest first, max 20), the user selects one to resume. See [session-resume spec](session-resume.md) for full details.
 
 ### Common Flags
 
@@ -173,6 +185,8 @@ sgf build auth -i              # force interactive build (overrides config.toml)
 sgf verify -a                  # force AFK verify
 sgf issues-log                 # interactive bug reporting
 sgf doc                        # interactive doc triage
+sgf resume                     # interactive session picker
+sgf resume spec-20260316T120000  # resume specific session
 ```
 
 ## Prompt Configuration
@@ -476,7 +490,7 @@ Run `pn ready --spec $SGF_SPEC --json`.
 ### Invocation
 
 ```
-[SGF_SPEC=<stem>] sgf → ralph [-a] [--loop-id ID] [--auto-push BOOL] [--spec STEM] ITERATIONS PROMPT
+[SGF_SPEC=<stem>] sgf → ralph [-a] [--loop-id ID] [--auto-push BOOL] [--spec STEM] [--session-id UUID] ITERATIONS PROMPT
 ```
 
 `sgf` translates its own flags and hardcoded defaults into ralph CLI flags. Ralph does not read config files — all configuration arrives via flags and environment variables.
@@ -489,6 +503,8 @@ Run `pn ready --spec $SGF_SPEC --json`.
 | `--loop-id` | string | sgf-generated | Unique loop identifier |
 | `--auto-push` | bool | `true` unless `--no-push` passed to sgf | Auto-push after commits |
 | `--spec` | string | spec positional arg from sgf (optional) | Spec stem — ralph includes `./specs/<stem>.md` in its study instruction. Omitted when no spec is given. |
+| `--session-id` | string (UUID) | sgf-generated | Pre-assigned session ID for new sessions. sgf generates a UUID before each launch and passes it to ralph. |
+| `--resume` | string (UUID) | sgf (from session metadata) | Session ID to resume. Used by `sgf resume` — reads the session ID from `.sgf/run/{loop_id}.json` and passes it to ralph. Mutually exclusive with `--session-id`. |
 | `ITERATIONS` | u32 | `-n` / `--iterations` or default `30` | Number of iterations |
 | `PROMPT` | path | resolved prompt file path | Raw prompt file (resolved via layered lookup) |
 
@@ -504,12 +520,16 @@ Execution mode is determined by the resolved `mode` (from CLI flags or config.to
 
 | Mode | Execution | Description |
 |------|-----------|-------------|
-| `interactive` | `cl` directly | Full terminal passthrough; calls `cl --verbose [--append-system-prompt ...] @{prompt_path}`, inheriting stdio |
+| `interactive` | `cl` directly | Full terminal passthrough; calls `cl --verbose [--session-id UUID] [--append-system-prompt ...] @{prompt_path}`, inheriting stdio |
 | `afk` | ralph | Autonomous execution; ralph invokes `cl` with `--dangerously-skip-permissions`, NDJSON stream formatting |
 
-**Interactive mode**: Calls `cl` directly. No PID file, no log tee, no loop ID. `cl` handles context file injection (MEMENTO, BACKPRESSURE, specs/README). When a spec is provided, sgf passes `--append-system-prompt 'study @./specs/<stem>.md'` to `cl`. When `auto_push` is true, auto-pushes after the session if HEAD changed.
+**Interactive mode**: Calls `cl` directly. No PID file, no log tee. Generates a loop_id and writes session metadata to `.sgf/run/{loop_id}.json` for resume capability. `cl` handles context file injection (MEMENTO, BACKPRESSURE, specs/README). When a spec is provided, sgf passes `--append-system-prompt 'study @./specs/<stem>.md'` to `cl`. When `auto_push` is true, auto-pushes after the session if HEAD changed. Passes `--session-id <uuid>` to `cl` for session tracking.
 
-**AFK mode**: Goes through ralph, which invokes `cl` directly on the host. Ralph passes spec study args via `--append-system-prompt`; `cl` handles context file injection. PID file, log tee, and loop ID are managed by sgf.
+**AFK mode**: Goes through ralph, which invokes `cl` directly on the host. Ralph passes spec study args via `--append-system-prompt`; `cl` handles context file injection. PID file, log tee, and loop ID are managed by sgf. Session metadata (`.sgf/run/{loop_id}.json`) is written before spawn and updated on exit.
+
+#### Session Metadata
+
+For both modes, sgf generates a session UUID before spawning and writes session metadata to `.sgf/run/{loop_id}.json`. The metadata includes the session ID, loop config, and status. On exit, the status is updated based on exit code (`completed`, `interrupted`, `exhausted`). See [session-resume spec](session-resume.md) for the full schema.
 
 #### Auto-push for interactive commands
 
@@ -518,7 +538,7 @@ Interactive commands with `auto_push = true` auto-push after the Claude session 
 ### Exit Codes
 
 | Code | Meaning | sgf response |
-|------|---------|--------------|
+|------|---------|----|
 | `0` | Sentinel found (`.ralph-complete`) — loop completed | Log success, clean up |
 | `1` | Error (bad args, missing prompt, etc.) | Log error, alert developer |
 | `2` | Iterations exhausted — may have remaining work | Developer decides: re-launch or stop |
