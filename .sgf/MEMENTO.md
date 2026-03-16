@@ -174,7 +174,7 @@ All spec mutations go through `fm`—never edit spec markdown directly. The gene
 
 
 
-## Important
+## IMPORTANT
 
 - **When running in sandboxed mode**:
   * Use relative paths—from the repo root—for file operations, **not absolute paths**.
@@ -183,3 +183,4 @@ All spec mutations go through `fm`—never edit spec markdown directly. The gene
   * Use `cl` instead of the Agent tool:
     + `cl -p --dangerously-skip-permissions --max-turns 50 "task description here"`
   * Run multiple in parallel via background Bash calls. This ensures context injection (MEMENTO, BACKPRESSURE, etc.) and bypasses permission hooks. The OS-level sandbox still applies.
+  * Do NOT use your `Agent` tool or any other built-in functionality for spawning agents.
