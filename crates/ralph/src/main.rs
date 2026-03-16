@@ -385,6 +385,7 @@ fn main() {
                 &prompt_files,
                 &controller,
                 &tee,
+                i,
             );
         } else {
             run_interactive(
@@ -394,6 +395,7 @@ fn main() {
                 &spec_content,
                 &prompt_files,
                 &controller,
+                i,
             );
         }
 
@@ -538,6 +540,7 @@ fn run_interactive(
     spec_content: &Option<String>,
     prompt_files: &[String],
     controller: &ShutdownController,
+    iteration: u32,
 ) {
     let stop = Arc::new(AtomicBool::new(false));
     let stop_clone = stop.clone();
@@ -553,18 +556,24 @@ fn run_interactive(
         r#"{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}"#,
     ]);
     if let Some(ref sid) = cli.session_id {
-        command.args(["--session-id", sid]);
+        if iteration > 1 {
+            command.args(["--resume", sid]);
+        } else {
+            command.args(["--session-id", sid]);
+        }
     }
     command.args(&asp_args);
-    if let Some(ref rid) = cli.resume {
-        command.args(["--resume", rid]);
-    } else {
-        let prompt_arg = if is_file {
-            format!("@{}", cli.prompt)
+    if iteration <= 1 {
+        if let Some(ref rid) = cli.resume {
+            command.args(["--resume", rid]);
         } else {
-            cli.prompt.clone()
-        };
-        command.arg(&prompt_arg);
+            let prompt_arg = if is_file {
+                format!("@{}", cli.prompt)
+            } else {
+                cli.prompt.clone()
+            };
+            command.arg(&prompt_arg);
+        }
     }
     let mut child = match command
         .stdin(Stdio::inherit())
@@ -620,6 +629,7 @@ fn run_afk(
     prompt_files: &[String],
     controller: &ShutdownController,
     tee: &TeeWriter,
+    iteration: u32,
 ) {
     let setsid_hook = || unsafe {
         libc::setsid();
@@ -639,18 +649,24 @@ fn run_afk(
         r#"{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}"#,
     ]);
     if let Some(ref sid) = cli.session_id {
-        cmd.args(["--session-id", sid]);
+        if iteration > 1 {
+            cmd.args(["--resume", sid]);
+        } else {
+            cmd.args(["--session-id", sid]);
+        }
     }
     cmd.args(&asp_args);
-    if let Some(ref rid) = cli.resume {
-        cmd.args(["--resume", rid]);
-    } else {
-        let prompt_arg = if is_file {
-            format!("@{}", cli.prompt)
+    if iteration <= 1 {
+        if let Some(ref rid) = cli.resume {
+            cmd.args(["--resume", rid]);
         } else {
-            cli.prompt.clone()
-        };
-        cmd.arg(&prompt_arg);
+            let prompt_arg = if is_file {
+                format!("@{}", cli.prompt)
+            } else {
+                cli.prompt.clone()
+            };
+            cmd.arg(&prompt_arg);
+        }
     }
     let child = unsafe {
         cmd.stdin(Stdio::null())

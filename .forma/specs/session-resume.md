@@ -234,22 +234,31 @@ Regardless of the original session's mode (AFK or interactive), `sgf resume` alw
 
 | Flag | Type | Description |
 |------|------|-------------|
-| `--session-id <uuid>` | String | Pre-assigned Claude session ID. Passed through to `cl` as `--session-id <uuid>`. |
+| `--session-id <uuid>` | String | Pre-assigned Claude session ID. Passed through to `cl` as `--session-id <uuid>` on iteration 1. On iterations 2+, automatically switches to `--resume <uuid>` instead. |
 | `--resume <session_id>` | String | Resume a previous Claude session. Passed through to `cl` as `--resume <session_id>`. Mutually exclusive with `--session-id`. |
 
-### cl Invocation Changes
+### Iteration-Aware Session Handling
 
-When `--session-id` is provided (normal run):
+Both `run_interactive` and `run_afk` accept an `iteration` parameter (the 1-based loop counter `i`):
+
+- **Iteration 1**: Pass `--session-id <uuid>` to `cl` to create a new Claude session. Include the prompt argument.
+- **Iterations 2+**: Pass `--resume <uuid>` to `cl` to continue the existing session. Omit the prompt argument (Claude continues from the previous conversation context).
+
+This prevents Claude Code from rejecting the session ID with "already in use" on subsequent iterations, since `--session-id` creates a session while `--resume` reconnects to one.
+
+### cl Invocation (Iteration 1)
+
 ```
 cl --verbose --session-id <uuid> [existing flags...] @prompt.md
 ```
 
-When `--resume` is provided (resume run):
+### cl Invocation (Iterations 2+)
+
 ```
-cl --verbose --resume <session_id> [existing flags...]
+cl --verbose --resume <uuid> [existing flags...]
 ```
 
-Note: When resuming, the prompt argument is omitted — Claude Code continues from the previous conversation context. The `--resume` flag takes a session ID (UUID), not a loop ID.
+Note: When resuming, the prompt argument is omitted — Claude Code continues from the previous conversation context.
 
 ### Session ID in sgf-to-ralph Contract
 
