@@ -4,10 +4,12 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
+use chrono::Utc;
 use shutdown::{ShutdownConfig, ShutdownController, ShutdownStatus};
+use uuid::Uuid;
 
 use crate::config::Mode;
-use crate::loop_mgmt;
+use crate::loop_mgmt::{self, SessionMetadata};
 use crate::prompt;
 use crate::recovery;
 use crate::style;
@@ -51,6 +53,7 @@ fn build_ralph_args(
     loop_id: &str,
     prompt_path: &Path,
     log_path: Option<&Path>,
+    session_id: &str,
 ) -> Vec<String> {
     let mut args = Vec::new();
 
@@ -60,6 +63,9 @@ fn build_ralph_args(
 
     args.push("--loop-id".to_string());
     args.push(loop_id.to_string());
+
+    args.push("--session-id".to_string());
+    args.push(session_id.to_string());
 
     args.push("--auto-push".to_string());
     args.push(if config.no_push {
@@ -85,6 +91,14 @@ fn build_ralph_args(
     args
 }
 
+fn exit_code_to_status(code: i32) -> &'static str {
+    match code {
+        0 => "completed",
+        2 => "exhausted",
+        _ => "interrupted",
+    }
+}
+
 fn print_exit_message(code: i32, loop_id: &str) {
     match code {
         0 => style::print_success(&format!("loop complete [{loop_id}]")),
@@ -95,16 +109,73 @@ fn print_exit_message(code: i32, loop_id: &str) {
     }
 }
 
+fn write_initial_metadata(
+    root: &Path,
+    loop_id: &str,
+    session_id: &str,
+    config: &LoopConfig,
+    prompt_path: &Path,
+) {
+    let now = Utc::now().to_rfc3339();
+    let mode_str = match config.mode {
+        Mode::Interactive => "interactive",
+        Mode::Afk => "afk",
+    };
+    let metadata = SessionMetadata {
+        loop_id: loop_id.to_string(),
+        session_id: session_id.to_string(),
+        stage: config.stage.clone(),
+        spec: config.spec.clone(),
+        mode: mode_str.to_string(),
+        prompt: prompt_path.to_string_lossy().to_string(),
+        iterations_completed: 0,
+        iterations_total: config.iterations,
+        status: "running".to_string(),
+        created_at: now.clone(),
+        updated_at: now,
+    };
+    if let Err(e) = loop_mgmt::write_session_metadata(root, &metadata) {
+        style::print_warning(&format!("failed to write session metadata: {e}"));
+    }
+}
+
+fn update_metadata_on_exit(root: &Path, loop_id: &str, exit_code: i32) {
+    match loop_mgmt::read_session_metadata(root, loop_id) {
+        Ok(Some(mut meta)) => {
+            meta.status = exit_code_to_status(exit_code).to_string();
+            meta.updated_at = Utc::now().to_rfc3339();
+            if let Err(e) = loop_mgmt::write_session_metadata(root, &meta) {
+                style::print_warning(&format!("failed to update session metadata: {e}"));
+            }
+        }
+        Ok(None) => {
+            style::print_warning(&format!(
+                "session metadata not found for {loop_id}, skipping update"
+            ));
+        }
+        Err(e) => {
+            style::print_warning(&format!(
+                "failed to read session metadata for {loop_id}: {e}"
+            ));
+        }
+    }
+}
+
 pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
     let prompt_path = prompt::validate(root, &config.stage, config.spec.as_deref())?;
+    let session_id = Uuid::new_v4().to_string();
 
     if config.mode == Mode::Interactive {
+        let loop_id = loop_mgmt::generate_loop_id(&config.stage, config.spec.as_deref());
+
         if !config.skip_preflight {
             recovery::ensure_daemons(root)?;
         }
 
+        write_initial_metadata(root, &loop_id, &session_id, config, &prompt_path);
+
         style::print_action_detail(
-            &format!("launching interactive session [{}]", config.stage),
+            &format!("launching interactive session [{loop_id}]"),
             &format!("stage: {}", config.stage),
         );
 
@@ -119,7 +190,9 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
             ..Default::default()
         })?;
 
-        let exit_code = run_interactive_claude(&prompt_path, &controller)?;
+        let exit_code = run_interactive_claude(&prompt_path, &session_id, &controller)?;
+
+        update_metadata_on_exit(root, &loop_id, exit_code);
 
         if let Some(ref before) = head_before {
             vcs_utils::auto_push_if_changed(before, |msg| {
@@ -148,6 +221,8 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
 
     loop_mgmt::write_pid_file(root, &loop_id)?;
 
+    write_initial_metadata(root, &loop_id, &session_id, config, &prompt_path);
+
     let binary = resolve_ralph_binary(config);
 
     let log_path = if is_afk {
@@ -156,7 +231,13 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
         None
     };
 
-    let args = build_ralph_args(config, &loop_id, &prompt_path, log_path.as_deref());
+    let args = build_ralph_args(
+        config,
+        &loop_id,
+        &prompt_path,
+        log_path.as_deref(),
+        &session_id,
+    );
 
     let monitor_stdin =
         is_afk && (std::env::var("SGF_MONITOR_STDIN").is_ok() || io::stdin().is_terminal());
@@ -183,6 +264,8 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
 
     let exit_code = run_ralph(&binary, &args, is_afk, config.spec.as_deref(), &controller)?;
 
+    update_metadata_on_exit(root, &loop_id, exit_code);
+
     loop_mgmt::remove_pid_file(root, &loop_id);
 
     print_exit_message(exit_code, &loop_id);
@@ -190,11 +273,15 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
     Ok(exit_code)
 }
 
-fn run_interactive_claude(prompt_path: &Path, controller: &ShutdownController) -> io::Result<i32> {
+fn run_interactive_claude(
+    prompt_path: &Path,
+    session_id: &str,
+    controller: &ShutdownController,
+) -> io::Result<i32> {
     let prompt_arg = format!("@{}", prompt_path.display());
 
     let mut child = Command::new("cl")
-        .args(["--verbose", &prompt_arg])
+        .args(["--verbose", "--session-id", session_id, &prompt_arg])
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
@@ -342,6 +429,8 @@ mod tests {
         mock_path.to_string_lossy().to_string()
     }
 
+    const TEST_SESSION_ID: &str = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+
     #[test]
     fn build_args_build_afk_no_push() {
         let config = LoopConfig {
@@ -358,6 +447,7 @@ mod tests {
             "build-auth-20260226T143000",
             Path::new("/tmp/prompt.md"),
             None,
+            TEST_SESSION_ID,
         );
 
         assert_eq!(
@@ -366,6 +456,8 @@ mod tests {
                 "-a",
                 "--loop-id",
                 "build-auth-20260226T143000",
+                "--session-id",
+                TEST_SESSION_ID,
                 "--auto-push",
                 "false",
                 "--spec",
@@ -392,12 +484,14 @@ mod tests {
             "verify-20260226T150000",
             Path::new("/tmp/verify.md"),
             None,
+            TEST_SESSION_ID,
         );
 
         assert!(!args.contains(&"-a".to_string()));
         assert!(args.contains(&"--auto-push".to_string()));
         let auto_push_idx = args.iter().position(|a| a == "--auto-push").unwrap();
         assert_eq!(args[auto_push_idx + 1], "true");
+        assert!(args.contains(&"--session-id".to_string()));
     }
 
     #[test]
@@ -416,6 +510,7 @@ mod tests {
             "build-auth-20260226T143000",
             Path::new("/tmp/prompt.md"),
             None,
+            TEST_SESSION_ID,
         );
 
         assert!(args.contains(&"30".to_string()));
@@ -763,5 +858,173 @@ mod tests {
             args.contains(&"-a"),
             "AFK mode should pass -a flag, got: {args_content}"
         );
+    }
+
+    #[test]
+    fn exit_code_to_status_mappings() {
+        assert_eq!(exit_code_to_status(0), "completed");
+        assert_eq!(exit_code_to_status(2), "exhausted");
+        assert_eq!(exit_code_to_status(130), "interrupted");
+        assert_eq!(exit_code_to_status(1), "interrupted");
+        assert_eq!(exit_code_to_status(42), "interrupted");
+    }
+
+    #[test]
+    fn run_afk_writes_session_metadata_completed() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_project(root, "build", "Build the spec now.");
+        setup_spec(root, "auth");
+        setup_git_repo(root);
+
+        let mock = mock_ralph_script(root, "#!/bin/sh\nexit 0\n");
+
+        let config = LoopConfig {
+            stage: "build".to_string(),
+            spec: Some("auth".to_string()),
+            mode: Mode::Afk,
+            no_push: false,
+            iterations: 30,
+            ralph_binary: Some(mock),
+            skip_preflight: true,
+        };
+
+        let exit_code = run(root, &config).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let sessions = loop_mgmt::list_session_metadata(root).unwrap();
+        assert_eq!(sessions.len(), 1);
+        let meta = &sessions[0];
+        assert!(meta.loop_id.starts_with("build-auth-"));
+        assert!(!meta.session_id.is_empty());
+        assert_eq!(meta.stage, "build");
+        assert_eq!(meta.spec.as_deref(), Some("auth"));
+        assert_eq!(meta.mode, "afk");
+        assert_eq!(meta.status, "completed");
+        assert_eq!(meta.iterations_total, 30);
+        assert!(meta.prompt.contains(".sgf/prompts/build.md"));
+    }
+
+    #[test]
+    fn run_afk_writes_session_metadata_exhausted() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_project(root, "build", "Build the spec now.");
+        setup_spec(root, "auth");
+        setup_git_repo(root);
+
+        let mock = mock_ralph_script(root, "#!/bin/sh\nexit 2\n");
+
+        let config = LoopConfig {
+            stage: "build".to_string(),
+            spec: Some("auth".to_string()),
+            mode: Mode::Afk,
+            no_push: false,
+            iterations: 10,
+            ralph_binary: Some(mock),
+            skip_preflight: true,
+        };
+
+        let exit_code = run(root, &config).unwrap();
+        assert_eq!(exit_code, 2);
+
+        let sessions = loop_mgmt::list_session_metadata(root).unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].status, "exhausted");
+    }
+
+    #[test]
+    fn run_afk_writes_session_metadata_interrupted() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_project(root, "build", "Build the spec now.");
+        setup_spec(root, "auth");
+        setup_git_repo(root);
+
+        let mock = mock_ralph_script(root, "#!/bin/sh\nexit 1\n");
+
+        let config = LoopConfig {
+            stage: "build".to_string(),
+            spec: Some("auth".to_string()),
+            mode: Mode::Afk,
+            no_push: false,
+            iterations: 10,
+            ralph_binary: Some(mock),
+            skip_preflight: true,
+        };
+
+        let exit_code = run(root, &config).unwrap();
+        assert_eq!(exit_code, 1);
+
+        let sessions = loop_mgmt::list_session_metadata(root).unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].status, "interrupted");
+    }
+
+    #[test]
+    fn run_afk_passes_session_id_to_ralph() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_project(root, "build", "Build the spec now.");
+        setup_spec(root, "auth");
+        setup_git_repo(root);
+
+        let mock = mock_ralph_script(
+            root,
+            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
+        );
+
+        let config = LoopConfig {
+            stage: "build".to_string(),
+            spec: Some("auth".to_string()),
+            mode: Mode::Afk,
+            no_push: false,
+            iterations: 30,
+            ralph_binary: Some(mock),
+            skip_preflight: true,
+        };
+
+        run(root, &config).unwrap();
+
+        let args_content = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
+        assert!(
+            args_content.contains("--session-id"),
+            "should pass --session-id to ralph, got: {args_content}"
+        );
+
+        let sessions = loop_mgmt::list_session_metadata(root).unwrap();
+        let meta = &sessions[0];
+        assert!(
+            args_content.contains(&meta.session_id),
+            "ralph should receive the same session_id as metadata, got: {args_content}"
+        );
+    }
+
+    #[test]
+    fn run_afk_no_spec_writes_metadata() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_project(root, "verify", "Verify everything.");
+        setup_git_repo(root);
+
+        let mock = mock_ralph_script(root, "#!/bin/sh\nexit 0\n");
+
+        let config = LoopConfig {
+            stage: "verify".to_string(),
+            spec: None,
+            mode: Mode::Afk,
+            no_push: false,
+            iterations: 30,
+            ralph_binary: Some(mock),
+            skip_preflight: true,
+        };
+
+        run(root, &config).unwrap();
+
+        let sessions = loop_mgmt::list_session_metadata(root).unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert!(sessions[0].loop_id.starts_with("verify-"));
+        assert!(sessions[0].spec.is_none());
+        assert_eq!(sessions[0].mode, "afk");
     }
 }
