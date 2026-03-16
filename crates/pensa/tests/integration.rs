@@ -366,6 +366,15 @@ impl PensaOnlyDaemon {
         let project_dir = dir.path().to_path_buf();
         let data_dir = dir.path().join("pensa-data");
 
+        // Write a .forma/daemon.port pointing to a port where nothing is
+        // listening, so pensa reliably gets a connection error
+        // (FormaUnavailable) instead of falling back to a hash-derived
+        // port that might collide with another test's forma daemon.
+        // Port 1 is privileged and guaranteed to refuse connections.
+        let forma_dir = dir.path().join(".forma");
+        let _ = std::fs::create_dir_all(&forma_dir);
+        std::fs::write(forma_dir.join("daemon.port"), "1").unwrap();
+
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(pensa::daemon::start_with_data_dir(
