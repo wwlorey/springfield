@@ -621,6 +621,7 @@ fn run_interactive(
     let _ = watcher.join();
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_afk(
     agent_cmd: &str,
     cli: &Cli,
