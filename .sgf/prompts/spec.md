@@ -4,7 +4,11 @@ Read the spec(s) that are involved in these changes as I mention them (if applic
 
 ---
 
-After the discussion, produce the following deliverables:
+After the discussion, you will update the project specs to reflect the changes we discussed.
+
+**We are NOT documenting changes in the specs. Instead, we are updating or writing the specs to simply reflect the new content we agreed upon.** (e.g., we want "the 'hello world' crate prints 'hello world'," instead of "instead of printing 'goodbye world,' the 'hello world' crate now prints 'hello world.'")
+
+produce the following deliverables:
 
 1. Follow the (1) Spec Create Workflow and/or (2) Spec Update Workflow (as appropriate) to create and/or update specs.
 2. Follow the Issue Create Workflow to create implementation items.
