@@ -2241,3 +2241,195 @@ fn interactive_restores_terminal_settings_after_agent_corrupts() {
         "iteration 2 should have ISIG and ICANON restored after agent corrupted them"
     );
 }
+
+fn create_multi_iteration_arg_capturing_mock(dir: &TempDir, fixture_name: &str) -> PathBuf {
+    let fixture_path = fixtures_dir().join(fixture_name);
+    let script_path = dir.path().join("mock.sh");
+    let args_dir = dir.path().join("captured-args");
+    fs::create_dir_all(&args_dir).expect("create captured-args dir");
+    let content = format!(
+        r#"#!/bin/bash
+COUNTER_FILE="{counter}"
+if [ ! -f "$COUNTER_FILE" ]; then
+    echo 1 > "$COUNTER_FILE"
+    N=1
+else
+    N=$(cat "$COUNTER_FILE")
+    N=$((N + 1))
+    echo $N > "$COUNTER_FILE"
+fi
+printf '%s\n' "$@" > "{args_dir}/invocation-$N.txt"
+cat {fixture}
+"#,
+        counter = dir.path().join("invocation-counter.txt").display(),
+        args_dir = args_dir.display(),
+        fixture = fixture_path.display(),
+    );
+    fs::write(&script_path, content).expect("write mock script");
+    fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755)).expect("chmod");
+    script_path
+}
+
+#[test]
+fn multi_iteration_generates_fresh_session_id_per_iteration() {
+    let dir = setup_test_dir();
+    let mock = create_multi_iteration_arg_capturing_mock(&dir, "complete.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "--session-id",
+            "initial-uuid-from-sgf",
+            "2",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "should exit 2 (iterations exhausted), stderr:\n{stderr}"
+    );
+
+    let args1 = fs::read_to_string(dir.path().join("captured-args/invocation-1.txt"))
+        .expect("read invocation 1 args");
+    let lines1: Vec<&str> = args1.lines().collect();
+
+    let sid1_idx = lines1
+        .iter()
+        .position(|&a| a == "--session-id")
+        .expect("iteration 1 should pass --session-id");
+    assert_eq!(
+        lines1[sid1_idx + 1],
+        "initial-uuid-from-sgf",
+        "iteration 1 should use the CLI-provided session id"
+    );
+    assert!(
+        !lines1.iter().any(|&a| a == "--resume"),
+        "iteration 1 should NOT pass --resume"
+    );
+    assert!(
+        lines1.iter().any(|&a| a == "@prompt.md"),
+        "iteration 1 should include prompt, got:\n{args1}"
+    );
+
+    let args2 = fs::read_to_string(dir.path().join("captured-args/invocation-2.txt"))
+        .expect("read invocation 2 args");
+    let lines2: Vec<&str> = args2.lines().collect();
+
+    let sid2_idx = lines2
+        .iter()
+        .position(|&a| a == "--session-id")
+        .expect("iteration 2 should pass --session-id");
+    assert_ne!(
+        lines2[sid2_idx + 1],
+        "initial-uuid-from-sgf",
+        "iteration 2 should use a fresh UUID, not the original"
+    );
+    assert!(
+        !lines2.iter().any(|&a| a == "--resume"),
+        "iteration 2 should NOT pass --resume"
+    );
+    assert!(
+        lines2.iter().any(|&a| a == "@prompt.md"),
+        "iteration 2 should include prompt, got:\n{args2}"
+    );
+}
+
+#[test]
+fn multi_iteration_without_session_id_generates_fresh_uuid_on_iter2() {
+    let dir = setup_test_dir();
+    let mock = create_multi_iteration_arg_capturing_mock(&dir, "complete.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "2",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "should exit 2 (iterations exhausted), stderr:\n{stderr}"
+    );
+
+    let args1 = fs::read_to_string(dir.path().join("captured-args/invocation-1.txt"))
+        .expect("read invocation 1 args");
+    let lines1: Vec<&str> = args1.lines().collect();
+    assert!(
+        !lines1.iter().any(|&a| a == "--session-id"),
+        "iteration 1 without --session-id CLI flag should NOT pass --session-id"
+    );
+    assert!(
+        lines1.iter().any(|&a| a == "@prompt.md"),
+        "iteration 1 should include prompt"
+    );
+
+    let args2 = fs::read_to_string(dir.path().join("captured-args/invocation-2.txt"))
+        .expect("read invocation 2 args");
+    let lines2: Vec<&str> = args2.lines().collect();
+    let sid2_idx = lines2
+        .iter()
+        .position(|&a| a == "--session-id")
+        .expect("iteration 2 should always pass --session-id with a fresh UUID");
+    let uuid_val = lines2[sid2_idx + 1];
+    assert!(
+        uuid_val.len() == 36 && uuid_val.contains('-'),
+        "iteration 2 session id should be a UUID, got: {uuid_val}"
+    );
+    assert!(
+        lines2.iter().any(|&a| a == "@prompt.md"),
+        "iteration 2 should include prompt"
+    );
+}
+
+#[test]
+fn resume_on_iteration1_passes_resume_and_omits_prompt() {
+    let dir = setup_test_dir();
+    let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "--resume",
+            "resume-session-uuid",
+            "1",
+        ])
+        .output()
+        .expect("run ralph");
+
+    assert!(
+        output.status.success(),
+        "should exit 0, got: {:?}",
+        output.status.code()
+    );
+
+    let args =
+        fs::read_to_string(dir.path().join("captured-args.txt")).expect("read captured args");
+    let arg_lines: Vec<&str> = args.lines().collect();
+
+    let rid_idx = arg_lines
+        .iter()
+        .position(|&a| a == "--resume")
+        .expect("should pass --resume");
+    assert_eq!(arg_lines[rid_idx + 1], "resume-session-uuid");
+
+    assert!(
+        !arg_lines
+            .iter()
+            .any(|a| a.starts_with('@') || *a == "prompt.md"),
+        "should NOT pass prompt arg when --resume is used, got args:\n{args}"
+    );
+}

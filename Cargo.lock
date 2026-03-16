@@ -1390,6 +1390,7 @@ dependencies = [
  "tempfile",
  "tracing",
  "tracing-subscriber",
+ "uuid",
  "vcs-utils",
 ]
 

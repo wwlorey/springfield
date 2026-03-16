@@ -555,25 +555,25 @@ fn run_interactive(
         "--settings",
         r#"{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}"#,
     ]);
-    if let Some(ref sid) = cli.session_id {
-        if iteration > 1 {
-            command.args(["--resume", sid]);
-        } else {
+    if iteration == 1 {
+        if let Some(ref sid) = cli.session_id {
             command.args(["--session-id", sid]);
         }
+    } else {
+        let fresh_id = uuid::Uuid::new_v4().to_string();
+        command.args(["--session-id", &fresh_id]);
     }
     command.args(&asp_args);
-    if iteration <= 1 {
-        if let Some(ref rid) = cli.resume {
-            command.args(["--resume", rid]);
+    let resuming = iteration == 1 && cli.resume.is_some();
+    if resuming {
+        command.args(["--resume", cli.resume.as_ref().unwrap()]);
+    } else {
+        let prompt_arg = if is_file {
+            format!("@{}", cli.prompt)
         } else {
-            let prompt_arg = if is_file {
-                format!("@{}", cli.prompt)
-            } else {
-                cli.prompt.clone()
-            };
-            command.arg(&prompt_arg);
-        }
+            cli.prompt.clone()
+        };
+        command.arg(&prompt_arg);
     }
     let mut child = match command
         .stdin(Stdio::inherit())
@@ -649,25 +649,25 @@ fn run_afk(
         "--settings",
         r#"{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}"#,
     ]);
-    if let Some(ref sid) = cli.session_id {
-        if iteration > 1 {
-            cmd.args(["--resume", sid]);
-        } else {
+    if iteration == 1 {
+        if let Some(ref sid) = cli.session_id {
             cmd.args(["--session-id", sid]);
         }
+    } else {
+        let fresh_id = uuid::Uuid::new_v4().to_string();
+        cmd.args(["--session-id", &fresh_id]);
     }
     cmd.args(&asp_args);
-    if iteration <= 1 {
-        if let Some(ref rid) = cli.resume {
-            cmd.args(["--resume", rid]);
+    let resuming = iteration == 1 && cli.resume.is_some();
+    if resuming {
+        cmd.args(["--resume", cli.resume.as_ref().unwrap()]);
+    } else {
+        let prompt_arg = if is_file {
+            format!("@{}", cli.prompt)
         } else {
-            let prompt_arg = if is_file {
-                format!("@{}", cli.prompt)
-            } else {
-                cli.prompt.clone()
-            };
-            cmd.arg(&prompt_arg);
-        }
+            cli.prompt.clone()
+        };
+        cmd.arg(&prompt_arg);
     }
     let child = unsafe {
         cmd.stdin(Stdio::null())
