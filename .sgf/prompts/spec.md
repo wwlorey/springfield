@@ -6,8 +6,6 @@ Read the pertinent spec(s) sections that are involved in these changes as they c
 
 After the discussion, you will update the project specs to reflect the changes we discussed.
 
-**We are NOT documenting changes in the specs. Instead, we are updating or writing the specs to simply reflect the new content we agreed upon.** (e.g., We want "the 'hello world' crate prints 'hello world'," instead of "instead of printing 'goodbye world,' the 'hello world' crate now prints 'hello world.'")
-
 Produce the following deliverables (use subagents as appropriate):
 
 1. Follow the (1) Spec Create Workflow and/or (2) Spec Update Workflow (as appropriate) to create and/or update specs.

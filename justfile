@@ -1,3 +1,5 @@
+alias i := install
+
 install:
     cargo install --path crates/pensa
     cargo install --path crates/ralph
