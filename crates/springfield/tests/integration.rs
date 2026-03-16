@@ -3212,3 +3212,330 @@ fn e2e_sgf_ralph_cl_context_files_and_spec_in_append_system_prompt() {
         "missing --dangerously-skip-permissions:\n{args}"
     );
 }
+
+// ===========================================================================
+// Session resume E2E integration tests
+// ===========================================================================
+
+/// Helper: find exactly one .json metadata file in .sgf/run/ and parse it.
+fn read_single_session_metadata(root: &Path) -> serde_json::Value {
+    let run_dir = root.join(".sgf/run");
+    let json_files: Vec<_> = fs::read_dir(&run_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "json"))
+        .collect();
+    assert_eq!(
+        json_files.len(),
+        1,
+        "expected exactly 1 session metadata file, found {}",
+        json_files.len()
+    );
+    let contents = fs::read_to_string(json_files[0].path()).unwrap();
+    serde_json::from_str(&contents).unwrap()
+}
+
+#[test]
+fn afk_session_writes_metadata_with_session_id() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    let mock_dir = TempDir::new().unwrap();
+    let args_file = mock_dir.path().join("ralph_args.txt");
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph.sh",
+        &format!(
+            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
+            args_file.display()
+        ),
+    );
+
+    let output = sgf_cmd(tmp.path())
+        .args(["build", "auth", "-a"])
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("PATH", &mock_path)
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "sgf build failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let meta = read_single_session_metadata(tmp.path());
+
+    assert!(
+        meta["loop_id"].as_str().unwrap().starts_with("build-auth-"),
+        "loop_id should start with build-auth-, got: {}",
+        meta["loop_id"]
+    );
+    let session_id = meta["session_id"].as_str().unwrap();
+    assert!(!session_id.is_empty(), "session_id should not be empty");
+    assert!(
+        session_id.contains('-'),
+        "session_id should be a UUID, got: {session_id}"
+    );
+    assert_eq!(meta["mode"], "afk");
+    assert_eq!(meta["status"], "completed");
+    assert_eq!(meta["stage"], "build");
+    assert_eq!(meta["spec"], "auth");
+    assert!(
+        meta["prompt"]
+            .as_str()
+            .unwrap()
+            .contains(".sgf/prompts/build.md"),
+        "prompt should reference build.md"
+    );
+
+    // Verify ralph received the same session_id
+    let args = fs::read_to_string(&args_file).unwrap();
+    assert!(
+        args.contains(session_id),
+        "ralph should receive same session_id as metadata, got: {args}"
+    );
+    assert!(
+        args.contains("--session-id"),
+        "ralph should receive --session-id flag, got: {args}"
+    );
+}
+
+#[test]
+fn interactive_session_writes_metadata_with_session_id() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    let mock_cl_dir = TempDir::new().unwrap();
+    let args_file = mock_cl_dir.path().join("agent_args.txt");
+    create_mock_script(
+        mock_cl_dir.path(),
+        "cl",
+        &format!(
+            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
+            args_file.display()
+        ),
+    );
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+
+    let output = sgf_cmd(tmp.path())
+        .arg("spec")
+        .env("PATH", &mock_path_with_cl)
+        .env_remove("CLAUDECODE")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "sgf spec failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let meta = read_single_session_metadata(tmp.path());
+
+    assert!(
+        meta["loop_id"].as_str().unwrap().starts_with("spec-"),
+        "loop_id should start with spec-, got: {}",
+        meta["loop_id"]
+    );
+    let session_id = meta["session_id"].as_str().unwrap();
+    assert!(
+        !session_id.is_empty() && session_id.contains('-'),
+        "session_id should be a UUID, got: {session_id}"
+    );
+    assert_eq!(meta["mode"], "interactive");
+    assert_eq!(meta["status"], "completed");
+    assert_eq!(meta["stage"], "spec");
+
+    // Verify cl received --session-id with the same UUID
+    let args = fs::read_to_string(&args_file).unwrap();
+    assert!(
+        args.contains("--session-id"),
+        "cl should receive --session-id flag, got: {args}"
+    );
+    assert!(
+        args.contains(session_id),
+        "cl should receive same session_id as metadata, got: {args}"
+    );
+}
+
+#[test]
+fn resume_with_loop_id_passes_resume_flag_to_cl() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    // Pre-seed session metadata
+    let loop_id = "build-auth-20260316T120000";
+    let session_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    let run_dir = tmp.path().join(".sgf/run");
+    fs::create_dir_all(&run_dir).unwrap();
+    let metadata = serde_json::json!({
+        "loop_id": loop_id,
+        "session_id": session_id,
+        "stage": "build",
+        "spec": "auth",
+        "mode": "interactive",
+        "prompt": ".sgf/prompts/build.md",
+        "iterations_completed": 1,
+        "iterations_total": 3,
+        "status": "interrupted",
+        "created_at": "2026-03-16T12:00:00Z",
+        "updated_at": "2026-03-16T12:05:30Z"
+    });
+    fs::write(
+        run_dir.join(format!("{loop_id}.json")),
+        serde_json::to_string_pretty(&metadata).unwrap(),
+    )
+    .unwrap();
+
+    // Mock cl that captures args
+    let mock_cl_dir = TempDir::new().unwrap();
+    let args_file = mock_cl_dir.path().join("cl_args.txt");
+    create_mock_script(
+        mock_cl_dir.path(),
+        "cl",
+        &format!(
+            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
+            args_file.display()
+        ),
+    );
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+
+    let output = sgf_cmd(tmp.path())
+        .args(["resume", loop_id])
+        .env("PATH", &mock_path_with_cl)
+        .env_remove("CLAUDECODE")
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "sgf resume failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let cl_args = fs::read_to_string(&args_file).unwrap();
+    assert!(
+        cl_args.contains("--resume"),
+        "cl should receive --resume flag, got: {cl_args}"
+    );
+    assert!(
+        cl_args.contains(session_id),
+        "cl should receive the session_id, got: {cl_args}"
+    );
+    assert!(
+        cl_args.contains("--verbose"),
+        "cl should receive --verbose flag, got: {cl_args}"
+    );
+
+    // Metadata status should be updated to completed
+    let updated_meta: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(run_dir.join(format!("{loop_id}.json"))).unwrap())
+            .unwrap();
+    assert_eq!(
+        updated_meta["status"], "completed",
+        "metadata status should be updated to completed after resume"
+    );
+}
+
+#[test]
+fn resume_with_no_sessions_exits_1() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let output = sgf_cmd(tmp.path()).arg("resume").output().unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "sgf resume with no sessions should exit 1"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("No sessions found"),
+        "stderr should contain 'No sessions found', got: {stderr}"
+    );
+}
+
+#[test]
+fn resume_with_bad_loop_id_exits_1() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let output = sgf_cmd(tmp.path())
+        .args(["resume", "nonexistent-loop-id"])
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "sgf resume with bad loop_id should exit 1"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Session not found"),
+        "stderr should contain 'Session not found', got: {stderr}"
+    );
+}
+
+#[test]
+fn metadata_survives_interrupted_session() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
+
+    let (_mock_pn_dir, mock_path) = setup_mock_pn();
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_ralph = create_slow_mock_ralph(mock_dir.path());
+    let ready_file = mock_dir.path().join("sgf_ready");
+
+    let child = sgf_cmd(tmp.path())
+        .args(["build", "auth", "-a"])
+        .env("SGF_RALPH_BINARY", &mock_ralph)
+        .env("SGF_SKIP_PREFLIGHT", "1")
+        .env("SGF_READY_FILE", &ready_file)
+        .env("PATH", &mock_path)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn sgf");
+
+    let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+
+    wait_for_ready(&ready_file);
+
+    // Send double SIGINT to trigger shutdown
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send first SIGINT");
+    std::thread::sleep(Duration::from_millis(200));
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send second SIGINT");
+
+    let output = child.wait_with_output().expect("wait for sgf");
+    assert_eq!(output.status.code(), Some(130));
+
+    // Metadata should exist and have session_id + interrupted status
+    let meta = read_single_session_metadata(tmp.path());
+
+    let session_id = meta["session_id"].as_str().unwrap();
+    assert!(
+        !session_id.is_empty() && session_id.contains('-'),
+        "session_id should be a valid UUID, got: {session_id}"
+    );
+    assert_eq!(
+        meta["status"], "interrupted",
+        "status should be 'interrupted' after SIGINT"
+    );
+    assert!(
+        meta["loop_id"].as_str().unwrap().starts_with("build-auth-"),
+        "loop_id should start with build-auth-"
+    );
+}
