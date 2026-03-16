@@ -8,7 +8,7 @@ After the discussion, you will update the project specs to reflect the changes w
 
 Produce the following deliverables (use subagents as appropriate):
 
-1. Follow the (1) Spec Create Workflow and/or (2) Spec Update Workflow (as appropriate) to create and/or update specs.
+1. Follow the (1) Spec Create Workflow and/or (2) Spec Update Workflow as appropriate to create and/or update specs.
 2. Follow the Issue Create Workflow to create implementation items.
   a. The list of implementation items should END with:
     i. Outstanding documentation tasks (README.md, etc. as appropriate).
