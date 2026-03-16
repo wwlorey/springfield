@@ -144,11 +144,33 @@ pub struct Comment {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SrcRef {
+    pub id: String,
+    pub issue_id: String,
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocRef {
+    pub id: String,
+    pub issue_id: String,
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IssueDetail {
     #[serde(flatten)]
     pub issue: Issue,
     pub deps: Vec<Issue>,
     pub comments: Vec<Comment>,
+    pub src_refs: Vec<SrcRef>,
+    pub doc_refs: Vec<DocRef>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -245,6 +267,8 @@ pub struct ExportImportResult {
     pub issues: usize,
     pub deps: usize,
     pub comments: usize,
+    pub src_refs: usize,
+    pub doc_refs: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,16 +1,87 @@
-## Specs
+## pn — Task & Issue Tracker
 
-Specifications are the **source of truth** for all code. They are managed exclusively through `fm` (forma). Generated markdown lives in `.forma/specs/*.md` and `.forma/README.md` is the spec index — never edit these files directly.
+`pn` (pensa) is the exclusive task and issue tracker. Never use TodoWrite, TaskCreate, or markdown files for tracking work.
 
-## Sandbox
+### Rules
 
-When sandboxed:
+- Always pass `--json` when reading data.
+- There is NO `pn claim` subcommand. Use `pn update <id> --claim`.
+- Status values use **underscores**: `open`, `in_progress`, `closed`. Never use hyphens (`in-progress` is invalid).
 
-- Use relative paths (from the repo root) for file operations, not absolute paths. The sandbox allows writes to . but not to absolute paths outside the explicit allowlist.
+### Issue Claim Workflow
+
+1. Query for issues (e.g., `pn ready --json` or `pn ready --spec auth --json`).
+   IMPORTANT: **Do NOT run `pn list` to see open issues. Use `pn ready`.**
+2. **If there are no issues returned from `pn ready`, there are no available issues to claim right now.**
+3. Pick ONE issue and claim: `pn update <id> --claim`.
+4. If claim fails (`already_claimed`) → re-query and pick another.
+  a. NOTE: Do NOT work on an already-claimed issue.
+    i. (Even if it is claimed under your name.)
+
+### Issue Close Workflow
+
+1. Comment on the issue (`pn comment add <id> "<insights>"`):
+  a. crucial, useful lessons learned (if any)
+  b. notable design/testing decisions made (if any)
+2. Close or release:
+  a. IF BUG: release with `pn release <bug-id>`
+  b. ELSE: close with `pn close <id> --reason "<what was done>"`
+3. Commit your changes with `[<task-id>]` prefix (e.g., `[pn-a1b2c3d4] Implement login validation`)
+
+### Bug Logging Workflow
+
+`pn create "<description>" -t bug`
+
+### Core Commands
+
+| Command | Purpose |
+|---------|---------|
+| `pn ready [--spec <stem>] [-t <type>] --json` | List unblocked, unclaimed work items |
+| `pn list [-t <type>] [--status <s>] [--spec <stem>] --json` | List items with filters |
+| `pn blocked --json` | List blocked items |
+| `pn show <id> --json` | Show item details |
+| `pn search "<query>" --json` | Full-text search across issues |
+| `pn count [--by-status] [--by-priority] [--by-issue-type] [--by-assignee] --json` | Count/summarize items |
+| `pn status --json` | Project status overview |
+| `pn create "<title>" -t <type> [--spec <stem>] [-p <priority>] [--dep <id>] [--fixes <id>] [--description <desc>]` | Create item (types: task, test, bug, chore) |
+| `pn update <id> --claim` | Atomically claim an item |
+| `pn update <id> --unclaim` | Release a claim |
+| `pn update <id> --assignee <name>` | Set assignee (not `--assign`) |
+| `pn update <id> --status <status>` | Set status: `open`, `in_progress`, `closed` (underscores, not hyphens) |
+| `pn close <id> --reason "<reason>" [--force]` | Close an item |
+| `pn reopen <id> [--reason "<reason>"]` | Reopen a closed item |
+| `pn release <id>` | Release without closing |
+| `pn delete <id> [--force]` | Delete an item |
+| `pn history <id> --json` | Show item change history |
+| `pn comment add <id> "<text>"` | Add a comment |
+| `pn comment list <id> --json` | List comments on an item |
+| `pn dep add <id> --dep <other-id>` | Add a dependency |
+| `pn dep remove <id> --dep <other-id>` | Remove a dependency |
+| `pn dep list <id> --json` | List dependencies |
+| `pn dep tree <id> --json` | Show dependency tree |
+| `pn dep cycles --json` | Detect dependency cycles |
+| `pn src-ref add <id> <path> [--reason "<text>"]` | Add source code reference to an issue |
+| `pn src-ref list <id> --json` | List source code references |
+| `pn src-ref remove <ref-id>` | Remove a source code reference |
+| `pn doc-ref add <id> <path> [--reason "<text>"]` | Add documentation reference to an issue |
+| `pn doc-ref list <id> --json` | List documentation references |
+| `pn doc-ref remove <ref-id>` | Remove a documentation reference |
+
+### Priorities
+
+| Priority | Meaning | When to use |
+|----------|---------|-------------|
+| `p0` | Critical | Blocking all progress — broken builds, data loss, security holes |
+| `p1` | High | Important and urgent — should be picked before p2/p3 work |
+| `p2` | Normal | Default. Standard implementation tasks, tests, non-urgent bugs |
+| `p3` | Low | Nice-to-have — polish, minor improvements, can wait indefinitely |
+
 
 ## fm — Specification Management
 
-`fm` (forma) is the exclusive specification manager. All spec mutations go through `fm` — never edit spec markdown directly. The generated `.forma/specs/*.md` and `.forma/README.md` are read-only artifacts produced by `fm export`.
+Specifications are the **source of truth** for all code. They are managed exclusively through `fm` (forma).
+
+All spec mutations go through `fm`—never edit spec markdown directly. The generated `.forma/specs/*.md` and `.forma/README.md` are read-only artifacts produced by `fm export`.
 
 ### Rules
 
@@ -87,75 +158,9 @@ When sandboxed:
 | `fm doctor [--fix] --json` | Health checks; `--fix` removes orphaned data |
 | `fm where` | Print JSONL and DB directory paths |
 
-## pn — Task & Issue Tracker
 
-`pn` (pensa) is the exclusive task and issue tracker. Never use TodoWrite, TaskCreate, or markdown files for tracking work.
+## Important
 
-### Rules
-
-- Always pass `--json` when reading data.
-- There is NO `pn claim` subcommand. Use `pn update <id> --claim`.
-- Status values use **underscores**: `open`, `in_progress`, `closed`. Never use hyphens (`in-progress` is invalid).
-
-### Issue Claim Workflow
-
-1. Query for issues (e.g., `pn ready --json` or `pn ready --spec auth --json`).
-   IMPORTANT: **Do NOT run `pn list` to see open issues. Use `pn ready`.**
-2. **If there are no issues returned from `pn ready`, there are no available issues to claim right now.**
-3. Pick ONE issue and claim: `pn update <id> --claim`.
-4. If claim fails (`already_claimed`) → re-query and pick another.
-  a. NOTE: Do NOT work on an already-claimed issue.
-    i. (Even if it is claimed under your name.)
-
-### Issue Close Workflow
-
-1. Comment on the issue (`pn comment add <id> "<insights>"`):
-  a. crucial, useful lessons learned (if any)
-  b. notable design/testing decisions made (if any)
-2. Close or release:
-  a. IF BUG: release with `pn release <bug-id>`
-  b. ELSE: close with `pn close <id> --reason "<what was done>"`
-3. Commit your changes with `[<task-id>]` prefix (e.g., `[pn-a1b2c3d4] Implement login validation`)
-
-### Bug Logging Workflow
-
-`pn create "<description>" -t bug`
-
-### Core Commands
-
-| Command | Purpose |
-|---------|---------|
-| `pn ready [--spec <stem>] [-t <type>] --json` | List unblocked, unclaimed work items |
-| `pn list [-t <type>] [--status <s>] [--spec <stem>] --json` | List items with filters |
-| `pn blocked --json` | List blocked items |
-| `pn show <id> --json` | Show item details |
-| `pn search "<query>" --json` | Full-text search across issues |
-| `pn count [--by-status] [--by-priority] [--by-issue-type] [--by-assignee] --json` | Count/summarize items |
-| `pn status --json` | Project status overview |
-| `pn create "<title>" -t <type> [--spec <stem>] [-p <priority>] [--dep <id>] [--fixes <id>] [--description <desc>]` | Create item (types: task, test, bug, chore) |
-| `pn update <id> --claim` | Atomically claim an item |
-| `pn update <id> --unclaim` | Release a claim |
-| `pn update <id> --assignee <name>` | Set assignee (not `--assign`) |
-| `pn update <id> --status <status>` | Set status: `open`, `in_progress`, `closed` (underscores, not hyphens) |
-| `pn close <id> --reason "<reason>" [--force]` | Close an item |
-| `pn reopen <id> [--reason "<reason>"]` | Reopen a closed item |
-| `pn release <id>` | Release without closing |
-| `pn delete <id> [--force]` | Delete an item |
-| `pn history <id> --json` | Show item change history |
-| `pn comment add <id> "<text>"` | Add a comment |
-| `pn comment list <id> --json` | List comments on an item |
-| `pn dep add <id> --dep <other-id>` | Add a dependency |
-| `pn dep remove <id> --dep <other-id>` | Remove a dependency |
-| `pn dep list <id> --json` | List dependencies |
-| `pn dep tree <id> --json` | Show dependency tree |
-| `pn dep cycles --json` | Detect dependency cycles |
-
-### Priorities
-
-| Priority | Meaning | When to use |
-|----------|---------|-------------|
-| `p0` | Critical | Blocking all progress — broken builds, data loss, security holes |
-| `p1` | High | Important and urgent — should be picked before p2/p3 work |
-| `p2` | Normal | Default. Standard implementation tasks, tests, non-urgent bugs |
-| `p3` | Low | Nice-to-have — polish, minor improvements, can wait indefinitely |
-
+- When running in sandboxed mode:
+  * Use relative paths—from the repo root—for file operations, **not absolute paths**.
+    + (The sandbox allows writes to . but not to absolute paths outside the explicit allowlist.)

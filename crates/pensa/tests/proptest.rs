@@ -335,7 +335,191 @@ proptest! {
 }
 
 // ---------------------------------------------------------------------------
-// 5. Enum roundtrip (as_str / FromStr)
+// 5. Src-ref / doc-ref CRUD invariants
+// ---------------------------------------------------------------------------
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(64))]
+
+    #[test]
+    fn src_ref_add_list_remove_roundtrip(
+        paths in proptest::collection::vec("[a-z/]{1,40}", 1..6),
+        reasons in proptest::collection::vec(arb_opt_string(), 1..6),
+    ) {
+        let (db, _dir) = open_temp_db();
+        let issue = db.create_issue(&CreateIssueParams {
+            title: "ref-test".into(),
+            issue_type: IssueType::Task,
+            priority: Priority::P2,
+            description: None,
+            spec: None,
+            fixes: None,
+            assignee: None,
+            deps: vec![],
+            actor: "prop-agent".into(),
+        }).unwrap();
+
+        let count = paths.len().min(reasons.len());
+        let mut ref_ids = Vec::new();
+        for i in 0..count {
+            let sr = db.add_src_ref(&issue.id, &paths[i], reasons[i].as_deref(), "prop-agent").unwrap();
+            prop_assert_eq!(&sr.path, &paths[i]);
+            prop_assert_eq!(&sr.reason, &reasons[i]);
+            prop_assert_eq!(&sr.issue_id, &issue.id);
+            ref_ids.push(sr.id);
+        }
+
+        let listed = db.list_src_refs(&issue.id).unwrap();
+        prop_assert_eq!(listed.len(), count);
+
+        let detail = db.get_issue(&issue.id).unwrap();
+        prop_assert_eq!(detail.src_refs.len(), count);
+
+        for rid in &ref_ids {
+            db.remove_src_ref(rid, "prop-agent").unwrap();
+        }
+        let after = db.list_src_refs(&issue.id).unwrap();
+        prop_assert!(after.is_empty(), "src_refs should be empty after removing all");
+    }
+
+    #[test]
+    fn doc_ref_add_list_remove_roundtrip(
+        paths in proptest::collection::vec("[a-z/]{1,40}", 1..6),
+        reasons in proptest::collection::vec(arb_opt_string(), 1..6),
+    ) {
+        let (db, _dir) = open_temp_db();
+        let issue = db.create_issue(&CreateIssueParams {
+            title: "ref-test".into(),
+            issue_type: IssueType::Task,
+            priority: Priority::P2,
+            description: None,
+            spec: None,
+            fixes: None,
+            assignee: None,
+            deps: vec![],
+            actor: "prop-agent".into(),
+        }).unwrap();
+
+        let count = paths.len().min(reasons.len());
+        let mut ref_ids = Vec::new();
+        for i in 0..count {
+            let dr = db.add_doc_ref(&issue.id, &paths[i], reasons[i].as_deref(), "prop-agent").unwrap();
+            prop_assert_eq!(&dr.path, &paths[i]);
+            prop_assert_eq!(&dr.reason, &reasons[i]);
+            prop_assert_eq!(&dr.issue_id, &issue.id);
+            ref_ids.push(dr.id);
+        }
+
+        let listed = db.list_doc_refs(&issue.id).unwrap();
+        prop_assert_eq!(listed.len(), count);
+
+        let detail = db.get_issue(&issue.id).unwrap();
+        prop_assert_eq!(detail.doc_refs.len(), count);
+
+        for rid in &ref_ids {
+            db.remove_doc_ref(rid, "prop-agent").unwrap();
+        }
+        let after = db.list_doc_refs(&issue.id).unwrap();
+        prop_assert!(after.is_empty(), "doc_refs should be empty after removing all");
+    }
+
+    #[test]
+    fn refs_cascade_on_issue_delete(
+        src_count in 1..5usize,
+        doc_count in 1..5usize,
+    ) {
+        let (db, _dir) = open_temp_db();
+        let issue = db.create_issue(&CreateIssueParams {
+            title: "cascade-test".into(),
+            issue_type: IssueType::Task,
+            priority: Priority::P2,
+            description: None,
+            spec: None,
+            fixes: None,
+            assignee: None,
+            deps: vec![],
+            actor: "prop-agent".into(),
+        }).unwrap();
+
+        for i in 0..src_count {
+            db.add_src_ref(&issue.id, &format!("src/{i}.rs"), None, "prop-agent").unwrap();
+        }
+        for i in 0..doc_count {
+            db.add_doc_ref(&issue.id, &format!("docs/{i}.md"), None, "prop-agent").unwrap();
+        }
+
+        db.delete_issue(&issue.id, true).unwrap();
+
+        // Verify refs are gone by checking that the issue no longer exists
+        let err = db.list_src_refs(&issue.id);
+        prop_assert!(err.is_err(), "list_src_refs should fail after issue deleted");
+        let err = db.list_doc_refs(&issue.id);
+        prop_assert!(err.is_err(), "list_doc_refs should fail after issue deleted");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 6. Export/import preserves refs
+// ---------------------------------------------------------------------------
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(32))]
+
+    #[test]
+    fn export_import_preserves_refs(
+        src_paths in proptest::collection::vec("[a-z/]{1,30}", 1..4),
+        doc_paths in proptest::collection::vec("[a-z/]{1,30}", 1..4),
+    ) {
+        let (db, _dir) = open_temp_db();
+        let issue = db.create_issue(&CreateIssueParams {
+            title: "export-ref-test".into(),
+            issue_type: IssueType::Task,
+            priority: Priority::P2,
+            description: None,
+            spec: None,
+            fixes: None,
+            assignee: None,
+            deps: vec![],
+            actor: "prop-agent".into(),
+        }).unwrap();
+
+        for p in &src_paths {
+            db.add_src_ref(&issue.id, p, Some("test reason"), "prop-agent").unwrap();
+        }
+        for p in &doc_paths {
+            db.add_doc_ref(&issue.id, p, Some("doc reason"), "prop-agent").unwrap();
+        }
+
+        let before_src = db.list_src_refs(&issue.id).unwrap();
+        let before_doc = db.list_doc_refs(&issue.id).unwrap();
+
+        let export = db.export_jsonl().unwrap();
+        prop_assert_eq!(export.src_refs, before_src.len());
+        prop_assert_eq!(export.doc_refs, before_doc.len());
+
+        db.import_jsonl().unwrap();
+
+        let after_src = db.list_src_refs(&issue.id).unwrap();
+        let after_doc = db.list_doc_refs(&issue.id).unwrap();
+
+        prop_assert_eq!(before_src.len(), after_src.len());
+        prop_assert_eq!(before_doc.len(), after_doc.len());
+
+        for (b, a) in before_src.iter().zip(after_src.iter()) {
+            prop_assert_eq!(&b.id, &a.id);
+            prop_assert_eq!(&b.path, &a.path);
+            prop_assert_eq!(&b.reason, &a.reason);
+        }
+        for (b, a) in before_doc.iter().zip(after_doc.iter()) {
+            prop_assert_eq!(&b.id, &a.id);
+            prop_assert_eq!(&b.path, &a.path);
+            prop_assert_eq!(&b.reason, &a.reason);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 7. Enum roundtrip (as_str / FromStr)
 // ---------------------------------------------------------------------------
 
 proptest! {

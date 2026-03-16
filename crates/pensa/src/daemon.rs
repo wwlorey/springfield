@@ -132,6 +132,16 @@ pub async fn start_with_data_dir(port: u16, project_dir: PathBuf, data_dir: Opti
             "/issues/{id}/comments",
             get(list_comments).post(add_comment),
         )
+        .route(
+            "/issues/{id}/src-refs",
+            get(list_src_refs).post(add_src_ref),
+        )
+        .route("/src-refs/{id}", axum::routing::delete(remove_src_ref))
+        .route(
+            "/issues/{id}/doc-refs",
+            get(list_doc_refs).post(add_doc_ref),
+        )
+        .route("/doc-refs/{id}", axum::routing::delete(remove_doc_ref))
         .route("/deps", post(add_dep).delete(remove_dep))
         .route("/deps/cycles", get(detect_cycles))
         .route("/export", post(export_jsonl))
@@ -674,6 +684,99 @@ async fn list_comments(
         .map(|c| serde_json::to_value(c).unwrap())
         .collect();
     Ok(Json(values))
+}
+
+// --- Src-ref endpoints ---
+
+#[derive(Deserialize)]
+struct AddRefBody {
+    path: String,
+    reason: Option<String>,
+    actor: Option<String>,
+}
+
+async fn add_src_ref(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<AddRefBody>,
+) -> Result<impl IntoResponse, AppError> {
+    let actor = body
+        .actor
+        .or_else(|| actor_from_headers(&headers))
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let db = state.db.lock().unwrap();
+    let src_ref = db.add_src_ref(&id, &body.path, body.reason.as_deref(), &actor)?;
+    Ok((StatusCode::CREATED, Json(src_ref)))
+}
+
+async fn list_src_refs(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<serde_json::Value>>, AppError> {
+    let db = state.db.lock().unwrap();
+    let refs = db.list_src_refs(&id)?;
+    let values: Vec<serde_json::Value> = refs
+        .into_iter()
+        .map(|r| serde_json::to_value(r).unwrap())
+        .collect();
+    Ok(Json(values))
+}
+
+async fn remove_src_ref(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<StatusCode, AppError> {
+    let actor = actor_from_headers(&headers).unwrap_or_else(|| "unknown".to_string());
+
+    let db = state.db.lock().unwrap();
+    db.remove_src_ref(&id, &actor)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// --- Doc-ref endpoints ---
+
+async fn add_doc_ref(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<AddRefBody>,
+) -> Result<impl IntoResponse, AppError> {
+    let actor = body
+        .actor
+        .or_else(|| actor_from_headers(&headers))
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let db = state.db.lock().unwrap();
+    let doc_ref = db.add_doc_ref(&id, &body.path, body.reason.as_deref(), &actor)?;
+    Ok((StatusCode::CREATED, Json(doc_ref)))
+}
+
+async fn list_doc_refs(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<serde_json::Value>>, AppError> {
+    let db = state.db.lock().unwrap();
+    let refs = db.list_doc_refs(&id)?;
+    let values: Vec<serde_json::Value> = refs
+        .into_iter()
+        .map(|r| serde_json::to_value(r).unwrap())
+        .collect();
+    Ok(Json(values))
+}
+
+async fn remove_doc_ref(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<StatusCode, AppError> {
+    let actor = actor_from_headers(&headers).unwrap_or_else(|| "unknown".to_string());
+
+    let db = state.db.lock().unwrap();
+    db.remove_doc_ref(&id, &actor)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 // --- Data endpoints ---

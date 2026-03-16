@@ -77,6 +77,36 @@ pub fn print_issue_detail(value: &Value, mode: OutputMode) {
                 }
             }
 
+            if let Some(src_refs) = value["src_refs"].as_array()
+                && !src_refs.is_empty()
+            {
+                println!("  src-refs:");
+                for r in src_refs {
+                    let rid = r["id"].as_str().unwrap_or("?");
+                    let path = r["path"].as_str().unwrap_or("?");
+                    let reason = r["reason"].as_str();
+                    match reason {
+                        Some(rs) => println!("    {rid}  {path}  ({rs})"),
+                        None => println!("    {rid}  {path}"),
+                    }
+                }
+            }
+
+            if let Some(doc_refs) = value["doc_refs"].as_array()
+                && !doc_refs.is_empty()
+            {
+                println!("  doc-refs:");
+                for r in doc_refs {
+                    let rid = r["id"].as_str().unwrap_or("?");
+                    let path = r["path"].as_str().unwrap_or("?");
+                    let reason = r["reason"].as_str();
+                    match reason {
+                        Some(rs) => println!("    {rid}  {path}  ({rs})"),
+                        None => println!("    {rid}  {path}"),
+                    }
+                }
+            }
+
             if let Some(comments) = value["comments"].as_array()
                 && !comments.is_empty()
             {
@@ -217,6 +247,38 @@ pub fn print_comment_list(value: &Value, mode: OutputMode) {
     }
 }
 
+pub fn print_ref(value: &Value, mode: OutputMode) {
+    match mode {
+        OutputMode::Json => print_json(value),
+        OutputMode::Human => {
+            let id = value["id"].as_str().unwrap_or("?");
+            let path = value["path"].as_str().unwrap_or("?");
+            let reason = value["reason"].as_str();
+            match reason {
+                Some(r) => println!("{id}  {path}  ({r})"),
+                None => println!("{id}  {path}"),
+            }
+        }
+    }
+}
+
+pub fn print_ref_list(value: &Value, mode: OutputMode) {
+    match mode {
+        OutputMode::Json => print_json(value),
+        OutputMode::Human => {
+            if let Some(arr) = value.as_array() {
+                if arr.is_empty() {
+                    println!("(none)");
+                } else {
+                    for item in arr {
+                        print_ref(item, OutputMode::Human);
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub fn print_count(value: &Value, mode: OutputMode) {
     match mode {
         OutputMode::Json => print_json(value),
@@ -295,7 +357,11 @@ pub fn print_export_import(value: &Value, mode: OutputMode) {
             let issues = value["issues"].as_i64().unwrap_or(0);
             let deps = value["deps"].as_i64().unwrap_or(0);
             let comments = value["comments"].as_i64().unwrap_or(0);
-            println!("{status}: {issues} issues, {deps} deps, {comments} comments");
+            let src_refs = value["src_refs"].as_i64().unwrap_or(0);
+            let doc_refs = value["doc_refs"].as_i64().unwrap_or(0);
+            println!(
+                "{status}: {issues} issues, {deps} deps, {comments} comments, {src_refs} src-refs, {doc_refs} doc-refs"
+            );
         }
     }
 }

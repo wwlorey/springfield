@@ -148,6 +148,16 @@ enum Commands {
         #[command(subcommand)]
         subcmd: CommentSubcommand,
     },
+    #[command(name = "src-ref")]
+    SrcRef {
+        #[command(subcommand)]
+        subcmd: SrcRefSubcommand,
+    },
+    #[command(name = "doc-ref")]
+    DocRef {
+        #[command(subcommand)]
+        subcmd: DocRefSubcommand,
+    },
     Export,
     Import,
     Doctor {
@@ -186,6 +196,38 @@ enum DepSubcommand {
 enum CommentSubcommand {
     Add { id: String, text: String },
     List { id: String },
+}
+
+#[derive(Subcommand)]
+enum SrcRefSubcommand {
+    Add {
+        id: String,
+        path: String,
+        #[arg(long)]
+        reason: Option<String>,
+    },
+    List {
+        id: String,
+    },
+    Remove {
+        ref_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum DocRefSubcommand {
+    Add {
+        id: String,
+        path: String,
+        #[arg(long)]
+        reason: Option<String>,
+    },
+    List {
+        id: String,
+    },
+    Remove {
+        ref_id: String,
+    },
 }
 
 fn resolve_actor(flag: Option<String>) -> String {
@@ -612,6 +654,50 @@ fn main() {
                     Ok(v) => output::print_comment_list(&v, mode),
                     Err(e) => fail(e, mode),
                 },
+            }
+        }
+
+        Commands::SrcRef { subcmd } => {
+            let client = Client::new();
+            match subcmd {
+                SrcRefSubcommand::Add { id, path, reason } => {
+                    match client.add_src_ref(&id, &path, reason.as_deref(), &actor) {
+                        Ok(v) => output::print_ref(&v, mode),
+                        Err(e) => fail(e, mode),
+                    }
+                }
+                SrcRefSubcommand::List { id } => match client.list_src_refs(&id) {
+                    Ok(v) => output::print_ref_list(&v, mode),
+                    Err(e) => fail(e, mode),
+                },
+                SrcRefSubcommand::Remove { ref_id } => {
+                    match client.remove_src_ref(&ref_id, &actor) {
+                        Ok(()) => output::print_deleted(mode),
+                        Err(e) => fail(e, mode),
+                    }
+                }
+            }
+        }
+
+        Commands::DocRef { subcmd } => {
+            let client = Client::new();
+            match subcmd {
+                DocRefSubcommand::Add { id, path, reason } => {
+                    match client.add_doc_ref(&id, &path, reason.as_deref(), &actor) {
+                        Ok(v) => output::print_ref(&v, mode),
+                        Err(e) => fail(e, mode),
+                    }
+                }
+                DocRefSubcommand::List { id } => match client.list_doc_refs(&id) {
+                    Ok(v) => output::print_ref_list(&v, mode),
+                    Err(e) => fail(e, mode),
+                },
+                DocRefSubcommand::Remove { ref_id } => {
+                    match client.remove_doc_ref(&ref_id, &actor) {
+                        Ok(()) => output::print_deleted(mode),
+                        Err(e) => fail(e, mode),
+                    }
+                }
             }
         }
 

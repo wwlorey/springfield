@@ -526,6 +526,122 @@ impl Client {
         }
     }
 
+    pub fn add_src_ref(
+        &self,
+        issue_id: &str,
+        path: &str,
+        reason: Option<&str>,
+        actor: &str,
+    ) -> Result<Value, PensaError> {
+        let mut body = serde_json::json!({
+            "path": path,
+            "actor": actor,
+        });
+        if let Some(r) = reason {
+            body["reason"] = Value::String(r.to_string());
+        }
+
+        let resp = self
+            .http
+            .post(format!("{}/issues/{}/src-refs", self.base_url, issue_id))
+            .json(&body)
+            .send()
+            .map_err(|e| PensaError::Internal(e.to_string()))?;
+
+        if resp.status().is_success() {
+            resp.json().map_err(|e| PensaError::Internal(e.to_string()))
+        } else {
+            Err(Self::parse_error(resp))
+        }
+    }
+
+    pub fn list_src_refs(&self, issue_id: &str) -> Result<Value, PensaError> {
+        let resp = self
+            .http
+            .get(format!("{}/issues/{}/src-refs", self.base_url, issue_id))
+            .send()
+            .map_err(|e| PensaError::Internal(e.to_string()))?;
+
+        if resp.status().is_success() {
+            resp.json().map_err(|e| PensaError::Internal(e.to_string()))
+        } else {
+            Err(Self::parse_error(resp))
+        }
+    }
+
+    pub fn remove_src_ref(&self, ref_id: &str, actor: &str) -> Result<(), PensaError> {
+        let resp = self
+            .http
+            .delete(format!("{}/src-refs/{}", self.base_url, ref_id))
+            .header("x-pensa-actor", actor)
+            .send()
+            .map_err(|e| PensaError::Internal(e.to_string()))?;
+
+        if resp.status().is_success() {
+            Ok(())
+        } else {
+            Err(Self::parse_error(resp))
+        }
+    }
+
+    pub fn add_doc_ref(
+        &self,
+        issue_id: &str,
+        path: &str,
+        reason: Option<&str>,
+        actor: &str,
+    ) -> Result<Value, PensaError> {
+        let mut body = serde_json::json!({
+            "path": path,
+            "actor": actor,
+        });
+        if let Some(r) = reason {
+            body["reason"] = Value::String(r.to_string());
+        }
+
+        let resp = self
+            .http
+            .post(format!("{}/issues/{}/doc-refs", self.base_url, issue_id))
+            .json(&body)
+            .send()
+            .map_err(|e| PensaError::Internal(e.to_string()))?;
+
+        if resp.status().is_success() {
+            resp.json().map_err(|e| PensaError::Internal(e.to_string()))
+        } else {
+            Err(Self::parse_error(resp))
+        }
+    }
+
+    pub fn list_doc_refs(&self, issue_id: &str) -> Result<Value, PensaError> {
+        let resp = self
+            .http
+            .get(format!("{}/issues/{}/doc-refs", self.base_url, issue_id))
+            .send()
+            .map_err(|e| PensaError::Internal(e.to_string()))?;
+
+        if resp.status().is_success() {
+            resp.json().map_err(|e| PensaError::Internal(e.to_string()))
+        } else {
+            Err(Self::parse_error(resp))
+        }
+    }
+
+    pub fn remove_doc_ref(&self, ref_id: &str, actor: &str) -> Result<(), PensaError> {
+        let resp = self
+            .http
+            .delete(format!("{}/doc-refs/{}", self.base_url, ref_id))
+            .header("x-pensa-actor", actor)
+            .send()
+            .map_err(|e| PensaError::Internal(e.to_string()))?;
+
+        if resp.status().is_success() {
+            Ok(())
+        } else {
+            Err(Self::parse_error(resp))
+        }
+    }
+
     pub fn export(&self) -> Result<Value, PensaError> {
         let resp = self
             .http

@@ -9,13 +9,7 @@ use std::os::unix::fs as unix_fs;
 
 use serde_json::Value;
 
-const DIRECTORIES: &[&str] = &[
-    ".pensa",
-    ".forma",
-    ".sgf",
-    ".sgf/logs",
-    ".sgf/run",
-];
+const DIRECTORIES: &[&str] = &[".pensa", ".forma", ".sgf", ".sgf/logs", ".sgf/run"];
 
 struct SkeletonFile {
     path: &'static str,
@@ -364,7 +358,6 @@ fn merge_pre_commit_config(root: &Path) -> io::Result<()> {
     fs::write(&path, output)
 }
 
-
 fn install_prek_hooks(root: &Path) -> io::Result<()> {
     let output = Command::new("prek")
         .arg("install")
@@ -518,10 +511,14 @@ pub fn run(root: &Path, force: bool) -> io::Result<()> {
     install_prek_hooks(root)?;
 
     if !root.join(".sgf/MEMENTO.md").exists() {
-        crate::style::print_warning(".sgf/MEMENTO.md not found — agents won't have fm/pn workflow reference");
+        crate::style::print_warning(
+            ".sgf/MEMENTO.md not found — agents won't have fm/pn workflow reference",
+        );
     }
     if !root.join(".sgf/BACKPRESSURE.md").exists() {
-        crate::style::print_warning(".sgf/BACKPRESSURE.md not found — agents won't have build/test/lint reference");
+        crate::style::print_warning(
+            ".sgf/BACKPRESSURE.md not found — agents won't have build/test/lint reference",
+        );
     }
 
     crate::style::print_success("project scaffolded successfully");
@@ -1174,5 +1171,4 @@ repos:
             SANDBOX_ALLOWED_DOMAINS.len()
         );
     }
-
 }

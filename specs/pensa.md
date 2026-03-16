@@ -128,6 +128,34 @@ CREATE TABLE comments (
 
 Comment IDs use the same format as issue IDs (`pn-` + 8 hex). Agents record observations about issues between fresh-context iterations without overwriting the description.
 
+### Source references table
+
+```sql
+CREATE TABLE src_refs (
+    id         TEXT PRIMARY KEY,
+    issue_id   TEXT NOT NULL REFERENCES issues(id),
+    path       TEXT NOT NULL,
+    reason     TEXT,
+    created_at TEXT NOT NULL
+);
+```
+
+Source code file paths that an agent should read when working on this issue. Paths are relative to the repo root (e.g., `crates/pensa/src/db.rs`). The optional `reason` field explains what to look for in that file. IDs use the same format as issue IDs (`pn-` + 8 hex).
+
+### Documentation references table
+
+```sql
+CREATE TABLE doc_refs (
+    id         TEXT PRIMARY KEY,
+    issue_id   TEXT NOT NULL REFERENCES issues(id),
+    path       TEXT NOT NULL,
+    reason     TEXT,
+    created_at TEXT NOT NULL
+);
+```
+
+Documentation file paths that need to be viewed, changed, or added when working on this issue. Paths are relative to the repo root (e.g., `specs/pensa.md`). The optional `reason` field explains what documentation work is needed. IDs use the same format as issue IDs (`pn-` + 8 hex).
+
 ### Events table (audit log)
 
 ```sql
@@ -236,6 +264,34 @@ pn comment add <id> "text"
 pn comment list <id>
 ```
 
+### Source references
+
+```
+pn src-ref add <id> <path> [--reason "..."]
+pn src-ref list <id>
+pn src-ref remove <ref-id>
+```
+
+**`pn src-ref add`** attaches a source code file path to an issue. The path should be relative to the repo root. The optional `--reason` explains what to look for in that file.
+
+**`pn src-ref list`** returns all source references for an issue.
+
+**`pn src-ref remove`** deletes a source reference by its ID.
+
+### Documentation references
+
+```
+pn doc-ref add <id> <path> [--reason "..."]
+pn doc-ref list <id>
+pn doc-ref remove <ref-id>
+```
+
+**`pn doc-ref add`** attaches a documentation file path to an issue. The path should be relative to the repo root. The optional `--reason` explains what documentation work is needed (view, change, or add).
+
+**`pn doc-ref list`** returns all documentation references for an issue.
+
+**`pn doc-ref remove`** deletes a documentation reference by its ID.
+
 ### Daemon
 
 ```
@@ -305,7 +361,7 @@ Always `[]`, never `null`.
 | Command | Shape |
 |---------|-------|
 | `create`, `update`, `close`, `reopen`, `release` | Single issue object |
-| `show` | Single issue detail object (issue fields + `deps`, `comments` arrays) |
+| `show` | Single issue detail object (issue fields + `deps`, `comments`, `src_refs`, `doc_refs` arrays) |
 | `list`, `ready`, `blocked`, `search` | Array of issue objects |
 | `count` | `{"count": N}` or `{"total": N, "groups": [...]}` when grouped |
 | `status` | Summary object (open/in_progress/closed counts by type) |
@@ -316,8 +372,14 @@ Always `[]`, never `null`.
 | `dep cycles` | Array of arrays (each inner array is one cycle) |
 | `comment add` | Single comment object |
 | `comment list` | Array of comment objects |
+| `src-ref add` | Single src_ref object |
+| `src-ref list` | Array of src_ref objects |
+| `src-ref remove` | `{"status": "deleted"}` |
+| `doc-ref add` | Single doc_ref object |
+| `doc-ref list` | Array of doc_ref objects |
+| `doc-ref remove` | `{"status": "deleted"}` |
 | `doctor` | Report object (findings array + fixes applied) |
-| `export`, `import` | `{"status": "ok", "issues": N, "deps": N, "comments": N}` |
+| `export`, `import` | `{"status": "ok", "issues": N, "deps": N, "comments": N, "src_refs": N, "doc_refs": N}` |
 
 ### Issue object fields
 
@@ -360,6 +422,12 @@ The daemon exposes a REST API. The CLI translates subcommands into HTTP requests
 | `dep cycles` | GET | `/deps/cycles` |
 | `comment add` | POST | `/issues/:id/comments` |
 | `comment list` | GET | `/issues/:id/comments` |
+| `src-ref add` | POST | `/issues/:id/src-refs` |
+| `src-ref list` | GET | `/issues/:id/src-refs` |
+| `src-ref remove` | DELETE | `/src-refs/:id` |
+| `doc-ref add` | POST | `/issues/:id/doc-refs` |
+| `doc-ref list` | GET | `/issues/:id/doc-refs` |
+| `doc-ref remove` | DELETE | `/doc-refs/:id` |
 | `export` | POST | `/export` |
 | `import` | POST | `/import` |
 | `doctor` | POST | `/doctor` |
@@ -384,6 +452,14 @@ One line per dependency: `{"issue_id": "...", "depends_on_id": "..."}`. Sorted b
 ### `comments.jsonl`
 
 One line per comment: `{"id": "...", "issue_id": "...", "actor": "...", "text": "...", "created_at": "..."}`. Sorted by `created_at`.
+
+### `src_refs.jsonl`
+
+One line per source reference: `{"id": "...", "issue_id": "...", "path": "...", "reason": "...", "created_at": "..."}`. Sorted by `created_at`.
+
+### `doc_refs.jsonl`
+
+One line per documentation reference: `{"id": "...", "issue_id": "...", "path": "...", "reason": "...", "created_at": "..."}`. Sorted by `created_at`.
 
 ---
 
@@ -438,7 +514,11 @@ Key scenarios:
 - **`ready` includes unplanned bugs**: create bug → verify `pn ready` includes it
 - **`ready` excludes planned bugs**: create bug → create fix task with `--fixes` → verify bug no longer in `pn ready`
 - **`ready` type filter still excludes bugs**: create bug → `pn ready -t task` → verify bug excluded
-- **Export/import round-trip**: create issues with deps and comments → export → delete db → import → verify all data intact
+- **Source references**: create issue → add src-ref → list src-refs → verify path and reason → remove src-ref → verify empty
+- **Documentation references**: create issue → add doc-ref → list doc-refs → verify path and reason → remove doc-ref → verify empty
+- **Refs in show**: create issue → add src-ref and doc-ref → `pn show` includes both in detail output
+- **Refs cascade on delete**: create issue → add src-ref and doc-ref → delete issue with `--force` → verify refs deleted
+- **Export/import round-trip**: create issues with deps, comments, src-refs, and doc-refs → export → delete db → import → verify all data intact
 - **Doctor**: create in_progress issues → `doctor --fix` → verify all released to open
 - **Concurrent claims**: two rapid claim attempts on the same issue → exactly one succeeds
 - **JSON output**: verify `--json` output matches documented shapes for each command

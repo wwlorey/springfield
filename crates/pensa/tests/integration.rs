@@ -515,6 +515,217 @@ fn forma_spec_validation_on_update() {
     assert_eq!(body["code"], "spec_not_found");
 }
 
+// --- Src-ref / doc-ref HTTP tests ---
+
+#[test]
+fn src_ref_crud_via_http() {
+    let d = PensaOnlyDaemon::start();
+
+    // Create an issue
+    let resp = d
+        .client
+        .post(d.url("/issues"))
+        .json(&serde_json::json!({
+            "title": "Ref test issue",
+            "issue_type": "task"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    let issue: Value = resp.json().unwrap();
+    let id = issue["id"].as_str().unwrap();
+
+    // Add a src-ref
+    let resp = d
+        .client
+        .post(d.url(&format!("/issues/{id}/src-refs")))
+        .json(&serde_json::json!({
+            "path": "crates/pensa/src/db.rs",
+            "reason": "schema migrations",
+            "actor": "test"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    let sr: Value = resp.json().unwrap();
+    assert_eq!(sr["path"], "crates/pensa/src/db.rs");
+    assert_eq!(sr["reason"], "schema migrations");
+    assert_eq!(sr["issue_id"], id);
+    let sr_id = sr["id"].as_str().unwrap().to_string();
+
+    // Add another without reason
+    let resp = d
+        .client
+        .post(d.url(&format!("/issues/{id}/src-refs")))
+        .json(&serde_json::json!({
+            "path": "crates/pensa/src/types.rs",
+            "actor": "test"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    let sr2: Value = resp.json().unwrap();
+    assert!(sr2["reason"].is_null() || sr2.get("reason").is_none());
+
+    // List src-refs
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{id}/src-refs")))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let list: Vec<Value> = resp.json().unwrap();
+    assert_eq!(list.len(), 2);
+
+    // Show issue includes src_refs
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{id}")))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let detail: Value = resp.json().unwrap();
+    assert_eq!(detail["src_refs"].as_array().unwrap().len(), 2);
+
+    // Remove a src-ref
+    let resp = d
+        .client
+        .delete(d.url(&format!("/src-refs/{sr_id}")))
+        .header("x-pensa-actor", "test")
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 204);
+
+    // Verify only one remains
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{id}/src-refs")))
+        .send()
+        .unwrap();
+    let list: Vec<Value> = resp.json().unwrap();
+    assert_eq!(list.len(), 1);
+}
+
+#[test]
+fn doc_ref_crud_via_http() {
+    let d = PensaOnlyDaemon::start();
+
+    // Create an issue
+    let resp = d
+        .client
+        .post(d.url("/issues"))
+        .json(&serde_json::json!({
+            "title": "Doc ref test",
+            "issue_type": "task"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    let issue: Value = resp.json().unwrap();
+    let id = issue["id"].as_str().unwrap();
+
+    // Add a doc-ref
+    let resp = d
+        .client
+        .post(d.url(&format!("/issues/{id}/doc-refs")))
+        .json(&serde_json::json!({
+            "path": "specs/pensa.md",
+            "reason": "update schema section",
+            "actor": "test"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    let dr: Value = resp.json().unwrap();
+    assert_eq!(dr["path"], "specs/pensa.md");
+    assert_eq!(dr["reason"], "update schema section");
+    let dr_id = dr["id"].as_str().unwrap().to_string();
+
+    // List doc-refs
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{id}/doc-refs")))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let list: Vec<Value> = resp.json().unwrap();
+    assert_eq!(list.len(), 1);
+
+    // Show issue includes doc_refs
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{id}")))
+        .send()
+        .unwrap();
+    let detail: Value = resp.json().unwrap();
+    assert_eq!(detail["doc_refs"].as_array().unwrap().len(), 1);
+
+    // Remove
+    let resp = d
+        .client
+        .delete(d.url(&format!("/doc-refs/{dr_id}")))
+        .header("x-pensa-actor", "test")
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 204);
+
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{id}/doc-refs")))
+        .send()
+        .unwrap();
+    let list: Vec<Value> = resp.json().unwrap();
+    assert!(list.is_empty());
+}
+
+#[test]
+fn ref_on_nonexistent_issue_returns_404() {
+    let d = PensaOnlyDaemon::start();
+
+    let resp = d
+        .client
+        .post(d.url("/issues/pn-00000000/src-refs"))
+        .json(&serde_json::json!({
+            "path": "foo.rs",
+            "actor": "test"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 404);
+
+    let resp = d
+        .client
+        .post(d.url("/issues/pn-00000000/doc-refs"))
+        .json(&serde_json::json!({
+            "path": "foo.md",
+            "actor": "test"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 404);
+}
+
+#[test]
+fn remove_nonexistent_ref_returns_404() {
+    let d = PensaOnlyDaemon::start();
+
+    let resp = d
+        .client
+        .delete(d.url("/src-refs/pn-00000000"))
+        .header("x-pensa-actor", "test")
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 404);
+
+    let resp = d
+        .client
+        .delete(d.url("/doc-refs/pn-00000000"))
+        .header("x-pensa-actor", "test")
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 404);
+}
+
 #[test]
 fn e2e_pensa_forma_tight_coupling() {
     let dir = TempDir::new().expect("create temp dir");

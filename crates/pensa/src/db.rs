@@ -8,9 +8,9 @@ use rusqlite::types::Value;
 use crate::error::PensaError;
 use crate::id::generate_id;
 use crate::types::{
-    Comment, CountGroup, CountResult, CreateIssueParams, Dep, DepTreeNode, DoctorFinding,
+    Comment, CountGroup, CountResult, CreateIssueParams, Dep, DepTreeNode, DocRef, DoctorFinding,
     DoctorReport, Event, ExportImportResult, GroupedCountResult, Issue, IssueDetail, ListFilters,
-    Status, StatusEntry, UpdateFields,
+    SrcRef, Status, StatusEntry, UpdateFields,
 };
 
 pub struct Db {
@@ -93,6 +93,28 @@ pub(crate) fn comment_from_row(row: &rusqlite::Row) -> Result<Comment, rusqlite:
         issue_id: row.get("issue_id")?,
         actor: row.get("actor")?,
         text: row.get("text")?,
+        created_at: parse_dt(&created_at_str),
+    })
+}
+
+pub(crate) fn src_ref_from_row(row: &rusqlite::Row) -> Result<SrcRef, rusqlite::Error> {
+    let created_at_str: String = row.get("created_at")?;
+    Ok(SrcRef {
+        id: row.get("id")?,
+        issue_id: row.get("issue_id")?,
+        path: row.get("path")?,
+        reason: row.get("reason")?,
+        created_at: parse_dt(&created_at_str),
+    })
+}
+
+pub(crate) fn doc_ref_from_row(row: &rusqlite::Row) -> Result<DocRef, rusqlite::Error> {
+    let created_at_str: String = row.get("created_at")?;
+    Ok(DocRef {
+        id: row.get("id")?,
+        issue_id: row.get("issue_id")?,
+        path: row.get("path")?,
+        reason: row.get("reason")?,
         created_at: parse_dt(&created_at_str),
     })
 }
@@ -200,6 +222,22 @@ impl Db {
                 actor      TEXT,
                 detail     TEXT,
                 created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS src_refs (
+                id         TEXT PRIMARY KEY,
+                issue_id   TEXT NOT NULL REFERENCES issues(id),
+                path       TEXT NOT NULL,
+                reason     TEXT,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS doc_refs (
+                id         TEXT PRIMARY KEY,
+                issue_id   TEXT NOT NULL REFERENCES issues(id),
+                path       TEXT NOT NULL,
+                reason     TEXT,
+                created_at TEXT NOT NULL
             );",
         )
         .map_err(|e| PensaError::Internal(format!("migration failed: {e}")))?;
@@ -290,10 +328,32 @@ impl Db {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| PensaError::Internal(format!("failed to read comments: {e}")))?;
 
+        let mut src_ref_stmt = self
+            .conn
+            .prepare("SELECT * FROM src_refs WHERE issue_id = ?1 ORDER BY created_at")
+            .map_err(|e| PensaError::Internal(format!("failed to prepare src_refs query: {e}")))?;
+        let src_refs = src_ref_stmt
+            .query_map(rusqlite::params![id], src_ref_from_row)
+            .map_err(|e| PensaError::Internal(format!("failed to query src_refs: {e}")))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| PensaError::Internal(format!("failed to read src_refs: {e}")))?;
+
+        let mut doc_ref_stmt = self
+            .conn
+            .prepare("SELECT * FROM doc_refs WHERE issue_id = ?1 ORDER BY created_at")
+            .map_err(|e| PensaError::Internal(format!("failed to prepare doc_refs query: {e}")))?;
+        let doc_refs = doc_ref_stmt
+            .query_map(rusqlite::params![id], doc_ref_from_row)
+            .map_err(|e| PensaError::Internal(format!("failed to query doc_refs: {e}")))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| PensaError::Internal(format!("failed to read doc_refs: {e}")))?;
+
         Ok(IssueDetail {
             issue,
             deps,
             comments,
+            src_refs,
+            doc_refs,
         })
     }
 
@@ -474,6 +534,18 @@ impl Db {
                 rusqlite::params![id],
             )
             .map_err(|e| PensaError::Internal(format!("failed to delete comments: {e}")))?;
+        self.conn
+            .execute(
+                "DELETE FROM src_refs WHERE issue_id = ?1",
+                rusqlite::params![id],
+            )
+            .map_err(|e| PensaError::Internal(format!("failed to delete src_refs: {e}")))?;
+        self.conn
+            .execute(
+                "DELETE FROM doc_refs WHERE issue_id = ?1",
+                rusqlite::params![id],
+            )
+            .map_err(|e| PensaError::Internal(format!("failed to delete doc_refs: {e}")))?;
         self.conn
             .execute(
                 "DELETE FROM events WHERE issue_id = ?1",
@@ -1081,6 +1153,176 @@ impl Db {
         Ok(comments)
     }
 
+    pub fn add_src_ref(
+        &self,
+        issue_id: &str,
+        path: &str,
+        reason: Option<&str>,
+        actor: &str,
+    ) -> Result<SrcRef, PensaError> {
+        self.get_issue_only(issue_id)?;
+
+        let id = generate_id();
+        let ts = now();
+
+        self.conn
+            .execute(
+                "INSERT INTO src_refs (id, issue_id, path, reason, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![id, issue_id, path, reason, ts],
+            )
+            .map_err(|e| PensaError::Internal(format!("failed to add src_ref: {e}")))?;
+
+        self.conn
+            .execute(
+                "INSERT INTO events (issue_id, event_type, actor, detail, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![issue_id, "src_ref_added", actor, path, ts],
+            )
+            .map_err(|e| PensaError::Internal(format!("failed to log src_ref event: {e}")))?;
+
+        Ok(SrcRef {
+            id,
+            issue_id: issue_id.to_string(),
+            path: path.to_string(),
+            reason: reason.map(|s| s.to_string()),
+            created_at: parse_dt(&ts),
+        })
+    }
+
+    pub fn list_src_refs(&self, issue_id: &str) -> Result<Vec<SrcRef>, PensaError> {
+        self.get_issue_only(issue_id)?;
+
+        let mut stmt = self
+            .conn
+            .prepare("SELECT * FROM src_refs WHERE issue_id = ?1 ORDER BY created_at")
+            .map_err(|e| PensaError::Internal(format!("failed to prepare src_refs query: {e}")))?;
+
+        let refs = stmt
+            .query_map(rusqlite::params![issue_id], src_ref_from_row)
+            .map_err(|e| PensaError::Internal(format!("failed to query src_refs: {e}")))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| PensaError::Internal(format!("failed to read src_refs: {e}")))?;
+
+        Ok(refs)
+    }
+
+    pub fn remove_src_ref(&self, ref_id: &str, actor: &str) -> Result<(), PensaError> {
+        let (issue_id, path): (String, String) = self
+            .conn
+            .query_row(
+                "SELECT issue_id, path FROM src_refs WHERE id = ?1",
+                rusqlite::params![ref_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => {
+                    PensaError::NotFound(format!("src_ref {ref_id}"))
+                }
+                other => PensaError::Internal(format!("failed to find src_ref: {other}")),
+            })?;
+
+        self.conn
+            .execute(
+                "DELETE FROM src_refs WHERE id = ?1",
+                rusqlite::params![ref_id],
+            )
+            .map_err(|e| PensaError::Internal(format!("failed to remove src_ref: {e}")))?;
+
+        let ts = now();
+        self.conn
+            .execute(
+                "INSERT INTO events (issue_id, event_type, actor, detail, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![issue_id, "src_ref_removed", actor, path, ts],
+            )
+            .map_err(|e| PensaError::Internal(format!("failed to log src_ref removal event: {e}")))?;
+
+        Ok(())
+    }
+
+    pub fn add_doc_ref(
+        &self,
+        issue_id: &str,
+        path: &str,
+        reason: Option<&str>,
+        actor: &str,
+    ) -> Result<DocRef, PensaError> {
+        self.get_issue_only(issue_id)?;
+
+        let id = generate_id();
+        let ts = now();
+
+        self.conn
+            .execute(
+                "INSERT INTO doc_refs (id, issue_id, path, reason, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![id, issue_id, path, reason, ts],
+            )
+            .map_err(|e| PensaError::Internal(format!("failed to add doc_ref: {e}")))?;
+
+        self.conn
+            .execute(
+                "INSERT INTO events (issue_id, event_type, actor, detail, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![issue_id, "doc_ref_added", actor, path, ts],
+            )
+            .map_err(|e| PensaError::Internal(format!("failed to log doc_ref event: {e}")))?;
+
+        Ok(DocRef {
+            id,
+            issue_id: issue_id.to_string(),
+            path: path.to_string(),
+            reason: reason.map(|s| s.to_string()),
+            created_at: parse_dt(&ts),
+        })
+    }
+
+    pub fn list_doc_refs(&self, issue_id: &str) -> Result<Vec<DocRef>, PensaError> {
+        self.get_issue_only(issue_id)?;
+
+        let mut stmt = self
+            .conn
+            .prepare("SELECT * FROM doc_refs WHERE issue_id = ?1 ORDER BY created_at")
+            .map_err(|e| PensaError::Internal(format!("failed to prepare doc_refs query: {e}")))?;
+
+        let refs = stmt
+            .query_map(rusqlite::params![issue_id], doc_ref_from_row)
+            .map_err(|e| PensaError::Internal(format!("failed to query doc_refs: {e}")))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| PensaError::Internal(format!("failed to read doc_refs: {e}")))?;
+
+        Ok(refs)
+    }
+
+    pub fn remove_doc_ref(&self, ref_id: &str, actor: &str) -> Result<(), PensaError> {
+        let (issue_id, path): (String, String) = self
+            .conn
+            .query_row(
+                "SELECT issue_id, path FROM doc_refs WHERE id = ?1",
+                rusqlite::params![ref_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => {
+                    PensaError::NotFound(format!("doc_ref {ref_id}"))
+                }
+                other => PensaError::Internal(format!("failed to find doc_ref: {other}")),
+            })?;
+
+        self.conn
+            .execute(
+                "DELETE FROM doc_refs WHERE id = ?1",
+                rusqlite::params![ref_id],
+            )
+            .map_err(|e| PensaError::Internal(format!("failed to remove doc_ref: {e}")))?;
+
+        let ts = now();
+        self.conn
+            .execute(
+                "INSERT INTO events (issue_id, event_type, actor, detail, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![issue_id, "doc_ref_removed", actor, path, ts],
+            )
+            .map_err(|e| PensaError::Internal(format!("failed to log doc_ref removal event: {e}")))?;
+
+        Ok(())
+    }
+
     pub fn issue_history(&self, id: &str) -> Result<Vec<Event>, PensaError> {
         self.get_issue_only(id)?;
 
@@ -1162,9 +1404,47 @@ impl Db {
         };
         comments.sort_by(|a, b| a.created_at.cmp(&b.created_at));
 
+        let mut src_refs: Vec<SrcRef> = {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT * FROM src_refs ORDER BY created_at")
+                .map_err(|e| {
+                    PensaError::Internal(format!("failed to query src_refs for export: {e}"))
+                })?;
+            stmt.query_map([], src_ref_from_row)
+                .map_err(|e| {
+                    PensaError::Internal(format!("failed to read src_refs for export: {e}"))
+                })?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| {
+                    PensaError::Internal(format!("failed to collect src_refs for export: {e}"))
+                })?
+        };
+        src_refs.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+
+        let mut doc_refs: Vec<DocRef> = {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT * FROM doc_refs ORDER BY created_at")
+                .map_err(|e| {
+                    PensaError::Internal(format!("failed to query doc_refs for export: {e}"))
+                })?;
+            stmt.query_map([], doc_ref_from_row)
+                .map_err(|e| {
+                    PensaError::Internal(format!("failed to read doc_refs for export: {e}"))
+                })?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| {
+                    PensaError::Internal(format!("failed to collect doc_refs for export: {e}"))
+                })?
+        };
+        doc_refs.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+
         let issues_path = self.pensa_dir.join("issues.jsonl");
         let deps_path = self.pensa_dir.join("deps.jsonl");
         let comments_path = self.pensa_dir.join("comments.jsonl");
+        let src_refs_path = self.pensa_dir.join("src_refs.jsonl");
+        let doc_refs_path = self.pensa_dir.join("doc_refs.jsonl");
 
         let mut issues_content = String::new();
         for issue in &sorted_issues {
@@ -1190,11 +1470,29 @@ impl Db {
         fs::write(&comments_path, &comments_content)
             .map_err(|e| PensaError::Internal(format!("failed to write comments.jsonl: {e}")))?;
 
+        let mut src_refs_content = String::new();
+        for sr in &src_refs {
+            src_refs_content.push_str(&serde_json::to_string(sr).unwrap());
+            src_refs_content.push('\n');
+        }
+        fs::write(&src_refs_path, &src_refs_content)
+            .map_err(|e| PensaError::Internal(format!("failed to write src_refs.jsonl: {e}")))?;
+
+        let mut doc_refs_content = String::new();
+        for dr in &doc_refs {
+            doc_refs_content.push_str(&serde_json::to_string(dr).unwrap());
+            doc_refs_content.push('\n');
+        }
+        fs::write(&doc_refs_path, &doc_refs_content)
+            .map_err(|e| PensaError::Internal(format!("failed to write doc_refs.jsonl: {e}")))?;
+
         Ok(ExportImportResult {
             status: "ok".to_string(),
             issues: sorted_issues.len(),
             deps: deps.len(),
             comments: comments.len(),
+            src_refs: src_refs.len(),
+            doc_refs: doc_refs.len(),
         })
     }
 
@@ -1202,10 +1500,14 @@ impl Db {
         let issues_path = self.pensa_dir.join("issues.jsonl");
         let deps_path = self.pensa_dir.join("deps.jsonl");
         let comments_path = self.pensa_dir.join("comments.jsonl");
+        let src_refs_path = self.pensa_dir.join("src_refs.jsonl");
+        let doc_refs_path = self.pensa_dir.join("doc_refs.jsonl");
 
         self.conn
             .execute_batch(
                 "DELETE FROM events;
+                 DELETE FROM src_refs;
+                 DELETE FROM doc_refs;
                  DELETE FROM comments;
                  DELETE FROM deps;
                  DELETE FROM issues;",
@@ -1293,11 +1595,65 @@ impl Db {
             }
         }
 
+        let mut src_ref_count = 0;
+        if src_refs_path.exists() {
+            let content = fs::read_to_string(&src_refs_path)
+                .map_err(|e| PensaError::Internal(format!("failed to read src_refs.jsonl: {e}")))?;
+            for line in content.lines() {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                let sr: SrcRef = serde_json::from_str(line)
+                    .map_err(|e| PensaError::Internal(format!("failed to parse src_ref: {e}")))?;
+                self.conn
+                    .execute(
+                        "INSERT INTO src_refs (id, issue_id, path, reason, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                        rusqlite::params![
+                            sr.id,
+                            sr.issue_id,
+                            sr.path,
+                            sr.reason,
+                            sr.created_at.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+                        ],
+                    )
+                    .map_err(|e| PensaError::Internal(format!("failed to import src_ref: {e}")))?;
+                src_ref_count += 1;
+            }
+        }
+
+        let mut doc_ref_count = 0;
+        if doc_refs_path.exists() {
+            let content = fs::read_to_string(&doc_refs_path)
+                .map_err(|e| PensaError::Internal(format!("failed to read doc_refs.jsonl: {e}")))?;
+            for line in content.lines() {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                let dr: DocRef = serde_json::from_str(line)
+                    .map_err(|e| PensaError::Internal(format!("failed to parse doc_ref: {e}")))?;
+                self.conn
+                    .execute(
+                        "INSERT INTO doc_refs (id, issue_id, path, reason, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                        rusqlite::params![
+                            dr.id,
+                            dr.issue_id,
+                            dr.path,
+                            dr.reason,
+                            dr.created_at.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+                        ],
+                    )
+                    .map_err(|e| PensaError::Internal(format!("failed to import doc_ref: {e}")))?;
+                doc_ref_count += 1;
+            }
+        }
+
         Ok(ExportImportResult {
             status: "ok".to_string(),
             issues: issue_count,
             deps: dep_count,
             comments: comment_count,
+            src_refs: src_ref_count,
+            doc_refs: doc_ref_count,
         })
     }
 

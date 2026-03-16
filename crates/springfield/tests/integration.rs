@@ -12,7 +12,14 @@ use tempfile::TempDir;
 // ---------------------------------------------------------------------------
 
 const PROMPT_NAMES: &[&str] = &[
-    "build", "spec", "verify", "test-plan", "test", "issues-log", "doc", "install",
+    "build",
+    "spec",
+    "verify",
+    "test-plan",
+    "test",
+    "issues-log",
+    "doc",
+    "install",
 ];
 
 const CONFIG_TOML: &str = "\
@@ -66,7 +73,11 @@ static FAKE_HOME: LazyLock<TempDir> = LazyLock::new(|| {
     let prompts = home.path().join(".sgf/prompts");
     fs::create_dir_all(&prompts).unwrap();
     for name in PROMPT_NAMES {
-        fs::write(prompts.join(format!("{name}.md")), format!("{name} prompt\n")).unwrap();
+        fs::write(
+            prompts.join(format!("{name}.md")),
+            format!("{name} prompt\n"),
+        )
+        .unwrap();
     }
     fs::write(prompts.join("config.toml"), CONFIG_TOML).unwrap();
     home
@@ -192,13 +203,7 @@ fn init_creates_all_directories() {
     let output = sgf_cmd(tmp.path()).arg("init").output().unwrap();
     assert!(output.status.success());
 
-    let expected_dirs = [
-        ".pensa",
-        ".forma",
-        ".sgf",
-        ".sgf/logs",
-        ".sgf/run",
-    ];
+    let expected_dirs = [".pensa", ".forma", ".sgf", ".sgf/logs", ".sgf/run"];
     for dir in expected_dirs {
         assert!(tmp.path().join(dir).is_dir(), "directory missing: {dir}");
     }
@@ -3080,7 +3085,11 @@ fn e2e_sgf_ralph_cl_context_files_and_spec_in_append_system_prompt() {
     let home_prompts = tmp.path().join(".sgf/prompts");
     fs::create_dir_all(&home_prompts).unwrap();
     for name in PROMPT_NAMES {
-        fs::write(home_prompts.join(format!("{name}.md")), format!("{name} prompt\n")).unwrap();
+        fs::write(
+            home_prompts.join(format!("{name}.md")),
+            format!("{name} prompt\n"),
+        )
+        .unwrap();
     }
     fs::write(home_prompts.join("config.toml"), CONFIG_TOML).unwrap();
     git_add_commit(tmp.path(), "add context files");
