@@ -265,10 +265,21 @@ fn is_remote_host() -> bool {
     }
     if let Ok(dir) = std::env::current_dir() {
         let url_file = dir.join(".pensa/daemon.url");
-        if let Ok(contents) = std::fs::read_to_string(&url_file)
-            && !contents.trim().is_empty()
-        {
-            return true;
+        if let Ok(contents) = std::fs::read_to_string(&url_file) {
+            let trimmed = contents.trim();
+            if !trimmed.is_empty() {
+                let host = trimmed
+                    .strip_prefix("http://")
+                    .or_else(|| trimmed.strip_prefix("https://"))
+                    .unwrap_or(trimmed)
+                    .split(':')
+                    .next()
+                    .unwrap_or("");
+                return !host.is_empty()
+                    && host != "localhost"
+                    && host != "127.0.0.1"
+                    && host != "::1";
+            }
         }
     }
     false

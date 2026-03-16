@@ -102,7 +102,36 @@ fn pn_where() {
 // --- daemon.url tests ---
 
 #[test]
-fn daemon_url_file_refuses_auto_start() {
+fn daemon_url_file_remote_refuses_auto_start() {
+    let dir = TempDir::new().expect("create temp dir");
+    let pensa_dir = dir.path().join(".pensa");
+    std::fs::create_dir_all(&pensa_dir).unwrap();
+    std::fs::write(
+        pensa_dir.join("daemon.url"),
+        "http://remote.example.com:9999",
+    )
+    .unwrap();
+
+    let output = Command::new(pn_bin())
+        .env_remove("PN_DAEMON")
+        .env_remove("PN_DAEMON_HOST")
+        .current_dir(dir.path())
+        .args(["list", "--json"])
+        .output()
+        .expect("run pn list with daemon.url");
+    assert!(
+        !output.status.success(),
+        "should fail when daemon.url points to unreachable remote daemon"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("daemon unreachable") && stderr.contains("remote host configured"),
+        "should treat remote daemon.url as remote, got: {stderr}"
+    );
+}
+
+#[test]
+fn daemon_url_file_localhost_allows_auto_start() {
     let port = portpicker::pick_unused_port().expect("no free port");
     let dir = TempDir::new().expect("create temp dir");
     let pensa_dir = dir.path().join(".pensa");
@@ -119,15 +148,11 @@ fn daemon_url_file_refuses_auto_start() {
         .current_dir(dir.path())
         .args(["list", "--json"])
         .output()
-        .expect("run pn list with daemon.url");
-    assert!(
-        !output.status.success(),
-        "should fail when daemon.url points to unreachable daemon"
-    );
+        .expect("run pn list with localhost daemon.url");
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("daemon unreachable") && stderr.contains("remote host configured"),
-        "should treat daemon.url as remote, got: {stderr}"
+        !stderr.contains("remote host configured"),
+        "localhost daemon.url should not be treated as remote, got: {stderr}"
     );
 }
 
