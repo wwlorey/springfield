@@ -380,7 +380,7 @@ fn forma_spec_validation_accepts_valid_spec() {
         .post(d.forma_url("/specs"))
         .json(&serde_json::json!({
             "stem": "auth",
-            "crate_path": "crates/auth/",
+            "src": "crates/auth/",
             "purpose": "Authentication"
         }))
         .send()
@@ -475,7 +475,7 @@ fn forma_spec_validation_on_update() {
         .post(d.forma_url("/specs"))
         .json(&serde_json::json!({
             "stem": "ralph",
-            "crate_path": "crates/ralph/",
+            "src": "crates/ralph/",
             "purpose": "Iterative runner"
         }))
         .send()
@@ -779,7 +779,7 @@ fn e2e_pensa_forma_tight_coupling() {
         .post(format!("{forma_base}/specs"))
         .json(&serde_json::json!({
             "stem": "auth",
-            "crate_path": "crates/auth/",
+            "src": "crates/auth/",
             "purpose": "Authentication module"
         }))
         .send()

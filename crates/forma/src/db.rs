@@ -193,21 +193,21 @@ impl Db {
 
         let has_crate_path: bool = conn
             .prepare("PRAGMA table_info(specs)")
-            .and_then(|mut stmt| {
+            .map(|mut stmt| {
                 let cols: Vec<String> = stmt
                     .query_map([], |row| row.get::<_, String>(1))
                     .unwrap()
                     .filter_map(|r| r.ok())
                     .collect();
-                Ok(cols.contains(&"crate_path".to_string()))
+                cols.contains(&"crate_path".to_string())
             })
             .unwrap_or(false);
 
         if has_crate_path {
-            conn.execute_batch(
-                "ALTER TABLE specs RENAME COLUMN crate_path TO src;",
-            )
-            .map_err(|e| FormaError::Internal(format!("migration (crate_path->src) failed: {e}")))?;
+            conn.execute_batch("ALTER TABLE specs RENAME COLUMN crate_path TO src;")
+                .map_err(|e| {
+                    FormaError::Internal(format!("migration (crate_path->src) failed: {e}"))
+                })?;
         }
 
         Ok(())
@@ -2097,7 +2097,12 @@ mod tests {
     fn create_spec_returns_draft_with_required_sections() {
         let (db, _p, _d) = test_db();
         let spec = db
-            .create_spec("auth", Some("crates/auth/"), "Authentication", Some("tester"))
+            .create_spec(
+                "auth",
+                Some("crates/auth/"),
+                "Authentication",
+                Some("tester"),
+            )
             .unwrap();
         assert_eq!(spec.stem, "auth");
         assert_eq!(spec.src.as_deref(), Some("crates/auth/"));
@@ -2933,7 +2938,12 @@ mod tests {
         let (db, _p, _d) = test_db();
 
         let spec = db
-            .create_spec("auth", Some("crates/auth/"), "Authentication", Some("alice"))
+            .create_spec(
+                "auth",
+                Some("crates/auth/"),
+                "Authentication",
+                Some("alice"),
+            )
             .unwrap();
         assert_eq!(spec.status, Status::Draft);
 
@@ -3040,9 +3050,12 @@ mod tests {
     #[test]
     fn add_ref_cycle_detected() {
         let (db, _p, _d) = test_db();
-        db.create_spec("a", Some("crates/a/"), "A", Some("test")).unwrap();
-        db.create_spec("b", Some("crates/b/"), "B", Some("test")).unwrap();
-        db.create_spec("c", Some("crates/c/"), "C", Some("test")).unwrap();
+        db.create_spec("a", Some("crates/a/"), "A", Some("test"))
+            .unwrap();
+        db.create_spec("b", Some("crates/b/"), "B", Some("test"))
+            .unwrap();
+        db.create_spec("c", Some("crates/c/"), "C", Some("test"))
+            .unwrap();
 
         db.add_ref("a", "b", None).unwrap();
         db.add_ref("b", "c", None).unwrap();
@@ -3053,9 +3066,12 @@ mod tests {
     #[test]
     fn add_ref_no_false_cycle() {
         let (db, _p, _d) = test_db();
-        db.create_spec("a", Some("crates/a/"), "A", Some("test")).unwrap();
-        db.create_spec("b", Some("crates/b/"), "B", Some("test")).unwrap();
-        db.create_spec("c", Some("crates/c/"), "C", Some("test")).unwrap();
+        db.create_spec("a", Some("crates/a/"), "A", Some("test"))
+            .unwrap();
+        db.create_spec("b", Some("crates/b/"), "B", Some("test"))
+            .unwrap();
+        db.create_spec("c", Some("crates/c/"), "C", Some("test"))
+            .unwrap();
 
         db.add_ref("a", "b", None).unwrap();
         db.add_ref("a", "c", None).unwrap();
@@ -3169,8 +3185,10 @@ mod tests {
     #[test]
     fn detect_cycles_no_cycles() {
         let (db, _p, _d) = test_db();
-        db.create_spec("a", Some("crates/a/"), "A", Some("test")).unwrap();
-        db.create_spec("b", Some("crates/b/"), "B", Some("test")).unwrap();
+        db.create_spec("a", Some("crates/a/"), "A", Some("test"))
+            .unwrap();
+        db.create_spec("b", Some("crates/b/"), "B", Some("test"))
+            .unwrap();
         db.add_ref("a", "b", None).unwrap();
 
         let cycles = db.detect_cycles().unwrap();
@@ -3180,9 +3198,12 @@ mod tests {
     #[test]
     fn detect_cycles_finds_cycle() {
         let (db, _p, _d) = test_db();
-        db.create_spec("a", Some("crates/a/"), "A", Some("test")).unwrap();
-        db.create_spec("b", Some("crates/b/"), "B", Some("test")).unwrap();
-        db.create_spec("c", Some("crates/c/"), "C", Some("test")).unwrap();
+        db.create_spec("a", Some("crates/a/"), "A", Some("test"))
+            .unwrap();
+        db.create_spec("b", Some("crates/b/"), "B", Some("test"))
+            .unwrap();
+        db.create_spec("c", Some("crates/c/"), "C", Some("test"))
+            .unwrap();
 
         db.add_ref("a", "b", None).unwrap();
         db.add_ref("b", "c", None).unwrap();
@@ -3238,8 +3259,13 @@ mod tests {
         let (db, project_dir, _d) = test_db();
         db.create_spec("auth", Some("crates/auth/"), "Authentication", Some("test"))
             .unwrap();
-        db.create_spec("ralph", Some("crates/ralph/"), "Iterative runner", Some("test"))
-            .unwrap();
+        db.create_spec(
+            "ralph",
+            Some("crates/ralph/"),
+            "Iterative runner",
+            Some("test"),
+        )
+        .unwrap();
 
         let result = db.export_jsonl().unwrap();
         assert_eq!(result.specs, 2);
@@ -3272,7 +3298,7 @@ mod tests {
         let md = fs::read_to_string(forma_dir.join("specs/auth.md")).unwrap();
         assert!(md.starts_with("# auth Specification"));
         assert!(md.contains("Authentication"));
-        assert!(md.contains("| Crate | `crates/auth/` |"));
+        assert!(md.contains("| Src | `crates/auth/` |"));
         assert!(md.contains("| Status | draft |"));
         assert!(md.contains("## Overview"));
         assert!(md.contains("Auth overview body."));
@@ -3284,8 +3310,13 @@ mod tests {
         let (db, project_dir, _d) = test_db();
         db.create_spec("auth", Some("crates/auth/"), "Authentication", Some("test"))
             .unwrap();
-        db.create_spec("ralph", Some("crates/ralph/"), "Iterative runner", Some("test"))
-            .unwrap();
+        db.create_spec(
+            "ralph",
+            Some("crates/ralph/"),
+            "Iterative runner",
+            Some("test"),
+        )
+        .unwrap();
         db.add_ref("auth", "ralph", Some("test")).unwrap();
 
         db.export_jsonl().unwrap();
@@ -3301,15 +3332,20 @@ mod tests {
         let (db, project_dir, _d) = test_db();
         db.create_spec("auth", Some("crates/auth/"), "Authentication", Some("test"))
             .unwrap();
-        db.create_spec("ralph", Some("crates/ralph/"), "Iterative runner", Some("test"))
-            .unwrap();
+        db.create_spec(
+            "ralph",
+            Some("crates/ralph/"),
+            "Iterative runner",
+            Some("test"),
+        )
+        .unwrap();
 
         db.export_jsonl().unwrap();
 
         let forma_dir = project_dir.path().join(".forma");
         let readme = fs::read_to_string(forma_dir.join("README.md")).unwrap();
         assert!(readme.starts_with("# Specifications"));
-        assert!(readme.contains("| Spec | Code | Status | Purpose |"));
+        assert!(readme.contains("| Spec | Src | Status | Purpose |"));
         assert!(readme.contains("[auth](specs/auth.md)"));
         assert!(readme.contains("[ralph](specs/ralph.md)"));
         assert!(readme.contains("`crates/auth/`"));
@@ -3320,8 +3356,13 @@ mod tests {
         let (db, _p, _d) = test_db();
         db.create_spec("auth", Some("crates/auth/"), "Authentication", Some("test"))
             .unwrap();
-        db.create_spec("ralph", Some("crates/ralph/"), "Iterative runner", Some("test"))
-            .unwrap();
+        db.create_spec(
+            "ralph",
+            Some("crates/ralph/"),
+            "Iterative runner",
+            Some("test"),
+        )
+        .unwrap();
         db.set_section("auth", "overview", "Auth overview.", Some("test"))
             .unwrap();
         db.add_ref("auth", "ralph", Some("test")).unwrap();
@@ -3409,7 +3450,7 @@ mod tests {
 
         let report = db.check(None).unwrap();
         assert!(!report.ok);
-        assert!(report.errors.iter().any(|e| e.check == "crate_paths_exist"));
+        assert!(report.errors.iter().any(|e| e.check == "src_paths_exist"));
     }
 
     #[test]
@@ -3420,7 +3461,7 @@ mod tests {
             std::fs::create_dir_all(&crate_dir).unwrap();
             db.create_spec(
                 name,
-                &format!("crates/{name}"),
+                Some(&format!("crates/{name}")),
                 &format!("Spec {name}"),
                 None,
             )
@@ -3523,7 +3564,8 @@ mod tests {
     #[test]
     fn doctor_detects_orphaned_refs() {
         let (db, _p, _d) = test_db();
-        db.create_spec("alpha", Some("crates/a"), "Alpha", None).unwrap();
+        db.create_spec("alpha", Some("crates/a"), "Alpha", None)
+            .unwrap();
         create_orphans(&db);
 
         let report = db.doctor(false).unwrap();
@@ -3534,7 +3576,8 @@ mod tests {
     #[test]
     fn doctor_fixes_orphaned_refs() {
         let (db, _p, _d) = test_db();
-        db.create_spec("alpha", Some("crates/a"), "Alpha", None).unwrap();
+        db.create_spec("alpha", Some("crates/a"), "Alpha", None)
+            .unwrap();
         create_orphans(&db);
 
         let report = db.doctor(true).unwrap();
@@ -3560,7 +3603,8 @@ mod tests {
     #[test]
     fn doctor_detects_orphaned_sections() {
         let (db, _p, _d) = test_db();
-        db.create_spec("alpha", Some("crates/a"), "Alpha", None).unwrap();
+        db.create_spec("alpha", Some("crates/a"), "Alpha", None)
+            .unwrap();
         create_orphans(&db);
 
         let report = db.doctor(false).unwrap();
@@ -3575,7 +3619,8 @@ mod tests {
     #[test]
     fn doctor_fixes_orphaned_sections() {
         let (db, _p, _d) = test_db();
-        db.create_spec("alpha", Some("crates/a"), "Alpha", None).unwrap();
+        db.create_spec("alpha", Some("crates/a"), "Alpha", None)
+            .unwrap();
         create_orphans(&db);
 
         let report = db.doctor(true).unwrap();
@@ -3610,7 +3655,8 @@ mod tests {
     #[test]
     fn doctor_no_fix_does_not_remove() {
         let (db, _p, _d) = test_db();
-        db.create_spec("alpha", Some("crates/a"), "Alpha", None).unwrap();
+        db.create_spec("alpha", Some("crates/a"), "Alpha", None)
+            .unwrap();
         create_orphans(&db);
 
         let report = db.doctor(false).unwrap();

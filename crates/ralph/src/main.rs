@@ -163,7 +163,7 @@ fn check_agent_in_path(agent_cmd: &str) {
 #[derive(Deserialize)]
 struct FmSpecDetail {
     stem: String,
-    crate_path: String,
+    src: Option<String>,
     purpose: String,
     status: String,
     sections: Vec<FmSection>,
@@ -188,7 +188,9 @@ fn render_spec_markdown(spec: &FmSpecDetail) -> String {
     out.push_str(&format!("# {} Specification\n\n", spec.stem));
     out.push_str(&format!("{}\n\n", spec.purpose));
     out.push_str("| Field | Value |\n|-------|-------|\n");
-    out.push_str(&format!("| Crate | `{}` |\n", spec.crate_path));
+    if let Some(src) = &spec.src {
+        out.push_str(&format!("| Src | `{src}` |\n"));
+    }
     out.push_str(&format!("| Status | {} |\n", spec.status));
 
     for section in &spec.sections {
@@ -785,7 +787,7 @@ mod tests {
     fn render_spec_markdown_basic() {
         let spec = FmSpecDetail {
             stem: "auth".to_string(),
-            crate_path: "crates/auth/".to_string(),
+            src: Some("crates/auth/".to_string()),
             purpose: "Authentication and session management".to_string(),
             status: "stable".to_string(),
             sections: vec![
@@ -807,7 +809,7 @@ mod tests {
         let md = render_spec_markdown(&spec);
         assert!(md.contains("# auth Specification"));
         assert!(md.contains("Authentication and session management"));
-        assert!(md.contains("| Crate | `crates/auth/` |"));
+        assert!(md.contains("| Src | `crates/auth/` |"));
         assert!(md.contains("| Status | stable |"));
         assert!(md.contains("## Overview"));
         assert!(md.contains("Auth handles login and sessions."));
@@ -821,7 +823,7 @@ mod tests {
     fn render_spec_markdown_no_refs() {
         let spec = FmSpecDetail {
             stem: "test".to_string(),
-            crate_path: "crates/test/".to_string(),
+            src: Some("crates/test/".to_string()),
             purpose: "Test spec".to_string(),
             status: "draft".to_string(),
             sections: vec![],

@@ -325,11 +325,7 @@ fn main() {
             );
         }
 
-        Commands::Create {
-            stem,
-            src,
-            purpose,
-        } => {
+        Commands::Create { stem, src, purpose } => {
             let client = Client::new();
             match client.create_spec(&stem, src.as_deref(), &purpose, &actor) {
                 Ok(v) => output::print_spec(&v, mode),

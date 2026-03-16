@@ -93,7 +93,7 @@ fn create_mock_fm(dir: &TempDir, stem: &str) -> PathBuf {
     fs::create_dir_all(&fm_dir).expect("create fm-bin dir");
     let fm_json = serde_json::json!({
         "stem": stem,
-        "crate_path": format!("crates/{}/", stem),
+        "src": format!("crates/{}/", stem),
         "purpose": format!("Test {} spec", stem),
         "status": "stable",
         "created_at": "2026-01-01T00:00:00Z",

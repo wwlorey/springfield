@@ -2,7 +2,7 @@
 
 ## Overview
 
-Forma is a Rust CLI (`fm`) that manages specifications for any repository. It replaces manual markdown-based spec tracking with a single command interface backed by SQLite. A single command like `fm create auth --crate crates/auth/ --purpose "Authentication"` replaces the error-prone process of creating markdown files and updating index tables by hand.
+Forma is a Rust CLI (`fm`) that manages specifications for any repository. It replaces manual markdown-based spec tracking with a single command interface backed by SQLite. A single command like `fm create auth --src crates/auth/ --purpose "Authentication"` replaces the error-prone process of creating markdown files and updating index tables by hand.
 
 Specs are the source of truth for all code. Forma ensures they are structured, validated, and queryable. All spec mutations go through `fm` — agents and humans read the generated markdown, but never edit it directly.
 
@@ -75,7 +75,7 @@ SQLite needs serialized write access. Multiple agents may update different specs
 ```sql
 CREATE TABLE specs (
     stem       TEXT PRIMARY KEY,
-    crate_path TEXT NOT NULL,
+    src        TEXT,
     purpose    TEXT NOT NULL,
     status     TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'stable', 'proven')),
     created_at TEXT NOT NULL,
@@ -85,7 +85,7 @@ CREATE TABLE specs (
 
 **`stem`** — the unique identifier for the spec. Lowercase, alphanumeric + hyphens. Examples: `auth`, `ralph`, `claude-wrapper`. Used as the primary key and in all CLI commands.
 
-**`crate_path`** — relative path to the implementation crate or directory (e.g., `crates/auth/`).
+**`src`** — optional relative path to the source directory (e.g., `crates/auth/`, `frontend/src/auth/`). Null for specs not tied to a specific directory.
 
 **`purpose`** — one-line description of what the spec covers.
 
@@ -183,10 +183,10 @@ The binary is named `fm`. All commands support `--json` for structured agent con
 ### Working with specs
 
 ```
-fm create <stem> --crate <path> --purpose "<text>"
+fm create <stem> [--src <path>] --purpose "<text>"
 fm show <stem>
 fm list [--status <status>]
-fm update <stem> [--status <status>] [--crate <path>] [--purpose "<text>"]
+fm update <stem> [--status <status>] [--src <path>] [--purpose "<text>"]
 fm delete <stem> [--force]
 fm search "<query>"
 fm count [--by-status]
@@ -302,7 +302,7 @@ fm daemon status
 |-------|----------|-------------|
 | Required sections present | error | Every spec has all 5 required sections |
 | Required sections non-empty | warn | Required sections have non-empty bodies |
-| Crate paths exist | error | Every spec's `crate_path` exists on disk |
+| Src paths exist | error | Every spec's `src` path (if set) exists on disk |
 | Ref targets exist | error | All `ref` targets point to existing specs |
 | No ref cycles | error | No circular reference chains |
 | Pensa spec references valid | warn | All pensa issues with `--spec` values reference existing forma specs |
@@ -388,7 +388,7 @@ Known error codes: `not_found`, `already_exists`, `cycle_detected`, `required_se
 
 ### Spec object fields
 
-`stem`, `crate_path`, `purpose`, `status`, `created_at`, `updated_at`.
+`stem`, `src` (nullable), `purpose`, `status`, `created_at`, `updated_at`.
 
 ### Spec detail object
 
@@ -504,7 +504,7 @@ One line per ref: `{"from_stem": "...", "to_stem": "..."}`. Sorted by `from_stem
 
 | Field | Value |
 |-------|-------|
-| Crate | `<crate_path>` |
+| Src | `<src>` |
 | Status | <status> |
 
 ## <Section 1 Name>

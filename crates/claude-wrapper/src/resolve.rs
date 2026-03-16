@@ -56,13 +56,17 @@ fn format_spec_index_as_markdown(json_str: &str) -> Option<String> {
     let specs: Vec<serde_json::Value> = serde_json::from_str(json_str).ok()?;
 
     let mut table =
-        String::from("# Specifications\n\n| Spec | Code | Purpose |\n|------|------|---------|");
+        String::from("# Specifications\n\n| Spec | Src | Purpose |\n|------|-----|---------|");
 
     for spec in &specs {
         let stem = spec.get("stem")?.as_str()?;
-        let crate_path = spec.get("crate_path")?.as_str()?;
+        let src_col = spec
+            .get("src")
+            .and_then(|v| v.as_str())
+            .map(|s| format!("`{s}`"))
+            .unwrap_or_default();
         let purpose = spec.get("purpose")?.as_str()?;
-        table.push_str(&format!("\n| {stem} | `{crate_path}` | {purpose} |"));
+        table.push_str(&format!("\n| {stem} | {src_col} | {purpose} |"));
     }
 
     Some(table)
@@ -166,8 +170,8 @@ mod tests {
     #[test]
     fn format_spec_index_as_markdown_produces_table() {
         let json = r#"[
-            {"stem":"auth","crate_path":"crates/auth/","purpose":"Authentication","status":"stable","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"},
-            {"stem":"ralph","crate_path":"crates/ralph/","purpose":"Runner","status":"draft","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}
+            {"stem":"auth","src":"crates/auth/","purpose":"Authentication","status":"stable","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"},
+            {"stem":"ralph","src":"crates/ralph/","purpose":"Runner","status":"draft","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}
         ]"#;
         let result = format_spec_index_as_markdown(json).unwrap();
         assert!(result.contains("# Specifications"));
@@ -179,7 +183,7 @@ mod tests {
     fn format_spec_index_as_markdown_empty_array() {
         let result = format_spec_index_as_markdown("[]").unwrap();
         assert!(result.contains("# Specifications"));
-        assert!(result.contains("| Spec | Code | Purpose |"));
+        assert!(result.contains("| Spec | Src | Purpose |"));
         let lines: Vec<&str> = result.lines().collect();
         assert_eq!(lines.len(), 4);
     }

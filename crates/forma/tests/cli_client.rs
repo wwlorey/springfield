@@ -43,7 +43,7 @@ fn client_spec_crud_lifecycle() {
     let (_env, client) = TestEnv::start();
 
     let spec = client
-        .create_spec("auth", "crates/auth/", "Authentication", "tester")
+        .create_spec("auth", Some("crates/auth/"), "Authentication", "tester")
         .unwrap();
     assert_eq!(spec["stem"], "auth");
     assert_eq!(spec["status"], "draft");
@@ -74,7 +74,7 @@ fn client_section_operations() {
     let (_env, client) = TestEnv::start();
 
     client
-        .create_spec("test", "crates/test/", "Test", "tester")
+        .create_spec("test", Some("crates/test/"), "Test", "tester")
         .unwrap();
 
     let section = client
@@ -107,7 +107,7 @@ fn client_section_move() {
     let (_env, client) = TestEnv::start();
 
     client
-        .create_spec("test", "crates/test/", "Test", "tester")
+        .create_spec("test", Some("crates/test/"), "Test", "tester")
         .unwrap();
     client
         .add_section("test", "Extra", "", None, "tester")
@@ -133,7 +133,7 @@ fn client_required_section_cannot_be_removed() {
     let (_env, client) = TestEnv::start();
 
     client
-        .create_spec("test", "crates/test/", "Test", "tester")
+        .create_spec("test", Some("crates/test/"), "Test", "tester")
         .unwrap();
 
     let err = client
@@ -146,8 +146,12 @@ fn client_required_section_cannot_be_removed() {
 fn client_ref_operations() {
     let (_env, client) = TestEnv::start();
 
-    client.create_spec("a", "crates/a/", "A", "tester").unwrap();
-    client.create_spec("b", "crates/b/", "B", "tester").unwrap();
+    client
+        .create_spec("a", Some("crates/a/"), "A", "tester")
+        .unwrap();
+    client
+        .create_spec("b", Some("crates/b/"), "B", "tester")
+        .unwrap();
 
     let result = client.add_ref("a", "b", "tester").unwrap();
     assert_eq!(result["from"], "a");
@@ -174,9 +178,15 @@ fn client_ref_operations() {
 fn client_ref_cycle_detection() {
     let (_env, client) = TestEnv::start();
 
-    client.create_spec("a", "crates/a/", "A", "tester").unwrap();
-    client.create_spec("b", "crates/b/", "B", "tester").unwrap();
-    client.create_spec("c", "crates/c/", "C", "tester").unwrap();
+    client
+        .create_spec("a", Some("crates/a/"), "A", "tester")
+        .unwrap();
+    client
+        .create_spec("b", Some("crates/b/"), "B", "tester")
+        .unwrap();
+    client
+        .create_spec("c", Some("crates/c/"), "C", "tester")
+        .unwrap();
 
     client.add_ref("a", "b", "tester").unwrap();
     client.add_ref("b", "c", "tester").unwrap();
@@ -193,10 +203,15 @@ fn client_search() {
     let (_env, client) = TestEnv::start();
 
     client
-        .create_spec("auth", "crates/auth/", "Authentication module", "tester")
+        .create_spec(
+            "auth",
+            Some("crates/auth/"),
+            "Authentication module",
+            "tester",
+        )
         .unwrap();
     client
-        .create_spec("ralph", "crates/ralph/", "Runner", "tester")
+        .create_spec("ralph", Some("crates/ralph/"), "Runner", "tester")
         .unwrap();
 
     let results = client.search_specs("auth").unwrap();
@@ -208,8 +223,12 @@ fn client_search() {
 fn client_count() {
     let (_env, client) = TestEnv::start();
 
-    client.create_spec("a", "crates/a/", "A", "tester").unwrap();
-    client.create_spec("b", "crates/b/", "B", "tester").unwrap();
+    client
+        .create_spec("a", Some("crates/a/"), "A", "tester")
+        .unwrap();
+    client
+        .create_spec("b", Some("crates/b/"), "B", "tester")
+        .unwrap();
 
     let count = client.count_specs(false).unwrap();
     assert_eq!(count["total"], 2);
@@ -224,7 +243,7 @@ fn client_status() {
     let (_env, client) = TestEnv::start();
 
     client
-        .create_spec("auth", "crates/auth/", "Auth", "tester")
+        .create_spec("auth", Some("crates/auth/"), "Auth", "tester")
         .unwrap();
 
     let status = client.project_status().unwrap();
@@ -236,7 +255,7 @@ fn client_history() {
     let (_env, client) = TestEnv::start();
 
     client
-        .create_spec("auth", "crates/auth/", "Auth", "tester")
+        .create_spec("auth", Some("crates/auth/"), "Auth", "tester")
         .unwrap();
     client
         .update_spec("auth", Some("stable"), None, None, "tester")
@@ -264,11 +283,11 @@ fn client_already_exists_error() {
     let (_env, client) = TestEnv::start();
 
     client
-        .create_spec("auth", "crates/auth/", "Auth", "tester")
+        .create_spec("auth", Some("crates/auth/"), "Auth", "tester")
         .unwrap();
 
     let err = client
-        .create_spec("auth", "crates/auth/", "Auth", "tester")
+        .create_spec("auth", Some("crates/auth/"), "Auth", "tester")
         .unwrap_err();
     assert!(matches!(err, FormaError::AlreadyExists(_)));
 }

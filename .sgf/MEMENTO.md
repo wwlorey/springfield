@@ -111,7 +111,7 @@ All spec mutations go through `fm`—never edit spec markdown directly. The gene
 ### Spec Create Workflow
 
 0. NOTE: Favor updating existing specs (`fm update`, `fm section set`) over creating new ones unless doing so makes sense (e.g. we're making a brand new package — use `fm create`).
-1. Create the spec: `fm create <stem> --crate <path> --purpose "<text>"`
+1. Create the spec: `fm create <stem> [--src <path>] --purpose "<text>"`
 2. Fill in required sections (pipe body via stdin):
    `echo "body content" | fm section set <stem> "<slug>" --body-stdin`
 3. Add custom sections as needed:
@@ -121,7 +121,7 @@ All spec mutations go through `fm`—never edit spec markdown directly. The gene
 ### Spec Update Workflow
 
 1. Read the current spec: `fm show <stem> --json`
-2. Update metadata: `fm update <stem> [--status <s>] [--crate <path>] [--purpose "<text>"]`
+2. Update metadata: `fm update <stem> [--status <s>] [--src <path>] [--purpose "<text>"]`
 3. Update section bodies (pipe body via stdin):
    `echo "body content" | fm section set <stem> "<slug>" --body-stdin`
 
@@ -131,10 +131,10 @@ All spec mutations go through `fm`—never edit spec markdown directly. The gene
 
 | Command | Purpose |
 |---------|---------|
-| `fm create <stem> --crate <path> --purpose "<text>"` | Create a new spec (scaffolds 5 required sections) |
+| `fm create <stem> [--src <path>] --purpose "<text>"` | Create a new spec (scaffolds 5 required sections) |
 | `fm show <stem> --json` | Show spec with all sections and refs |
 | `fm list [--status <status>] --json` | List all specs, optionally filtered by status |
-| `fm update <stem> [--status <s>] [--crate <path>] [--purpose "<text>"]` | Update spec metadata |
+| `fm update <stem> [--status <s>] [--src <path>] [--purpose "<text>"]` | Update spec metadata |
 | `fm delete <stem> [--force]` | Delete a spec (`--force` if sections have content) |
 | `fm search "<query>" --json` | Case-insensitive search across stems, purposes, section bodies |
 | `fm count [--by-status] --json` | Count specs |
@@ -168,7 +168,7 @@ All spec mutations go through `fm`—never edit spec markdown directly. The gene
 |---------|---------|
 | `fm export` | SQLite → JSONL + generated markdown, stages `.forma/` |
 | `fm import` | JSONL → SQLite (used after clone/merge) |
-| `fm check --json` | Validation report (required sections, crate paths, refs, pensa integration) |
+| `fm check --json` | Validation report (required sections, src paths, refs, pensa integration) |
 | `fm doctor [--fix] --json` | Health checks; `--fix` removes orphaned data |
 | `fm where` | Print JSONL and DB directory paths |
 

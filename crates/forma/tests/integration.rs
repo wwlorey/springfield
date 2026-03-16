@@ -75,7 +75,7 @@ fn spec_crud_lifecycle() {
         "/specs",
         &json!({
             "stem": "auth",
-            "crate_path": "crates/auth/",
+            "src": "crates/auth/",
             "purpose": "Authentication"
         }),
     );
@@ -129,11 +129,11 @@ fn spec_already_exists() {
     let d = TestDaemon::start();
     d.post(
         "/specs",
-        &json!({"stem": "auth", "crate_path": "crates/auth/", "purpose": "Auth"}),
+        &json!({"stem": "auth", "src": "crates/auth/", "purpose": "Auth"}),
     );
     let resp = d.post(
         "/specs",
-        &json!({"stem": "auth", "crate_path": "crates/auth/", "purpose": "Auth"}),
+        &json!({"stem": "auth", "src": "crates/auth/", "purpose": "Auth"}),
     );
     assert_eq!(resp.status(), 409);
     let body: Value = resp.json().unwrap();
@@ -145,7 +145,7 @@ fn required_sections_scaffolded() {
     let d = TestDaemon::start();
     d.post(
         "/specs",
-        &json!({"stem": "test-spec", "crate_path": "crates/test/", "purpose": "Testing"}),
+        &json!({"stem": "test-spec", "src": "crates/test/", "purpose": "Testing"}),
     );
 
     let resp = d.get("/specs/test-spec/sections");
@@ -174,7 +174,7 @@ fn section_add_set_get_remove() {
     let d = TestDaemon::start();
     d.post(
         "/specs",
-        &json!({"stem": "auth", "crate_path": "crates/auth/", "purpose": "Auth"}),
+        &json!({"stem": "auth", "src": "crates/auth/", "purpose": "Auth"}),
     );
 
     // Add custom section
@@ -218,7 +218,7 @@ fn required_section_cannot_be_removed() {
     let d = TestDaemon::start();
     d.post(
         "/specs",
-        &json!({"stem": "auth", "crate_path": "crates/auth/", "purpose": "Auth"}),
+        &json!({"stem": "auth", "src": "crates/auth/", "purpose": "Auth"}),
     );
 
     let resp = d.delete("/specs/auth/sections/overview");
@@ -232,7 +232,7 @@ fn section_move() {
     let d = TestDaemon::start();
     d.post(
         "/specs",
-        &json!({"stem": "auth", "crate_path": "crates/auth/", "purpose": "Auth"}),
+        &json!({"stem": "auth", "src": "crates/auth/", "purpose": "Auth"}),
     );
     d.post(
         "/specs/auth/sections",
@@ -262,11 +262,11 @@ fn ref_lifecycle() {
     let d = TestDaemon::start();
     d.post(
         "/specs",
-        &json!({"stem": "auth", "crate_path": "crates/auth/", "purpose": "Auth"}),
+        &json!({"stem": "auth", "src": "crates/auth/", "purpose": "Auth"}),
     );
     d.post(
         "/specs",
-        &json!({"stem": "ralph", "crate_path": "crates/ralph/", "purpose": "Runner"}),
+        &json!({"stem": "ralph", "src": "crates/ralph/", "purpose": "Runner"}),
     );
 
     // Add ref
@@ -298,15 +298,15 @@ fn ref_cycle_detection() {
     let d = TestDaemon::start();
     d.post(
         "/specs",
-        &json!({"stem": "a", "crate_path": "crates/a/", "purpose": "A"}),
+        &json!({"stem": "a", "src": "crates/a/", "purpose": "A"}),
     );
     d.post(
         "/specs",
-        &json!({"stem": "b", "crate_path": "crates/b/", "purpose": "B"}),
+        &json!({"stem": "b", "src": "crates/b/", "purpose": "B"}),
     );
     d.post(
         "/specs",
-        &json!({"stem": "c", "crate_path": "crates/c/", "purpose": "C"}),
+        &json!({"stem": "c", "src": "crates/c/", "purpose": "C"}),
     );
 
     d.post("/specs/a/refs", &json!({"target": "b"}));
@@ -324,15 +324,15 @@ fn ref_tree() {
     let d = TestDaemon::start();
     d.post(
         "/specs",
-        &json!({"stem": "a", "crate_path": "crates/a/", "purpose": "A"}),
+        &json!({"stem": "a", "src": "crates/a/", "purpose": "A"}),
     );
     d.post(
         "/specs",
-        &json!({"stem": "b", "crate_path": "crates/b/", "purpose": "B"}),
+        &json!({"stem": "b", "src": "crates/b/", "purpose": "B"}),
     );
     d.post(
         "/specs",
-        &json!({"stem": "c", "crate_path": "crates/c/", "purpose": "C"}),
+        &json!({"stem": "c", "src": "crates/c/", "purpose": "C"}),
     );
 
     d.post("/specs/a/refs", &json!({"target": "b"}));
@@ -351,11 +351,11 @@ fn search_specs() {
     let d = TestDaemon::start();
     d.post(
         "/specs",
-        &json!({"stem": "auth", "crate_path": "crates/auth/", "purpose": "Authentication module"}),
+        &json!({"stem": "auth", "src": "crates/auth/", "purpose": "Authentication module"}),
     );
     d.post(
         "/specs",
-        &json!({"stem": "ralph", "crate_path": "crates/ralph/", "purpose": "Runner"}),
+        &json!({"stem": "ralph", "src": "crates/ralph/", "purpose": "Runner"}),
     );
 
     let resp = d.get("/specs/search?q=auth");
@@ -370,11 +370,11 @@ fn count_specs() {
     let d = TestDaemon::start();
     d.post(
         "/specs",
-        &json!({"stem": "a", "crate_path": "crates/a/", "purpose": "A"}),
+        &json!({"stem": "a", "src": "crates/a/", "purpose": "A"}),
     );
     d.post(
         "/specs",
-        &json!({"stem": "b", "crate_path": "crates/b/", "purpose": "B"}),
+        &json!({"stem": "b", "src": "crates/b/", "purpose": "B"}),
     );
 
     let resp = d.get("/specs/count");
@@ -394,7 +394,7 @@ fn project_status_endpoint() {
     let d = TestDaemon::start();
     d.post(
         "/specs",
-        &json!({"stem": "auth", "crate_path": "crates/auth/", "purpose": "Auth"}),
+        &json!({"stem": "auth", "src": "crates/auth/", "purpose": "Auth"}),
     );
 
     let resp = d.get("/status");
@@ -408,7 +408,7 @@ fn spec_history() {
     let d = TestDaemon::start();
     d.post(
         "/specs",
-        &json!({"stem": "auth", "crate_path": "crates/auth/", "purpose": "Auth"}),
+        &json!({"stem": "auth", "src": "crates/auth/", "purpose": "Auth"}),
     );
     d.patch("/specs/auth", &json!({"status": "stable"}));
 
@@ -427,7 +427,7 @@ fn actor_from_header() {
         .client
         .post(d.url("/specs"))
         .header("x-forma-actor", "test-agent")
-        .json(&json!({"stem": "auth", "crate_path": "crates/auth/", "purpose": "Auth"}))
+        .json(&json!({"stem": "auth", "src": "crates/auth/", "purpose": "Auth"}))
         .send()
         .unwrap();
     assert_eq!(resp.status(), 201);
@@ -475,11 +475,11 @@ fn list_specs_filter_by_status() {
     let d = TestDaemon::start();
     d.post(
         "/specs",
-        &json!({"stem": "a", "crate_path": "crates/a/", "purpose": "A"}),
+        &json!({"stem": "a", "src": "crates/a/", "purpose": "A"}),
     );
     d.post(
         "/specs",
-        &json!({"stem": "b", "crate_path": "crates/b/", "purpose": "B"}),
+        &json!({"stem": "b", "src": "crates/b/", "purpose": "B"}),
     );
     d.patch("/specs/b", &json!({"status": "stable"}));
 
@@ -499,7 +499,7 @@ fn delete_spec_without_force_and_empty_sections() {
     let d = TestDaemon::start();
     d.post(
         "/specs",
-        &json!({"stem": "empty", "crate_path": "crates/empty/", "purpose": "Empty"}),
+        &json!({"stem": "empty", "src": "crates/empty/", "purpose": "Empty"}),
     );
 
     // All required sections have empty bodies, so delete without force should work
@@ -512,7 +512,7 @@ fn delete_spec_without_force_with_content_fails() {
     let d = TestDaemon::start();
     d.post(
         "/specs",
-        &json!({"stem": "full", "crate_path": "crates/full/", "purpose": "Full"}),
+        &json!({"stem": "full", "src": "crates/full/", "purpose": "Full"}),
     );
     d.put(
         "/specs/full/sections/overview",
@@ -530,7 +530,7 @@ fn status_transitions_draft_stable_proven() {
     let d = TestDaemon::start();
     let resp = d.post(
         "/specs",
-        &json!({"stem": "lifecycle", "crate_path": "crates/lifecycle/", "purpose": "Lifecycle test"}),
+        &json!({"stem": "lifecycle", "src": "crates/lifecycle/", "purpose": "Lifecycle test"}),
     );
     let spec: Value = resp.json().unwrap();
     assert_eq!(spec["status"], "draft");
@@ -552,11 +552,11 @@ fn export_import_round_trip() {
 
     d.post(
         "/specs",
-        &json!({"stem": "alpha", "crate_path": "crates/alpha/", "purpose": "Alpha spec"}),
+        &json!({"stem": "alpha", "src": "crates/alpha/", "purpose": "Alpha spec"}),
     );
     d.post(
         "/specs",
-        &json!({"stem": "beta", "crate_path": "crates/beta/", "purpose": "Beta spec"}),
+        &json!({"stem": "beta", "src": "crates/beta/", "purpose": "Beta spec"}),
     );
     d.put(
         "/specs/alpha/sections/overview",
@@ -620,7 +620,7 @@ fn export_generates_markdown() {
 
     d.post(
         "/specs",
-        &json!({"stem": "myspec", "crate_path": "crates/myspec/", "purpose": "My spec purpose"}),
+        &json!({"stem": "myspec", "src": "crates/myspec/", "purpose": "My spec purpose"}),
     );
     d.put(
         "/specs/myspec/sections/overview",
@@ -636,7 +636,7 @@ fn export_generates_markdown() {
     let md = std::fs::read_to_string(&md_path).unwrap();
     assert!(md.contains("# myspec Specification"));
     assert!(md.contains("My spec purpose"));
-    assert!(md.contains("| Crate | `crates/myspec/` |"));
+    assert!(md.contains("| Src | `crates/myspec/` |"));
     assert!(md.contains("| Status | draft |"));
     assert!(md.contains("## Overview"));
     assert!(md.contains("This is the overview."));
@@ -648,11 +648,11 @@ fn export_generates_markdown_with_refs() {
 
     d.post(
         "/specs",
-        &json!({"stem": "src", "crate_path": "crates/src/", "purpose": "Source"}),
+        &json!({"stem": "src", "src": "crates/src/", "purpose": "Source"}),
     );
     d.post(
         "/specs",
-        &json!({"stem": "dep", "crate_path": "crates/dep/", "purpose": "Dependency"}),
+        &json!({"stem": "dep", "src": "crates/dep/", "purpose": "Dependency"}),
     );
     d.post("/specs/src/refs", &json!({"target": "dep"}));
 
@@ -674,11 +674,11 @@ fn export_generates_readme() {
 
     d.post(
         "/specs",
-        &json!({"stem": "alpha", "crate_path": "crates/alpha/", "purpose": "Alpha module"}),
+        &json!({"stem": "alpha", "src": "crates/alpha/", "purpose": "Alpha module"}),
     );
     d.post(
         "/specs",
-        &json!({"stem": "beta", "crate_path": "crates/beta/", "purpose": "Beta module"}),
+        &json!({"stem": "beta", "src": "crates/beta/", "purpose": "Beta module"}),
     );
 
     d.post("/export", &json!({}));
@@ -688,7 +688,7 @@ fn export_generates_readme() {
 
     let readme = std::fs::read_to_string(&readme_path).unwrap();
     assert!(readme.contains("# Specifications"));
-    assert!(readme.contains("| Spec | Code | Status | Purpose |"));
+    assert!(readme.contains("| Spec | Src | Status | Purpose |"));
     assert!(readme.contains("[alpha](specs/alpha.md)"));
     assert!(readme.contains("`crates/alpha/`"));
     assert!(readme.contains("Alpha module"));
@@ -702,9 +702,9 @@ fn check_reports_empty_required_sections_as_warnings() {
     // Create a spec — its required sections will have empty bodies
     d.post(
         "/specs",
-        &json!({"stem": "bare", "crate_path": "crates/bare/", "purpose": "Bare spec"}),
+        &json!({"stem": "bare", "src": "crates/bare/", "purpose": "Bare spec"}),
     );
-    // Create the crate_path directory so crate_paths_exist check passes
+    // Create the src directory so src_paths_exist check passes
     std::fs::create_dir_all(d._dir.path().join("crates/bare")).unwrap();
 
     let resp = d.get("/check");
@@ -724,12 +724,12 @@ fn check_reports_empty_required_sections_as_warnings() {
 }
 
 #[test]
-fn check_reports_missing_crate_path_as_error() {
+fn check_reports_missing_src_path_as_error() {
     let d = TestDaemon::start();
 
     d.post(
         "/specs",
-        &json!({"stem": "ghost", "crate_path": "crates/nonexistent/", "purpose": "Ghost"}),
+        &json!({"stem": "ghost", "src": "crates/nonexistent/", "purpose": "Ghost"}),
     );
 
     let resp = d.get("/check");
@@ -739,7 +739,7 @@ fn check_reports_missing_crate_path_as_error() {
     let errors = report["errors"].as_array().unwrap();
     let path_errors: Vec<_> = errors
         .iter()
-        .filter(|e| e["check"] == "crate_paths_exist")
+        .filter(|e| e["check"] == "src_paths_exist")
         .collect();
     assert!(!path_errors.is_empty());
 }
@@ -762,7 +762,7 @@ fn doctor_reports_sync_drift() {
 
     d.post(
         "/specs",
-        &json!({"stem": "drifted", "crate_path": "crates/drifted/", "purpose": "Drift test"}),
+        &json!({"stem": "drifted", "src": "crates/drifted/", "purpose": "Drift test"}),
     );
     // No export has been done, so JSONL has 0 entries but SQLite has 1 spec
 
@@ -797,7 +797,7 @@ fn history_tracks_section_events() {
     let d = TestDaemon::start();
     d.post(
         "/specs",
-        &json!({"stem": "hist", "crate_path": "crates/hist/", "purpose": "History"}),
+        &json!({"stem": "hist", "src": "crates/hist/", "purpose": "History"}),
     );
     d.put("/specs/hist/sections/overview", &json!({"body": "content"}));
     d.post(
@@ -821,7 +821,7 @@ fn slug_generation() {
     let d = TestDaemon::start();
     d.post(
         "/specs",
-        &json!({"stem": "slugtest", "crate_path": "crates/slugtest/", "purpose": "Slug test"}),
+        &json!({"stem": "slugtest", "src": "crates/slugtest/", "purpose": "Slug test"}),
     );
 
     // "Error Handling" -> "error-handling" (already a required section)
@@ -846,7 +846,7 @@ fn section_add_with_after() {
     let d = TestDaemon::start();
     d.post(
         "/specs",
-        &json!({"stem": "ordered", "crate_path": "crates/ordered/", "purpose": "Ordering test"}),
+        &json!({"stem": "ordered", "src": "crates/ordered/", "purpose": "Ordering test"}),
     );
 
     // Add a custom section after "overview"
@@ -871,11 +871,11 @@ fn json_output_shapes_spec_object() {
     let d = TestDaemon::start();
     let resp = d.post(
         "/specs",
-        &json!({"stem": "shapes", "crate_path": "crates/shapes/", "purpose": "Shape test"}),
+        &json!({"stem": "shapes", "src": "crates/shapes/", "purpose": "Shape test"}),
     );
     let spec: Value = resp.json().unwrap();
     assert!(spec["stem"].is_string());
-    assert!(spec["crate_path"].is_string());
+    assert!(spec["src"].is_string());
     assert!(spec["purpose"].is_string());
     assert!(spec["status"].is_string());
     assert!(spec["created_at"].is_string());
@@ -887,7 +887,7 @@ fn json_output_shapes_spec_detail() {
     let d = TestDaemon::start();
     d.post(
         "/specs",
-        &json!({"stem": "detail", "crate_path": "crates/detail/", "purpose": "Detail test"}),
+        &json!({"stem": "detail", "src": "crates/detail/", "purpose": "Detail test"}),
     );
 
     let resp = d.get("/specs/detail");
@@ -909,7 +909,7 @@ fn json_output_shapes_event_object() {
     let d = TestDaemon::start();
     d.post(
         "/specs",
-        &json!({"stem": "evshape", "crate_path": "crates/evshape/", "purpose": "Event shapes"}),
+        &json!({"stem": "evshape", "src": "crates/evshape/", "purpose": "Event shapes"}),
     );
 
     let resp = d.get("/specs/evshape/history");
@@ -927,11 +927,11 @@ fn ref_tree_up_direction() {
     let d = TestDaemon::start();
     d.post(
         "/specs",
-        &json!({"stem": "top", "crate_path": "crates/top/", "purpose": "Top"}),
+        &json!({"stem": "top", "src": "crates/top/", "purpose": "Top"}),
     );
     d.post(
         "/specs",
-        &json!({"stem": "bottom", "crate_path": "crates/bottom/", "purpose": "Bottom"}),
+        &json!({"stem": "bottom", "src": "crates/bottom/", "purpose": "Bottom"}),
     );
     d.post("/specs/top/refs", &json!({"target": "bottom"}));
 
@@ -950,7 +950,7 @@ fn search_matches_section_body() {
     let d = TestDaemon::start();
     d.post(
         "/specs",
-        &json!({"stem": "searchable", "crate_path": "crates/searchable/", "purpose": "Generic"}),
+        &json!({"stem": "searchable", "src": "crates/searchable/", "purpose": "Generic"}),
     );
     d.put(
         "/specs/searchable/sections/overview",
