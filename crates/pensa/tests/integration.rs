@@ -14,6 +14,7 @@ fn daemon_status_unreachable() {
     let port = portpicker::pick_unused_port().expect("no free port");
     let output = Command::new(pn_bin())
         .env("PN_DAEMON", format!("http://localhost:{port}"))
+        .env_remove("PN_DAEMON_HOST")
         .args(["daemon", "status"])
         .output()
         .expect("run daemon status");
