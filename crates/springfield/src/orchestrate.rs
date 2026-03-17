@@ -444,29 +444,91 @@ fn run_resume_session(root: &Path, meta: &SessionMetadata, session_id: &str) -> 
     Ok(exit_code)
 }
 
+fn prompt_and_select(entries_len: usize) -> io::Result<Option<usize>> {
+    eprint!("Select session (1-{entries_len}): ");
+
+    let mut input = String::new();
+    if io::stdin().read_line(&mut input).is_err() || input.trim().is_empty() {
+        return Ok(None);
+    }
+
+    let choice: usize = input
+        .trim()
+        .parse()
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid selection"))?;
+
+    if choice < 1 || choice > entries_len {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Selection out of range: {choice}"),
+        ));
+    }
+
+    Ok(Some(choice))
+}
+
+struct DisplayEntry<'a> {
+    meta: &'a SessionMetadata,
+    iteration: &'a IterationRecord,
+}
+
+fn print_entries(entries: &[DisplayEntry]) {
+    eprintln!("Recent sessions:");
+    for (i, e) in entries.iter().enumerate() {
+        let relative = humanize_relative_time(&e.iteration.completed_at);
+        eprintln!(
+            "  {:>2}. {:<40} iter {:<4} {:<12} {:<12} {}",
+            i + 1,
+            e.meta.loop_id,
+            e.iteration.iteration,
+            e.meta.mode,
+            e.meta.status,
+            relative
+        );
+    }
+}
+
 pub fn run_resume(root: &Path, loop_id: Option<&str>) -> io::Result<i32> {
     if let Some(id) = loop_id {
         let meta = loop_mgmt::read_session_metadata(root, id)?;
-        match meta {
-            Some(m) => {
-                let session_id = m
-                    .iterations
-                    .last()
-                    .map(|it| it.session_id.as_str())
-                    .ok_or_else(|| {
-                        io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            format!("No iterations found for session: {id}"),
-                        )
-                    })?;
-                return run_resume_session(root, &m, session_id);
-            }
+        let m = match meta {
+            Some(m) => m,
             None => {
                 return Err(io::Error::new(
                     io::ErrorKind::NotFound,
                     format!("Session not found: {id}"),
                 ));
             }
+        };
+
+        if m.iterations.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("No iterations found for session: {id}"),
+            ));
+        }
+
+        if m.iterations.len() == 1 {
+            return run_resume_session(root, &m, &m.iterations[0].session_id);
+        }
+
+        let entries: Vec<DisplayEntry> = m
+            .iterations
+            .iter()
+            .map(|it| DisplayEntry {
+                meta: &m,
+                iteration: it,
+            })
+            .collect();
+
+        print_entries(&entries);
+
+        match prompt_and_select(entries.len())? {
+            Some(choice) => {
+                let selected = &entries[choice - 1];
+                return run_resume_session(root, &m, &selected.iteration.session_id);
+            }
+            None => return Ok(0),
         }
     }
 
@@ -476,11 +538,6 @@ pub fn run_resume(root: &Path, loop_id: Option<&str>) -> io::Result<i32> {
             io::ErrorKind::NotFound,
             "No sessions found.",
         ));
-    }
-
-    struct DisplayEntry<'a> {
-        meta: &'a SessionMetadata,
-        iteration: &'a IterationRecord,
     }
 
     let mut entries: Vec<DisplayEntry> = Vec::new();
@@ -502,40 +559,15 @@ pub fn run_resume(root: &Path, loop_id: Option<&str>) -> io::Result<i32> {
         ));
     }
 
-    eprintln!("Recent sessions:");
-    for (i, e) in entries.iter().enumerate() {
-        let relative = humanize_relative_time(&e.iteration.completed_at);
-        eprintln!(
-            "  {:>2}. {:<40} iter {:<4} {:<12} {:<12} {}",
-            i + 1,
-            e.meta.loop_id,
-            e.iteration.iteration,
-            e.meta.mode,
-            e.meta.status,
-            relative
-        );
+    print_entries(&entries);
+
+    match prompt_and_select(entries.len())? {
+        Some(choice) => {
+            let selected = &entries[choice - 1];
+            run_resume_session(root, selected.meta, &selected.iteration.session_id)
+        }
+        None => Ok(0),
     }
-    eprint!("Select session (1-{}): ", entries.len());
-
-    let mut input = String::new();
-    if io::stdin().read_line(&mut input).is_err() || input.trim().is_empty() {
-        return Ok(0);
-    }
-
-    let choice: usize = input
-        .trim()
-        .parse()
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid selection"))?;
-
-    if choice < 1 || choice > entries.len() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("Selection out of range: {choice}"),
-        ));
-    }
-
-    let selected = &entries[choice - 1];
-    run_resume_session(root, selected.meta, &selected.iteration.session_id)
 }
 
 #[cfg(test)]
@@ -1354,5 +1386,34 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(updated.status, "completed");
+    }
+
+    #[test]
+    fn resume_loop_id_with_no_iterations_returns_error() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        fs::create_dir_all(root.join(".sgf/run")).unwrap();
+
+        let meta = SessionMetadata {
+            loop_id: "build-auth-20260316T120000".to_string(),
+            iterations: Vec::new(),
+            stage: "build".to_string(),
+            spec: Some("auth".to_string()),
+            mode: "interactive".to_string(),
+            prompt: ".sgf/prompts/build.md".to_string(),
+            iterations_total: 3,
+            status: "running".to_string(),
+            created_at: "2026-03-16T12:00:00Z".to_string(),
+            updated_at: "2026-03-16T12:00:00Z".to_string(),
+        };
+        loop_mgmt::write_session_metadata(root, &meta).unwrap();
+
+        let err = run_resume(root, Some("build-auth-20260316T120000")).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+        assert!(
+            err.to_string().contains("No iterations found"),
+            "got: {}",
+            err
+        );
     }
 }
