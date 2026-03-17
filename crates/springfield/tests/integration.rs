@@ -946,7 +946,8 @@ fn status_prints_placeholder() {
 
 #[test]
 fn help_flag() {
-    let output = run_sgf(Command::new(sgf_bin()).arg("--help"));
+    let tmp = setup_test_dir();
+    let output = run_sgf(sgf_cmd(tmp.path()).arg("--help"));
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
