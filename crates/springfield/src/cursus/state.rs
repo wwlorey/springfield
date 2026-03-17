@@ -162,6 +162,33 @@ pub fn is_stale_run(root: &Path, run_id: &str) -> io::Result<bool> {
     }
 }
 
+pub fn find_resumable_runs(root: &Path) -> io::Result<Vec<RunMetadata>> {
+    let run_base = root.join(".sgf/run");
+    let entries = match fs::read_dir(&run_base) {
+        Ok(e) => e,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e),
+    };
+
+    let mut runs = Vec::new();
+    for entry in entries.flatten() {
+        if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        let run_id = entry.file_name().to_str().unwrap_or("").to_string();
+        if run_id.is_empty() {
+            continue;
+        }
+        if let Some(meta) = read_metadata(root, &run_id)?
+            && (meta.status == RunStatus::Stalled || meta.status == RunStatus::Interrupted)
+        {
+            runs.push(meta);
+        }
+    }
+    runs.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    Ok(runs)
+}
+
 pub fn mark_stale_runs_interrupted(root: &Path) -> io::Result<Vec<String>> {
     let run_base = root.join(".sgf/run");
     let entries = match fs::read_dir(&run_base) {
@@ -547,6 +574,152 @@ mod tests {
     fn metadata_with_mode_override() {
         let meta = RunMetadata::new("build", "compile", None, Some("afk"));
         assert_eq!(meta.mode_override.as_deref(), Some("afk"));
+    }
+
+    #[test]
+    fn find_resumable_runs_returns_stalled_and_interrupted() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+
+        let stalled_id = "spec-20260317T140000";
+        create_run_dir(root, stalled_id).unwrap();
+        write_metadata(
+            root,
+            &RunMetadata {
+                run_id: stalled_id.to_string(),
+                cursus: "spec".to_string(),
+                status: RunStatus::Stalled,
+                current_iter: "draft".to_string(),
+                current_iter_index: 1,
+                iters_completed: Vec::new(),
+                spec: None,
+                mode_override: None,
+                created_at: "2026-03-17T14:00:00Z".to_string(),
+                updated_at: "2026-03-17T14:10:00Z".to_string(),
+            },
+        )
+        .unwrap();
+
+        let interrupted_id = "build-20260317T150000";
+        create_run_dir(root, interrupted_id).unwrap();
+        write_metadata(
+            root,
+            &RunMetadata {
+                run_id: interrupted_id.to_string(),
+                cursus: "build".to_string(),
+                status: RunStatus::Interrupted,
+                current_iter: "build".to_string(),
+                current_iter_index: 0,
+                iters_completed: Vec::new(),
+                spec: None,
+                mode_override: None,
+                created_at: "2026-03-17T15:00:00Z".to_string(),
+                updated_at: "2026-03-17T15:05:00Z".to_string(),
+            },
+        )
+        .unwrap();
+
+        let completed_id = "test-20260317T160000";
+        create_run_dir(root, completed_id).unwrap();
+        write_metadata(
+            root,
+            &RunMetadata {
+                run_id: completed_id.to_string(),
+                cursus: "test".to_string(),
+                status: RunStatus::Completed,
+                current_iter: "test".to_string(),
+                current_iter_index: 0,
+                iters_completed: Vec::new(),
+                spec: None,
+                mode_override: None,
+                created_at: "2026-03-17T16:00:00Z".to_string(),
+                updated_at: "2026-03-17T16:05:00Z".to_string(),
+            },
+        )
+        .unwrap();
+
+        let running_id = "verify-20260317T170000";
+        create_run_dir(root, running_id).unwrap();
+        write_metadata(
+            root,
+            &RunMetadata {
+                run_id: running_id.to_string(),
+                cursus: "verify".to_string(),
+                status: RunStatus::Running,
+                current_iter: "verify".to_string(),
+                current_iter_index: 0,
+                iters_completed: Vec::new(),
+                spec: None,
+                mode_override: None,
+                created_at: "2026-03-17T17:00:00Z".to_string(),
+                updated_at: "2026-03-17T17:05:00Z".to_string(),
+            },
+        )
+        .unwrap();
+
+        let runs = find_resumable_runs(root).unwrap();
+        assert_eq!(runs.len(), 2);
+        let run_ids: Vec<&str> = runs.iter().map(|r| r.run_id.as_str()).collect();
+        assert!(run_ids.contains(&stalled_id));
+        assert!(run_ids.contains(&interrupted_id));
+        assert!(!run_ids.contains(&completed_id));
+        assert!(!run_ids.contains(&running_id));
+    }
+
+    #[test]
+    fn find_resumable_runs_empty_dir() {
+        let tmp = TempDir::new().unwrap();
+        let runs = find_resumable_runs(tmp.path()).unwrap();
+        assert!(runs.is_empty());
+    }
+
+    #[test]
+    fn find_resumable_runs_sorted_by_updated_at_desc() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+
+        let older_id = "old-20260317T100000";
+        create_run_dir(root, older_id).unwrap();
+        write_metadata(
+            root,
+            &RunMetadata {
+                run_id: older_id.to_string(),
+                cursus: "old".to_string(),
+                status: RunStatus::Stalled,
+                current_iter: "build".to_string(),
+                current_iter_index: 0,
+                iters_completed: Vec::new(),
+                spec: None,
+                mode_override: None,
+                created_at: "2026-03-17T10:00:00Z".to_string(),
+                updated_at: "2026-03-17T10:05:00Z".to_string(),
+            },
+        )
+        .unwrap();
+
+        let newer_id = "new-20260317T200000";
+        create_run_dir(root, newer_id).unwrap();
+        write_metadata(
+            root,
+            &RunMetadata {
+                run_id: newer_id.to_string(),
+                cursus: "new".to_string(),
+                status: RunStatus::Stalled,
+                current_iter: "build".to_string(),
+                current_iter_index: 0,
+                iters_completed: Vec::new(),
+                spec: None,
+                mode_override: None,
+                created_at: "2026-03-17T20:00:00Z".to_string(),
+                updated_at: "2026-03-17T20:05:00Z".to_string(),
+            },
+        )
+        .unwrap();
+
+        let runs = find_resumable_runs(root).unwrap();
+        assert_eq!(runs.len(), 2);
+        assert_eq!(runs[0].run_id, newer_id);
+        assert_eq!(runs[1].run_id, older_id);
     }
 
     #[test]

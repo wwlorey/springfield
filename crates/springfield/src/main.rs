@@ -274,6 +274,56 @@ fn main() {
         }
         Commands::Resume { loop_id } => {
             let root = std::env::current_dir().expect("failed to get current directory");
+
+            if let Some(ref id) = loop_id
+                && let Ok(Some(_)) = cursus::state::read_metadata(&root, id)
+            {
+                match cursus::runner::resume_cursus(&root, id) {
+                    Ok(code) => std::process::exit(code),
+                    Err(e) => {
+                        springfield::style::print_error(&format!("resume: {e}"));
+                        std::process::exit(1);
+                    }
+                }
+            }
+
+            if loop_id.is_none() {
+                let cursus_runs = cursus::state::find_resumable_runs(&root).unwrap_or_default();
+                if !cursus_runs.is_empty() {
+                    eprintln!("Resumable cursus runs:");
+                    for (i, run) in cursus_runs.iter().enumerate() {
+                        eprintln!(
+                            "  {:>2}. {:<40} iter: {:<15} {}",
+                            i + 1,
+                            run.run_id,
+                            run.current_iter,
+                            run.status
+                        );
+                    }
+                    eprintln!();
+                    eprint!(
+                        "Select run (1-{}), or press Enter for legacy sessions: ",
+                        cursus_runs.len()
+                    );
+                    let mut input = String::new();
+                    if std::io::stdin().read_line(&mut input).is_ok()
+                        && !input.trim().is_empty()
+                        && let Ok(choice) = input.trim().parse::<usize>()
+                        && choice >= 1
+                        && choice <= cursus_runs.len()
+                    {
+                        let run_id = &cursus_runs[choice - 1].run_id;
+                        match cursus::runner::resume_cursus(&root, run_id) {
+                            Ok(code) => std::process::exit(code),
+                            Err(e) => {
+                                springfield::style::print_error(&format!("resume: {e}"));
+                                std::process::exit(1);
+                            }
+                        }
+                    }
+                }
+            }
+
             match springfield::orchestrate::run_resume(&root, loop_id.as_deref()) {
                 Ok(code) => std::process::exit(code),
                 Err(e) => {

@@ -313,43 +313,58 @@ fn print_stall_banner(cursus_name: &str, iter_name: &str, iterations: u32, run_i
     style::print_warning_detail(&format!("cursus STALLED [{cursus_name}]"), &detail);
 }
 
-pub fn run_cursus(
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResumeAction {
+    Retry,
+    Skip,
+    Abort,
+}
+
+fn prompt_resume_action(meta: &RunMetadata) -> io::Result<ResumeAction> {
+    eprintln!();
+    style::print_warning_detail(
+        &format!("cursus {} [{run_id}]", meta.status, run_id = meta.run_id),
+        &format!(
+            "iter: {} · completed: {} of {} iters",
+            meta.current_iter,
+            meta.iters_completed.len(),
+            meta.current_iter_index as usize + meta.iters_completed.len() + 1
+        ),
+    );
+    eprintln!();
+    eprintln!("  1. Retry  — re-run the stalled iter");
+    eprintln!("  2. Skip   — advance to the next iter");
+    eprintln!("  3. Abort  — mark run as interrupted and exit");
+    eprintln!();
+    eprint!("Select action (1-3): ");
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    match input.trim() {
+        "1" | "retry" => Ok(ResumeAction::Retry),
+        "2" | "skip" => Ok(ResumeAction::Skip),
+        "3" | "abort" => Ok(ResumeAction::Abort),
+        other => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("invalid selection: {other}"),
+        )),
+    }
+}
+
+fn run_cursus_loop(
     root: &Path,
     cursus_name: &str,
     def: &CursusDefinition,
     config: &CursusConfig,
+    metadata: &mut RunMetadata,
+    start_index: usize,
 ) -> io::Result<i32> {
-    if def.iters.is_empty() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "cursus has no iters defined",
-        ));
-    }
-
-    state::mark_stale_runs_interrupted(root)?;
-
-    let mode_override_str = config.mode_override.as_ref().map(|m| match m {
-        Mode::Afk => "afk",
-        Mode::Interactive => "interactive",
-    });
-
-    let mut metadata = RunMetadata::new(
-        cursus_name,
-        &def.iters[0].name,
-        config.spec.as_deref(),
-        mode_override_str,
-    );
-
-    state::create_run_dir(root, &metadata.run_id)?;
-    state::write_pid_file(root, &metadata.run_id)?;
-    state::write_metadata(root, &metadata)?;
-
     let controller = ShutdownController::new(ShutdownConfig {
         monitor_stdin: false,
         ..Default::default()
     })?;
 
-    let mut current_index: usize = 0;
+    let mut current_index = start_index;
 
     let exit_code = loop {
         let iter = &def.iters[current_index];
@@ -358,7 +373,7 @@ pub fn run_cursus(
         metadata.current_iter_index = current_index as u32;
         metadata.status = RunStatus::Running;
         metadata.touch();
-        state::write_metadata(root, &metadata)?;
+        state::write_metadata(root, metadata)?;
 
         clean_sentinels(root);
 
@@ -424,7 +439,7 @@ pub fn run_cursus(
         if exit_code == 130 {
             metadata.status = RunStatus::Interrupted;
             metadata.touch();
-            let _ = state::write_metadata(root, &metadata);
+            let _ = state::write_metadata(root, metadata);
             state::remove_pid_file(root, &metadata.run_id);
             return Ok(130);
         }
@@ -449,7 +464,7 @@ pub fn run_cursus(
             NextIter::Stalled => {
                 metadata.status = RunStatus::Stalled;
                 metadata.touch();
-                state::write_metadata(root, &metadata)?;
+                state::write_metadata(root, metadata)?;
                 print_stall_banner(cursus_name, &iter.name, iter.iterations, &metadata.run_id);
                 state::remove_pid_file(root, &metadata.run_id);
                 break 2;
@@ -461,7 +476,7 @@ pub fn run_cursus(
                 None => {
                     metadata.status = RunStatus::Completed;
                     metadata.touch();
-                    state::write_metadata(root, &metadata)?;
+                    state::write_metadata(root, metadata)?;
                     style::print_success(&format!("cursus complete [{cursus_name}]"));
                     state::remove_pid_file(root, &metadata.run_id);
                     break 0;
@@ -471,6 +486,142 @@ pub fn run_cursus(
     };
 
     Ok(exit_code)
+}
+
+pub fn run_cursus(
+    root: &Path,
+    cursus_name: &str,
+    def: &CursusDefinition,
+    config: &CursusConfig,
+) -> io::Result<i32> {
+    if def.iters.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "cursus has no iters defined",
+        ));
+    }
+
+    state::mark_stale_runs_interrupted(root)?;
+
+    let mode_override_str = config.mode_override.as_ref().map(|m| match m {
+        Mode::Afk => "afk",
+        Mode::Interactive => "interactive",
+    });
+
+    let mut metadata = RunMetadata::new(
+        cursus_name,
+        &def.iters[0].name,
+        config.spec.as_deref(),
+        mode_override_str,
+    );
+
+    state::create_run_dir(root, &metadata.run_id)?;
+    state::write_pid_file(root, &metadata.run_id)?;
+    state::write_metadata(root, &metadata)?;
+
+    run_cursus_loop(root, cursus_name, def, config, &mut metadata, 0)
+}
+
+pub fn resume_cursus(root: &Path, run_id: &str) -> io::Result<i32> {
+    state::mark_stale_runs_interrupted(root)?;
+
+    let mut metadata = state::read_metadata(root, run_id)?.ok_or_else(|| {
+        io::Error::new(io::ErrorKind::NotFound, format!("run not found: {run_id}"))
+    })?;
+
+    if metadata.status != RunStatus::Stalled && metadata.status != RunStatus::Interrupted {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "run {} is not resumable (status: {})",
+                run_id, metadata.status
+            ),
+        ));
+    }
+
+    let resolved = crate::cursus::resolve_cursus(root, &metadata.cursus).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("cursus definition not found: {}", metadata.cursus),
+        )
+    })?;
+
+    let def = &resolved.definition;
+
+    let stalled_index = def
+        .iters
+        .iter()
+        .position(|i| i.name == metadata.current_iter)
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "iter '{}' not found in cursus '{}'",
+                    metadata.current_iter, metadata.cursus
+                ),
+            )
+        })?;
+
+    let action = prompt_resume_action(&metadata)?;
+
+    let cursus_name = metadata.cursus.clone();
+
+    let mode_override = metadata.mode_override.as_deref().map(|m| match m {
+        "afk" => Mode::Afk,
+        _ => Mode::Interactive,
+    });
+
+    let config = CursusConfig {
+        spec: metadata.spec.clone(),
+        mode_override,
+        no_push: false,
+        ralph_binary: None,
+        skip_preflight: true,
+    };
+
+    match action {
+        ResumeAction::Abort => {
+            metadata.status = RunStatus::Interrupted;
+            metadata.touch();
+            state::write_metadata(root, &metadata)?;
+            style::print_warning(&format!("run aborted [{run_id}]"));
+            Ok(1)
+        }
+        ResumeAction::Retry => {
+            state::write_pid_file(root, run_id)?;
+            style::print_action(&format!(
+                "retrying iter '{}' [{run_id}]",
+                metadata.current_iter
+            ));
+            run_cursus_loop(
+                root,
+                &cursus_name,
+                def,
+                &config,
+                &mut metadata,
+                stalled_index,
+            )
+        }
+        ResumeAction::Skip => {
+            let next_index = stalled_index + 1;
+            if next_index >= def.iters.len() {
+                metadata.status = RunStatus::Completed;
+                metadata.touch();
+                state::write_metadata(root, &metadata)?;
+                style::print_success(&format!(
+                    "cursus complete [{cursus_name}] (skipped final iter)"
+                ));
+                return Ok(0);
+            }
+
+            state::write_pid_file(root, run_id)?;
+            style::print_action(&format!(
+                "skipping to iter '{}' [{run_id}]",
+                def.iters[next_index].name
+            ));
+            run_cursus_loop(root, &cursus_name, def, &config, &mut metadata, next_index)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1318,5 +1469,229 @@ exit 0
         let tmp = TempDir::new().unwrap();
         let result = resolve_prompt(tmp.path(), "nonexistent.md");
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn resume_cursus_nonexistent_run_errors() {
+        let tmp = TempDir::new().unwrap();
+        let err = resume_cursus(tmp.path(), "nonexistent-run").unwrap_err();
+        assert!(err.to_string().contains("run not found"));
+    }
+
+    #[test]
+    fn resume_cursus_completed_run_errors() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let run_id = "build-20260317T140000";
+        state::create_run_dir(root, run_id).unwrap();
+        state::write_metadata(
+            root,
+            &RunMetadata {
+                run_id: run_id.to_string(),
+                cursus: "build".to_string(),
+                status: RunStatus::Completed,
+                current_iter: "build".to_string(),
+                current_iter_index: 0,
+                iters_completed: Vec::new(),
+                spec: None,
+                mode_override: None,
+                created_at: "2026-03-17T14:00:00Z".to_string(),
+                updated_at: "2026-03-17T14:05:00Z".to_string(),
+            },
+        )
+        .unwrap();
+
+        let err = resume_cursus(root, run_id).unwrap_err();
+        assert!(err.to_string().contains("not resumable"));
+    }
+
+    #[test]
+    fn resume_cursus_missing_cursus_def_errors() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let run_id = "ghost-20260317T140000";
+        state::create_run_dir(root, run_id).unwrap();
+        state::write_metadata(
+            root,
+            &RunMetadata {
+                run_id: run_id.to_string(),
+                cursus: "ghost".to_string(),
+                status: RunStatus::Stalled,
+                current_iter: "build".to_string(),
+                current_iter_index: 0,
+                iters_completed: Vec::new(),
+                spec: None,
+                mode_override: None,
+                created_at: "2026-03-17T14:00:00Z".to_string(),
+                updated_at: "2026-03-17T14:05:00Z".to_string(),
+            },
+        )
+        .unwrap();
+        fs::create_dir_all(root.join(".sgf/cursus")).unwrap();
+
+        let err = resume_cursus(root, run_id).unwrap_err();
+        assert!(err.to_string().contains("cursus definition not found"));
+    }
+
+    #[test]
+    fn resume_cursus_stalled_iter_not_in_def_errors() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let run_id = "build-20260317T140000";
+        state::create_run_dir(root, run_id).unwrap();
+        state::write_metadata(
+            root,
+            &RunMetadata {
+                run_id: run_id.to_string(),
+                cursus: "build".to_string(),
+                status: RunStatus::Stalled,
+                current_iter: "deleted-iter".to_string(),
+                current_iter_index: 0,
+                iters_completed: Vec::new(),
+                spec: None,
+                mode_override: None,
+                created_at: "2026-03-17T14:00:00Z".to_string(),
+                updated_at: "2026-03-17T14:05:00Z".to_string(),
+            },
+        )
+        .unwrap();
+        fs::create_dir_all(root.join(".sgf/cursus")).unwrap();
+        fs::write(
+            root.join(".sgf/cursus/build.toml"),
+            r#"
+description = "Build"
+
+[[iters]]
+name = "build"
+prompt = "build.md"
+"#,
+        )
+        .unwrap();
+
+        let err = resume_cursus(root, run_id).unwrap_err();
+        assert!(err.to_string().contains("iter 'deleted-iter' not found"));
+    }
+
+    #[test]
+    fn run_cursus_loop_resumes_from_stalled_iter() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_cursus_project(root, &["draft.md", "review.md", "approve.md"]);
+
+        let ralph = mock_script(
+            root,
+            "mock_ralph.sh",
+            &format!(
+                "#!/bin/sh\ntouch \"{}/.ralph-complete\"\nexit 0\n",
+                root.display()
+            ),
+        );
+
+        let def = make_cursus_def(
+            vec![
+                make_iter("draft", Mode::Afk, 10, None, None, None),
+                make_iter("review", Mode::Afk, 1, None, None, None),
+                make_iter("approve", Mode::Afk, 1, None, None, None),
+            ],
+            false,
+        );
+
+        let config = CursusConfig {
+            spec: None,
+            mode_override: None,
+            no_push: true,
+            ralph_binary: Some(ralph),
+            skip_preflight: true,
+        };
+
+        let run_id = "spec-20260317T140000";
+        state::create_run_dir(root, run_id).unwrap();
+        state::write_pid_file(root, run_id).unwrap();
+
+        let mut metadata = RunMetadata {
+            run_id: run_id.to_string(),
+            cursus: "spec".to_string(),
+            status: RunStatus::Stalled,
+            current_iter: "review".to_string(),
+            current_iter_index: 1,
+            iters_completed: vec![CompletedIter {
+                name: "draft".to_string(),
+                session_id: "sess-1".to_string(),
+                completed_at: "2026-03-17T14:05:00Z".to_string(),
+                outcome: "complete".to_string(),
+            }],
+            spec: None,
+            mode_override: None,
+            created_at: "2026-03-17T14:00:00Z".to_string(),
+            updated_at: "2026-03-17T14:10:00Z".to_string(),
+        };
+
+        let exit_code = run_cursus_loop(root, "spec", &def, &config, &mut metadata, 1).unwrap();
+        assert_eq!(exit_code, 0);
+
+        assert_eq!(metadata.status, RunStatus::Completed);
+        assert_eq!(metadata.iters_completed.len(), 3);
+        assert_eq!(metadata.iters_completed[0].name, "draft");
+        assert_eq!(metadata.iters_completed[1].name, "review");
+        assert_eq!(metadata.iters_completed[2].name, "approve");
+    }
+
+    #[test]
+    fn run_cursus_loop_skip_resumes_from_next_iter() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_cursus_project(root, &["draft.md", "review.md", "approve.md"]);
+
+        let ralph = mock_script(
+            root,
+            "mock_ralph.sh",
+            &format!(
+                "#!/bin/sh\ntouch \"{}/.ralph-complete\"\nexit 0\n",
+                root.display()
+            ),
+        );
+
+        let def = make_cursus_def(
+            vec![
+                make_iter("draft", Mode::Afk, 10, None, None, None),
+                make_iter("review", Mode::Afk, 1, None, None, None),
+                make_iter("approve", Mode::Afk, 1, None, None, None),
+            ],
+            false,
+        );
+
+        let config = CursusConfig {
+            spec: None,
+            mode_override: None,
+            no_push: true,
+            ralph_binary: Some(ralph),
+            skip_preflight: true,
+        };
+
+        let run_id = "spec-20260317T140000";
+        state::create_run_dir(root, run_id).unwrap();
+        state::write_pid_file(root, run_id).unwrap();
+
+        let mut metadata = RunMetadata {
+            run_id: run_id.to_string(),
+            cursus: "spec".to_string(),
+            status: RunStatus::Stalled,
+            current_iter: "draft".to_string(),
+            current_iter_index: 0,
+            iters_completed: Vec::new(),
+            spec: None,
+            mode_override: None,
+            created_at: "2026-03-17T14:00:00Z".to_string(),
+            updated_at: "2026-03-17T14:10:00Z".to_string(),
+        };
+
+        // Skip stalled "draft" iter, resume from "review" (index 1)
+        let exit_code = run_cursus_loop(root, "spec", &def, &config, &mut metadata, 1).unwrap();
+        assert_eq!(exit_code, 0);
+
+        assert_eq!(metadata.status, RunStatus::Completed);
+        assert_eq!(metadata.iters_completed.len(), 2);
+        assert_eq!(metadata.iters_completed[0].name, "review");
+        assert_eq!(metadata.iters_completed[1].name, "approve");
     }
 }
