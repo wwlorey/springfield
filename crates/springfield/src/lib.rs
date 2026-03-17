@@ -1,4 +1,5 @@
 pub mod config;
+pub mod cursus;
 pub mod init;
 pub mod loop_mgmt;
 pub mod orchestrate;

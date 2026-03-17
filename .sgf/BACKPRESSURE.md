@@ -19,6 +19,13 @@ Some tests may be gated behind `#[ignore]` because they use expensive operations
 - **Run ignored tests:** `cargo test -p <crate> <test_name> -- --ignored`
 - **Run all tests including ignored:** `cargo test --workspace -- --ignored`
 
+### CLI E2E Tests (Tuistory)
+
+Terminal-level end-to-end tests for CLI binaries. Uses [Tuistory](https://github.com/remorses/tuistory) (Playwright for TUIs) driven from cargo integration tests via `std::process::Command`.
+
+- **Run CLI e2e tests:** `cargo test -p <crate> --test cli_e2e`
+- **Run single test:** `cargo test -p <crate> --test cli_e2e <test_name>`
+
 ## Frontend
 
 > Stack: TypeScript, React, Vitest, Playwright
