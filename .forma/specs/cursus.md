@@ -522,15 +522,25 @@ Cursus changes how `sgf <command>` resolves what to run. The new resolution orde
 2. Check if `./.sgf/cursus/<command>.toml` exists (local override). If so, parse and run the cursus.
 3. Check if `~/.sgf/cursus/<command>.toml` exists (global default). If so, parse and run the cursus.
 4. Check if `<command>` matches an alias in any resolved cursus TOML. If so, resolve to the aliased cursus and run it.
-5. Error: `unknown command: <command>`.
+5. Fall back to `config.toml` resolution (legacy path — see Migration Strategy below).
+6. Error: `unknown command: <command>`.
 
 ### What Changes
 
-- `config.toml` is removed. Its role is fully replaced by individual cursus TOML files.
+- `config.toml` is superseded by individual cursus TOML files. It remains functional during the transitional period but is removed once all commands have cursus TOMLs.
 - Prompt files (`.sgf/prompts/*.md`) remain unchanged — they are referenced by cursus definitions but no longer directly resolved by `sgf`.
 - The layered resolution logic (local → global) is the same, just applied to `.sgf/cursus/` instead of `.sgf/prompts/`.
 
-### Migration
+### Migration Strategy
+
+The cursus module is built alongside the existing orchestration code. Both resolution paths coexist during the transition:
+
+1. **Cursus TOML takes precedence**: If a cursus TOML exists for a command, it is used. The `config.toml` entry for that command is ignored.
+2. **`config.toml` fallback**: Commands without a cursus TOML continue to resolve via `config.toml` and the existing `orchestrate.rs` / `config.rs` code paths.
+3. **Incremental adoption**: Cursus TOMLs are created for each command as they are migrated. Single-iter cursus definitions are functionally identical to the old `config.toml` entries.
+4. **Final cleanup**: Once all commands have cursus TOMLs, the last implementation issue removes `config.toml` support, `config.rs`, and the legacy paths in `orchestrate.rs` and `loop_mgmt.rs`.
+
+### Migration Table
 
 Every `[section]` in the old `config.toml` becomes a cursus TOML:
 
@@ -546,7 +556,7 @@ Every `[section]` in the old `config.toml` becomes a cursus TOML:
 
 ### CLI Changes
 
-No CLI changes. `sgf build auth -a -n 30` works exactly as before. The flags map to:
+No CLI changes. `sgf build -a -n 30` works exactly as before. The flags map to:
 - `-a` → `mode_override: "afk"` (overrides iter-level `mode`)
 - `-n 30` → overrides `iterations` on all iters (or on the single iter for single-iter cursus)
 - `--no-push` → overrides `auto_push` to false on all iters
@@ -636,5 +646,7 @@ Additional mechanisms needed for daemon mode:
 
 ## Related Specifications
 
+- [claude-wrapper](claude-wrapper.md) — Agent wrapper — layered .sgf/ context injection, cl binary
 - [ralph](ralph.md) — Iterative Claude Code runner — invokes cl (claude-wrapper) with NDJSON formatting, completion detection, and git auto-push
+- [session-resume](session-resume.md) — Session resume — persist Claude session IDs and loop config to enable resuming interrupted sessions via sgf resume
 - [springfield](springfield.md) — CLI entry point — scaffolding, prompt delivery, loop orchestration, recovery, and daemon lifecycle
