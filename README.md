@@ -80,30 +80,32 @@ sgf resume <loop-id>        # resume a specific session by loop ID
 
 ### Session Resume
 
-Springfield persists Claude Code session IDs so you can resume interrupted or completed sessions. Session metadata is stored as JSON sidecar files in `.sgf/run/{loop_id}.json` (gitignored).
+Springfield persists Claude Code session IDs so you can resume interrupted or completed sessions. Each iteration within a loop gets its own session ID. Session metadata is stored as JSON sidecar files in `.sgf/run/{loop_id}.json` (gitignored).
 
 **How it works:**
 
-1. Before each `cl` invocation, sgf generates a UUID and passes it via `--session-id <uuid>`
-2. On exit, sgf writes session metadata (session ID, stage, mode, status, iterations) to `.sgf/run/{loop_id}.json`
-3. `sgf resume` reads the metadata and passes `--resume <session_id>` to `cl`
+1. Before each iteration, a fresh UUID is generated and passed to `cl` via `--session-id <uuid>`
+2. After each iteration, sgf appends the iteration's session ID and completion timestamp to `.sgf/run/{loop_id}.json`
+3. `sgf resume` reads the metadata, flattens all iterations across all loops into a single list, and passes `--resume <session_id>` to `cl` for the selected iteration
 
 **Usage:**
 
 ```sh
 sgf resume              # show interactive picker of recent sessions
-sgf resume <loop-id>    # resume a specific session directly
+sgf resume <loop-id>    # show picker for iterations within a specific loop
 ```
 
-The interactive picker displays recent sessions sorted newest-first:
+The interactive picker displays a flat list of all iteration sessions across all loops, sorted newest-first (capped at 20 entries):
 
 ```
 Recent sessions:
-  1. spec-20260316T120000       interactive  interrupted  2m ago
-  2. build-auth-20260316T110000 afk          exhausted    1h ago
-  3. verify-20260315T090000     afk          completed    1d ago
+  1. build-20260316T162408  iter 2   afk          completed    2m ago
+  2. build-20260316T162408  iter 1   afk          completed    2m ago
+  3. spec-20260316T120000   iter 1   interactive  interrupted  1h ago
 Select session (1-3):
 ```
+
+When a `loop-id` is provided, the picker shows only the iterations for that loop. If the loop has a single iteration, it resumes directly without showing the picker.
 
 Resumed sessions always run in interactive mode (full terminal passthrough) regardless of the original mode.
 
