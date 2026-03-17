@@ -179,14 +179,14 @@ pub fn mark_stale_runs_interrupted(root: &Path) -> io::Result<Vec<String>> {
         if run_id.is_empty() {
             continue;
         }
-        if is_stale_run(root, &run_id)? {
-            if let Some(mut meta) = read_metadata(root, &run_id)? {
-                meta.status = RunStatus::Interrupted;
-                meta.touch();
-                write_metadata(root, &meta)?;
-                remove_pid_file(root, &run_id);
-                marked.push(run_id);
-            }
+        if is_stale_run(root, &run_id)?
+            && let Some(mut meta) = read_metadata(root, &run_id)?
+        {
+            meta.status = RunStatus::Interrupted;
+            meta.touch();
+            write_metadata(root, &meta)?;
+            remove_pid_file(root, &run_id);
+            marked.push(run_id);
         }
     }
     Ok(marked)
