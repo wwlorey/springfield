@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -144,6 +144,34 @@ pub fn validate(def: &CursusDefinition) -> Result<(), io::Error> {
     Ok(())
 }
 
+pub fn validate_prompts(root: &Path, def: &CursusDefinition) -> Result<(), io::Error> {
+    let global_prompts = std::env::var("HOME")
+        .ok()
+        .map(|h| PathBuf::from(h).join(".sgf/prompts"));
+
+    for iter in &def.iters {
+        let local = root.join(format!(".sgf/prompts/{}", iter.prompt));
+        if local.exists() {
+            continue;
+        }
+        if let Some(ref global_dir) = global_prompts {
+            let global = global_dir.join(&iter.prompt);
+            if global.exists() {
+                continue;
+            }
+        }
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!(
+                "prompt not found: {} (checked .sgf/prompts/ and ~/.sgf/prompts/)",
+                iter.prompt
+            ),
+        ));
+    }
+
+    Ok(())
+}
+
 pub fn validate_aliases(definitions: &HashMap<String, CursusDefinition>) -> Result<(), io::Error> {
     let mut seen_aliases: HashMap<&str, &str> = HashMap::new();
     let cursus_names: HashSet<&str> = definitions.keys().map(|k| k.as_str()).collect();
@@ -174,6 +202,7 @@ pub fn validate_aliases(definitions: &HashMap<String, CursusDefinition>) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
 
     #[test]
     fn parse_single_iter_cursus() {
@@ -506,5 +535,101 @@ mode = "turbo"
     fn parse_file_nonexistent() {
         let err = parse_file(Path::new("/nonexistent/path.toml")).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::NotFound);
+    }
+
+    #[test]
+    fn validate_prompts_found_locally() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join(".sgf/prompts")).unwrap();
+        std::fs::write(tmp.path().join(".sgf/prompts/build.md"), "prompt").unwrap();
+
+        let def = CursusDefinition {
+            description: "Test".to_string(),
+            alias: None,
+            trigger: "manual".to_string(),
+            auto_push: false,
+            iters: vec![IterDefinition {
+                name: "build".to_string(),
+                prompt: "build.md".to_string(),
+                mode: Mode::default(),
+                iterations: 1,
+                produces: None,
+                consumes: vec![],
+                auto_push: None,
+                next: None,
+                transitions: Transitions::default(),
+            }],
+        };
+
+        assert!(validate_prompts(tmp.path(), &def).is_ok());
+    }
+
+    #[test]
+    fn validate_prompts_missing() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join(".sgf/prompts")).unwrap();
+
+        let def = CursusDefinition {
+            description: "Test".to_string(),
+            alias: None,
+            trigger: "manual".to_string(),
+            auto_push: false,
+            iters: vec![IterDefinition {
+                name: "build".to_string(),
+                prompt: "missing.md".to_string(),
+                mode: Mode::default(),
+                iterations: 1,
+                produces: None,
+                consumes: vec![],
+                auto_push: None,
+                next: None,
+                transitions: Transitions::default(),
+            }],
+        };
+
+        let err = validate_prompts(tmp.path(), &def).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::NotFound);
+        assert!(err.to_string().contains("prompt not found: missing.md"));
+    }
+
+    #[test]
+    fn validate_prompts_partial_missing() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join(".sgf/prompts")).unwrap();
+        std::fs::write(tmp.path().join(".sgf/prompts/build.md"), "prompt").unwrap();
+
+        let def = CursusDefinition {
+            description: "Test".to_string(),
+            alias: None,
+            trigger: "manual".to_string(),
+            auto_push: false,
+            iters: vec![
+                IterDefinition {
+                    name: "build".to_string(),
+                    prompt: "build.md".to_string(),
+                    mode: Mode::default(),
+                    iterations: 1,
+                    produces: None,
+                    consumes: vec![],
+                    auto_push: None,
+                    next: None,
+                    transitions: Transitions::default(),
+                },
+                IterDefinition {
+                    name: "review".to_string(),
+                    prompt: "review.md".to_string(),
+                    mode: Mode::default(),
+                    iterations: 1,
+                    produces: None,
+                    consumes: vec![],
+                    auto_push: None,
+                    next: None,
+                    transitions: Transitions::default(),
+                },
+            ],
+        };
+
+        let err = validate_prompts(tmp.path(), &def).unwrap_err();
+        assert!(err.to_string().contains("prompt not found: review.md"));
     }
 }
