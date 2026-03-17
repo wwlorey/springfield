@@ -9,7 +9,14 @@ use std::os::unix::fs as unix_fs;
 
 use serde_json::Value;
 
-const DIRECTORIES: &[&str] = &[".pensa", ".forma", ".sgf", ".sgf/logs", ".sgf/run"];
+const DIRECTORIES: &[&str] = &[
+    ".pensa",
+    ".forma",
+    ".sgf",
+    ".sgf/cursus",
+    ".sgf/logs",
+    ".sgf/run",
+];
 
 struct SkeletonFile {
     path: &'static str,
@@ -590,6 +597,18 @@ mod tests {
             target.to_str().unwrap(),
             "AGENTS.md",
             "CLAUDE.md should point to AGENTS.md"
+        );
+    }
+
+    #[test]
+    fn cursus_directory_created() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+        run(tmp.path(), false).unwrap();
+
+        assert!(
+            tmp.path().join(".sgf/cursus").is_dir(),
+            ".sgf/cursus/ directory should be created"
         );
     }
 

@@ -632,4 +632,68 @@ mode = "turbo"
         let err = validate_prompts(tmp.path(), &def).unwrap_err();
         assert!(err.to_string().contains("prompt not found: review.md"));
     }
+
+    #[test]
+    fn parse_global_cursus_tomls() {
+        let tomls: &[(&str, &str, Option<&str>, &str, u32, bool)] = &[
+            (
+                "build",
+                "Implementation loop",
+                Some("b"),
+                "interactive",
+                30,
+                true,
+            ),
+            (
+                "spec",
+                "Spec creation and refinement",
+                Some("s"),
+                "interactive",
+                1,
+                true,
+            ),
+            ("verify", "Verification loop", Some("v"), "afk", 30, true),
+            ("test", "Test authoring loop", None, "afk", 30, true),
+            ("test-plan", "Test plan generation", None, "afk", 30, true),
+            ("doc", "Documentation generation", None, "afk", 1, true),
+            (
+                "issues-log",
+                "Issue triage and logging",
+                None,
+                "interactive",
+                1,
+                false,
+            ),
+        ];
+
+        let home = std::env::var("HOME").expect("HOME not set");
+        let cursus_dir = PathBuf::from(home).join(".sgf/cursus");
+
+        for (name, desc, alias, mode, iterations, auto_push) in tomls {
+            let path = cursus_dir.join(format!("{name}.toml"));
+            assert!(path.exists(), "missing cursus TOML: {name}.toml");
+
+            let def = parse_file(&path).unwrap_or_else(|e| {
+                panic!("failed to parse {name}.toml: {e}");
+            });
+            validate(&def).unwrap_or_else(|e| {
+                panic!("validation failed for {name}.toml: {e}");
+            });
+
+            assert_eq!(def.description, *desc, "{name}: description mismatch");
+            assert_eq!(def.alias.as_deref(), *alias, "{name}: alias mismatch");
+            assert_eq!(def.auto_push, *auto_push, "{name}: auto_push mismatch");
+            assert_eq!(def.iters.len(), 1, "{name}: expected single iter");
+
+            let iter = &def.iters[0];
+            assert_eq!(iter.name, *name, "{name}: iter name mismatch");
+            assert_eq!(iter.prompt, format!("{name}.md"), "{name}: prompt mismatch");
+            let expected_mode = match *mode {
+                "afk" => Mode::Afk,
+                _ => Mode::Interactive,
+            };
+            assert_eq!(iter.mode, expected_mode, "{name}: mode mismatch");
+            assert_eq!(iter.iterations, *iterations, "{name}: iterations mismatch");
+        }
+    }
 }

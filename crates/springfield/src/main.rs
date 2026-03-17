@@ -483,10 +483,10 @@ iterations = 30
     fn resolve_falls_back_to_legacy_prompt() {
         let tmp = TempDir::new().unwrap();
         fs::create_dir_all(tmp.path().join(".sgf/prompts")).unwrap();
-        fs::write(tmp.path().join(".sgf/prompts/build.md"), "prompt").unwrap();
+        fs::write(tmp.path().join(".sgf/prompts/deploy.md"), "prompt").unwrap();
 
-        let resolved = resolve_command(tmp.path(), "build").unwrap();
-        assert!(matches!(resolved, ResolvedCommand::Legacy(ref s) if s == "build"));
+        let resolved = resolve_command(tmp.path(), "deploy").unwrap();
+        assert!(matches!(resolved, ResolvedCommand::Legacy(ref s) if s == "deploy"));
     }
 
     #[test]
@@ -494,11 +494,15 @@ iterations = 30
         let tmp = TempDir::new().unwrap();
         let prompts_dir = tmp.path().join(".sgf/prompts");
         fs::create_dir_all(&prompts_dir).unwrap();
-        fs::write(prompts_dir.join("build.md"), "prompt").unwrap();
-        fs::write(prompts_dir.join("config.toml"), "[build]\nalias = \"b\"\n").unwrap();
+        fs::write(prompts_dir.join("deploy.md"), "prompt").unwrap();
+        fs::write(
+            prompts_dir.join("config.toml"),
+            "[deploy]\nalias = \"d\"\n",
+        )
+        .unwrap();
 
-        let resolved = resolve_command(tmp.path(), "b").unwrap();
-        assert!(matches!(resolved, ResolvedCommand::Legacy(ref s) if s == "build"));
+        let resolved = resolve_command(tmp.path(), "d").unwrap();
+        assert!(matches!(resolved, ResolvedCommand::Legacy(ref s) if s == "deploy"));
     }
 
     #[test]
