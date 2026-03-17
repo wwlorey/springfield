@@ -4,6 +4,7 @@ use std::path::Path;
 use clap::{Parser, Subcommand};
 
 use springfield::config::{self, Mode};
+use springfield::cursus;
 
 /// CLI entry point for Springfield — scaffolding, prompt delivery, loop orchestration.
 #[derive(Parser)]
@@ -116,16 +117,30 @@ fn parse_dynamic_args(args: Vec<OsString>) -> Result<DynamicArgs, String> {
     })
 }
 
-fn resolve_command(root: &Path, name: &str) -> Result<String, String> {
+#[derive(Debug)]
+enum ResolvedCommand {
+    Cursus(cursus::ResolvedCursus),
+    Legacy(String),
+}
+
+fn resolve_command(root: &Path, name: &str) -> Result<ResolvedCommand, String> {
+    if let Some(resolved) = cursus::resolve_cursus(root, name) {
+        return Ok(ResolvedCommand::Cursus(resolved));
+    }
+
+    if let Some(resolved) = cursus::resolve_alias(root, name) {
+        return Ok(ResolvedCommand::Cursus(resolved));
+    }
+
     if springfield::prompt::resolve(root, name).is_some() {
-        return Ok(name.to_string());
+        return Ok(ResolvedCommand::Legacy(name.to_string()));
     }
 
     let configs = config::load(root).map_err(|e| format!("failed to load config: {e}"))?;
     if let Some(resolved) = config::resolve_alias(&configs, name)
         && springfield::prompt::resolve(root, resolved).is_some()
     {
-        return Ok(resolved.to_string());
+        return Ok(ResolvedCommand::Legacy(resolved.to_string()));
     }
 
     Err(format!("unknown command: {name}"))
@@ -142,8 +157,69 @@ fn run_dynamic(args: DynamicArgs) -> ! {
         }
     };
 
-    let configs = config::load(&root).unwrap_or_default();
-    let cmd_config = configs.get(&resolved).cloned().unwrap_or_default();
+    match resolved {
+        ResolvedCommand::Cursus(resolved_cursus) => {
+            run_cursus_dispatch(&root, &args, resolved_cursus);
+        }
+        ResolvedCommand::Legacy(stage) => {
+            run_legacy_dispatch(&root, &args, &stage);
+        }
+    }
+}
+
+fn run_cursus_dispatch(root: &Path, args: &DynamicArgs, resolved: cursus::ResolvedCursus) -> ! {
+    let mut def = resolved.definition.clone();
+
+    if let Err(e) = cursus::toml::validate(&def) {
+        springfield::style::print_error(&format!("{}: {e}", resolved.name));
+        std::process::exit(1);
+    }
+    if let Err(e) = cursus::toml::validate_prompts(root, &def) {
+        springfield::style::print_error(&format!("{}: {e}", resolved.name));
+        std::process::exit(1);
+    }
+
+    if let Some(n) = args.iterations {
+        for iter in &mut def.iters {
+            iter.iterations = n;
+        }
+    }
+
+    if args.no_push {
+        def.auto_push = false;
+        for iter in &mut def.iters {
+            iter.auto_push = Some(false);
+        }
+    }
+
+    let mode_override = if args.afk {
+        Some(cursus::toml::Mode::Afk)
+    } else if args.interactive {
+        Some(cursus::toml::Mode::Interactive)
+    } else {
+        None
+    };
+
+    let config = cursus::runner::CursusConfig {
+        spec: args.spec.clone(),
+        mode_override,
+        no_push: args.no_push,
+        ralph_binary: None,
+        skip_preflight: false,
+    };
+
+    match cursus::runner::run_cursus(root, &resolved.name, &def, &config) {
+        Ok(code) => std::process::exit(code),
+        Err(e) => {
+            springfield::style::print_error(&format!("{}: {e}", resolved.name));
+            std::process::exit(1);
+        }
+    }
+}
+
+fn run_legacy_dispatch(root: &Path, args: &DynamicArgs, stage: &str) -> ! {
+    let configs = config::load(root).unwrap_or_default();
+    let cmd_config = configs.get(stage).cloned().unwrap_or_default();
 
     let mode = if args.afk {
         Mode::Afk
@@ -157,8 +233,8 @@ fn run_dynamic(args: DynamicArgs) -> ! {
     let no_push = args.no_push || !cmd_config.auto_push;
 
     let config = springfield::orchestrate::LoopConfig {
-        stage: resolved.clone(),
-        spec: args.spec,
+        stage: stage.to_string(),
+        spec: args.spec.clone(),
         mode,
         no_push,
         iterations,
@@ -166,10 +242,10 @@ fn run_dynamic(args: DynamicArgs) -> ! {
         skip_preflight: false,
     };
 
-    match springfield::orchestrate::run(&root, &config) {
+    match springfield::orchestrate::run(root, &config) {
         Ok(code) => std::process::exit(code),
         Err(e) => {
-            springfield::style::print_error(&format!("{resolved}: {e}"));
+            springfield::style::print_error(&format!("{stage}: {e}"));
             std::process::exit(1);
         }
     }
@@ -359,18 +435,62 @@ mod tests {
         assert!(err.contains("unexpected argument"));
     }
 
+    const SIMPLE_CURSUS: &str = r#"
+description = "Build loop"
+alias = "b"
+auto_push = true
+
+[[iters]]
+name = "build"
+prompt = "build.md"
+mode = "interactive"
+iterations = 30
+"#;
+
     #[test]
-    fn resolve_direct_prompt_file() {
+    fn resolve_cursus_toml_direct() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir_all(tmp.path().join(".sgf/cursus")).unwrap();
+        fs::write(tmp.path().join(".sgf/cursus/build.toml"), SIMPLE_CURSUS).unwrap();
+
+        let resolved = resolve_command(tmp.path(), "build").unwrap();
+        assert!(matches!(resolved, ResolvedCommand::Cursus(ref c) if c.name == "build"));
+    }
+
+    #[test]
+    fn resolve_cursus_toml_via_alias() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir_all(tmp.path().join(".sgf/cursus")).unwrap();
+        fs::write(tmp.path().join(".sgf/cursus/build.toml"), SIMPLE_CURSUS).unwrap();
+
+        let resolved = resolve_command(tmp.path(), "b").unwrap();
+        assert!(matches!(resolved, ResolvedCommand::Cursus(ref c) if c.name == "build"));
+    }
+
+    #[test]
+    fn resolve_cursus_takes_precedence_over_legacy() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir_all(tmp.path().join(".sgf/cursus")).unwrap();
+        fs::create_dir_all(tmp.path().join(".sgf/prompts")).unwrap();
+        fs::write(tmp.path().join(".sgf/cursus/build.toml"), SIMPLE_CURSUS).unwrap();
+        fs::write(tmp.path().join(".sgf/prompts/build.md"), "prompt").unwrap();
+
+        let resolved = resolve_command(tmp.path(), "build").unwrap();
+        assert!(matches!(resolved, ResolvedCommand::Cursus(_)));
+    }
+
+    #[test]
+    fn resolve_falls_back_to_legacy_prompt() {
         let tmp = TempDir::new().unwrap();
         fs::create_dir_all(tmp.path().join(".sgf/prompts")).unwrap();
         fs::write(tmp.path().join(".sgf/prompts/build.md"), "prompt").unwrap();
 
         let resolved = resolve_command(tmp.path(), "build").unwrap();
-        assert_eq!(resolved, "build");
+        assert!(matches!(resolved, ResolvedCommand::Legacy(ref s) if s == "build"));
     }
 
     #[test]
-    fn resolve_via_alias() {
+    fn resolve_falls_back_to_legacy_alias() {
         let tmp = TempDir::new().unwrap();
         let prompts_dir = tmp.path().join(".sgf/prompts");
         fs::create_dir_all(&prompts_dir).unwrap();
@@ -378,7 +498,7 @@ mod tests {
         fs::write(prompts_dir.join("config.toml"), "[build]\nalias = \"b\"\n").unwrap();
 
         let resolved = resolve_command(tmp.path(), "b").unwrap();
-        assert_eq!(resolved, "build");
+        assert!(matches!(resolved, ResolvedCommand::Legacy(ref s) if s == "build"));
     }
 
     #[test]
@@ -391,21 +511,25 @@ mod tests {
     }
 
     #[test]
-    fn resolve_prefers_direct_over_alias() {
+    fn resolve_prefers_cursus_direct_over_cursus_alias() {
         let tmp = TempDir::new().unwrap();
-        let prompts_dir = tmp.path().join(".sgf/prompts");
-        fs::create_dir_all(&prompts_dir).unwrap();
-        fs::write(prompts_dir.join("build.md"), "prompt").unwrap();
-        fs::write(prompts_dir.join("install.md"), "prompt").unwrap();
+        fs::create_dir_all(tmp.path().join(".sgf/cursus")).unwrap();
+        fs::write(tmp.path().join(".sgf/cursus/build.toml"), SIMPLE_CURSUS).unwrap();
         fs::write(
-            prompts_dir.join("config.toml"),
-            "[install]\nalias = \"build\"\n",
+            tmp.path().join(".sgf/cursus/test.toml"),
+            r#"
+description = "Test"
+alias = "build"
+
+[[iters]]
+name = "test"
+prompt = "test.md"
+"#,
         )
         .unwrap();
 
-        // "build" matches the prompt file directly, not the alias
-        // (though config validation would catch this shadow — testing resolution order)
+        // "build" matches the direct cursus TOML, not the alias from test.toml
         let resolved = resolve_command(tmp.path(), "build").unwrap();
-        assert_eq!(resolved, "build");
+        assert!(matches!(resolved, ResolvedCommand::Cursus(ref c) if c.name == "build"));
     }
 }
