@@ -644,14 +644,6 @@ mode = "turbo"
                 30,
                 true,
             ),
-            (
-                "spec",
-                "Spec creation and refinement",
-                Some("s"),
-                "interactive",
-                1,
-                true,
-            ),
             ("verify", "Verification loop", Some("v"), "afk", 30, true),
             ("test", "Test authoring loop", None, "afk", 30, true),
             ("test-plan", "Test plan generation", None, "afk", 30, true),
@@ -695,5 +687,65 @@ mode = "turbo"
             assert_eq!(iter.mode, expected_mode, "{name}: mode mismatch");
             assert_eq!(iter.iterations, *iterations, "{name}: iterations mismatch");
         }
+    }
+
+    #[test]
+    fn parse_global_spec_cursus_multi_iter() {
+        let home = std::env::var("HOME").expect("HOME not set");
+        let path = PathBuf::from(home).join(".sgf/cursus/spec.toml");
+        assert!(path.exists(), "missing cursus TOML: spec.toml");
+
+        let def = parse_file(&path).unwrap_or_else(|e| {
+            panic!("failed to parse spec.toml: {e}");
+        });
+        validate(&def).unwrap_or_else(|e| {
+            panic!("validation failed for spec.toml: {e}");
+        });
+
+        assert_eq!(def.description, "Spec creation and refinement");
+        assert_eq!(def.alias.as_deref(), Some("s"));
+        assert!(def.auto_push);
+        assert_eq!(def.iters.len(), 5);
+
+        let names: Vec<&str> = def.iters.iter().map(|i| i.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec!["discuss", "draft", "review", "revise", "approve"]
+        );
+
+        let discuss = &def.iters[0];
+        assert_eq!(discuss.mode, Mode::Interactive);
+        assert_eq!(discuss.produces.as_deref(), Some("discuss-summary"));
+        assert!(discuss.consumes.is_empty());
+        assert_eq!(discuss.auto_push, Some(false));
+
+        let draft = &def.iters[1];
+        assert_eq!(draft.mode, Mode::Afk);
+        assert_eq!(draft.iterations, 10);
+        assert_eq!(draft.produces.as_deref(), Some("draft-presentation"));
+        assert_eq!(draft.consumes, vec!["discuss-summary"]);
+
+        let review = &def.iters[2];
+        assert_eq!(review.mode, Mode::Interactive);
+        assert_eq!(
+            review.consumes,
+            vec!["discuss-summary", "draft-presentation"]
+        );
+        assert_eq!(review.transitions.on_reject.as_deref(), Some("draft"));
+        assert_eq!(review.transitions.on_revise.as_deref(), Some("revise"));
+
+        let revise = &def.iters[3];
+        assert_eq!(revise.mode, Mode::Afk);
+        assert_eq!(revise.iterations, 5);
+        assert_eq!(revise.produces.as_deref(), Some("draft-presentation"));
+        assert_eq!(
+            revise.consumes,
+            vec!["discuss-summary", "draft-presentation"]
+        );
+        assert_eq!(revise.next.as_deref(), Some("review"));
+
+        let approve = &def.iters[4];
+        assert_eq!(approve.mode, Mode::Interactive);
+        assert_eq!(approve.consumes, vec!["draft-presentation"]);
     }
 }

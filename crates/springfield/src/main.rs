@@ -495,11 +495,7 @@ iterations = 30
         let prompts_dir = tmp.path().join(".sgf/prompts");
         fs::create_dir_all(&prompts_dir).unwrap();
         fs::write(prompts_dir.join("deploy.md"), "prompt").unwrap();
-        fs::write(
-            prompts_dir.join("config.toml"),
-            "[deploy]\nalias = \"d\"\n",
-        )
-        .unwrap();
+        fs::write(prompts_dir.join("config.toml"), "[deploy]\nalias = \"d\"\n").unwrap();
 
         let resolved = resolve_command(tmp.path(), "d").unwrap();
         assert!(matches!(resolved, ResolvedCommand::Legacy(ref s) if s == "deploy"));
