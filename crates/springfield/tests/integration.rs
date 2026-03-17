@@ -3921,3 +3921,696 @@ fn harness_semaphore_limits_concurrency() {
         "peak concurrency was {peak_val}, expected >= 2 (semaphore should allow parallelism)"
     );
 }
+
+// ===========================================================================
+// Cursus: multi-iter integration (binary-level)
+// ===========================================================================
+
+const MULTI_ITER_CURSUS: &str = "\
+description = \"Multi-iter test cursus\"\n\
+auto_push = false\n\
+\n\
+[[iters]]\n\
+name = \"discuss\"\n\
+prompt = \"discuss.md\"\n\
+mode = \"afk\"\n\
+iterations = 1\n\
+produces = \"discuss-summary\"\n\
+\n\
+[[iters]]\n\
+name = \"draft\"\n\
+prompt = \"draft.md\"\n\
+mode = \"afk\"\n\
+iterations = 10\n\
+consumes = [\"discuss-summary\"]\n\
+produces = \"draft-presentation\"\n\
+\n\
+[[iters]]\n\
+name = \"review\"\n\
+prompt = \"review.md\"\n\
+mode = \"afk\"\n\
+iterations = 1\n\
+consumes = [\"discuss-summary\", \"draft-presentation\"]\n\
+next = \"approve\"\n\
+\n\
+[iters.transitions]\n\
+on_reject = \"draft\"\n\
+on_revise = \"revise\"\n\
+\n\
+[[iters]]\n\
+name = \"revise\"\n\
+prompt = \"revise.md\"\n\
+mode = \"afk\"\n\
+iterations = 5\n\
+consumes = [\"discuss-summary\", \"draft-presentation\"]\n\
+produces = \"draft-presentation\"\n\
+next = \"review\"\n\
+\n\
+[[iters]]\n\
+name = \"approve\"\n\
+prompt = \"approve.md\"\n\
+mode = \"afk\"\n\
+iterations = 1\n\
+consumes = [\"draft-presentation\"]\n\
+";
+
+fn setup_multi_iter_test() -> TempDir {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let cursus_dir = tmp.path().join(".sgf/cursus");
+    fs::create_dir_all(&cursus_dir).unwrap();
+    fs::write(cursus_dir.join("pipeline.toml"), MULTI_ITER_CURSUS).unwrap();
+
+    let prompts_dir = tmp.path().join(".sgf/prompts");
+    fs::create_dir_all(&prompts_dir).unwrap();
+    for name in &["discuss", "draft", "review", "revise", "approve"] {
+        fs::write(
+            prompts_dir.join(format!("{name}.md")),
+            format!("{name} prompt\n"),
+        )
+        .unwrap();
+    }
+    git_add_commit(tmp.path(), "add multi-iter cursus and prompts");
+    tmp
+}
+
+fn read_run_metadata(tmp: &Path) -> serde_json::Value {
+    let run_dir = tmp.join(".sgf/run");
+    let run_entries: Vec<_> = fs::read_dir(&run_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .collect();
+    assert!(
+        !run_entries.is_empty(),
+        "should have at least one run directory"
+    );
+    let meta_content = fs::read_to_string(run_entries[0].path().join("meta.json")).unwrap();
+    serde_json::from_str(&meta_content).unwrap()
+}
+
+fn get_run_id(tmp: &Path) -> String {
+    let run_dir = tmp.join(".sgf/run");
+    let run_entries: Vec<_> = fs::read_dir(&run_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .collect();
+    run_entries[0].file_name().to_string_lossy().to_string()
+}
+
+#[test]
+fn cursus_multi_iter_happy_path() {
+    let tmp = setup_multi_iter_test();
+
+    let mock_dir = TempDir::new().unwrap();
+    let invocation_log = mock_dir.path().join("invocations.txt");
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph.sh",
+        &format!(
+            concat!(
+                "#!/bin/sh\n",
+                "PROMPT=\"${{@: -1}}\"\n",
+                "echo \"$PROMPT\" >> \"{log}\"\n",
+                "# Write context for iters that produce\n",
+                "if echo \"$PROMPT\" | grep -q 'discuss.md'; then\n",
+                "  mkdir -p \"$SGF_RUN_CONTEXT\"\n",
+                "  echo 'Discussion summary content' > \"$SGF_RUN_CONTEXT/discuss-summary.md\"\n",
+                "fi\n",
+                "if echo \"$PROMPT\" | grep -q 'draft.md'; then\n",
+                "  mkdir -p \"$SGF_RUN_CONTEXT\"\n",
+                "  echo 'Draft presentation content' > \"$SGF_RUN_CONTEXT/draft-presentation.md\"\n",
+                "fi\n",
+                "touch \"${{PWD}}/.ralph-complete\"\n",
+                "exit 0\n",
+            ),
+            log = invocation_log.display()
+        ),
+    );
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["pipeline", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph),
+    );
+
+    assert!(
+        output.status.success(),
+        "multi-iter happy path should exit 0: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let invocations = fs::read_to_string(&invocation_log).unwrap();
+    let lines: Vec<&str> = invocations.lines().collect();
+    assert_eq!(
+        lines.len(),
+        4,
+        "should invoke 4 iters (revise skipped): {invocations}"
+    );
+    assert!(lines[0].contains("discuss.md"), "1st iter: discuss");
+    assert!(lines[1].contains("draft.md"), "2nd iter: draft");
+    assert!(lines[2].contains("review.md"), "3rd iter: review");
+    assert!(lines[3].contains("approve.md"), "4th iter: approve");
+
+    let meta = read_run_metadata(tmp.path());
+    assert_eq!(meta["status"].as_str().unwrap(), "completed");
+    assert_eq!(meta["iters_completed"].as_array().unwrap().len(), 4);
+}
+
+#[test]
+fn cursus_multi_iter_reject_transition() {
+    let tmp = setup_multi_iter_test();
+
+    let mock_dir = TempDir::new().unwrap();
+    let invocation_log = mock_dir.path().join("invocations.txt");
+    let call_count_file = mock_dir.path().join("review_count");
+    fs::write(&call_count_file, "0").unwrap();
+
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph.sh",
+        &format!(
+            concat!(
+                "#!/bin/sh\n",
+                "PROMPT=\"${{@: -1}}\"\n",
+                "echo \"$PROMPT\" >> \"{log}\"\n",
+                "mkdir -p \"$SGF_RUN_CONTEXT\" 2>/dev/null\n",
+                "if echo \"$PROMPT\" | grep -q 'discuss.md'; then\n",
+                "  echo 'summary' > \"$SGF_RUN_CONTEXT/discuss-summary.md\"\n",
+                "  touch \"${{PWD}}/.ralph-complete\"\n",
+                "elif echo \"$PROMPT\" | grep -q 'draft.md'; then\n",
+                "  echo 'draft' > \"$SGF_RUN_CONTEXT/draft-presentation.md\"\n",
+                "  touch \"${{PWD}}/.ralph-complete\"\n",
+                "elif echo \"$PROMPT\" | grep -q 'review.md'; then\n",
+                "  COUNT=$(cat \"{count}\")\n",
+                "  COUNT=$((COUNT + 1))\n",
+                "  echo $COUNT > \"{count}\"\n",
+                "  if [ $COUNT -eq 1 ]; then\n",
+                "    touch \"${{PWD}}/.ralph-reject\"\n",
+                "  else\n",
+                "    touch \"${{PWD}}/.ralph-complete\"\n",
+                "  fi\n",
+                "elif echo \"$PROMPT\" | grep -q 'approve.md'; then\n",
+                "  touch \"${{PWD}}/.ralph-complete\"\n",
+                "fi\n",
+                "exit 0\n",
+            ),
+            log = invocation_log.display(),
+            count = call_count_file.display()
+        ),
+    );
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["pipeline", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph),
+    );
+
+    assert!(
+        output.status.success(),
+        "reject transition should eventually complete: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let invocations = fs::read_to_string(&invocation_log).unwrap();
+    let lines: Vec<&str> = invocations.lines().collect();
+    // discuss -> draft -> review(reject) -> draft -> review(complete) -> approve
+    assert_eq!(
+        lines.len(),
+        6,
+        "should have 6 invocations (with reject loop): {invocations}"
+    );
+    assert!(lines[0].contains("discuss.md"));
+    assert!(lines[1].contains("draft.md"));
+    assert!(lines[2].contains("review.md"), "first review");
+    assert!(lines[3].contains("draft.md"), "back to draft after reject");
+    assert!(lines[4].contains("review.md"), "second review");
+    assert!(lines[5].contains("approve.md"));
+
+    let meta = read_run_metadata(tmp.path());
+    assert_eq!(meta["status"].as_str().unwrap(), "completed");
+    let completed = meta["iters_completed"].as_array().unwrap();
+    let outcomes: Vec<&str> = completed
+        .iter()
+        .map(|c| c["outcome"].as_str().unwrap())
+        .collect();
+    assert!(
+        outcomes.contains(&"reject"),
+        "should record reject outcome: {outcomes:?}"
+    );
+}
+
+#[test]
+fn cursus_multi_iter_revise_transition() {
+    let tmp = setup_multi_iter_test();
+
+    let mock_dir = TempDir::new().unwrap();
+    let invocation_log = mock_dir.path().join("invocations.txt");
+    let call_count_file = mock_dir.path().join("review_count");
+    fs::write(&call_count_file, "0").unwrap();
+
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph.sh",
+        &format!(
+            concat!(
+                "#!/bin/sh\n",
+                "PROMPT=\"${{@: -1}}\"\n",
+                "echo \"$PROMPT\" >> \"{log}\"\n",
+                "mkdir -p \"$SGF_RUN_CONTEXT\" 2>/dev/null\n",
+                "if echo \"$PROMPT\" | grep -q 'discuss.md'; then\n",
+                "  echo 'summary' > \"$SGF_RUN_CONTEXT/discuss-summary.md\"\n",
+                "  touch \"${{PWD}}/.ralph-complete\"\n",
+                "elif echo \"$PROMPT\" | grep -q 'draft.md'; then\n",
+                "  echo 'draft' > \"$SGF_RUN_CONTEXT/draft-presentation.md\"\n",
+                "  touch \"${{PWD}}/.ralph-complete\"\n",
+                "elif echo \"$PROMPT\" | grep -q 'review.md'; then\n",
+                "  COUNT=$(cat \"{count}\")\n",
+                "  COUNT=$((COUNT + 1))\n",
+                "  echo $COUNT > \"{count}\"\n",
+                "  if [ $COUNT -eq 1 ]; then\n",
+                "    touch \"${{PWD}}/.ralph-revise\"\n",
+                "  else\n",
+                "    touch \"${{PWD}}/.ralph-complete\"\n",
+                "  fi\n",
+                "elif echo \"$PROMPT\" | grep -q 'revise.md'; then\n",
+                "  echo 'revised draft' > \"$SGF_RUN_CONTEXT/draft-presentation.md\"\n",
+                "  touch \"${{PWD}}/.ralph-complete\"\n",
+                "elif echo \"$PROMPT\" | grep -q 'approve.md'; then\n",
+                "  touch \"${{PWD}}/.ralph-complete\"\n",
+                "fi\n",
+                "exit 0\n",
+            ),
+            log = invocation_log.display(),
+            count = call_count_file.display()
+        ),
+    );
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["pipeline", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph),
+    );
+
+    assert!(
+        output.status.success(),
+        "revise transition should eventually complete: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let invocations = fs::read_to_string(&invocation_log).unwrap();
+    let lines: Vec<&str> = invocations.lines().collect();
+    // discuss -> draft -> review(revise) -> revise -> review(complete) -> approve
+    assert_eq!(
+        lines.len(),
+        6,
+        "should have 6 invocations (with revise loop): {invocations}"
+    );
+    assert!(lines[0].contains("discuss.md"));
+    assert!(lines[1].contains("draft.md"));
+    assert!(lines[2].contains("review.md"), "first review");
+    assert!(
+        lines[3].contains("revise.md"),
+        "revise after review signals revise"
+    );
+    assert!(
+        lines[4].contains("review.md"),
+        "back to review after revise (next override)"
+    );
+    assert!(lines[5].contains("approve.md"));
+
+    let meta = read_run_metadata(tmp.path());
+    assert_eq!(meta["status"].as_str().unwrap(), "completed");
+    let completed = meta["iters_completed"].as_array().unwrap();
+    let outcomes: Vec<&str> = completed
+        .iter()
+        .map(|c| c["outcome"].as_str().unwrap())
+        .collect();
+    assert!(
+        outcomes.contains(&"revise"),
+        "should record revise outcome: {outcomes:?}"
+    );
+}
+
+#[test]
+fn cursus_multi_iter_context_passing() {
+    let tmp = setup_multi_iter_test();
+
+    let mock_dir = TempDir::new().unwrap();
+    let draft_args_file = mock_dir.path().join("draft_args.txt");
+
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph.sh",
+        &format!(
+            concat!(
+                "#!/bin/sh\n",
+                "PROMPT=\"${{@: -1}}\"\n",
+                "mkdir -p \"$SGF_RUN_CONTEXT\" 2>/dev/null\n",
+                "if echo \"$PROMPT\" | grep -q 'discuss.md'; then\n",
+                "  echo 'Key insight from discussion' > \"$SGF_RUN_CONTEXT/discuss-summary.md\"\n",
+                "  touch \"${{PWD}}/.ralph-complete\"\n",
+                "elif echo \"$PROMPT\" | grep -q 'draft.md'; then\n",
+                "  echo \"$@\" > \"{draft_args}\"\n",
+                "  echo 'Draft content' > \"$SGF_RUN_CONTEXT/draft-presentation.md\"\n",
+                "  touch \"${{PWD}}/.ralph-complete\"\n",
+                "elif echo \"$PROMPT\" | grep -q 'review.md'; then\n",
+                "  touch \"${{PWD}}/.ralph-complete\"\n",
+                "elif echo \"$PROMPT\" | grep -q 'approve.md'; then\n",
+                "  touch \"${{PWD}}/.ralph-complete\"\n",
+                "fi\n",
+                "exit 0\n",
+            ),
+            draft_args = draft_args_file.display()
+        ),
+    );
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["pipeline", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph),
+    );
+
+    assert!(
+        output.status.success(),
+        "context passing test should exit 0: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Verify that draft received context from discuss via --prompt-file
+    // The consumed content is written to a _consumed.md file and passed via --prompt-file
+    let draft_args = fs::read_to_string(&draft_args_file).unwrap();
+    assert!(
+        draft_args.contains("--prompt-file"),
+        "draft should receive consumed context via --prompt-file, got: {draft_args}"
+    );
+
+    // Verify the context file was written and contains the consumed content
+    let run_id = get_run_id(tmp.path());
+    let context_dir = tmp.path().join(format!(".sgf/run/{run_id}/context"));
+    assert!(context_dir.exists(), "context directory should exist");
+
+    // Verify discuss-summary was produced
+    let summary_path = context_dir.join("discuss-summary.md");
+    assert!(
+        summary_path.exists(),
+        "discuss-summary.md should exist in context dir"
+    );
+    let summary_content = fs::read_to_string(&summary_path).unwrap();
+    assert!(
+        summary_content.contains("Key insight from discussion"),
+        "summary should contain discuss output"
+    );
+}
+
+#[test]
+fn cursus_multi_iter_stall_recovery() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let cursus_dir = tmp.path().join(".sgf/cursus");
+    fs::create_dir_all(&cursus_dir).unwrap();
+    // Two-iter cursus: discuss completes, draft stalls
+    fs::write(
+        cursus_dir.join("pipeline.toml"),
+        concat!(
+            "description = \"Stall test\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iters]]\n",
+            "name = \"discuss\"\n",
+            "prompt = \"discuss.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+            "\n",
+            "[[iters]]\n",
+            "name = \"draft\"\n",
+            "prompt = \"draft.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 3\n",
+        ),
+    )
+    .unwrap();
+
+    let prompts_dir = tmp.path().join(".sgf/prompts");
+    fs::create_dir_all(&prompts_dir).unwrap();
+    fs::write(prompts_dir.join("discuss.md"), "discuss prompt\n").unwrap();
+    fs::write(prompts_dir.join("draft.md"), "draft prompt\n").unwrap();
+    git_add_commit(tmp.path(), "add stall cursus");
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph.sh",
+        concat!(
+            "#!/bin/sh\n",
+            "PROMPT=\"${@: -1}\"\n",
+            "if echo \"$PROMPT\" | grep -q 'discuss.md'; then\n",
+            "  touch \"${PWD}/.ralph-complete\"\n",
+            "fi\n",
+            "# draft does NOT touch any sentinel -> exhaustion\n",
+            "exit 0\n",
+        ),
+    );
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["pipeline", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph),
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "stalled pipeline should exit 2: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let meta = read_run_metadata(tmp.path());
+    assert_eq!(
+        meta["status"].as_str().unwrap(),
+        "stalled",
+        "run status should be stalled"
+    );
+    assert_eq!(
+        meta["current_iter"].as_str().unwrap(),
+        "draft",
+        "should stall at draft iter"
+    );
+    let completed = meta["iters_completed"].as_array().unwrap();
+    assert!(completed.len() >= 1, "discuss should be in completed iters");
+    assert_eq!(
+        completed[0]["name"].as_str().unwrap(),
+        "discuss",
+        "first completed iter should be discuss"
+    );
+
+    // Stall banner should mention resume command
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("STALLED") || stderr.contains("stalled"),
+        "stderr should contain stall indication: {stderr}"
+    );
+}
+
+#[test]
+fn cursus_multi_iter_resume_stalled_run() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    // Create a two-iter cursus where draft stalls, then we resume
+    let cursus_dir = tmp.path().join(".sgf/cursus");
+    fs::create_dir_all(&cursus_dir).unwrap();
+    fs::write(
+        cursus_dir.join("pipeline.toml"),
+        concat!(
+            "description = \"Resume test\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iters]]\n",
+            "name = \"discuss\"\n",
+            "prompt = \"discuss.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+            "\n",
+            "[[iters]]\n",
+            "name = \"draft\"\n",
+            "prompt = \"draft.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+        ),
+    )
+    .unwrap();
+
+    let prompts_dir = tmp.path().join(".sgf/prompts");
+    fs::create_dir_all(&prompts_dir).unwrap();
+    fs::write(prompts_dir.join("discuss.md"), "discuss prompt\n").unwrap();
+    fs::write(prompts_dir.join("draft.md"), "draft prompt\n").unwrap();
+    git_add_commit(tmp.path(), "add resume cursus");
+
+    // First run: discuss completes, draft stalls
+    let mock_dir = TempDir::new().unwrap();
+    let mock_ralph_stall = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph_stall.sh",
+        concat!(
+            "#!/bin/sh\n",
+            "PROMPT=\"${@: -1}\"\n",
+            "if echo \"$PROMPT\" | grep -q 'discuss.md'; then\n",
+            "  touch \"${PWD}/.ralph-complete\"\n",
+            "fi\n",
+            "exit 0\n",
+        ),
+    );
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["pipeline", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph_stall),
+    );
+
+    assert_eq!(output.status.code(), Some(2), "should stall");
+
+    let run_id = get_run_id(tmp.path());
+
+    // Now resume: mock ralph that completes draft
+    let mock_ralph_complete = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph_complete.sh",
+        "#!/bin/sh\ntouch \"${PWD}/.ralph-complete\"\nexit 0\n",
+    );
+
+    // Resume sends "2\n" (skip) via stdin to skip the stalled iter
+    // Resume prompts interactively for action (1=retry, 2=skip, 3=abort).
+    // Pipe "2\n" (skip) via a child process to test the skip path.
+    let _permit = SGF_PERMITS.acquire();
+    let mut child = sgf_cmd(tmp.path())
+        .args(["resume", &run_id])
+        .env("SGF_RALPH_BINARY", &mock_ralph_complete)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn sgf resume");
+
+    // Write "2" (skip) to stdin
+    {
+        use std::io::Write;
+        let stdin = child.stdin.as_mut().unwrap();
+        stdin.write_all(b"2\n").unwrap();
+    }
+
+    let resume_output = child
+        .wait_with_output()
+        .expect("failed to wait for sgf resume");
+    drop(_permit);
+    let _ = &resume_output;
+
+    let meta = read_run_metadata(tmp.path());
+    // After skip, the pipeline should complete since draft was the last iter
+    assert_eq!(
+        meta["status"].as_str().unwrap(),
+        "completed",
+        "run should be completed after skipping final iter, got: {}. stderr: {}",
+        meta["status"].as_str().unwrap(),
+        String::from_utf8_lossy(&resume_output.stderr)
+    );
+    assert_eq!(
+        meta["cursus"].as_str().unwrap(),
+        "pipeline",
+        "cursus name should be preserved"
+    );
+    let completed = meta["iters_completed"].as_array().unwrap();
+    assert!(
+        completed.len() >= 1,
+        "at least discuss should be in completed"
+    );
+    assert_eq!(completed[0]["name"].as_str().unwrap(), "discuss");
+}
+
+#[test]
+fn cursus_layered_resolution_local_overrides_global() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    // Set up global cursus (via FAKE_HOME)
+    let global_cursus = fake_home().join(".sgf/cursus");
+    fs::create_dir_all(&global_cursus).unwrap();
+    fs::write(
+        global_cursus.join("layered.toml"),
+        concat!(
+            "description = \"Global layered\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iters]]\n",
+            "name = \"global-iter\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+        ),
+    )
+    .unwrap();
+
+    // Set up local cursus (overrides global)
+    let local_cursus = tmp.path().join(".sgf/cursus");
+    fs::create_dir_all(&local_cursus).unwrap();
+    fs::write(
+        local_cursus.join("layered.toml"),
+        concat!(
+            "description = \"Local layered\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iters]]\n",
+            "name = \"local-iter\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+        ),
+    )
+    .unwrap();
+
+    // Prompt file (build.md already exists in global prompts)
+    let prompts_dir = tmp.path().join(".sgf/prompts");
+    fs::create_dir_all(&prompts_dir).unwrap();
+    fs::write(prompts_dir.join("build.md"), "Local build prompt\n").unwrap();
+    git_add_commit(tmp.path(), "add layered cursus");
+
+    let mock_dir = TempDir::new().unwrap();
+    let args_file = mock_dir.path().join("ralph_args.txt");
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph.sh",
+        &format!(
+            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.ralph-complete\"\nexit 0\n",
+            args_file.display()
+        ),
+    );
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["layered", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph),
+    );
+
+    assert!(
+        output.status.success(),
+        "layered resolution should exit 0: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Verify the local iter ran (not the global one)
+    let meta = read_run_metadata(tmp.path());
+    assert_eq!(meta["status"].as_str().unwrap(), "completed");
+    let completed = meta["iters_completed"].as_array().unwrap();
+    assert_eq!(completed.len(), 1);
+    assert_eq!(
+        completed[0]["name"].as_str().unwrap(),
+        "local-iter",
+        "should run local iter, not global"
+    );
+
+    // Clean up global cursus to not interfere with other tests
+    let _ = fs::remove_file(global_cursus.join("layered.toml"));
+}
