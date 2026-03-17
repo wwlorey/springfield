@@ -2,7 +2,8 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::LazyLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Condvar, LazyLock, Mutex};
 use std::time::Duration;
 
 use tempfile::TempDir;
@@ -91,10 +92,81 @@ fn sgf_bin() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_sgf"))
 }
 
+struct SgfSemaphore {
+    mutex: Mutex<usize>,
+    condvar: Condvar,
+    max: usize,
+}
+
+impl SgfSemaphore {
+    fn new(max: usize) -> Self {
+        Self {
+            mutex: Mutex::new(0),
+            condvar: Condvar::new(),
+            max,
+        }
+    }
+
+    fn acquire(&self) -> SemaphoreGuard<'_> {
+        let mut count = self.mutex.lock().unwrap();
+        while *count >= self.max {
+            count = self.condvar.wait(count).unwrap();
+        }
+        *count += 1;
+        SemaphoreGuard { sem: self }
+    }
+}
+
+struct SemaphoreGuard<'a> {
+    sem: &'a SgfSemaphore,
+}
+
+impl Drop for SemaphoreGuard<'_> {
+    fn drop(&mut self) {
+        let mut count = self.sem.mutex.lock().unwrap();
+        *count -= 1;
+        self.sem.condvar.notify_one();
+    }
+}
+
+#[allow(dead_code)]
+static SGF_PERMITS: LazyLock<SgfSemaphore> = LazyLock::new(|| {
+    let max = std::env::var("SGF_TEST_MAX_CONCURRENT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(8);
+    SgfSemaphore::new(max)
+});
+
+static MOCK_BINS: LazyLock<(TempDir, String)> = LazyLock::new(|| {
+    let mock_dir = TempDir::new().unwrap();
+    create_mock_script(mock_dir.path(), "pn", "#!/bin/sh\nexit 0\n");
+    create_mock_script(mock_dir.path(), "fm", "#!/bin/sh\nexit 0\n");
+    let path = format!(
+        "{}:{}",
+        mock_dir.path().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    (mock_dir, path)
+});
+
+#[allow(dead_code)]
+fn mock_bin_path() -> &'static str {
+    &MOCK_BINS.1
+}
+
+#[allow(dead_code)]
+fn run_sgf(cmd: &mut Command) -> std::process::Output {
+    let _permit = SGF_PERMITS.acquire();
+    cmd.output().expect("failed to run sgf")
+}
+
 fn sgf_cmd(dir: &Path) -> Command {
     let mut cmd = Command::new(sgf_bin());
     cmd.current_dir(dir);
     cmd.env("HOME", fake_home());
+    cmd.env("PATH", mock_bin_path());
+    cmd.env("SGF_SKIP_PREFLIGHT", "1");
     cmd
 }
 
@@ -3549,5 +3621,38 @@ fn metadata_survives_interrupted_session() {
     assert!(
         meta["loop_id"].as_str().unwrap().starts_with("build-auth-"),
         "loop_id should start with build-auth-"
+    );
+}
+
+// ===========================================================================
+// Test harness infrastructure
+// ===========================================================================
+
+#[test]
+fn harness_semaphore_limits_concurrency() {
+    let sem = SgfSemaphore::new(3);
+    let peak = AtomicUsize::new(0);
+    let current = AtomicUsize::new(0);
+
+    std::thread::scope(|s| {
+        for _ in 0..10 {
+            s.spawn(|| {
+                let _permit = sem.acquire();
+                let val = current.fetch_add(1, Ordering::SeqCst) + 1;
+                peak.fetch_max(val, Ordering::SeqCst);
+                std::thread::sleep(Duration::from_millis(20));
+                current.fetch_sub(1, Ordering::SeqCst);
+            });
+        }
+    });
+
+    let peak_val = peak.load(Ordering::SeqCst);
+    assert!(
+        peak_val <= 3,
+        "peak concurrency was {peak_val}, expected <= 3"
+    );
+    assert!(
+        peak_val >= 2,
+        "peak concurrency was {peak_val}, expected >= 2 (semaphore should allow parallelism)"
     );
 }
