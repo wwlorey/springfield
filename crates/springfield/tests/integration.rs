@@ -129,7 +129,6 @@ impl Drop for SemaphoreGuard<'_> {
     }
 }
 
-#[allow(dead_code)]
 static SGF_PERMITS: LazyLock<SgfSemaphore> = LazyLock::new(|| {
     let max = std::env::var("SGF_TEST_MAX_CONCURRENT")
         .ok()
@@ -150,12 +149,10 @@ static MOCK_BINS: LazyLock<(TempDir, String)> = LazyLock::new(|| {
     (mock_dir, path)
 });
 
-#[allow(dead_code)]
 fn mock_bin_path() -> &'static str {
     &MOCK_BINS.1
 }
 
-#[allow(dead_code)]
 fn run_sgf(cmd: &mut Command) -> std::process::Output {
     let _permit = SGF_PERMITS.acquire();
     cmd.output().expect("failed to run sgf")
@@ -223,20 +220,6 @@ fn create_mock_script(dir: &Path, name: &str, script: &str) -> PathBuf {
     fs::write(&path, script).unwrap();
     fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
     path
-}
-
-/// Create a separate temp dir with mock `pn` and `fm` (both exit 0 for
-/// everything) and return (TempDir, PATH string with mock dir prepended).
-fn setup_mock_pn() -> (TempDir, String) {
-    let mock_dir = TempDir::new().unwrap();
-    create_mock_script(mock_dir.path(), "pn", "#!/bin/sh\nexit 0\n");
-    create_mock_script(mock_dir.path(), "fm", "#!/bin/sh\nexit 0\n");
-    let path = format!(
-        "{}:{}",
-        mock_dir.path().display(),
-        std::env::var("PATH").unwrap_or_default()
-    );
-    (mock_dir, path)
 }
 
 /// Run `sgf init` in the given dir, then commit all generated files.
@@ -629,8 +612,6 @@ fn build_invokes_ralph_with_correct_flags() {
     );
     create_spec_and_commit(tmp.path(), "auth");
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     // Mock ralph that logs all args
     let mock_dir = TempDir::new().unwrap();
     let args_file = mock_dir.path().join("ralph_args.txt");
@@ -646,8 +627,6 @@ fn build_invokes_ralph_with_correct_flags() {
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("PATH", &mock_path)
         .output()
         .unwrap();
 
@@ -676,8 +655,6 @@ fn build_creates_and_cleans_pid_file() {
     sgf_init_and_commit(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     // Mock ralph that checks for PID file existence during execution
     let mock_dir = TempDir::new().unwrap();
     let state_file = mock_dir.path().join("pid_state.txt");
@@ -693,8 +670,6 @@ fn build_creates_and_cleans_pid_file() {
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("PATH", &mock_path)
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -722,8 +697,6 @@ fn afk_passes_log_file_to_ralph() {
     sgf_init_and_commit(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     let mock_dir = TempDir::new().unwrap();
     let mock_ralph = create_mock_script(
         mock_dir.path(),
@@ -734,8 +707,6 @@ fn afk_passes_log_file_to_ralph() {
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("PATH", &mock_path)
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -756,8 +727,6 @@ fn spec_runs_interactive_via_cl() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     let mock_cl_dir = TempDir::new().unwrap();
     let args_file = mock_cl_dir.path().join("agent_args.txt");
     create_mock_script(
@@ -768,7 +737,7 @@ fn spec_runs_interactive_via_cl() {
             args_file.display()
         ),
     );
-    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
     let output = sgf_cmd(tmp.path())
         .arg("spec")
@@ -796,8 +765,6 @@ fn issues_log_runs_interactive_via_cl() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     let mock_cl_dir = TempDir::new().unwrap();
     let args_file = mock_cl_dir.path().join("agent_args.txt");
     create_mock_script(
@@ -808,7 +775,7 @@ fn issues_log_runs_interactive_via_cl() {
             args_file.display()
         ),
     );
-    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
     let output = sgf_cmd(tmp.path())
         .args(["issues-log"])
@@ -841,8 +808,6 @@ fn recovery_cleans_stale_state() {
     sgf_init_and_commit(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     // Mock ralph that records the state of the working directory
     let mock_dir = TempDir::new().unwrap();
     let state_file = mock_dir.path().join("recovery_state.txt");
@@ -872,8 +837,6 @@ fn recovery_cleans_stale_state() {
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("PATH", &mock_path)
         .output()
         .unwrap();
     assert!(
@@ -901,8 +864,6 @@ fn recovery_skips_when_live_pid() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
-
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
 
     // Mock ralph that records working dir state
     let mock_dir = TempDir::new().unwrap();
@@ -936,8 +897,6 @@ fn recovery_skips_when_live_pid() {
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("PATH", &mock_path)
         .output()
         .unwrap();
     assert!(
@@ -1038,8 +997,6 @@ fn end_to_end_build_passes_raw_path_and_spec() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     // Create spec file (validate requires it)
     fs::create_dir_all(tmp.path().join("specs")).unwrap();
     fs::write(tmp.path().join("specs/auth.md"), "# Auth spec").unwrap();
@@ -1062,7 +1019,6 @@ fn end_to_end_build_passes_raw_path_and_spec() {
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("PATH", &mock_path)
         .output()
         .unwrap();
 
@@ -1143,8 +1099,6 @@ fn build_without_spec_omits_spec_flag_and_env() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     let mock_dir = TempDir::new().unwrap();
     let args_file = mock_dir.path().join("ralph_args.txt");
     let env_file = mock_dir.path().join("ralph_env.txt");
@@ -1161,8 +1115,6 @@ fn build_without_spec_omits_spec_flag_and_env() {
     let output = sgf_cmd(tmp.path())
         .args(["build", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("PATH", &mock_path)
         .output()
         .unwrap();
 
@@ -1208,8 +1160,6 @@ fn build_with_spec_still_passes_spec_flag_and_env() {
     sgf_init_and_commit(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     let mock_dir = TempDir::new().unwrap();
     let args_file = mock_dir.path().join("ralph_args.txt");
     let env_file = mock_dir.path().join("ralph_env.txt");
@@ -1226,8 +1176,6 @@ fn build_with_spec_still_passes_spec_flag_and_env() {
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("PATH", &mock_path)
         .output()
         .unwrap();
 
@@ -1259,12 +1207,8 @@ fn build_nonexistent_spec_fails_with_error() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     let output = sgf_cmd(tmp.path())
         .args(["build", "nonexistent", "-a"])
-        .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("PATH", &mock_path)
         .output()
         .unwrap();
 
@@ -1291,16 +1235,12 @@ fn build_valid_spec_proceeds() {
     sgf_init_and_commit(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     let mock_dir = TempDir::new().unwrap();
     let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 0\n");
 
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("PATH", &mock_path)
         .output()
         .unwrap();
 
@@ -1362,7 +1302,6 @@ fn spec_auto_pushes_after_session_with_new_commits() {
         "[spec]\nmode = \"interactive\"\nauto_push = true\n",
     );
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
     let bare = setup_bare_remote(tmp.path());
 
     let head_before = bare_remote_head(bare.path());
@@ -1384,7 +1323,7 @@ fn spec_auto_pushes_after_session_with_new_commits() {
             root = tmp.path().display()
         ),
     );
-    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
     let output = sgf_cmd(tmp.path())
         .arg("spec")
@@ -1417,7 +1356,6 @@ fn spec_no_push_suppresses_auto_push() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
     let bare = setup_bare_remote(tmp.path());
 
     let head_before = bare_remote_head(bare.path());
@@ -1439,7 +1377,7 @@ fn spec_no_push_suppresses_auto_push() {
             root = tmp.path().display()
         ),
     );
-    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
     let output = sgf_cmd(tmp.path())
         .args(["spec", "--no-push"])
@@ -1472,7 +1410,6 @@ fn spec_no_push_when_head_unchanged() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
     let bare = setup_bare_remote(tmp.path());
 
     let head_before = bare_remote_head(bare.path());
@@ -1480,7 +1417,7 @@ fn spec_no_push_when_head_unchanged() {
     // Mock cl that does NOT create any commits
     let mock_cl_dir = TempDir::new().unwrap();
     create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
-    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
     let output = sgf_cmd(tmp.path())
         .arg("spec")
@@ -1521,7 +1458,6 @@ fn doc_auto_pushes_after_session_with_new_commits() {
         "[doc]\nmode = \"interactive\"\nauto_push = true\n",
     );
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
     let bare = setup_bare_remote(tmp.path());
 
     let head_before = bare_remote_head(bare.path());
@@ -1542,7 +1478,7 @@ fn doc_auto_pushes_after_session_with_new_commits() {
             root = tmp.path().display()
         ),
     );
-    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
     let output = sgf_cmd(tmp.path())
         .arg("doc")
@@ -1575,8 +1511,6 @@ fn doc_runs_interactive_via_cl() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     let mock_cl_dir = TempDir::new().unwrap();
     let args_file = mock_cl_dir.path().join("agent_args.txt");
     create_mock_script(
@@ -1587,7 +1521,7 @@ fn doc_runs_interactive_via_cl() {
             args_file.display()
         ),
     );
-    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
     let output = sgf_cmd(tmp.path())
         .arg("doc")
@@ -1615,7 +1549,6 @@ fn doc_no_push_suppresses_auto_push() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
     let bare = setup_bare_remote(tmp.path());
 
     let head_before = bare_remote_head(bare.path());
@@ -1636,7 +1569,7 @@ fn doc_no_push_suppresses_auto_push() {
             root = tmp.path().display()
         ),
     );
-    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
     let output = sgf_cmd(tmp.path())
         .args(["doc", "--no-push"])
@@ -1669,14 +1602,13 @@ fn doc_no_push_when_head_unchanged() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
     let bare = setup_bare_remote(tmp.path());
 
     let head_before = bare_remote_head(bare.path());
 
     let mock_cl_dir = TempDir::new().unwrap();
     create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
-    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
     let output = sgf_cmd(tmp.path())
         .arg("doc")
@@ -1738,7 +1670,6 @@ fn double_ctrl_c_exits_130() {
     sgf_init_and_commit(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
     let mock_dir = TempDir::new().unwrap();
     let mock_ralph = create_slow_mock_ralph(mock_dir.path());
     let ready_file = mock_dir.path().join("sgf_ready");
@@ -1746,9 +1677,7 @@ fn double_ctrl_c_exits_130() {
     let child = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
         .env("SGF_READY_FILE", &ready_file)
-        .env("PATH", &mock_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -1776,8 +1705,6 @@ fn single_ctrl_c_continues_after_timeout() {
     sgf_init_and_commit(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     let mock_dir = TempDir::new().unwrap();
     let mock_ralph = create_mock_script(
         mock_dir.path(),
@@ -1789,9 +1716,7 @@ fn single_ctrl_c_continues_after_timeout() {
     let child = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
         .env("SGF_READY_FILE", &ready_file)
-        .env("PATH", &mock_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -1817,7 +1742,6 @@ fn sigterm_exits_immediately() {
     sgf_init_and_commit(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
     let mock_dir = TempDir::new().unwrap();
     let mock_ralph = create_slow_mock_ralph(mock_dir.path());
     let ready_file = mock_dir.path().join("sgf_ready");
@@ -1825,9 +1749,7 @@ fn sigterm_exits_immediately() {
     let child = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
         .env("SGF_READY_FILE", &ready_file)
-        .env("PATH", &mock_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -1853,7 +1775,6 @@ fn confirmation_message_on_first_ctrl_c() {
     sgf_init_and_commit(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
     let mock_dir = TempDir::new().unwrap();
     let mock_ralph = create_slow_mock_ralph(mock_dir.path());
     let ready_file = mock_dir.path().join("sgf_ready");
@@ -1861,9 +1782,7 @@ fn confirmation_message_on_first_ctrl_c() {
     let child = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
         .env("SGF_READY_FILE", &ready_file)
-        .env("PATH", &mock_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -1891,7 +1810,6 @@ fn double_ctrl_d_exits_130() {
     sgf_init_and_commit(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
     let mock_dir = TempDir::new().unwrap();
     let mock_ralph = create_slow_mock_ralph(mock_dir.path());
     let ready_file = mock_dir.path().join("sgf_ready");
@@ -1901,10 +1819,8 @@ fn double_ctrl_d_exits_130() {
     let mut child = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
         .env("SGF_MONITOR_STDIN", "1")
         .env("SGF_READY_FILE", &ready_file)
-        .env("PATH", &mock_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1948,8 +1864,6 @@ fn mixed_ctrl_c_then_ctrl_d_no_shutdown() {
     sgf_init_and_commit(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     let mock_dir = TempDir::new().unwrap();
     let mock_ralph = create_mock_script(
         mock_dir.path(),
@@ -1961,10 +1875,8 @@ fn mixed_ctrl_c_then_ctrl_d_no_shutdown() {
     let mut child = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
         .env("SGF_MONITOR_STDIN", "1")
         .env("SGF_READY_FILE", &ready_file)
-        .env("PATH", &mock_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -2019,7 +1931,6 @@ fn double_ctrl_c_kills_entire_process_tree() {
     sgf_init_and_commit(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
     let mock_dir = TempDir::new().unwrap();
     let grandchild_pid_file = mock_dir.path().join("grandchild.pid");
     let ready_file = mock_dir.path().join("sgf_ready");
@@ -2046,9 +1957,7 @@ fn double_ctrl_c_kills_entire_process_tree() {
     let child = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
         .env("SGF_READY_FILE", &ready_file)
-        .env("PATH", &mock_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -2121,7 +2030,6 @@ fn afk_mode_child_gets_new_session() {
     sgf_init_and_commit(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
     let mock_dir = TempDir::new().unwrap();
     let sid_file = mock_dir.path().join("sid_info.txt");
 
@@ -2146,8 +2054,6 @@ fn afk_mode_child_gets_new_session() {
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("PATH", &mock_path)
         .output()
         .unwrap();
     assert!(
@@ -2183,8 +2089,6 @@ fn default_build_without_config_runs_interactive() {
     sgf_init_and_commit(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     let mock_cl_dir = TempDir::new().unwrap();
     let args_file = mock_cl_dir.path().join("agent_args.txt");
     create_mock_script(
@@ -2195,7 +2099,7 @@ fn default_build_without_config_runs_interactive() {
             args_file.display()
         ),
     );
-    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
     // Without config.toml, build defaults to interactive mode (cl, not ralph)
     let output = sgf_cmd(tmp.path())
@@ -2231,8 +2135,6 @@ fn interactive_mode_stdin_eof_does_not_trigger_shutdown() {
     sgf_init_and_commit(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     // Mock cl that sleeps then exits 0
     let mock_cl_dir = TempDir::new().unwrap();
     create_mock_script(
@@ -2240,7 +2142,7 @@ fn interactive_mode_stdin_eof_does_not_trigger_shutdown() {
         "cl",
         "#!/bin/bash\ntrap '' INT\nsleep 2\nexit 0\n",
     );
-    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
     // Interactive mode (default without config): monitor_stdin should be false,
     // so closing stdin should NOT cause shutdown.
@@ -2274,8 +2176,6 @@ fn afk_monitor_stdin_eof_triggers_shutdown() {
     sgf_init_and_commit(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     let mock_dir = TempDir::new().unwrap();
     let mock_ralph = create_slow_mock_ralph(mock_dir.path());
 
@@ -2285,10 +2185,8 @@ fn afk_monitor_stdin_eof_triggers_shutdown() {
     let mut child = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
         .env("SGF_MONITOR_STDIN", "1")
         .env("SGF_READY_FILE", &ready_file)
-        .env("PATH", &mock_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -2328,8 +2226,6 @@ fn config_afk_mode_invokes_ralph_with_afk_flag() {
     );
     create_spec_and_commit(tmp.path(), "auth");
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     let mock_dir = TempDir::new().unwrap();
     let args_file = mock_dir.path().join("ralph_args.txt");
     let mock_ralph = create_mock_script(
@@ -2343,12 +2239,11 @@ fn config_afk_mode_invokes_ralph_with_afk_flag() {
 
     let mock_cl_dir = TempDir::new().unwrap();
     create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
-    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
         .env("PATH", &mock_path_with_cl)
         .output()
         .unwrap();
@@ -2376,8 +2271,6 @@ fn interactive_override_does_not_invoke_ralph() {
     );
     create_spec_and_commit(tmp.path(), "auth");
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     let mock_cl_dir = TempDir::new().unwrap();
     let args_file = mock_cl_dir.path().join("agent_args.txt");
     create_mock_script(
@@ -2388,7 +2281,7 @@ fn interactive_override_does_not_invoke_ralph() {
             args_file.display()
         ),
     );
-    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
     // -i overrides config mode=afk to interactive
     let output = sgf_cmd(tmp.path())
@@ -2421,8 +2314,6 @@ fn alias_resolves_to_prompt() {
 
     create_spec_and_commit(tmp.path(), "auth");
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     let mock_dir = TempDir::new().unwrap();
     let args_file = mock_dir.path().join("ralph_args.txt");
     let mock_ralph = create_mock_script(
@@ -2437,8 +2328,6 @@ fn alias_resolves_to_prompt() {
     let output = sgf_cmd(tmp.path())
         .args(["b", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("PATH", &mock_path)
         .output()
         .unwrap();
     assert!(
@@ -2464,19 +2353,16 @@ fn no_color_badge_falls_back_to_plain_prefix() {
     sgf_init_and_commit(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     let mock_dir = TempDir::new().unwrap();
     let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 0\n");
 
     let mock_cl_dir = TempDir::new().unwrap();
     create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
-    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
         .env("PATH", &mock_path_with_cl)
         .env("NO_COLOR", "1")
         .stdin(Stdio::null())
@@ -2511,19 +2397,16 @@ fn colored_output_contains_bold_badge() {
     sgf_init_and_commit(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     let mock_dir = TempDir::new().unwrap();
     let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 0\n");
 
     let mock_cl_dir = TempDir::new().unwrap();
     create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
-    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
         .env("PATH", &mock_path_with_cl)
         .env_remove("NO_COLOR")
         .stdin(Stdio::null())
@@ -2554,19 +2437,16 @@ fn exit_0_uses_success_styling() {
     sgf_init_and_commit(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     let mock_dir = TempDir::new().unwrap();
     let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 0\n");
 
     let mock_cl_dir = TempDir::new().unwrap();
     create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
-    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
         .env("PATH", &mock_path_with_cl)
         .env_remove("NO_COLOR")
         .stdin(Stdio::null())
@@ -2595,19 +2475,16 @@ fn exit_1_uses_error_styling() {
     sgf_init_and_commit(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     let mock_dir = TempDir::new().unwrap();
     let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 1\n");
 
     let mock_cl_dir = TempDir::new().unwrap();
     create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
-    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
         .env("PATH", &mock_path_with_cl)
         .env_remove("NO_COLOR")
         .stdin(Stdio::null())
@@ -2635,19 +2512,16 @@ fn exit_2_uses_warning_styling() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     let mock_dir = TempDir::new().unwrap();
     let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 2\n");
 
     let mock_cl_dir = TempDir::new().unwrap();
     create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
-    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
     let output = sgf_cmd(tmp.path())
         .args(["build", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
         .env("PATH", &mock_path_with_cl)
         .env_remove("NO_COLOR")
         .stdin(Stdio::null())
@@ -2676,11 +2550,9 @@ fn no_color_exit_messages_use_plain_prefix() {
     sgf_init_and_commit(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     let mock_cl_dir = TempDir::new().unwrap();
     create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
-    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
     let mock_dir = TempDir::new().unwrap();
 
@@ -2691,7 +2563,6 @@ fn no_color_exit_messages_use_plain_prefix() {
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph_0)
-        .env("SGF_SKIP_PREFLIGHT", "1")
         .env("PATH", &mock_path_with_cl)
         .env("NO_COLOR", "1")
         .stdin(Stdio::null())
@@ -2718,7 +2589,6 @@ fn no_color_exit_messages_use_plain_prefix() {
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph_1)
-        .env("SGF_SKIP_PREFLIGHT", "1")
         .env("PATH", &mock_path_with_cl)
         .env("NO_COLOR", "1")
         .stdin(Stdio::null())
@@ -2741,7 +2611,6 @@ fn no_color_exit_messages_use_plain_prefix() {
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph_2)
-        .env("SGF_SKIP_PREFLIGHT", "1")
         .env("PATH", &mock_path_with_cl)
         .env("NO_COLOR", "1")
         .stdin(Stdio::null())
@@ -2771,8 +2640,6 @@ fn install_runs_afk_with_one_iteration_via_mock_ralph() {
         "[install]\nalias = \"i\"\nmode = \"afk\"\niterations = 1\nauto_push = true\n",
     );
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     let mock_dir = TempDir::new().unwrap();
     let args_file = mock_dir.path().join("ralph_args.txt");
     let mock_ralph = create_mock_script(
@@ -2787,8 +2654,6 @@ fn install_runs_afk_with_one_iteration_via_mock_ralph() {
     let output = sgf_cmd(tmp.path())
         .arg("install")
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("PATH", &mock_path)
         .output()
         .unwrap();
 
@@ -2817,8 +2682,6 @@ fn alias_i_resolves_to_install() {
         "[install]\nalias = \"i\"\nmode = \"afk\"\niterations = 1\nauto_push = true\n",
     );
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     let mock_dir = TempDir::new().unwrap();
     let args_file = mock_dir.path().join("ralph_args.txt");
     let mock_ralph = create_mock_script(
@@ -2833,8 +2696,6 @@ fn alias_i_resolves_to_install() {
     let output = sgf_cmd(tmp.path())
         .arg("i")
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("PATH", &mock_path)
         .output()
         .unwrap();
 
@@ -2861,8 +2722,6 @@ fn build_auth_uses_config_defaults() {
     );
     create_spec_and_commit(tmp.path(), "auth");
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     let mock_cl_dir = TempDir::new().unwrap();
     let args_file = mock_cl_dir.path().join("agent_args.txt");
     create_mock_script(
@@ -2873,7 +2732,7 @@ fn build_auth_uses_config_defaults() {
             args_file.display()
         ),
     );
-    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth"])
@@ -2910,8 +2769,6 @@ fn build_dash_a_overrides_mode_to_afk() {
         "[build]\nmode = \"interactive\"\niterations = 30\nauto_push = true\n",
     );
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     let mock_dir = TempDir::new().unwrap();
     let args_file = mock_dir.path().join("ralph_args.txt");
     let mock_ralph = create_mock_script(
@@ -2926,8 +2783,6 @@ fn build_dash_a_overrides_mode_to_afk() {
     let output = sgf_cmd(tmp.path())
         .args(["build", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("PATH", &mock_path)
         .output()
         .unwrap();
 
@@ -2975,8 +2830,6 @@ fn build_dash_n_overrides_iterations() {
         "[build]\nmode = \"afk\"\niterations = 30\nauto_push = true\n",
     );
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     let mock_dir = TempDir::new().unwrap();
     let args_file = mock_dir.path().join("ralph_args.txt");
     let mock_ralph = create_mock_script(
@@ -2991,8 +2844,6 @@ fn build_dash_n_overrides_iterations() {
     let output = sgf_cmd(tmp.path())
         .args(["build", "-n", "5"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("PATH", &mock_path)
         .output()
         .unwrap();
 
@@ -3049,8 +2900,6 @@ fn custom_prompt_without_config_entry_uses_fallback_defaults() {
     .unwrap();
     git_add_commit(tmp.path(), "add custom deploy prompt");
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     // Fallback defaults: interactive mode, 1 iteration
     // So it should invoke cl (interactive), not ralph
     let mock_cl_dir = TempDir::new().unwrap();
@@ -3063,7 +2912,7 @@ fn custom_prompt_without_config_entry_uses_fallback_defaults() {
             args_file.display()
         ),
     );
-    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
     let output = sgf_cmd(tmp.path())
         .arg("deploy")
@@ -3094,8 +2943,6 @@ fn config_toml_duplicate_alias_errors_at_parse_time() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     // Write config with duplicate alias "x" for both build and install
     write_config_toml(
         tmp.path(),
@@ -3103,12 +2950,7 @@ fn config_toml_duplicate_alias_errors_at_parse_time() {
     );
 
     // Use alias "x" so resolve_command goes through config::load (which validates)
-    let output = sgf_cmd(tmp.path())
-        .arg("x")
-        .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("PATH", &mock_path)
-        .output()
-        .unwrap();
+    let output = sgf_cmd(tmp.path()).arg("x").output().unwrap();
 
     assert!(
         !output.status.success(),
@@ -3227,7 +3069,6 @@ fn e2e_sgf_ralph_cl_context_files_and_spec_in_append_system_prompt() {
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &ralph_bin)
-        .env("SGF_SKIP_PREFLIGHT", "1")
         .env("PATH", &path)
         .env("HOME", tmp.path().to_str().unwrap())
         .output()
@@ -3313,8 +3154,6 @@ fn afk_session_writes_metadata_with_session_id() {
     sgf_init_and_commit(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     let mock_dir = TempDir::new().unwrap();
     let args_file = mock_dir.path().join("ralph_args.txt");
     let mock_ralph = create_mock_script(
@@ -3329,8 +3168,6 @@ fn afk_session_writes_metadata_with_session_id() {
     let output = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
-        .env("PATH", &mock_path)
         .output()
         .unwrap();
 
@@ -3385,8 +3222,6 @@ fn interactive_session_writes_metadata_with_session_id() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     let mock_cl_dir = TempDir::new().unwrap();
     let args_file = mock_cl_dir.path().join("agent_args.txt");
     create_mock_script(
@@ -3397,7 +3232,7 @@ fn interactive_session_writes_metadata_with_session_id() {
             args_file.display()
         ),
     );
-    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
     let output = sgf_cmd(tmp.path())
         .arg("spec")
@@ -3447,8 +3282,6 @@ fn resume_with_loop_id_passes_resume_flag_to_cl() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     // Pre-seed session metadata
     let loop_id = "build-auth-20260316T120000";
     let session_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
@@ -3489,7 +3322,7 @@ fn resume_with_loop_id_passes_resume_flag_to_cl() {
             args_file.display()
         ),
     );
-    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_path);
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
     let output = sgf_cmd(tmp.path())
         .args(["resume", loop_id])
@@ -3575,8 +3408,6 @@ fn metadata_survives_interrupted_session() {
     sgf_init_and_commit(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
-    let (_mock_pn_dir, mock_path) = setup_mock_pn();
-
     let mock_dir = TempDir::new().unwrap();
     let mock_ralph = create_slow_mock_ralph(mock_dir.path());
     let ready_file = mock_dir.path().join("sgf_ready");
@@ -3584,9 +3415,7 @@ fn metadata_survives_interrupted_session() {
     let child = sgf_cmd(tmp.path())
         .args(["build", "auth", "-a"])
         .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_SKIP_PREFLIGHT", "1")
         .env("SGF_READY_FILE", &ready_file)
-        .env("PATH", &mock_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
