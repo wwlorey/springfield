@@ -1,4 +1,4 @@
-# Backpressure — Building, Testing, Linting, Formatting, Integration Tests, and Code Scanning
+# Backpressure — Building, Testing, Linting, Formatting, Integration Tests, and Code Coverage
 
 This document defines backpressure for a variety of project types. Be sure to align your understanding of backpressure to the project type with which you're currently working.
 
@@ -10,7 +10,8 @@ This document defines backpressure for a variety of project types. Be sure to al
 - **Test single:** `cargo test -p <crate> <test_name>` (e.g., `cargo test -p my-crate test_login`)
 - **Lint:** `cargo clippy --workspace -- -D warnings`
 - **Format:** `cargo fmt --all`
-- **Detect unsafe code usage:** `cargo geiger`
+- **Code coverage:** `cargo llvm-cov --workspace`
+- **Code coverage (single crate):** `cargo llvm-cov -p <crate>`
 
 ### Long Running Tests
 
