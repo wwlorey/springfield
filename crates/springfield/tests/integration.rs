@@ -3647,6 +3647,249 @@ fn resume_flat_picker_across_multiple_loops() {
 }
 
 // ===========================================================================
+// Cursus: single-iter integration (binary-level)
+// ===========================================================================
+
+#[test]
+fn cursus_single_iter_dispatches_and_completes() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    // Create a local cursus TOML (single iter, afk mode)
+    let cursus_dir = tmp.path().join(".sgf/cursus");
+    fs::create_dir_all(&cursus_dir).unwrap();
+    fs::write(
+        cursus_dir.join("build.toml"),
+        concat!(
+            "description = \"Test build cursus\"\n",
+            "alias = \"b\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iters]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 5\n",
+        ),
+    )
+    .unwrap();
+
+    // Create the prompt file referenced by the cursus
+    let prompts_dir = tmp.path().join(".sgf/prompts");
+    fs::create_dir_all(&prompts_dir).unwrap();
+    fs::write(prompts_dir.join("build.md"), "Build prompt content\n").unwrap();
+    git_add_commit(tmp.path(), "add cursus and prompt");
+
+    // Mock ralph that logs args and touches .ralph-complete sentinel
+    let mock_dir = TempDir::new().unwrap();
+    let args_file = mock_dir.path().join("ralph_args.txt");
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph.sh",
+        &format!(
+            concat!(
+                "#!/bin/sh\n",
+                "echo \"$@\" > \"{args}\"\n",
+                "touch \"${{PWD}}/.ralph-complete\"\n",
+                "exit 0\n",
+            ),
+            args = args_file.display()
+        ),
+    );
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph),
+    );
+
+    assert!(
+        output.status.success(),
+        "sgf build via cursus should exit 0: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Verify ralph was invoked with expected flags
+    let args = fs::read_to_string(&args_file).unwrap();
+    assert!(args.contains("-a"), "should pass -a (afk) flag");
+    assert!(args.contains("--loop-id"), "should pass --loop-id");
+    assert!(
+        args.contains("--auto-push false"),
+        "should pass --auto-push false, got: {args}"
+    );
+    assert!(
+        args.contains(".sgf/prompts/build.md"),
+        "should pass prompt path, got: {args}"
+    );
+
+    // Sentinel should be cleaned up after completion
+    assert!(
+        !tmp.path().join(".ralph-complete").exists(),
+        ".ralph-complete sentinel should be cleaned up"
+    );
+
+    // Run metadata should exist and show completed status
+    let run_dir = tmp.path().join(".sgf/run");
+    assert!(run_dir.exists(), ".sgf/run/ should exist");
+    let run_entries: Vec<_> = fs::read_dir(&run_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .collect();
+    assert_eq!(
+        run_entries.len(),
+        1,
+        "should have exactly one run directory"
+    );
+
+    let meta_path = run_entries[0].path().join("meta.json");
+    assert!(meta_path.exists(), "meta.json should exist in run dir");
+    let meta_content = fs::read_to_string(&meta_path).unwrap();
+    let meta_json: serde_json::Value = serde_json::from_str(&meta_content).unwrap();
+    assert_eq!(
+        meta_json["status"].as_str().unwrap(),
+        "completed",
+        "run status should be completed"
+    );
+    assert_eq!(
+        meta_json["iters_completed"][0]["outcome"].as_str().unwrap(),
+        "complete",
+        "iter outcome should be complete"
+    );
+
+    // PID file should be cleaned up
+    let remaining_pids: Vec<_> = fs::read_dir(&run_entries[0].path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "pid"))
+        .collect();
+    assert!(
+        remaining_pids.is_empty(),
+        "PID file should be cleaned up after cursus completes"
+    );
+}
+
+#[test]
+fn cursus_single_iter_alias_dispatch() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let cursus_dir = tmp.path().join(".sgf/cursus");
+    fs::create_dir_all(&cursus_dir).unwrap();
+    fs::write(
+        cursus_dir.join("build.toml"),
+        concat!(
+            "description = \"Test build cursus\"\n",
+            "alias = \"b\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iters]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+        ),
+    )
+    .unwrap();
+
+    let prompts_dir = tmp.path().join(".sgf/prompts");
+    fs::create_dir_all(&prompts_dir).unwrap();
+    fs::write(prompts_dir.join("build.md"), "Build prompt\n").unwrap();
+    git_add_commit(tmp.path(), "add cursus and prompt");
+
+    let mock_dir = TempDir::new().unwrap();
+    let args_file = mock_dir.path().join("ralph_args.txt");
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph.sh",
+        &format!(
+            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.ralph-complete\"\nexit 0\n",
+            args_file.display()
+        ),
+    );
+
+    // Use alias "b" instead of "build"
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["b", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph),
+    );
+
+    assert!(
+        output.status.success(),
+        "sgf b (alias) via cursus should exit 0: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Verify ralph was actually invoked
+    assert!(
+        args_file.exists(),
+        "ralph should have been invoked via alias dispatch"
+    );
+}
+
+#[test]
+fn cursus_single_iter_sentinel_cleaned_on_exhausted() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let cursus_dir = tmp.path().join(".sgf/cursus");
+    fs::create_dir_all(&cursus_dir).unwrap();
+    fs::write(
+        cursus_dir.join("build.toml"),
+        concat!(
+            "description = \"Test build cursus\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iters]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+        ),
+    )
+    .unwrap();
+
+    let prompts_dir = tmp.path().join(".sgf/prompts");
+    fs::create_dir_all(&prompts_dir).unwrap();
+    fs::write(prompts_dir.join("build.md"), "Build prompt\n").unwrap();
+    git_add_commit(tmp.path(), "add cursus and prompt");
+
+    // Mock ralph that does NOT touch any sentinel (simulates exhaustion)
+    let mock_dir = TempDir::new().unwrap();
+    let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 0\n");
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph),
+    );
+
+    // Should exit with code 2 (stalled)
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "exhausted iter should exit 2 (stalled), stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Run metadata should show stalled status
+    let run_dir = tmp.path().join(".sgf/run");
+    let run_entries: Vec<_> = fs::read_dir(&run_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .collect();
+    let meta_content = fs::read_to_string(run_entries[0].path().join("meta.json")).unwrap();
+    let meta_json: serde_json::Value = serde_json::from_str(&meta_content).unwrap();
+    assert_eq!(
+        meta_json["status"].as_str().unwrap(),
+        "stalled",
+        "run status should be stalled"
+    );
+}
+
+// ===========================================================================
 // Test harness infrastructure
 // ===========================================================================
 
