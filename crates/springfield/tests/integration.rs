@@ -224,7 +224,7 @@ fn create_mock_script(dir: &Path, name: &str, script: &str) -> PathBuf {
 
 /// Run `sgf init` in the given dir, then commit all generated files.
 fn sgf_init_and_commit(dir: &Path) {
-    let output = sgf_cmd(dir).arg("init").output().unwrap();
+    let output = run_sgf(sgf_cmd(dir).arg("init"));
     assert!(output.status.success(), "sgf init failed");
     git_add_commit(dir, "sgf init");
 }
@@ -255,7 +255,7 @@ fn create_spec_and_commit(dir: &Path, stem: &str) {
 #[test]
 fn init_creates_all_directories() {
     let tmp = setup_test_dir();
-    let output = sgf_cmd(tmp.path()).arg("init").output().unwrap();
+    let output = run_sgf(sgf_cmd(tmp.path()).arg("init"));
     assert!(output.status.success());
 
     let expected_dirs = [".pensa", ".forma", ".sgf", ".sgf/logs", ".sgf/run"];
@@ -267,7 +267,7 @@ fn init_creates_all_directories() {
 #[test]
 fn init_creates_all_files() {
     let tmp = setup_test_dir();
-    sgf_cmd(tmp.path()).arg("init").output().unwrap();
+    run_sgf(sgf_cmd(tmp.path()).arg("init"));
 
     let expected_files = [
         ".claude/settings.json",
@@ -306,7 +306,7 @@ fn init_creates_all_files() {
 #[test]
 fn init_file_contents() {
     let tmp = setup_test_dir();
-    sgf_cmd(tmp.path()).arg("init").output().unwrap();
+    run_sgf(sgf_cmd(tmp.path()).arg("init"));
 
     // CLAUDE.md should be a symlink to AGENTS.md
     let claude_md = tmp.path().join("CLAUDE.md");
@@ -349,13 +349,13 @@ fn init_file_contents() {
 fn init_idempotent() {
     let tmp = setup_test_dir();
 
-    sgf_cmd(tmp.path()).arg("init").output().unwrap();
+    run_sgf(sgf_cmd(tmp.path()).arg("init"));
 
     // Snapshot config files
     let gitignore1 = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
     let settings1 = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
 
-    sgf_cmd(tmp.path()).arg("init").output().unwrap();
+    run_sgf(sgf_cmd(tmp.path()).arg("init"));
 
     // No duplicate gitignore lines
     let gitignore2 = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
@@ -383,7 +383,7 @@ fn init_merges_existing_gitignore() {
     )
     .unwrap();
 
-    sgf_cmd(tmp.path()).arg("init").output().unwrap();
+    run_sgf(sgf_cmd(tmp.path()).arg("init"));
 
     let content = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
     assert!(content.contains("my-secret.key"), "custom entry lost");
@@ -404,7 +404,7 @@ fn init_merges_existing_settings_json() {
     )
     .unwrap();
 
-    sgf_cmd(tmp.path()).arg("init").output().unwrap();
+    run_sgf(sgf_cmd(tmp.path()).arg("init"));
 
     let content = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
     let doc: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -421,7 +421,7 @@ fn init_merges_existing_settings_json() {
 #[test]
 fn init_sandbox_config_scaffolded() {
     let tmp = setup_test_dir();
-    sgf_cmd(tmp.path()).arg("init").output().unwrap();
+    run_sgf(sgf_cmd(tmp.path()).arg("init"));
 
     let content = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
     let doc: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -458,12 +458,12 @@ fn init_sandbox_config_scaffolded() {
 #[test]
 fn init_sandbox_no_duplicates_on_rerun() {
     let tmp = setup_test_dir();
-    sgf_cmd(tmp.path()).arg("init").output().unwrap();
+    run_sgf(sgf_cmd(tmp.path()).arg("init"));
 
     let first = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
     let doc1: serde_json::Value = serde_json::from_str(&first).unwrap();
 
-    sgf_cmd(tmp.path()).arg("init").output().unwrap();
+    run_sgf(sgf_cmd(tmp.path()).arg("init"));
 
     let second = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
     let doc2: serde_json::Value = serde_json::from_str(&second).unwrap();
@@ -497,7 +497,7 @@ fn init_sandbox_preserves_custom_config() {
     )
     .unwrap();
 
-    sgf_cmd(tmp.path()).arg("init").output().unwrap();
+    run_sgf(sgf_cmd(tmp.path()).arg("init"));
 
     let content = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
     let doc: serde_json::Value = serde_json::from_str(&content).unwrap();
@@ -624,11 +624,11 @@ fn build_invokes_ralph_with_correct_flags() {
         ),
     );
 
-    let output = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph),
+    );
 
     assert!(
         output.status.success(),
@@ -667,11 +667,11 @@ fn build_creates_and_cleans_pid_file() {
         ),
     );
 
-    let output = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph),
+    );
     assert!(output.status.success());
 
     // PID file should have existed while ralph was running
@@ -704,11 +704,11 @@ fn afk_passes_log_file_to_ralph() {
         "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
     );
 
-    let output = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph),
+    );
     assert!(output.status.success());
 
     let args_content = fs::read_to_string(mock_dir.path().join("ralph_args.txt")).unwrap();
@@ -739,12 +739,12 @@ fn spec_runs_interactive_via_cl() {
     );
     let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
-    let output = sgf_cmd(tmp.path())
-        .arg("spec")
-        .env("PATH", &mock_path_with_cl)
-        .env_remove("CLAUDECODE")
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .arg("spec")
+            .env("PATH", &mock_path_with_cl)
+            .env_remove("CLAUDECODE"),
+    );
     assert!(
         output.status.success(),
         "sgf spec failed: {}",
@@ -777,12 +777,12 @@ fn issues_log_runs_interactive_via_cl() {
     );
     let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
-    let output = sgf_cmd(tmp.path())
-        .args(["issues-log"])
-        .env("PATH", &mock_path_with_cl)
-        .env_remove("CLAUDECODE")
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["issues-log"])
+            .env("PATH", &mock_path_with_cl)
+            .env_remove("CLAUDECODE"),
+    );
     assert!(
         output.status.success(),
         "sgf issues-log failed: {}",
@@ -834,11 +834,11 @@ fn recovery_cleans_stale_state() {
     // Modify a tracked file
     fs::write(tmp.path().join("README.md"), "modified").unwrap();
 
-    let output = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph),
+    );
     assert!(
         output.status.success(),
         "sgf build failed: {}",
@@ -894,11 +894,11 @@ fn recovery_skips_when_live_pid() {
     // Create dirty state that recovery would clean
     fs::write(tmp.path().join("untracked_dirty.txt"), "dirty").unwrap();
 
-    let output = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph),
+    );
     assert!(
         output.status.success(),
         "sgf build failed: {}",
@@ -925,10 +925,7 @@ fn logs_exits_1_for_missing() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
 
-    let output = sgf_cmd(tmp.path())
-        .args(["logs", "nonexistent"])
-        .output()
-        .unwrap();
+    let output = run_sgf(sgf_cmd(tmp.path()).args(["logs", "nonexistent"]));
 
     assert!(!output.status.success());
     assert_eq!(output.status.code(), Some(1));
@@ -940,7 +937,7 @@ fn logs_exits_1_for_missing() {
 fn status_prints_placeholder() {
     let tmp = setup_test_dir();
 
-    let output = sgf_cmd(tmp.path()).arg("status").output().unwrap();
+    let output = run_sgf(sgf_cmd(tmp.path()).arg("status"));
 
     assert!(output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -949,7 +946,7 @@ fn status_prints_placeholder() {
 
 #[test]
 fn help_flag() {
-    let output = Command::new(sgf_bin()).arg("--help").output().unwrap();
+    let output = run_sgf(Command::new(sgf_bin()).arg("--help"));
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -969,7 +966,7 @@ fn help_flag() {
 #[test]
 fn init_no_specs_directory() {
     let tmp = setup_test_dir();
-    sgf_cmd(tmp.path()).arg("init").output().unwrap();
+    run_sgf(sgf_cmd(tmp.path()).arg("init"));
 
     assert!(
         !tmp.path().join("specs").exists(),
@@ -980,7 +977,7 @@ fn init_no_specs_directory() {
 #[test]
 fn prompts_not_scaffolded_by_init() {
     let tmp = setup_test_dir();
-    sgf_cmd(tmp.path()).arg("init").output().unwrap();
+    run_sgf(sgf_cmd(tmp.path()).arg("init"));
 
     assert!(
         !tmp.path().join(".sgf/prompts").exists(),
@@ -1016,11 +1013,11 @@ fn end_to_end_build_passes_raw_path_and_spec() {
         ),
     );
 
-    let output = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph),
+    );
 
     assert!(
         output.status.success(),
@@ -1112,11 +1109,11 @@ fn build_without_spec_omits_spec_flag_and_env() {
         ),
     );
 
-    let output = sgf_cmd(tmp.path())
-        .args(["build", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph),
+    );
 
     assert!(
         output.status.success(),
@@ -1173,11 +1170,11 @@ fn build_with_spec_still_passes_spec_flag_and_env() {
         ),
     );
 
-    let output = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph),
+    );
 
     assert!(
         output.status.success(),
@@ -1207,10 +1204,7 @@ fn build_nonexistent_spec_fails_with_error() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
 
-    let output = sgf_cmd(tmp.path())
-        .args(["build", "nonexistent", "-a"])
-        .output()
-        .unwrap();
+    let output = run_sgf(sgf_cmd(tmp.path()).args(["build", "nonexistent", "-a"]));
 
     assert_eq!(
         output.status.code(),
@@ -1238,11 +1232,11 @@ fn build_valid_spec_proceeds() {
     let mock_dir = TempDir::new().unwrap();
     let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 0\n");
 
-    let output = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph),
+    );
 
     assert!(
         output.status.success(),
@@ -1325,12 +1319,12 @@ fn spec_auto_pushes_after_session_with_new_commits() {
     );
     let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
-    let output = sgf_cmd(tmp.path())
-        .arg("spec")
-        .env("PATH", &mock_path_with_cl)
-        .env_remove("CLAUDECODE")
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .arg("spec")
+            .env("PATH", &mock_path_with_cl)
+            .env_remove("CLAUDECODE"),
+    );
 
     assert!(
         output.status.success(),
@@ -1379,12 +1373,12 @@ fn spec_no_push_suppresses_auto_push() {
     );
     let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
-    let output = sgf_cmd(tmp.path())
-        .args(["spec", "--no-push"])
-        .env("PATH", &mock_path_with_cl)
-        .env_remove("CLAUDECODE")
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["spec", "--no-push"])
+            .env("PATH", &mock_path_with_cl)
+            .env_remove("CLAUDECODE"),
+    );
 
     assert!(
         output.status.success(),
@@ -1419,12 +1413,12 @@ fn spec_no_push_when_head_unchanged() {
     create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
     let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
-    let output = sgf_cmd(tmp.path())
-        .arg("spec")
-        .env("PATH", &mock_path_with_cl)
-        .env_remove("CLAUDECODE")
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .arg("spec")
+            .env("PATH", &mock_path_with_cl)
+            .env_remove("CLAUDECODE"),
+    );
 
     assert!(
         output.status.success(),
@@ -1480,12 +1474,12 @@ fn doc_auto_pushes_after_session_with_new_commits() {
     );
     let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
-    let output = sgf_cmd(tmp.path())
-        .arg("doc")
-        .env("PATH", &mock_path_with_cl)
-        .env_remove("CLAUDECODE")
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .arg("doc")
+            .env("PATH", &mock_path_with_cl)
+            .env_remove("CLAUDECODE"),
+    );
 
     assert!(
         output.status.success(),
@@ -1523,12 +1517,12 @@ fn doc_runs_interactive_via_cl() {
     );
     let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
-    let output = sgf_cmd(tmp.path())
-        .arg("doc")
-        .env("PATH", &mock_path_with_cl)
-        .env_remove("CLAUDECODE")
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .arg("doc")
+            .env("PATH", &mock_path_with_cl)
+            .env_remove("CLAUDECODE"),
+    );
     assert!(
         output.status.success(),
         "sgf doc failed: {}",
@@ -1571,12 +1565,12 @@ fn doc_no_push_suppresses_auto_push() {
     );
     let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
-    let output = sgf_cmd(tmp.path())
-        .args(["doc", "--no-push"])
-        .env("PATH", &mock_path_with_cl)
-        .env_remove("CLAUDECODE")
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["doc", "--no-push"])
+            .env("PATH", &mock_path_with_cl)
+            .env_remove("CLAUDECODE"),
+    );
 
     assert!(
         output.status.success(),
@@ -1610,12 +1604,12 @@ fn doc_no_push_when_head_unchanged() {
     create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
     let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
-    let output = sgf_cmd(tmp.path())
-        .arg("doc")
-        .env("PATH", &mock_path_with_cl)
-        .env_remove("CLAUDECODE")
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .arg("doc")
+            .env("PATH", &mock_path_with_cl)
+            .env_remove("CLAUDECODE"),
+    );
 
     assert!(
         output.status.success(),
@@ -2051,11 +2045,11 @@ fn afk_mode_child_gets_new_session() {
         ),
     );
 
-    let output = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph),
+    );
     assert!(
         output.status.success(),
         "sgf build -a failed: {}",
@@ -2102,12 +2096,12 @@ fn default_build_without_config_runs_interactive() {
     let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
     // Without config.toml, build defaults to interactive mode (cl, not ralph)
-    let output = sgf_cmd(tmp.path())
-        .args(["build", "auth"])
-        .env("PATH", &mock_path_with_cl)
-        .env_remove("CLAUDECODE")
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth"])
+            .env("PATH", &mock_path_with_cl)
+            .env_remove("CLAUDECODE"),
+    );
     assert!(
         output.status.success(),
         "sgf build (interactive default) failed: {}",
@@ -2241,12 +2235,12 @@ fn config_afk_mode_invokes_ralph_with_afk_flag() {
     create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
     let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
-    let output = sgf_cmd(tmp.path())
-        .args(["build", "auth"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("PATH", &mock_path_with_cl)
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth"])
+            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("PATH", &mock_path_with_cl),
+    );
     assert!(
         output.status.success(),
         "sgf build (afk via config) failed: {}",
@@ -2284,12 +2278,12 @@ fn interactive_override_does_not_invoke_ralph() {
     let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
     // -i overrides config mode=afk to interactive
-    let output = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-i"])
-        .env("PATH", &mock_path_with_cl)
-        .env_remove("CLAUDECODE")
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-i"])
+            .env("PATH", &mock_path_with_cl)
+            .env_remove("CLAUDECODE"),
+    );
     assert!(
         output.status.success(),
         "sgf build -i failed: {}",
@@ -2325,11 +2319,11 @@ fn alias_resolves_to_prompt() {
         ),
     );
 
-    let output = sgf_cmd(tmp.path())
-        .args(["b", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["b", "auth", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph),
+    );
     assert!(
         output.status.success(),
         "sgf b (alias for build) failed: {}",
@@ -2360,16 +2354,16 @@ fn no_color_badge_falls_back_to_plain_prefix() {
     create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
     let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
-    let output = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("PATH", &mock_path_with_cl)
-        .env("NO_COLOR", "1")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .expect("spawn sgf");
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("PATH", &mock_path_with_cl)
+            .env("NO_COLOR", "1")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    );
 
     let stderr = String::from_utf8_lossy(&output.stderr);
 
@@ -2404,16 +2398,16 @@ fn colored_output_contains_bold_badge() {
     create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
     let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
-    let output = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("PATH", &mock_path_with_cl)
-        .env_remove("NO_COLOR")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .expect("spawn sgf");
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("PATH", &mock_path_with_cl)
+            .env_remove("NO_COLOR")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    );
 
     let stderr = String::from_utf8_lossy(&output.stderr);
 
@@ -2444,16 +2438,16 @@ fn exit_0_uses_success_styling() {
     create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
     let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
-    let output = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("PATH", &mock_path_with_cl)
-        .env_remove("NO_COLOR")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .expect("spawn sgf");
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("PATH", &mock_path_with_cl)
+            .env_remove("NO_COLOR")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    );
 
     assert!(output.status.success());
 
@@ -2482,16 +2476,16 @@ fn exit_1_uses_error_styling() {
     create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
     let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
-    let output = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("PATH", &mock_path_with_cl)
-        .env_remove("NO_COLOR")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .expect("spawn sgf");
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("PATH", &mock_path_with_cl)
+            .env_remove("NO_COLOR")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    );
 
     assert_eq!(output.status.code(), Some(1));
 
@@ -2519,16 +2513,16 @@ fn exit_2_uses_warning_styling() {
     create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
     let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
-    let output = sgf_cmd(tmp.path())
-        .args(["build", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("PATH", &mock_path_with_cl)
-        .env_remove("NO_COLOR")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .expect("spawn sgf");
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("PATH", &mock_path_with_cl)
+            .env_remove("NO_COLOR")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    );
 
     assert_eq!(output.status.code(), Some(2));
 
@@ -2560,16 +2554,16 @@ fn no_color_exit_messages_use_plain_prefix() {
     let mock_ralph_0 =
         create_mock_script(mock_dir.path(), "mock_ralph_0.sh", "#!/bin/sh\nexit 0\n");
 
-    let output = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph_0)
-        .env("PATH", &mock_path_with_cl)
-        .env("NO_COLOR", "1")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .expect("spawn sgf");
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph_0)
+            .env("PATH", &mock_path_with_cl)
+            .env("NO_COLOR", "1")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    );
 
     let stderr = String::from_utf8_lossy(&output.stderr);
 
@@ -2586,16 +2580,16 @@ fn no_color_exit_messages_use_plain_prefix() {
     let mock_ralph_1 =
         create_mock_script(mock_dir.path(), "mock_ralph_1.sh", "#!/bin/sh\nexit 1\n");
 
-    let output = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph_1)
-        .env("PATH", &mock_path_with_cl)
-        .env("NO_COLOR", "1")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .expect("spawn sgf");
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph_1)
+            .env("PATH", &mock_path_with_cl)
+            .env("NO_COLOR", "1")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    );
 
     let stderr = String::from_utf8_lossy(&output.stderr);
 
@@ -2608,16 +2602,16 @@ fn no_color_exit_messages_use_plain_prefix() {
     let mock_ralph_2 =
         create_mock_script(mock_dir.path(), "mock_ralph_2.sh", "#!/bin/sh\nexit 2\n");
 
-    let output = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph_2)
-        .env("PATH", &mock_path_with_cl)
-        .env("NO_COLOR", "1")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .expect("spawn sgf");
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph_2)
+            .env("PATH", &mock_path_with_cl)
+            .env("NO_COLOR", "1")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    );
 
     let stderr = String::from_utf8_lossy(&output.stderr);
 
@@ -2651,11 +2645,11 @@ fn install_runs_afk_with_one_iteration_via_mock_ralph() {
         ),
     );
 
-    let output = sgf_cmd(tmp.path())
-        .arg("install")
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .arg("install")
+            .env("SGF_RALPH_BINARY", &mock_ralph),
+    );
 
     assert!(
         output.status.success(),
@@ -2693,11 +2687,11 @@ fn alias_i_resolves_to_install() {
         ),
     );
 
-    let output = sgf_cmd(tmp.path())
-        .arg("i")
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .arg("i")
+            .env("SGF_RALPH_BINARY", &mock_ralph),
+    );
 
     assert!(
         output.status.success(),
@@ -2734,12 +2728,12 @@ fn build_auth_uses_config_defaults() {
     );
     let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
-    let output = sgf_cmd(tmp.path())
-        .args(["build", "auth"])
-        .env("PATH", &mock_path_with_cl)
-        .env_remove("CLAUDECODE")
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth"])
+            .env("PATH", &mock_path_with_cl)
+            .env_remove("CLAUDECODE"),
+    );
 
     assert!(
         output.status.success(),
@@ -2780,11 +2774,11 @@ fn build_dash_a_overrides_mode_to_afk() {
         ),
     );
 
-    let output = sgf_cmd(tmp.path())
-        .args(["build", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph),
+    );
 
     assert!(
         output.status.success(),
@@ -2806,10 +2800,7 @@ fn build_dash_a_dash_i_errors() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
 
-    let output = sgf_cmd(tmp.path())
-        .args(["build", "-a", "-i"])
-        .output()
-        .unwrap();
+    let output = run_sgf(sgf_cmd(tmp.path()).args(["build", "-a", "-i"]));
 
     assert!(!output.status.success(), "sgf build -a -i should fail");
     assert_eq!(output.status.code(), Some(1));
@@ -2841,11 +2832,11 @@ fn build_dash_n_overrides_iterations() {
         ),
     );
 
-    let output = sgf_cmd(tmp.path())
-        .args(["build", "-n", "5"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "-n", "5"])
+            .env("SGF_RALPH_BINARY", &mock_ralph),
+    );
 
     assert!(
         output.status.success(),
@@ -2870,7 +2861,7 @@ fn unknown_command_errors_with_clear_message() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
 
-    let output = sgf_cmd(tmp.path()).arg("nonexistent-cmd").output().unwrap();
+    let output = run_sgf(sgf_cmd(tmp.path()).arg("nonexistent-cmd"));
 
     assert!(!output.status.success(), "sgf nonexistent-cmd should fail");
     assert_eq!(output.status.code(), Some(1));
@@ -2914,12 +2905,12 @@ fn custom_prompt_without_config_entry_uses_fallback_defaults() {
     );
     let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
-    let output = sgf_cmd(tmp.path())
-        .arg("deploy")
-        .env("PATH", &mock_path_with_cl)
-        .env_remove("CLAUDECODE")
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .arg("deploy")
+            .env("PATH", &mock_path_with_cl)
+            .env_remove("CLAUDECODE"),
+    );
 
     assert!(
         output.status.success(),
@@ -2950,7 +2941,7 @@ fn config_toml_duplicate_alias_errors_at_parse_time() {
     );
 
     // Use alias "x" so resolve_command goes through config::load (which validates)
-    let output = sgf_cmd(tmp.path()).arg("x").output().unwrap();
+    let output = run_sgf(sgf_cmd(tmp.path()).arg("x"));
 
     assert!(
         !output.status.success(),
@@ -3066,13 +3057,13 @@ fn e2e_sgf_ralph_cl_context_files_and_spec_in_append_system_prompt() {
         std::env::var("PATH").unwrap_or_default(),
     );
 
-    let output = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &ralph_bin)
-        .env("PATH", &path)
-        .env("HOME", tmp.path().to_str().unwrap())
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-a"])
+            .env("SGF_RALPH_BINARY", &ralph_bin)
+            .env("PATH", &path)
+            .env("HOME", tmp.path().to_str().unwrap()),
+    );
 
     assert!(
         output.status.success(),
@@ -3165,11 +3156,11 @@ fn afk_session_writes_metadata_with_session_id() {
         ),
     );
 
-    let output = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph),
+    );
 
     assert!(
         output.status.success(),
@@ -3234,12 +3225,12 @@ fn interactive_session_writes_metadata_with_session_id() {
     );
     let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
-    let output = sgf_cmd(tmp.path())
-        .arg("spec")
-        .env("PATH", &mock_path_with_cl)
-        .env_remove("CLAUDECODE")
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .arg("spec")
+            .env("PATH", &mock_path_with_cl)
+            .env_remove("CLAUDECODE"),
+    );
 
     assert!(
         output.status.success(),
@@ -3324,12 +3315,12 @@ fn resume_with_loop_id_passes_resume_flag_to_cl() {
     );
     let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
-    let output = sgf_cmd(tmp.path())
-        .args(["resume", loop_id])
-        .env("PATH", &mock_path_with_cl)
-        .env_remove("CLAUDECODE")
-        .output()
-        .unwrap();
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["resume", loop_id])
+            .env("PATH", &mock_path_with_cl)
+            .env_remove("CLAUDECODE"),
+    );
 
     assert!(
         output.status.success(),
@@ -3366,7 +3357,7 @@ fn resume_with_no_sessions_exits_1() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
 
-    let output = sgf_cmd(tmp.path()).arg("resume").output().unwrap();
+    let output = run_sgf(sgf_cmd(tmp.path()).arg("resume"));
 
     assert_eq!(
         output.status.code(),
@@ -3385,10 +3376,7 @@ fn resume_with_bad_loop_id_exits_1() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
 
-    let output = sgf_cmd(tmp.path())
-        .args(["resume", "nonexistent-loop-id"])
-        .output()
-        .unwrap();
+    let output = run_sgf(sgf_cmd(tmp.path()).args(["resume", "nonexistent-loop-id"]));
 
     assert_eq!(
         output.status.code(),
