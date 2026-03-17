@@ -1,12 +1,31 @@
 use std::fs;
 use std::io;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::time::Duration;
 
-use crate::cursus::toml::{IterDefinition, Mode};
+use chrono::Utc;
+use shutdown::{ShutdownConfig, ShutdownController, ShutdownStatus};
+use uuid::Uuid;
+
+use crate::cursus::context;
+use crate::cursus::state::{self, CompletedIter, RunMetadata, RunStatus};
+use crate::cursus::toml::{CursusDefinition, IterDefinition, Mode};
+use crate::loop_mgmt;
+use crate::style;
 
 const SENTINEL_MAX_DEPTH: usize = 2;
 
 const SENTINELS: &[&str] = &[".ralph-complete", ".ralph-reject", ".ralph-revise"];
+
+pub struct CursusConfig {
+    pub spec: Option<String>,
+    pub mode_override: Option<Mode>,
+    pub no_push: bool,
+    pub ralph_binary: Option<String>,
+    pub skip_preflight: bool,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IterOutcome {
@@ -127,6 +146,331 @@ pub fn resolve_iter_index(
         NextIter::Named(name) => iters.iter().position(|i| i.name == *name),
         NextIter::Stalled => None,
     }
+}
+
+fn resolve_prompt(root: &Path, prompt: &str) -> Option<PathBuf> {
+    let local = root.join(format!(".sgf/prompts/{prompt}"));
+    if local.exists() {
+        return Some(local);
+    }
+    let global = std::env::var("HOME")
+        .ok()
+        .map(|h| PathBuf::from(h).join(format!(".sgf/prompts/{prompt}")))?;
+    if global.exists() {
+        return Some(global);
+    }
+    None
+}
+
+fn resolve_ralph_binary(config: &CursusConfig) -> String {
+    if let Some(ref bin) = config.ralph_binary {
+        return bin.clone();
+    }
+    std::env::var("SGF_RALPH_BINARY").unwrap_or_else(|_| "ralph".to_string())
+}
+
+struct RalphInvocation<'a> {
+    root: &'a Path,
+    run_id: &'a str,
+    iter: &'a IterDefinition,
+    config: &'a CursusConfig,
+    session_id: &'a str,
+    prompt_path: &'a Path,
+    consumed_content: &'a str,
+    auto_push: bool,
+}
+
+fn invoke_ralph(inv: &RalphInvocation<'_>, controller: &ShutdownController) -> io::Result<i32> {
+    let binary = resolve_ralph_binary(inv.config);
+
+    let mut args = vec!["-a".to_string()];
+
+    args.push("--loop-id".to_string());
+    args.push(inv.run_id.to_string());
+
+    args.push("--session-id".to_string());
+    args.push(inv.session_id.to_string());
+
+    args.push("--auto-push".to_string());
+    args.push(inv.auto_push.to_string());
+
+    if let Some(ref spec) = inv.config.spec {
+        args.push("--spec".to_string());
+        args.push(spec.clone());
+    }
+
+    if !inv.consumed_content.is_empty() {
+        let ctx_file = context::context_file_path(inv.root, inv.run_id, "_consumed");
+        fs::write(&ctx_file, inv.consumed_content)?;
+        args.push("--prompt-file".to_string());
+        args.push(ctx_file.to_string_lossy().to_string());
+    }
+
+    let log_path = loop_mgmt::create_log_file(inv.root, inv.run_id)?;
+    args.push("--log-file".to_string());
+    args.push(log_path.to_string_lossy().to_string());
+
+    args.push(inv.iter.iterations.to_string());
+    args.push(inv.prompt_path.to_string_lossy().to_string());
+
+    let mut cmd = Command::new(&binary);
+    cmd.args(&args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .env("SGF_MANAGED", "1");
+
+    if let Some(ref spec) = inv.config.spec {
+        cmd.env("SGF_SPEC", spec);
+    }
+
+    let (ctx_env_name, ctx_env_val) = context::context_env_var(inv.root, inv.run_id);
+    cmd.env(&ctx_env_name, &ctx_env_val);
+
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| io::Error::other(format!("failed to spawn ralph: {e}")))?;
+
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(status.code().unwrap_or(1)),
+            Ok(None) => {
+                if controller.poll() == ShutdownStatus::Shutdown {
+                    shutdown::kill_process_group(child.id(), Duration::from_millis(200));
+                    let _ = child.wait();
+                    return Ok(130);
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+fn invoke_cl(
+    prompt_path: &Path,
+    session_id: &str,
+    consumed_content: &str,
+    root: &Path,
+    run_id: &str,
+    controller: &ShutdownController,
+) -> io::Result<i32> {
+    let prompt_arg = format!("@{}", prompt_path.display());
+    let mut args = vec![
+        "--verbose".to_string(),
+        "--session-id".to_string(),
+        session_id.to_string(),
+    ];
+
+    if !consumed_content.is_empty() {
+        args.push("--append-system-prompt".to_string());
+        args.push(consumed_content.to_string());
+    }
+
+    args.push(prompt_arg);
+
+    let mut cmd = Command::new("cl");
+    cmd.args(&args)
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit());
+
+    let (ctx_env_name, ctx_env_val) = context::context_env_var(root, run_id);
+    cmd.env(&ctx_env_name, &ctx_env_val);
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| io::Error::other(format!("failed to spawn cl: {e}")))?;
+
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(status.code().unwrap_or(1)),
+            Ok(None) => {
+                if controller.poll() == ShutdownStatus::Shutdown {
+                    shutdown::kill_process_group(child.id(), Duration::from_millis(200));
+                    let _ = child.wait();
+                    return Ok(130);
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+fn print_stall_banner(cursus_name: &str, iter_name: &str, iterations: u32, run_id: &str) {
+    let detail = format!(
+        "iter: {} · reason: iterations exhausted ({}/{}) · resume: sgf resume {}",
+        iter_name, iterations, iterations, run_id
+    );
+    style::print_warning_detail(&format!("cursus STALLED [{cursus_name}]"), &detail);
+}
+
+pub fn run_cursus(
+    root: &Path,
+    cursus_name: &str,
+    def: &CursusDefinition,
+    config: &CursusConfig,
+) -> io::Result<i32> {
+    if def.iters.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "cursus has no iters defined",
+        ));
+    }
+
+    state::mark_stale_runs_interrupted(root)?;
+
+    let mode_override_str = config.mode_override.as_ref().map(|m| match m {
+        Mode::Afk => "afk",
+        Mode::Interactive => "interactive",
+    });
+
+    let mut metadata = RunMetadata::new(
+        cursus_name,
+        &def.iters[0].name,
+        config.spec.as_deref(),
+        mode_override_str,
+    );
+
+    state::create_run_dir(root, &metadata.run_id)?;
+    state::write_pid_file(root, &metadata.run_id)?;
+    state::write_metadata(root, &metadata)?;
+
+    let controller = ShutdownController::new(ShutdownConfig {
+        monitor_stdin: false,
+        ..Default::default()
+    })?;
+
+    let mut current_index: usize = 0;
+
+    let exit_code = loop {
+        let iter = &def.iters[current_index];
+
+        metadata.current_iter = iter.name.clone();
+        metadata.current_iter_index = current_index as u32;
+        metadata.status = RunStatus::Running;
+        metadata.touch();
+        state::write_metadata(root, &metadata)?;
+
+        clean_sentinels(root);
+
+        let consumed_content =
+            context::resolve_consumes(root, &metadata.run_id, &iter.consumes, def);
+
+        let effective_mode = config
+            .mode_override
+            .clone()
+            .unwrap_or_else(|| iter.mode.clone());
+        let session_id = Uuid::new_v4().to_string();
+
+        let prompt_path = resolve_prompt(root, &iter.prompt).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("prompt not found: {}", iter.prompt),
+            )
+        })?;
+
+        let auto_push = !config.no_push && def.effective_auto_push(iter);
+
+        style::print_action_detail(
+            &format!(
+                "cursus [{cursus_name}] iter: {} ({}/{})",
+                iter.name,
+                current_index + 1,
+                def.iters.len()
+            ),
+            &format!(
+                "mode: {} · iterations: {}",
+                match effective_mode {
+                    Mode::Afk => "afk",
+                    Mode::Interactive => "interactive",
+                },
+                iter.iterations
+            ),
+        );
+
+        let exit_code = match effective_mode {
+            Mode::Afk => invoke_ralph(
+                &RalphInvocation {
+                    root,
+                    run_id: &metadata.run_id,
+                    iter,
+                    config,
+                    session_id: &session_id,
+                    prompt_path: &prompt_path,
+                    consumed_content: &consumed_content,
+                    auto_push,
+                },
+                &controller,
+            )?,
+            Mode::Interactive => invoke_cl(
+                &prompt_path,
+                &session_id,
+                &consumed_content,
+                root,
+                &metadata.run_id,
+                &controller,
+            )?,
+        };
+
+        if exit_code == 130 {
+            metadata.status = RunStatus::Interrupted;
+            metadata.touch();
+            let _ = state::write_metadata(root, &metadata);
+            state::remove_pid_file(root, &metadata.run_id);
+            return Ok(130);
+        }
+
+        let outcome = detect_outcome(root, iter);
+        clean_sentinels(root);
+
+        metadata.iters_completed.push(CompletedIter {
+            name: iter.name.clone(),
+            session_id,
+            completed_at: Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+            outcome: outcome.to_string(),
+        });
+
+        if let Some(ref key) = iter.produces {
+            context::check_produces(root, &metadata.run_id, key);
+        }
+
+        let transition = resolve_transition(iter, &outcome)?;
+
+        match transition {
+            NextIter::Stalled => {
+                metadata.status = RunStatus::Stalled;
+                metadata.touch();
+                state::write_metadata(root, &metadata)?;
+                print_stall_banner(cursus_name, &iter.name, iter.iterations, &metadata.run_id);
+                state::remove_pid_file(root, &metadata.run_id);
+                break 2;
+            }
+            _ => match resolve_iter_index(&def.iters, current_index, &transition) {
+                Some(next_idx) => {
+                    current_index = next_idx;
+                }
+                None => {
+                    metadata.status = RunStatus::Completed;
+                    metadata.touch();
+                    state::write_metadata(root, &metadata)?;
+                    style::print_success(&format!("cursus complete [{cursus_name}]"));
+                    state::remove_pid_file(root, &metadata.run_id);
+                    break 0;
+                }
+            },
+        }
+    };
+
+    Ok(exit_code)
 }
 
 #[cfg(test)]
@@ -398,5 +742,581 @@ mod tests {
         assert_eq!(IterOutcome::Reject.to_string(), "reject");
         assert_eq!(IterOutcome::Revise.to_string(), "revise");
         assert_eq!(IterOutcome::Exhausted.to_string(), "exhausted");
+    }
+
+    fn setup_cursus_project(root: &Path, prompts: &[&str]) {
+        fs::create_dir_all(root.join(".sgf/prompts")).unwrap();
+        fs::create_dir_all(root.join(".sgf/run")).unwrap();
+        fs::create_dir_all(root.join(".sgf/logs")).unwrap();
+        for name in prompts {
+            fs::write(
+                root.join(format!(".sgf/prompts/{name}")),
+                format!("Prompt for {name}"),
+            )
+            .unwrap();
+        }
+    }
+
+    fn mock_script(root: &Path, name: &str, script: &str) -> String {
+        let path = root.join(name);
+        fs::write(&path, script).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        path.to_string_lossy().to_string()
+    }
+
+    fn make_cursus_def(iters: Vec<IterDefinition>, auto_push: bool) -> CursusDefinition {
+        CursusDefinition {
+            description: "test cursus".to_string(),
+            alias: None,
+            trigger: "manual".to_string(),
+            auto_push,
+            iters,
+        }
+    }
+
+    fn make_iter_full(
+        name: &str,
+        mode: Mode,
+        iterations: u32,
+        produces: Option<&str>,
+        consumes: Vec<&str>,
+        next: Option<&str>,
+        on_reject: Option<&str>,
+        on_revise: Option<&str>,
+    ) -> IterDefinition {
+        IterDefinition {
+            name: name.to_string(),
+            prompt: format!("{name}.md"),
+            mode,
+            iterations,
+            produces: produces.map(|s| s.to_string()),
+            consumes: consumes.into_iter().map(|s| s.to_string()).collect(),
+            auto_push: None,
+            next: next.map(|s| s.to_string()),
+            transitions: Transitions {
+                on_reject: on_reject.map(|s| s.to_string()),
+                on_revise: on_revise.map(|s| s.to_string()),
+            },
+        }
+    }
+
+    #[test]
+    fn run_cursus_single_iter_complete() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_cursus_project(root, &["build.md"]);
+
+        let ralph = mock_script(
+            root,
+            "mock_ralph.sh",
+            &format!(
+                "#!/bin/sh\ntouch \"{}/.ralph-complete\"\nexit 0\n",
+                root.display()
+            ),
+        );
+
+        let def = make_cursus_def(
+            vec![make_iter("build", Mode::Afk, 10, None, None, None)],
+            false,
+        );
+
+        let config = CursusConfig {
+            spec: None,
+            mode_override: None,
+            no_push: true,
+            ralph_binary: Some(ralph),
+            skip_preflight: true,
+        };
+
+        let exit_code = run_cursus(root, "build", &def, &config).unwrap();
+        assert_eq!(exit_code, 0);
+
+        // Verify metadata was written
+        let run_dir = root.join(".sgf/run");
+        let entries: Vec<_> = fs::read_dir(&run_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().ok().is_some_and(|ft| ft.is_dir()))
+            .collect();
+        assert_eq!(entries.len(), 1);
+
+        let run_id = entries[0].file_name().to_str().unwrap().to_string();
+        let meta = state::read_metadata(root, &run_id).unwrap().unwrap();
+        assert_eq!(meta.status, RunStatus::Completed);
+        assert_eq!(meta.cursus, "build");
+        assert_eq!(meta.iters_completed.len(), 1);
+        assert_eq!(meta.iters_completed[0].name, "build");
+        assert_eq!(meta.iters_completed[0].outcome, "complete");
+    }
+
+    #[test]
+    fn run_cursus_stall_on_exhausted() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_cursus_project(root, &["build.md"]);
+
+        // Mock that does NOT create any sentinel → exhausted for AFK mode
+        let ralph = mock_script(root, "mock_ralph.sh", "#!/bin/sh\nexit 0\n");
+
+        let def = make_cursus_def(
+            vec![make_iter("build", Mode::Afk, 5, None, None, None)],
+            false,
+        );
+
+        let config = CursusConfig {
+            spec: None,
+            mode_override: None,
+            no_push: true,
+            ralph_binary: Some(ralph),
+            skip_preflight: true,
+        };
+
+        let exit_code = run_cursus(root, "build", &def, &config).unwrap();
+        assert_eq!(exit_code, 2);
+
+        let run_dir = root.join(".sgf/run");
+        let entries: Vec<_> = fs::read_dir(&run_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().ok().is_some_and(|ft| ft.is_dir()))
+            .collect();
+        let run_id = entries[0].file_name().to_str().unwrap().to_string();
+        let meta = state::read_metadata(root, &run_id).unwrap().unwrap();
+        assert_eq!(meta.status, RunStatus::Stalled);
+    }
+
+    #[test]
+    fn run_cursus_multi_iter_happy_path() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_cursus_project(root, &["draft.md", "review.md", "approve.md"]);
+
+        // Mock that creates .ralph-complete for all iters
+        let ralph = mock_script(
+            root,
+            "mock_ralph.sh",
+            &format!(
+                "#!/bin/sh\ntouch \"{}/.ralph-complete\"\nexit 0\n",
+                root.display()
+            ),
+        );
+
+        let def = make_cursus_def(
+            vec![
+                make_iter("draft", Mode::Afk, 10, None, None, None),
+                make_iter("review", Mode::Afk, 1, None, None, None),
+                make_iter("approve", Mode::Afk, 1, None, None, None),
+            ],
+            false,
+        );
+
+        let config = CursusConfig {
+            spec: None,
+            mode_override: Some(Mode::Afk),
+            no_push: true,
+            ralph_binary: Some(ralph),
+            skip_preflight: true,
+        };
+
+        let exit_code = run_cursus(root, "spec", &def, &config).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let run_dir = root.join(".sgf/run");
+        let entries: Vec<_> = fs::read_dir(&run_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().ok().is_some_and(|ft| ft.is_dir()))
+            .collect();
+        let run_id = entries[0].file_name().to_str().unwrap().to_string();
+        let meta = state::read_metadata(root, &run_id).unwrap().unwrap();
+        assert_eq!(meta.status, RunStatus::Completed);
+        assert_eq!(meta.iters_completed.len(), 3);
+        assert_eq!(meta.iters_completed[0].name, "draft");
+        assert_eq!(meta.iters_completed[1].name, "review");
+        assert_eq!(meta.iters_completed[2].name, "approve");
+    }
+
+    #[test]
+    fn run_cursus_reject_transition() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_cursus_project(root, &["draft.md", "review.md"]);
+
+        // First call creates .ralph-complete, second creates .ralph-reject,
+        // third (back to draft) creates .ralph-complete, fourth creates .ralph-complete
+        let counter_file = root.join("call_count");
+        fs::write(&counter_file, "0").unwrap();
+
+        let ralph = mock_script(
+            root,
+            "mock_ralph.sh",
+            &format!(
+                r#"#!/bin/sh
+COUNT=$(cat "{counter}")
+COUNT=$((COUNT + 1))
+echo $COUNT > "{counter}"
+if [ $COUNT -eq 2 ]; then
+    touch "{root}/.ralph-reject"
+else
+    touch "{root}/.ralph-complete"
+fi
+exit 0
+"#,
+                counter = counter_file.display(),
+                root = root.display()
+            ),
+        );
+
+        let def = make_cursus_def(
+            vec![
+                make_iter("draft", Mode::Afk, 10, None, None, None),
+                make_iter("review", Mode::Afk, 1, None, Some("draft"), None),
+            ],
+            false,
+        );
+
+        let config = CursusConfig {
+            spec: None,
+            mode_override: None,
+            no_push: true,
+            ralph_binary: Some(ralph),
+            skip_preflight: true,
+        };
+
+        let exit_code = run_cursus(root, "spec", &def, &config).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let run_dir = root.join(".sgf/run");
+        let entries: Vec<_> = fs::read_dir(&run_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().ok().is_some_and(|ft| ft.is_dir()))
+            .collect();
+        let run_id = entries[0].file_name().to_str().unwrap().to_string();
+        let meta = state::read_metadata(root, &run_id).unwrap().unwrap();
+        assert_eq!(meta.status, RunStatus::Completed);
+        // draft → review (reject) → draft → review → done
+        assert_eq!(meta.iters_completed.len(), 4);
+        assert_eq!(meta.iters_completed[0].name, "draft");
+        assert_eq!(meta.iters_completed[0].outcome, "complete");
+        assert_eq!(meta.iters_completed[1].name, "review");
+        assert_eq!(meta.iters_completed[1].outcome, "reject");
+        assert_eq!(meta.iters_completed[2].name, "draft");
+        assert_eq!(meta.iters_completed[2].outcome, "complete");
+        assert_eq!(meta.iters_completed[3].name, "review");
+        assert_eq!(meta.iters_completed[3].outcome, "complete");
+    }
+
+    #[test]
+    fn run_cursus_context_passing() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_cursus_project(root, &["generate.md", "verify.md"]);
+
+        // Mock that captures args and writes a produces file
+        let ralph = mock_script(
+            root,
+            "mock_ralph.sh",
+            &format!(
+                r#"#!/bin/sh
+echo "$@" >> "{root}/ralph_calls.txt"
+# Write produces file if SGF_RUN_CONTEXT is set
+if [ -n "$SGF_RUN_CONTEXT" ]; then
+    echo "Generated output summary." > "$SGF_RUN_CONTEXT/output-summary.md"
+fi
+touch "{root}/.ralph-complete"
+exit 0
+"#,
+                root = root.display()
+            ),
+        );
+
+        let def = make_cursus_def(
+            vec![
+                make_iter_full(
+                    "generate",
+                    Mode::Afk,
+                    5,
+                    Some("output-summary"),
+                    vec![],
+                    None,
+                    None,
+                    None,
+                ),
+                make_iter_full(
+                    "verify",
+                    Mode::Afk,
+                    1,
+                    None,
+                    vec!["output-summary"],
+                    None,
+                    None,
+                    None,
+                ),
+            ],
+            false,
+        );
+
+        let config = CursusConfig {
+            spec: None,
+            mode_override: None,
+            no_push: true,
+            ralph_binary: Some(ralph),
+            skip_preflight: true,
+        };
+
+        let exit_code = run_cursus(root, "pipeline", &def, &config).unwrap();
+        assert_eq!(exit_code, 0);
+
+        // Verify context file was used: verify iter should have received --prompt-file
+        let calls = fs::read_to_string(root.join("ralph_calls.txt")).unwrap();
+        let lines: Vec<&str> = calls.lines().collect();
+        assert_eq!(lines.len(), 2);
+        // Second call (verify) should have --prompt-file pointing to consumed context
+        assert!(
+            lines[1].contains("--prompt-file"),
+            "verify iter should receive --prompt-file, got: {}",
+            lines[1]
+        );
+    }
+
+    #[test]
+    fn run_cursus_mode_override() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_cursus_project(root, &["build.md"]);
+
+        // Mock that captures args
+        let ralph = mock_script(
+            root,
+            "mock_ralph.sh",
+            &format!(
+                "#!/bin/sh\necho \"$@\" > \"{}/ralph_args.txt\"\ntouch \"{}/.ralph-complete\"\nexit 0\n",
+                root.display(),
+                root.display()
+            ),
+        );
+
+        // Iter is interactive by default, but mode_override forces AFK
+        let def = make_cursus_def(
+            vec![make_iter("build", Mode::Interactive, 1, None, None, None)],
+            false,
+        );
+
+        let config = CursusConfig {
+            spec: None,
+            mode_override: Some(Mode::Afk),
+            no_push: true,
+            ralph_binary: Some(ralph),
+            skip_preflight: true,
+        };
+
+        let exit_code = run_cursus(root, "build", &def, &config).unwrap();
+        assert_eq!(exit_code, 0);
+
+        // Should have invoked ralph (AFK), not cl
+        let args = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
+        assert!(
+            args.contains("--loop-id"),
+            "should invoke ralph with --loop-id, got: {args}"
+        );
+    }
+
+    #[test]
+    fn run_cursus_spec_passthrough() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_cursus_project(root, &["build.md"]);
+
+        let ralph = mock_script(
+            root,
+            "mock_ralph.sh",
+            &format!(
+                "#!/bin/sh\necho \"$@\" > \"{}/ralph_args.txt\"\ntouch \"{}/.ralph-complete\"\nexit 0\n",
+                root.display(),
+                root.display()
+            ),
+        );
+
+        let def = make_cursus_def(
+            vec![make_iter("build", Mode::Afk, 10, None, None, None)],
+            false,
+        );
+
+        let config = CursusConfig {
+            spec: Some("auth".to_string()),
+            mode_override: None,
+            no_push: true,
+            ralph_binary: Some(ralph),
+            skip_preflight: true,
+        };
+
+        let exit_code = run_cursus(root, "build", &def, &config).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let args = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
+        assert!(
+            args.contains("--spec auth"),
+            "should pass --spec to ralph, got: {args}"
+        );
+
+        let run_dir = root.join(".sgf/run");
+        let entries: Vec<_> = fs::read_dir(&run_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().ok().is_some_and(|ft| ft.is_dir()))
+            .collect();
+        let run_id = entries[0].file_name().to_str().unwrap().to_string();
+        let meta = state::read_metadata(root, &run_id).unwrap().unwrap();
+        assert_eq!(meta.spec.as_deref(), Some("auth"));
+    }
+
+    #[test]
+    fn run_cursus_pid_file_cleaned_up() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_cursus_project(root, &["build.md"]);
+
+        let ralph = mock_script(
+            root,
+            "mock_ralph.sh",
+            &format!(
+                "#!/bin/sh\ntouch \"{}/.ralph-complete\"\nexit 0\n",
+                root.display()
+            ),
+        );
+
+        let def = make_cursus_def(
+            vec![make_iter("build", Mode::Afk, 1, None, None, None)],
+            false,
+        );
+
+        let config = CursusConfig {
+            spec: None,
+            mode_override: None,
+            no_push: true,
+            ralph_binary: Some(ralph),
+            skip_preflight: true,
+        };
+
+        run_cursus(root, "build", &def, &config).unwrap();
+
+        // PID file should be cleaned up
+        let run_dir = root.join(".sgf/run");
+        let entries: Vec<_> = fs::read_dir(&run_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().ok().is_some_and(|ft| ft.is_dir()))
+            .collect();
+        let run_id = entries[0].file_name().to_str().unwrap().to_string();
+        let pid_file = state::pid_path(root, &run_id);
+        assert!(!pid_file.exists(), "PID file should be removed after run");
+    }
+
+    #[test]
+    fn run_cursus_empty_iters_errors() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_cursus_project(root, &[]);
+
+        let def = make_cursus_def(vec![], false);
+
+        let config = CursusConfig {
+            spec: None,
+            mode_override: None,
+            no_push: true,
+            ralph_binary: None,
+            skip_preflight: true,
+        };
+
+        let err = run_cursus(root, "empty", &def, &config).unwrap_err();
+        assert!(err.to_string().contains("no iters defined"));
+    }
+
+    #[test]
+    fn run_cursus_next_override() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_cursus_project(root, &["draft.md", "revise.md", "review.md"]);
+
+        let counter_file = root.join("call_count");
+        fs::write(&counter_file, "0").unwrap();
+
+        // draft → complete → revise (via next override) → complete → review → complete
+        let ralph = mock_script(
+            root,
+            "mock_ralph.sh",
+            &format!(
+                "#!/bin/sh\ntouch \"{}/.ralph-complete\"\nexit 0\n",
+                root.display()
+            ),
+        );
+
+        let def = make_cursus_def(
+            vec![
+                make_iter_full(
+                    "draft",
+                    Mode::Afk,
+                    10,
+                    None,
+                    vec![],
+                    Some("revise"),
+                    None,
+                    None,
+                ),
+                make_iter_full("revise", Mode::Afk, 5, None, vec![], None, None, None),
+                make_iter_full("review", Mode::Afk, 1, None, vec![], None, None, None),
+            ],
+            false,
+        );
+
+        let config = CursusConfig {
+            spec: None,
+            mode_override: None,
+            no_push: true,
+            ralph_binary: Some(ralph),
+            skip_preflight: true,
+        };
+
+        let exit_code = run_cursus(root, "spec", &def, &config).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let run_dir = root.join(".sgf/run");
+        let entries: Vec<_> = fs::read_dir(&run_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().ok().is_some_and(|ft| ft.is_dir()))
+            .collect();
+        let run_id = entries[0].file_name().to_str().unwrap().to_string();
+        let meta = state::read_metadata(root, &run_id).unwrap().unwrap();
+
+        // draft → revise (next override) → review → done
+        assert_eq!(meta.iters_completed.len(), 3);
+        assert_eq!(meta.iters_completed[0].name, "draft");
+        assert_eq!(meta.iters_completed[1].name, "revise");
+        assert_eq!(meta.iters_completed[2].name, "review");
+    }
+
+    #[test]
+    fn resolve_prompt_local() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        fs::create_dir_all(root.join(".sgf/prompts")).unwrap();
+        fs::write(root.join(".sgf/prompts/build.md"), "prompt content").unwrap();
+
+        let result = resolve_prompt(root, "build.md");
+        assert!(result.is_some());
+        assert!(result.unwrap().ends_with(".sgf/prompts/build.md"));
+    }
+
+    #[test]
+    fn resolve_prompt_missing() {
+        let tmp = TempDir::new().unwrap();
+        let result = resolve_prompt(tmp.path(), "nonexistent.md");
+        assert!(result.is_none());
     }
 }
