@@ -3442,6 +3442,210 @@ fn metadata_survives_interrupted_session() {
     );
 }
 
+#[test]
+fn resume_multi_iteration_picks_selected_session() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let loop_id = "build-auth-20260316T140000";
+    let session_id_1 = "11111111-1111-1111-1111-111111111111";
+    let session_id_2 = "22222222-2222-2222-2222-222222222222";
+    let run_dir = tmp.path().join(".sgf/run");
+    fs::create_dir_all(&run_dir).unwrap();
+    let metadata = serde_json::json!({
+        "loop_id": loop_id,
+        "iterations": [
+            {
+                "iteration": 1,
+                "session_id": session_id_1,
+                "completed_at": "2026-03-16T14:02:30Z"
+            },
+            {
+                "iteration": 2,
+                "session_id": session_id_2,
+                "completed_at": "2026-03-16T14:05:30Z"
+            }
+        ],
+        "stage": "build",
+        "spec": "auth",
+        "mode": "afk",
+        "prompt": ".sgf/prompts/build.md",
+        "iterations_total": 3,
+        "status": "exhausted",
+        "created_at": "2026-03-16T14:00:00Z",
+        "updated_at": "2026-03-16T14:05:30Z"
+    });
+    fs::write(
+        run_dir.join(format!("{loop_id}.json")),
+        serde_json::to_string_pretty(&metadata).unwrap(),
+    )
+    .unwrap();
+
+    let mock_cl_dir = TempDir::new().unwrap();
+    let args_file = mock_cl_dir.path().join("cl_args.txt");
+    create_mock_script(
+        mock_cl_dir.path(),
+        "cl",
+        &format!(
+            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
+            args_file.display()
+        ),
+    );
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
+
+    // Pipe "2\n" to stdin to select iteration 2
+    let mut child = sgf_cmd(tmp.path())
+        .args(["resume", loop_id])
+        .env("PATH", &mock_path_with_cl)
+        .env_remove("CLAUDECODE")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn sgf");
+
+    {
+        use std::io::Write;
+        let stdin = child.stdin.as_mut().expect("open stdin");
+        stdin.write_all(b"2\n").expect("write selection");
+    }
+
+    let _permit = SGF_PERMITS.acquire();
+    let output = child.wait_with_output().expect("wait for sgf");
+
+    assert!(
+        output.status.success(),
+        "sgf resume should succeed, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let cl_args = fs::read_to_string(&args_file).unwrap();
+    assert!(
+        cl_args.contains("--resume"),
+        "cl should receive --resume flag, got: {cl_args}"
+    );
+    assert!(
+        cl_args.contains(session_id_2),
+        "cl should receive iteration 2's session_id, got: {cl_args}"
+    );
+    assert!(
+        !cl_args.contains(session_id_1),
+        "cl should NOT receive iteration 1's session_id, got: {cl_args}"
+    );
+}
+
+#[test]
+fn resume_flat_picker_across_multiple_loops() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let run_dir = tmp.path().join(".sgf/run");
+    fs::create_dir_all(&run_dir).unwrap();
+
+    let loop1 = "build-auth-20260316T120000";
+    let session1 = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+    let meta1 = serde_json::json!({
+        "loop_id": loop1,
+        "iterations": [
+            { "iteration": 1, "session_id": session1, "completed_at": "2026-03-16T12:02:30Z" }
+        ],
+        "stage": "build",
+        "spec": "auth",
+        "mode": "afk",
+        "prompt": ".sgf/prompts/build.md",
+        "iterations_total": 1,
+        "status": "completed",
+        "created_at": "2026-03-16T12:00:00Z",
+        "updated_at": "2026-03-16T12:02:30Z"
+    });
+    fs::write(
+        run_dir.join(format!("{loop1}.json")),
+        serde_json::to_string_pretty(&meta1).unwrap(),
+    )
+    .unwrap();
+
+    let loop2 = "spec-20260316T130000";
+    let session2 = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+    let meta2 = serde_json::json!({
+        "loop_id": loop2,
+        "iterations": [
+            { "iteration": 1, "session_id": session2, "completed_at": "2026-03-16T13:02:30Z" }
+        ],
+        "stage": "spec",
+        "spec": null,
+        "mode": "interactive",
+        "prompt": ".sgf/prompts/spec.md",
+        "iterations_total": 1,
+        "status": "completed",
+        "created_at": "2026-03-16T13:00:00Z",
+        "updated_at": "2026-03-16T13:02:30Z"
+    });
+    fs::write(
+        run_dir.join(format!("{loop2}.json")),
+        serde_json::to_string_pretty(&meta2).unwrap(),
+    )
+    .unwrap();
+
+    let mock_cl_dir = TempDir::new().unwrap();
+    let args_file = mock_cl_dir.path().join("cl_args.txt");
+    create_mock_script(
+        mock_cl_dir.path(),
+        "cl",
+        &format!(
+            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
+            args_file.display()
+        ),
+    );
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
+
+    // Select "1" — should be the newest session (spec loop, completed_at 13:02:30)
+    let mut child = sgf_cmd(tmp.path())
+        .arg("resume")
+        .env("PATH", &mock_path_with_cl)
+        .env_remove("CLAUDECODE")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn sgf");
+
+    {
+        use std::io::Write;
+        let stdin = child.stdin.as_mut().expect("open stdin");
+        stdin.write_all(b"1\n").expect("write selection");
+    }
+
+    let _permit = SGF_PERMITS.acquire();
+    let output = child.wait_with_output().expect("wait for sgf");
+
+    assert!(
+        output.status.success(),
+        "sgf resume should succeed, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let cl_args = fs::read_to_string(&args_file).unwrap();
+    assert!(
+        cl_args.contains("--resume"),
+        "cl should receive --resume flag, got: {cl_args}"
+    );
+    // Newest entry (session2, completed at 13:02:30) should be first
+    assert!(
+        cl_args.contains(session2),
+        "cl should receive the newest session's id (spec loop), got: {cl_args}"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Recent sessions"),
+        "picker should show 'Recent sessions' header, got: {stderr}"
+    );
+    assert!(
+        stderr.contains(loop1) && stderr.contains(loop2),
+        "picker should show both loop IDs, got: {stderr}"
+    );
+}
+
 // ===========================================================================
 // Test harness infrastructure
 // ===========================================================================

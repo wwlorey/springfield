@@ -2394,6 +2394,85 @@ fn multi_iteration_without_session_id_generates_fresh_uuid_on_iter2() {
 }
 
 #[test]
+fn multi_iteration_interactive_generates_fresh_session_id_per_iteration() {
+    let dir = setup_test_dir();
+    let mock = create_multi_iteration_arg_capturing_mock(&dir, "complete.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .args([
+            "--command",
+            mock.to_str().unwrap(),
+            "--session-id",
+            "initial-interactive-uuid",
+            "2",
+            "prompt.md",
+        ])
+        .output()
+        .expect("run ralph");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "should exit 2 (iterations exhausted), stderr:\n{stderr}"
+    );
+
+    let args1 = fs::read_to_string(dir.path().join("captured-args/invocation-1.txt"))
+        .expect("read invocation 1 args");
+    let lines1: Vec<&str> = args1.lines().collect();
+
+    let sid1_idx = lines1
+        .iter()
+        .position(|&a| a == "--session-id")
+        .expect("iteration 1 should pass --session-id in interactive mode");
+    assert_eq!(
+        lines1[sid1_idx + 1],
+        "initial-interactive-uuid",
+        "iteration 1 should use the CLI-provided session id in interactive mode"
+    );
+    assert!(
+        !lines1.iter().any(|&a| a == "--resume"),
+        "iteration 1 should NOT pass --resume in interactive mode"
+    );
+    assert!(
+        lines1.iter().any(|&a| a == "@prompt.md"),
+        "iteration 1 should include prompt in interactive mode, got:\n{args1}"
+    );
+
+    let args2 = fs::read_to_string(dir.path().join("captured-args/invocation-2.txt"))
+        .expect("read invocation 2 args");
+    let lines2: Vec<&str> = args2.lines().collect();
+
+    let sid2_idx = lines2
+        .iter()
+        .position(|&a| a == "--session-id")
+        .expect("iteration 2 should pass --session-id in interactive mode");
+    assert_ne!(
+        lines2[sid2_idx + 1],
+        "initial-interactive-uuid",
+        "iteration 2 should use a fresh UUID, not the original, in interactive mode"
+    );
+    assert!(
+        lines2[sid2_idx + 1].len() == 36 && lines2[sid2_idx + 1].contains('-'),
+        "iteration 2 session id should be a UUID, got: {}",
+        lines2[sid2_idx + 1]
+    );
+    assert_ne!(
+        lines1[sid1_idx + 1],
+        lines2[sid2_idx + 1],
+        "iteration 1 and 2 should have different session IDs in interactive mode"
+    );
+    assert!(
+        !lines2.iter().any(|&a| a == "--resume"),
+        "iteration 2 should NOT pass --resume in interactive mode"
+    );
+    assert!(
+        lines2.iter().any(|&a| a == "@prompt.md"),
+        "iteration 2 should include prompt in interactive mode, got:\n{args2}"
+    );
+}
+
+#[test]
 fn resume_on_iteration1_passes_resume_and_omits_prompt() {
     let dir = setup_test_dir();
     let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
