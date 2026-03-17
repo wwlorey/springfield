@@ -3,3 +3,8 @@
 {"id":"pn-e932c27a","issue_id":"pn-00cdcf6f","path":"specs/session-resume.md","reason":"Session metadata schema section defines the new structure","created_at":"2026-03-16T21:44:39Z"}
 {"id":"pn-5c078cb3","issue_id":"pn-cf3584c6","path":"README.md","reason":"Update session resume documentation","created_at":"2026-03-16T21:45:20Z"}
 {"id":"pn-ee57f984","issue_id":"pn-92949ccd","path":".sgf/BACKPRESSURE.md","reason":"Add Integration Test Concurrency section documenting SGF_TEST_MAX_CONCURRENT and stress test commands","created_at":"2026-03-17T01:57:54Z"}
+{"id":"pn-d460eb06","issue_id":"pn-b7938bf3","path":"specs/cursus.md","reason":"Reference TOML Format and Architecture sections","created_at":"2026-03-17T21:25:27Z"}
+{"id":"pn-b386e74a","issue_id":"pn-82452d46","path":".sgf/cursus/","reason":"New directory: global cursus TOML definitions to create","created_at":"2026-03-17T21:26:33Z"}
+{"id":"pn-58ae45cb","issue_id":"pn-14d41e20","path":".sgf/cursus/spec.toml","reason":"Multi-iter cursus definition for spec refinement workflow","created_at":"2026-03-17T21:26:41Z"}
+{"id":"pn-ee6e7998","issue_id":"pn-14d41e20","path":".sgf/prompts/","reason":"Prompt files for each spec refinement iter","created_at":"2026-03-17T21:26:41Z"}
+{"id":"pn-76ce6245","issue_id":"pn-6342e675","path":"README.md","reason":"Add cursus pipeline documentation","created_at":"2026-03-17T21:26:47Z"}

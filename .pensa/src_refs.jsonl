@@ -15,3 +15,23 @@
 {"id":"pn-ef5ae92e","issue_id":"pn-f71ec423","path":"crates/springfield/tests/integration.rs","reason":"Replace sgf .output().unwrap() calls with run_sgf() to route through concurrency semaphore","created_at":"2026-03-17T01:57:29Z"}
 {"id":"pn-fd761fe3","issue_id":"pn-c4da242d","path":"crates/springfield/tests/integration.rs","reason":"Remove redundant SGF_SKIP_PREFLIGHT=1 env sets from ~36 tests (now handled by sgf_cmd) and document exceptions","created_at":"2026-03-17T01:57:42Z"}
 {"id":"pn-5d07a88e","issue_id":"pn-4f3e2b88","path":"crates/springfield/tests/integration.rs","reason":"Add harness_semaphore_limits_concurrency test that verifies semaphore caps concurrent sgf invocations","created_at":"2026-03-17T01:58:06Z"}
+{"id":"pn-44946170","issue_id":"pn-b7938bf3","path":"crates/springfield/src/cursus/toml.rs","reason":"New file: serde types for cursus TOML definitions","created_at":"2026-03-17T21:25:26Z"}
+{"id":"pn-7c47f3a6","issue_id":"pn-b7938bf3","path":"crates/springfield/src/cursus/mod.rs","reason":"New file: cursus module declaration and public API","created_at":"2026-03-17T21:25:26Z"}
+{"id":"pn-95fbdc52","issue_id":"pn-9eff037a","path":"crates/springfield/src/cursus/toml.rs","reason":"Add validation methods to parsed types","created_at":"2026-03-17T21:25:34Z"}
+{"id":"pn-ee550de3","issue_id":"pn-9eff037a","path":"crates/springfield/src/prompt.rs","reason":"Use existing prompt resolution for file existence checks","created_at":"2026-03-17T21:25:34Z"}
+{"id":"pn-1e457d41","issue_id":"pn-04dba412","path":"crates/springfield/src/cursus/state.rs","reason":"New file: run metadata types, persistence, status transitions, stale detection","created_at":"2026-03-17T21:25:45Z"}
+{"id":"pn-13f58513","issue_id":"pn-04dba412","path":"crates/springfield/src/loop_mgmt.rs","reason":"Reference existing session metadata patterns for consistency","created_at":"2026-03-17T21:25:45Z"}
+{"id":"pn-0ffe7852","issue_id":"pn-e4ab67e1","path":"crates/springfield/src/cursus/context.rs","reason":"New file: produces/consumes file management and prompt injection","created_at":"2026-03-17T21:25:50Z"}
+{"id":"pn-ba652f39","issue_id":"pn-fde5920b","path":"crates/springfield/src/cursus/runner.rs","reason":"New file: sentinel detection, transition resolution, iter advancement","created_at":"2026-03-17T21:25:59Z"}
+{"id":"pn-be6d5439","issue_id":"pn-fde5920b","path":"crates/springfield/src/orchestrate.rs","reason":"Reference existing sentinel cleanup patterns in orchestrate loop","created_at":"2026-03-17T21:25:59Z"}
+{"id":"pn-bf9a056d","issue_id":"pn-3e0717a8","path":"crates/springfield/src/cursus/runner.rs","reason":"Implement main run_cursus execution loop","created_at":"2026-03-17T21:26:08Z"}
+{"id":"pn-552bc596","issue_id":"pn-3e0717a8","path":"crates/springfield/src/orchestrate.rs","reason":"Reference existing ralph invocation and orchestration patterns","created_at":"2026-03-17T21:26:08Z"}
+{"id":"pn-5ee1d39e","issue_id":"pn-9f80a111","path":"crates/springfield/src/cursus/state.rs","reason":"Resume logic, stale run detection","created_at":"2026-03-17T21:26:16Z"}
+{"id":"pn-3e8ce4f7","issue_id":"pn-9f80a111","path":"crates/springfield/src/cursus/runner.rs","reason":"Stall banner rendering, resume entry point","created_at":"2026-03-17T21:26:16Z"}
+{"id":"pn-8753f3dd","issue_id":"pn-9f80a111","path":"crates/springfield/src/main.rs","reason":"Extend Resume command to support cursus runs","created_at":"2026-03-17T21:26:16Z"}
+{"id":"pn-994e8dc7","issue_id":"pn-9f80a111","path":"crates/springfield/src/recovery.rs","reason":"Reference existing recovery patterns","created_at":"2026-03-17T21:26:16Z"}
+{"id":"pn-63d0e87b","issue_id":"pn-087e6b7b","path":"crates/springfield/src/main.rs","reason":"Update Dynamic command dispatch to check cursus TOMLs before config.toml","created_at":"2026-03-17T21:26:25Z"}
+{"id":"pn-9ae442cd","issue_id":"pn-087e6b7b","path":"crates/springfield/src/config.rs","reason":"Reference existing config.toml resolution as fallback path","created_at":"2026-03-17T21:26:25Z"}
+{"id":"pn-31246a1d","issue_id":"pn-82452d46","path":"crates/springfield/src/init.rs","reason":"Update init to scaffold .sgf/cursus/ directory","created_at":"2026-03-17T21:26:33Z"}
+{"id":"pn-03dae060","issue_id":"pn-585480f8","path":"crates/springfield/tests/integration.rs","reason":"Add single-iter cursus integration test","created_at":"2026-03-17T21:26:53Z"}
+{"id":"pn-c98eb6cf","issue_id":"pn-79693ba6","path":"crates/springfield/tests/integration.rs","reason":"Add multi-iter cursus integration tests for transitions, context, stall, resume, layered resolution","created_at":"2026-03-17T21:27:02Z"}
