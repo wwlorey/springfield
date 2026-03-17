@@ -175,11 +175,7 @@ pub fn mark_stale_runs_interrupted(root: &Path) -> io::Result<Vec<String>> {
         if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
             continue;
         }
-        let run_id = entry
-            .file_name()
-            .to_str()
-            .unwrap_or("")
-            .to_string();
+        let run_id = entry.file_name().to_str().unwrap_or("").to_string();
         if run_id.is_empty() {
             continue;
         }
