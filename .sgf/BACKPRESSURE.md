@@ -19,6 +19,16 @@ Some tests may be gated behind `#[ignore]` because they use expensive operations
 - **Run ignored tests:** `cargo test -p <crate> <test_name> -- --ignored`
 - **Run all tests including ignored:** `cargo test --workspace -- --ignored`
 
+### Integration Test Concurrency
+
+Springfield integration tests use an in-process semaphore (`SgfSemaphore`) to limit how many `sgf` child processes run simultaneously. This prevents resource exhaustion when `cargo test` runs many tests in parallel.
+
+- **Default concurrency:** 8 simultaneous `sgf` processes
+- **Override:** Set `SGF_TEST_MAX_CONCURRENT` env var (must be >= 1)
+- **Stress test:** `SGF_TEST_MAX_CONCURRENT=2 cargo test -p springfield --test integration -- --test-threads=32`
+
+The stress test forces high thread parallelism with low process concurrency to verify the semaphore correctly prevents resource exhaustion.
+
 ## Frontend
 
 > Stack: TypeScript, React, Vitest, Playwright
