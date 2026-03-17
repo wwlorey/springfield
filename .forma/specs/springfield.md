@@ -136,6 +136,11 @@ Claude Code crashes and push failures are handled within ralph as warnings — t
 
 Springfield is tested via integration tests that exercise the full CLI. Key scenarios: sgf init idempotence, command resolution with aliases, config.toml layered merge, pre-launch recovery, daemon lifecycle, signal handling (double Ctrl+C/Ctrl+D), loop ID generation, console output formatting.
 
+All integration tests use a shared test harness (see `test-harness` spec) that provides:
+- **Shared mock binaries** (`MOCK_BINS` / `mock_bin_path()`) — single set of mock `pn`/`fm` scripts reused by all tests
+- **Concurrency semaphore** (`SGF_PERMITS` / `run_sgf()`) — limits concurrent `sgf` subprocess invocations to prevent resource exhaustion
+- **Automatic preflight skip** — `sgf_cmd()` injects `SGF_SKIP_PREFLIGHT=1` and mock `PATH` by default
+
 ## CLI Commands
 
 ```
