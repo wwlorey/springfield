@@ -21,3 +21,4 @@ just install
 ## IMPORTANT
 
 - **ALWAYS read the given prompt files at the beginning of each session.**
+- Do not update ./.sgf/BACKPRESSURE.md or ./.sgf/MEMENTO.md without EXPLICIT APPROVAL.
