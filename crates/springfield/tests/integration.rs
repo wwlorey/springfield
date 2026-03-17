@@ -2249,7 +2249,7 @@ fn config_afk_mode_invokes_ralph_with_afk_flag() {
     );
 
     let args = fs::read_to_string(&args_file).unwrap();
-    let argv: Vec<&str> = args.trim().split_whitespace().collect();
+    let argv: Vec<&str> = args.split_whitespace().collect();
     assert!(
         argv.contains(&"-a"),
         "AFK mode from config should pass -a flag to ralph, got: {args}"

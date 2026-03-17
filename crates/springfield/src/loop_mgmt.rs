@@ -532,9 +532,7 @@ mod tests {
         meta.updated_at = "2026-03-16T12:01:00Z".to_string();
         write_session_metadata(root, &meta).unwrap();
 
-        let read_back = read_session_metadata(root, "append-test")
-            .unwrap()
-            .unwrap();
+        let read_back = read_session_metadata(root, "append-test").unwrap().unwrap();
         assert_eq!(read_back.iterations.len(), 1);
         assert_eq!(read_back.iterations[0].session_id, "uuid-iter-1");
 
@@ -546,9 +544,7 @@ mod tests {
         meta.updated_at = "2026-03-16T12:02:00Z".to_string();
         write_session_metadata(root, &meta).unwrap();
 
-        let read_back = read_session_metadata(root, "append-test")
-            .unwrap()
-            .unwrap();
+        let read_back = read_session_metadata(root, "append-test").unwrap().unwrap();
         assert_eq!(read_back.iterations.len(), 2);
         assert_eq!(read_back.iterations[1].session_id, "uuid-iter-2");
     }

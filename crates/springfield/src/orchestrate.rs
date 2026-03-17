@@ -1034,7 +1034,7 @@ mod tests {
         assert_eq!(exit_code, 0);
 
         let args_content = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
-        let args: Vec<&str> = args_content.trim().split_whitespace().collect();
+        let args: Vec<&str> = args_content.split_whitespace().collect();
         assert!(
             args.contains(&"-a"),
             "AFK mode should pass -a flag, got: {args_content}"
