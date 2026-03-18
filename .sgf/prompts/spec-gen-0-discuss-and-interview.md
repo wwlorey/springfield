@@ -18,6 +18,7 @@ IMPORTANT:
 - Push back on ambiguity.
 - Surface trade-offs. 
 - Provide pros/cons when presenting options.
+- When asking clarifying questions or presenting information, NUMBER THE ITEMS so the user can reference them.
 
 WHEN THE USER CONFIRMS THAT YOU HAVE ENOUGH TO PROCEED:
 1. Write a summary of the discussion to `$SGF_RUN_CONTEXT/discuss-and-interview-summary.md`.

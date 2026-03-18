@@ -30,6 +30,7 @@ IMPORTANT:
 - The spec must be designed so results can be end-to-end tested from the CLI.
 - The quality checklist is internal discipline — do not include a checklist report in the presentation.
 - Add cross-references to related specs: `fm ref add <stem> <target-stem>`.
+- You MUST use `fm` to READ **AND** UPDATE any specs. Do NOT read/update the markdown. Don't touch the spec markdown.
 - WHEN FINISHED:
   * Commit your changes.
   * Touch `.ralph-complete`.

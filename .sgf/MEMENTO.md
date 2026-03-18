@@ -104,7 +104,7 @@
 
 Specifications are the **source of truth** for all code. They are managed exclusively through `fm` (forma).
 
-All spec mutations go through `fm`—never edit spec markdown directly. The generated `.forma/specs/*.md` and `.forma/README.md` are read-only artifacts produced by `fm export`.
+**IMPORTANT**: All spec mutations go through `fm`. NEVER EDIT OR VIEW SPEC MARKDOWN DIRECTLY. The generated `.forma/specs/*.md` and `.forma/README.md` are read-only artifacts for HUMANS produced by `fm export`.
 
 ### How `fm` relates to `pn`
 

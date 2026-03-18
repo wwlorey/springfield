@@ -251,13 +251,12 @@ fn build_append_system_prompt_args(
         parts.push(content.clone());
     }
 
-    if !prompt_files.is_empty() {
-        let study = prompt_files
-            .iter()
-            .map(|f| format!("study @{f}"))
-            .collect::<Vec<_>>()
-            .join(";");
-        parts.push(study);
+    for f in prompt_files {
+        if let Ok(content) = std::fs::read_to_string(f) {
+            parts.push(content);
+        } else {
+            warn!(path = %f, "failed to read prompt file for system prompt injection");
+        }
     }
 
     if parts.is_empty() {
@@ -883,21 +882,27 @@ mod tests {
 
     #[test]
     fn build_append_system_prompt_args_files_only() {
-        let files = vec!["NOTES.md".to_string()];
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("NOTES.md");
+        std::fs::write(&file, "These are notes.").unwrap();
+        let files = vec![file.to_string_lossy().to_string()];
         let args = build_append_system_prompt_args(&None, &files);
         assert_eq!(args.len(), 2);
         assert_eq!(args[0], "--append-system-prompt");
-        assert_eq!(args[1], "study @NOTES.md");
+        assert_eq!(args[1], "These are notes.");
     }
 
     #[test]
     fn build_append_system_prompt_args_both() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("NOTES.md");
+        std::fs::write(&file, "These are notes.").unwrap();
         let spec = Some("# auth Specification".to_string());
-        let files = vec!["NOTES.md".to_string()];
+        let files = vec![file.to_string_lossy().to_string()];
         let args = build_append_system_prompt_args(&spec, &files);
         assert_eq!(args.len(), 2);
         assert!(args[1].contains("# auth Specification"));
-        assert!(args[1].contains("study @NOTES.md"));
+        assert!(args[1].contains("These are notes."));
     }
 
     #[test]
