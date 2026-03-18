@@ -1,0 +1,47 @@
+description = "Spec creation and refinement"
+alias = "sg"
+
+
+[[iters]]
+name = "discuss-and-interview"
+prompt = "spec-gen-0-discuss-and-interview.md"
+mode = "interactive"
+produces = "discuss-and-interview-summary"
+
+
+[[iters]]
+name = "write"
+prompt = "spec-gen-1-write.md"
+mode = "afk"
+iterations = 1
+consumes = ["discuss-and-interview-summary"]
+produces = "draft-presentation"
+auto_push = true
+
+
+[[iters]]
+name = "review"
+prompt = "spec-gen-2-review.md"
+mode = "interactive"
+consumes = ["discuss-and-interview-summary", "draft-presentation"]
+next = "approve"
+
+  [iters.transitions]
+  on_revise = "revise"
+
+
+[[iters]]
+name = "revise"
+prompt = "spec-gen-3-revise.md"
+mode = "afk"
+iterations = 1
+consumes = ["discuss-and-interview-summary", "draft-presentation"]
+produces = "draft-presentation"
+next = "review"
+
+
+[[iters]]
+name = "approve"
+prompt = "spec-gen-4-approve.md"
+mode = "afk"
+
