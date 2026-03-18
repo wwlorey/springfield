@@ -41,3 +41,4 @@ The discuss-summary from the previous phase has been injected into your context.
 - The quality checklist is internal discipline — do not include a checklist report in the presentation.
 - Add cross-references to related specs: `fm ref add <stem> <target-stem>`.
 - Commit your changes when finished.
+- When the quality checklist passes and the presentation artifact is written, `touch .ralph-complete` and stop.

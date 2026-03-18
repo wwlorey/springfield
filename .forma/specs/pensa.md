@@ -46,9 +46,29 @@ SQLite needs serialized write access. The daemon keeps all reads and writes behi
 
 ## Dependencies
 
-- **Daemon HTTP server**: `axum` (tokio-based, good routing ergonomics for the ~20 endpoints).
-- **CLI HTTP client**: `reqwest` (blocking mode — the CLI doesn't need async).
-- **SQLite**: `rusqlite` with bundled SQLite (the `bundled` feature — avoids system SQLite version issues across host and sandbox environments).
+| Crate | Purpose |
+|-------|---------|
+| `clap` (4, derive + env) | CLI argument parsing with env var support |
+| `axum` (0.8) | Daemon HTTP server |
+| `tokio` (1, full) | Async runtime for daemon |
+| `reqwest` (0.12, blocking + json) | CLI HTTP client |
+| `rusqlite` (0.35, bundled) | SQLite with bundled SQLite |
+| `serde` (1, derive) | Serialization |
+| `serde_json` (1) | JSON handling |
+| `uuid` (1, v7) | UUIDv7 ID generation |
+| `chrono` (0.4, serde) | Timestamp generation |
+| `sha2` (0.10) | SHA-256 for port/path derivation |
+| `tracing` (0.1) | Structured logging |
+| `tracing-subscriber` (0.3) | Log output formatting |
+
+Dev dependencies:
+
+| Crate | Purpose |
+|-------|---------|
+| `tempfile` (3) | Temporary directories for test isolation |
+| `portpicker` (0.1) | Random port selection for test daemons |
+| `proptest` (1) | Property-based testing |
+| `forma` (workspace) | Forma crate for spec validation integration tests |
 
 ## Error Handling
 

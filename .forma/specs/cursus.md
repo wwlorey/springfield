@@ -90,13 +90,21 @@ The existing `orchestrate.rs` and `loop_mgmt.rs` are refactored into the cursus 
 | `chrono` (0.4) | Timestamps for run metadata |
 | `tracing` (0.1) | Structured logging |
 
-Workspace dependencies (already in springfield):
+These are part of the `springfield` crate's Cargo.toml (cursus is a module within springfield, not a separate crate).
+
+Binary invocations (child processes, not crate-level dependencies):
+
+| Binary | Source | Purpose |
+|--------|--------|---------|
+| `ralph` | crates/ralph/ | Iter execution in AFK mode |
+| `cl` | crates/claude-wrapper/ | Iter execution in interactive mode |
+
+Workspace crate dependencies (linked at compile time via springfield):
+
 | Crate | Purpose |
 |-------|---------|
-| `ralph` | Iter execution in AFK mode |
-| `claude-wrapper` | Iter execution in interactive mode (via `cl`) |
-| `vcs-utils` | Git operations (auto-push) |
-| `shutdown` | Graceful shutdown handling |
+| `vcs-utils` (workspace) | Git operations (auto-push) |
+| `shutdown` (workspace) | Graceful shutdown handling |
 
 ## Error Handling
 

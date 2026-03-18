@@ -44,20 +44,22 @@ ralph/
 
 | Crate | Purpose |
 |-------|---------|
-| `clap` (4, derive) | CLI argument parsing with env var support |
+| `clap` (4, derive + env) | CLI argument parsing with env var support |
 | `serde` (1, derive) | JSON deserialization |
 | `serde_json` (1) | NDJSON line parsing |
-| `signal-hook` (0.4) | SIGINT/SIGTERM handling for graceful shutdown |
-| `libc` (0.2) | `setsid()` in pre_exec hook to detach child from controlling terminal |
+| `shutdown` (workspace) | Shared graceful shutdown — double-press Ctrl+C/Ctrl+D detection, process group kill with escalation (see [shutdown spec](shutdown.md)) |
+| `vcs-utils` (workspace) | Shared VCS utilities — `git_head()`, `auto_push_if_changed()` (see [vcs-utils spec](vcs-utils.md)) |
+| `libc` (0.2) | `setsid()` in pre_exec hook, terminal settings save/restore (`tcgetattr`/`tcsetattr`) |
+| `uuid` (1, v4) | Generate fresh session IDs for iterations 2+ |
 | `tracing` (0.1) | Structured logging |
 | `tracing-subscriber` (0.3, fmt + env-filter) | Log output formatting, `RUST_LOG` env filter |
-| `vcs-utils` (workspace) | Shared VCS utilities — `git_head()`, `auto_push_if_changed()` (see [vcs-utils spec](vcs-utils.md)) |
 
 Dev dependencies for integration tests:
 
 | Crate | Purpose |
 |-------|---------|
 | `tempfile` (3) | Temporary directories for test isolation |
+| `nix` (0.29, signal) | Signal delivery in tests |
 
 No async runtime. Process spawning and I/O use `std::process` and `std::io::BufRead`.
 

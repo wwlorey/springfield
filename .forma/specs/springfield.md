@@ -109,7 +109,32 @@ The rsync copies prompts, config, MEMENTO.md, and BACKPRESSURE.md to `~/.sgf/`. 
 
 ## Dependencies
 
-See Cargo.toml. Key dependencies: clap (CLI), tokio (async runtime), toml (config parsing), sha2 (port derivation), vcs-utils (workspace, git operations), shutdown (workspace, signal handling).
+| Crate | Purpose |
+|-------|---------|
+| `clap` (4, derive + env) | CLI argument parsing |
+| `serde` (1, derive) | Serialization for config and run state |
+| `serde_json` (1) | JSON handling for run metadata |
+| `serde_yaml` (0.9) | YAML parsing (legacy config support) |
+| `chrono` (0.4) | Timestamps for run metadata and loop IDs |
+| `toml` (0.8) | Cursus TOML pipeline definition parsing |
+| `sha2` (0.10) | SHA-256 for daemon port derivation |
+| `uuid` (1, v4) | UUIDv4 session ID generation |
+| `shutdown` (workspace) | Shared graceful shutdown handling (see [shutdown spec](shutdown.md)) |
+| `vcs-utils` (workspace) | Git operations — auto-push (see [vcs-utils spec](vcs-utils.md)) |
+| `libc` (0.2) | `setsid()` for child process isolation |
+| `tracing` (0.1) | Structured logging |
+
+Dev dependencies:
+
+| Crate | Purpose |
+|-------|---------|
+| `tempfile` (3) | Temporary directories for test isolation |
+| `assert_cmd` (2) | CLI testing assertions |
+| `predicates` (3) | Output matching predicates |
+| `portpicker` (0.1) | Random port selection for test daemons |
+| `nix` (0.29, signal) | Signal delivery in tests |
+
+Note: `ralph` and `cl` (claude-wrapper) are invoked as child process binaries via `std::process::Command`, not linked as crate dependencies.
 
 ## Error Handling
 

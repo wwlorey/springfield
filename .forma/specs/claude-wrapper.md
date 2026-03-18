@@ -97,7 +97,7 @@ The first existing path wins. If neither exists, the file is skipped with a warn
 ### Resolution Function
 
 ```rust
-pub fn resolve_context(cwd: &Path, home: &Path) -> Vec<String>;
+pub fn resolve_context_files(cwd: &Path, home: &Path) -> Vec<String>;
 ```
 
 Pure function. Returns a list of absolute file paths.
