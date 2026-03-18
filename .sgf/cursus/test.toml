@@ -1,0 +1,8 @@
+description = "Claim and execute one test item from the backlog"
+auto_push = true
+
+[[iters]]
+name = "test"
+prompt = "test.md"
+mode = "afk"
+iterations = 30

@@ -1,0 +1,7 @@
+description = "Run pn and fm doctor checks and remediate findings"
+auto_push = true
+
+[[iters]]
+name = "doc"
+prompt = "doc.md"
+mode = "afk"

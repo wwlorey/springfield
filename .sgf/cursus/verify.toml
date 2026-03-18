@@ -1,0 +1,9 @@
+description = "Verify spec implementation against the codebase"
+alias = "v"
+auto_push = true
+
+[[iters]]
+name = "verify"
+prompt = "verify.md"
+mode = "afk"
+iterations = 30

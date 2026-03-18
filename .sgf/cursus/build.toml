@@ -1,0 +1,9 @@
+description = "Claim and implement one issue from the backlog"
+alias = "b"
+auto_push = true
+
+[[iters]]
+name = "build"
+prompt = "build.md"
+mode = "interactive"
+iterations = 30

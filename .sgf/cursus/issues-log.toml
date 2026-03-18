@@ -1,0 +1,6 @@
+description = "Interview and log a new bug report"
+
+[[iters]]
+name = "issues-log"
+prompt = "issues-log.md"
+mode = "interactive"

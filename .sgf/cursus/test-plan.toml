@@ -1,0 +1,8 @@
+description = "Generate a testing plan and create pensa test items"
+auto_push = true
+
+[[iters]]
+name = "test-plan"
+prompt = "test-plan.md"
+mode = "afk"
+iterations = 30

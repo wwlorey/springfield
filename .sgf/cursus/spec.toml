@@ -1,0 +1,42 @@
+description = "Spec creation and refinement"
+alias = "s"
+
+[[iters]]
+name = "discuss"
+prompt = "spec-discuss.md"
+mode = "interactive"
+produces = "discuss-summary"
+
+[[iters]]
+name = "draft"
+prompt = "spec-draft.md"
+mode = "afk"
+iterations = 10
+consumes = ["discuss-summary"]
+produces = "draft-presentation"
+auto_push = true
+
+[[iters]]
+name = "review"
+prompt = "spec-review.md"
+mode = "interactive"
+consumes = ["discuss-summary", "draft-presentation"]
+
+  [iters.transitions]
+  on_reject = "draft"
+  on_revise = "revise"
+
+[[iters]]
+name = "revise"
+prompt = "spec-revise.md"
+mode = "afk"
+iterations = 5
+consumes = ["discuss-summary", "draft-presentation"]
+produces = "draft-presentation"
+next = "review"
+
+[[iters]]
+name = "approve"
+prompt = "spec-approve.md"
+mode = "interactive"
+consumes = ["draft-presentation"]
