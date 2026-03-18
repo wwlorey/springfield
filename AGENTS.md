@@ -21,5 +21,5 @@ just install
 ## IMPORTANT
 
 - **ALWAYS read the given prompt files at the beginning of each session.**
-- When asked questions about the project, reference the SPECS as the source of truth.
+- Specs are the SOURCE OF TRUTH.
 - Do not update ./.sgf/BACKPRESSURE.md or ./.sgf/MEMENTO.md without EXPLICIT approval.
