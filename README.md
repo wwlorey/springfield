@@ -65,18 +65,27 @@ prek install
 
 ### Usage
 
+Every `sgf <command>` resolves to a **cursus** pipeline definition (see [Cursus Pipelines](#cursus-pipelines) below). Built-in commands (`init`, `logs`, `resume`, `status`) are resolved first; everything else maps to a `.toml` file in `.sgf/cursus/`.
+
 ```sh
-sgf spec                    # generate specs and implementation plan (interactive)
+sgf spec                    # spec creation and refinement (multi-iter pipeline)
 sgf build [spec]            # run build loop (interactive)
 sgf build [spec] -a         # run build loop in AFK mode (unattended)
 sgf verify                  # verify codebase against specs
 sgf test-plan               # generate test items
 sgf test [spec]             # execute test items
-sgf issues log              # log bugs interactively
+sgf doc                     # documentation generation
+sgf issues-log              # log bugs interactively
 sgf logs <loop-id>          # tail a running loop's output
-sgf resume                  # resume a previous session (interactive picker)
-sgf resume <loop-id>        # resume a specific session by loop ID
+sgf resume                  # resume a previous session or stalled cursus run
+sgf resume <run-id>         # resume a specific session or cursus run by ID
 ```
+
+CLI flags apply to all iters in a cursus:
+- `-a` — force AFK mode on all iters
+- `-i` — force interactive mode on all iters
+- `-n <count>` — override iteration count on all iters
+- `--no-push` — disable auto-push on all iters
 
 ### Session Resume
 
@@ -109,7 +118,185 @@ When a `loop-id` is provided, the picker shows only the iterations for that loop
 
 Resumed sessions always run in interactive mode (full terminal passthrough) regardless of the original mode.
 
+`sgf resume` also supports cursus-specific stall recovery — see [Stall Recovery](#stall-recovery) below.
+
 **Ralph flags:** ralph accepts `--session-id <uuid>` (for new sessions) and `--resume <session_id>` (for resuming), both passed through to `cl`.
+
+### Cursus Pipelines
+
+A **cursus** (Latin: "a running, course, path") is a declarative pipeline comprising one or more **iters** (Latin: "journey, passage") — discrete execution stages that run sequentially. Cursus definitions are TOML files in `.sgf/cursus/` (project-local) or `~/.sgf/cursus/` (global defaults). Local definitions override global ones.
+
+Every `sgf <command>` resolves to a cursus definition. Simple commands like `build` are single-iter cursus definitions. Complex workflows like `spec` are multi-iter pipelines with transitions, context passing, and review loops.
+
+#### TOML Format
+
+Each `.toml` file in `.sgf/cursus/` defines one cursus. The filename (minus `.toml`) is the command name.
+
+**Top-level fields:**
+
+```toml
+description = "Spec creation and refinement"
+alias = "s"           # optional short alias
+trigger = "manual"    # only "manual" is supported currently
+auto_push = true      # auto-push after commits (default: false)
+```
+
+**Iters** are defined as an array of tables:
+
+```toml
+[[iters]]
+name = "build"
+prompt = "build.md"        # resolved via layered .sgf/prompts/ lookup
+mode = "interactive"       # "interactive" (default) or "afk"
+iterations = 30            # max ralph iterations (default: 1)
+auto_push = true           # override cursus-level auto_push (optional)
+```
+
+#### Single-Iter Cursus
+
+A single-iter cursus is the simplest form — equivalent to a `config.toml` entry. Example `build.toml`:
+
+```toml
+description = "Implementation loop"
+alias = "b"
+auto_push = true
+
+[[iters]]
+name = "build"
+prompt = "build.md"
+mode = "interactive"
+iterations = 30
+```
+
+#### Multi-Iter Cursus
+
+Multi-iter cursus definitions chain stages together. Example `spec.toml` for spec creation and refinement:
+
+```toml
+description = "Spec creation and refinement"
+alias = "s"
+auto_push = true
+
+[[iters]]
+name = "discuss"
+prompt = "spec-discuss.md"
+mode = "interactive"
+produces = "discuss-summary"
+auto_push = false
+
+[[iters]]
+name = "draft"
+prompt = "spec-draft.md"
+mode = "afk"
+iterations = 10
+produces = "draft-presentation"
+consumes = ["discuss-summary"]
+
+[[iters]]
+name = "review"
+prompt = "spec-review.md"
+mode = "interactive"
+consumes = ["discuss-summary", "draft-presentation"]
+
+  [iters.transitions]
+  on_reject = "draft"
+  on_revise = "revise"
+
+[[iters]]
+name = "revise"
+prompt = "spec-revise.md"
+mode = "afk"
+iterations = 5
+consumes = ["discuss-summary", "draft-presentation"]
+produces = "draft-presentation"
+next = "review"
+
+[[iters]]
+name = "approve"
+prompt = "spec-approve.md"
+mode = "interactive"
+consumes = ["draft-presentation"]
+```
+
+#### Context Passing
+
+Iters share information via **produces** and **consumes**:
+
+- An iter with `produces = "discuss-summary"` writes a summary file to `.sgf/run/<run-id>/context/discuss-summary.md`
+- An iter with `consumes = ["discuss-summary"]` receives that file's content injected into its system prompt
+- When multiple iters produce the same key, the later iter's file overwrites the earlier one (e.g., `revise` updates `draft-presentation`)
+
+The run context directory is also available as `SGF_RUN_CONTEXT` in the environment.
+
+#### Sentinel-Based Transitions
+
+After each iter completes, cursus checks for sentinel files (in priority order):
+
+| Sentinel File | Meaning | Behavior |
+|---------------|---------|----------|
+| `.ralph-complete` | Iter succeeded | Advance to next iter (or `next` override). Final iter → pipeline complete |
+| `.ralph-reject` | Reviewer rejected | Follow `on_reject` transition |
+| `.ralph-revise` | Minor revision needed | Follow `on_revise` transition |
+| (none, iterations exhausted) | Stalled | Pipeline enters stalled state |
+
+Interactive iters with `iterations = 1` that end without a sentinel are treated as successfully completed.
+
+Transitions are defined in a `[iters.transitions]` table and must reference an existing iter name in the same cursus:
+
+```toml
+[iters.transitions]
+on_reject = "draft"     # jump back to draft on rejection
+on_revise = "revise"    # jump to revise for minor changes
+```
+
+The `next` field overrides the default sequential flow:
+
+```toml
+next = "review"         # after this iter, go to review instead of the next in the list
+```
+
+#### Stall Recovery
+
+When an iter exhausts its iterations without producing a sentinel file, the pipeline stalls:
+
+```
+╭─ Cursus STALLED ─────────────────────────────────╮
+│  Cursus:    spec                                  │
+│  Iter:      draft                                 │
+│  Reason:    Iterations exhausted (10/10)          │
+│                                                   │
+│  To resume: sgf resume spec-20260317T140000       │
+╰───────────────────────────────────────────────────╯
+```
+
+Resume with `sgf resume <run-id>` to retry the stalled iter, skip to the next iter, or abort the run.
+
+#### Command Resolution
+
+Resolution order for `sgf <command>`:
+
+1. Reserved built-ins: `init`, `logs`, `resume`, `status`
+2. `./.sgf/cursus/<command>.toml` (project-local override)
+3. `~/.sgf/cursus/<command>.toml` (global default)
+4. Alias match across all resolved cursus definitions
+5. `config.toml` fallback (legacy, removed once migration is complete)
+6. Error: `unknown command: <command>`
+
+#### Migration from `config.toml`
+
+Each `[section]` in the old `.sgf/prompts/config.toml` becomes its own cursus TOML in `.sgf/cursus/`:
+
+| Old (`config.toml`) | New (`.sgf/cursus/`) |
+|----------------------|----------------------|
+| `[build]` | `build.toml` |
+| `[spec]` | `spec.toml` (multi-iter) |
+| `[verify]` | `verify.toml` |
+| `[test]` | `test.toml` |
+| `[test-plan]` | `test-plan.toml` |
+| `[doc]` | `doc.toml` |
+| `[issues-log]` | `issues-log.toml` |
+
+Cursus definitions take precedence over `config.toml`. Both resolution paths coexist during the transition.
 
 ### Development
 
@@ -126,12 +313,13 @@ cargo fmt --all
 springfield/
 ├── Cargo.toml                 (workspace)
 ├── crates/
-│   ├── springfield/           — CLI binary (`sgf`), entry point, scaffolding, prompt delivery
+│   ├── springfield/           — CLI binary (`sgf`), entry point, scaffolding, cursus orchestration
+│   │   └── src/cursus/        — cursus pipeline engine (TOML parsing, execution, state, context)
 │   ├── pensa/                 — agent persistent memory (CLI binary + library)
 │   └── ralph/                 — loop runner (standalone binary)
 ```
 
-**`springfield`** (binary: `sgf`) — The CLI entry point. All developer interaction goes through this binary. It delegates to the other crates internally. Also responsible for project scaffolding.
+**`springfield`** (binary: `sgf`) — The CLI entry point. All developer interaction goes through this binary. It delegates to the other crates internally. Responsible for project scaffolding and cursus pipeline orchestration. The `cursus` module handles TOML parsing/validation, iter execution, sentinel detection, context passing, and run state persistence.
 
 **`pensa`** (Latin: "tasks", singular: pensum) — A Rust CLI that serves as the agent's persistent structured memory. Replaces markdown-based issue logging and implementation plan tracking. Inspired by [beads](https://github.com/steveyegge/beads) but built in Rust with tighter integration into the Springfield workflow. Stores issues with typed classification, dependencies, priorities, ownership, and status tracking. Uses SQLite locally with JSONL export for git portability. Why not [Dolt](https://github.com/dolthub/dolt)? SQLite + JSONL is simpler: SQLite is tiny, JSONL travels with git (no DoltHub remote needed), and `rusqlite` is mature. Dolt's strengths (table-level merges, branching) matter more in multi-user scenarios.
 
