@@ -25,6 +25,8 @@ Cursus definitions follow the same layered resolution as prompts: project-local 
 
 ## Architecture
 
+Cursus is a module within the `springfield` crate. Pipeline definitions live in `.sgf/cursus/` as TOML files; runtime state lives in `.sgf/run/` as JSON. The module handles TOML parsing, iter sequencing, sentinel detection, context file management, and stall recovery.
+
 ## File Layout
 
 ```

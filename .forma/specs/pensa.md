@@ -376,7 +376,7 @@ With `--fix`: releases all in_progress claims (set status → open, clear assign
 
 ## JSON Output
 
-Following beads' pattern: no envelope, direct data to stdout.
+No envelope — direct data to stdout.
 
 ### Routing
 

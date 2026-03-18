@@ -4,17 +4,21 @@ Session resume — persist Claude session IDs and loop config to enable resuming
 
 | Field | Value |
 |-------|-------|
-| Src | `crates/springfield/,crates/ralph/` |
+| Src | `crates/springfield/` |
 | Status | draft |
 
 ## Overview
+
+**Note:** The cursus pipeline system (see [cursus spec](cursus.md)) now provides the primary resume mechanism for multi-iter pipelines via `.sgf/run/{run-id}/meta.json`. The session-resume spec describes the legacy per-iteration resume mechanism that remains as a fallback for non-cursus sessions and for resuming individual Claude Code sessions within a cursus iter.
+
+---
 
 Resume interrupted or completed `sgf` sessions by persisting Claude Code session IDs and loop configuration in JSON sidecar files. Users can jump back into any previous session with `sgf resume`.
 
 The feature adds:
 - **Session metadata persistence**: JSON sidecar files in `.sgf/run/{loop_id}.json` storing all iteration session IDs, loop config, and status
 - **Pre-assigned session IDs**: Generate a UUID before each iteration and pass it via `--session-id <uuid>`, ensuring we always know the session ID without parsing output. Each iteration gets its own fresh session ID.
-- **`sgf resume` command**: Pick from a flat list of all iterations across all loops, then resume the selected session
+- **`sgf resume` command**: For cursus runs, resumes from the stalled/interrupted iter (see [cursus spec](cursus.md) Stall Recovery). For legacy sessions, picks from a flat list of all iterations across all loops, then resumes the selected session.
 - **Ralph `--session-id` flag**: Every iteration passes `--session-id <uuid>` and includes the prompt. Iteration 1 uses the sgf-provided UUID; iterations 2+ generate a fresh UUID.
 - **Both modes**: Works for interactive and AFK sessions
 

@@ -35,10 +35,10 @@ crates/forma/
 | Crate | Purpose |
 |-------|---------|
 | `clap` (4, derive) | CLI argument parsing with env var support |
-| `axum` (0.7) | Daemon HTTP server |
+| `axum` (0.8) | Daemon HTTP server |
 | `tokio` (1, full) | Async runtime for daemon |
 | `reqwest` (0.12, blocking) | CLI HTTP client |
-| `rusqlite` (0.31, bundled) | SQLite with bundled SQLite |
+| `rusqlite` (0.35, bundled) | SQLite with bundled SQLite |
 | `serde` (1, derive) | Serialization |
 | `serde_json` (1) | JSON handling |
 | `uuid` (1, v7) | UUIDv7 ID generation |
