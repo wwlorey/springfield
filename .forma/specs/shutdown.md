@@ -31,9 +31,16 @@ crates/shutdown/
 | Crate | Purpose |
 |-------|---------|
 | `signal-hook` (0.4) | SIGINT/SIGTERM handler registration |
-| `libc` (0.2) | Low-level signal constants |
+| `libc` (0.2) | Low-level signal constants, process group kill |
 
 No async runtime. Uses `std::thread` for the stdin monitor and `std::sync::atomic` for cross-thread state.
+
+Dev dependencies:
+
+| Crate | Purpose |
+|-------|---------|
+| `nix` (0.29, signal + process) | Signal delivery and process management in tests |
+| `serial_test` (3) | Serialize signal-based tests to avoid interference |
 
 ## Error Handling
 
