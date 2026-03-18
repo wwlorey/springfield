@@ -9,16 +9,12 @@ Session resume — persist Claude session IDs and loop config to enable resuming
 
 ## Overview
 
-**Note:** The cursus pipeline system (see [cursus spec](cursus.md)) now provides the primary resume mechanism for multi-iter pipelines via `.sgf/run/{run-id}/meta.json`. The session-resume spec describes the legacy per-iteration resume mechanism that remains as a fallback for non-cursus sessions and for resuming individual Claude Code sessions within a cursus iter.
-
----
-
-Resume interrupted or completed `sgf` sessions by persisting Claude Code session IDs and loop configuration in JSON sidecar files. Users can jump back into any previous session with `sgf resume`.
+Session tracking and resume mechanism for sgf. Persists Claude Code session IDs and loop configuration in JSON sidecar files, enabling users to resume interrupted sessions with `sgf resume`. Cursus uses this mechanism for per-iteration session tracking within pipeline runs.
 
 The feature adds:
 - **Session metadata persistence**: JSON sidecar files in `.sgf/run/{loop_id}.json` storing all iteration session IDs, loop config, and status
 - **Pre-assigned session IDs**: Generate a UUID before each iteration and pass it via `--session-id <uuid>`, ensuring we always know the session ID without parsing output. Each iteration gets its own fresh session ID.
-- **`sgf resume` command**: For cursus runs, resumes from the stalled/interrupted iter (see [cursus spec](cursus.md) Stall Recovery). For legacy sessions, picks from a flat list of all iterations across all loops, then resumes the selected session.
+- **`sgf resume` command**: For cursus runs, resumes from the stalled/interrupted iter (see [cursus spec](cursus.md) Stall Recovery). For non-cursus sessions, picks from a flat list of all iterations across all loops, then resumes the selected session.
 - **Ralph `--session-id` flag**: Every iteration passes `--session-id <uuid>` and includes the prompt. Iteration 1 uses the sgf-provided UUID; iterations 2+ generate a fresh UUID.
 - **Both modes**: Works for interactive and AFK sessions
 
@@ -157,7 +153,6 @@ sgf resume spec-20260316T120000   # direct resume
     { "iteration": 2, "session_id": "f9e8d7c6-b5a4-3210-fedc-ba9876543210", "completed_at": "2026-03-16T12:05:30Z" }
   ],
   "stage": "spec",
-  "spec": null,
   "mode": "interactive",
   "prompt": ".sgf/prompts/spec.md",
   "iterations_total": 2,
@@ -174,7 +169,6 @@ sgf resume spec-20260316T120000   # direct resume
 | `loop_id` | string | The loop identifier (same as filename stem) |
 | `iterations` | array | List of iteration records, each with `iteration` (1-based index), `session_id` (UUID), and `completed_at` (ISO 8601 timestamp) |
 | `stage` | string | Prompt stage name (e.g., `spec`, `build`, `verify`) |
-| `spec` | string \| null | Spec stem if provided, null otherwise |
 | `mode` | string | `"interactive"` or `"afk"` |
 | `prompt` | string | Resolved prompt file path |
 | `iterations_total` | u32 | Total iterations configured |
@@ -209,7 +203,7 @@ For AFK mode, ralph reports iterations completed via its exit. Sgf maps exit cod
 sgf resume [loop_id]
 ```
 
-`resume` is a reserved built-in command (alongside `init`, `logs`, `status`).
+`resume` is a reserved built-in command (alongside `init`, `list`, `logs`).
 
 ### Behavior
 
@@ -217,7 +211,7 @@ sgf resume [loop_id]
 1. Read `.sgf/run/{loop_id}.json`
 2. If not found → error, exit 1
 3. Display the iterations for that loop as a numbered list, let user pick one
-4. Launch `cl --resume <session_id> --verbose --dangerously-skip-permissions --settings '{...}'`
+4. Launch `cl --resume <session_id> --verbose --dangerously-skip-permissions`
 5. Always resumes in interactive mode (full terminal passthrough), regardless of original mode
 6. Update metadata on exit: `status`, `updated_at`
 
@@ -312,7 +306,7 @@ For AFK mode, ralph generates fresh UUIDs for iterations 2+ and reports each ite
 
 ### main.rs
 
-Add `resume` to the reserved built-in commands list (alongside `init`, `logs`, `status`).
+Add `resume` to the reserved built-in commands list (alongside `init`, `list`, `logs`).
 
 ```rust
 "resume" => {
@@ -338,7 +332,6 @@ pub struct SessionMetadata {
     pub loop_id: String,
     pub iterations: Vec<IterationRecord>,
     pub stage: String,
-    pub spec: Option<String>,
     pub mode: String,
     pub prompt: String,
     pub iterations_total: u32,

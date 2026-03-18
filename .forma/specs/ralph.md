@@ -14,8 +14,7 @@ CLI tool for iterative Claude Code execution. Invokes `cl` (claude-wrapper) dire
 `ralph` provides:
 - **Iteration loop**: Run Claude Code repeatedly against a prompt file or inline text, up to N iterations
 - **Two modes**: Interactive (terminal passthrough) and AFK (formatted NDJSON stream)
-- **Direct agent invocation**: Runs `cl` as a child process — no Docker, no Mutagen, no sandbox lifecycle. Context file injection (MEMENTO, BACKPRESSURE, specs/README) is handled by `cl`; ralph only passes spec study args via `--spec`.
-- **Spec study injection**: When `--spec` is provided, pass `study @./specs/<stem>.md` via `--append-system-prompt` to `cl`
+- **Direct agent invocation**: Runs `cl` as a child process — no Docker, no Mutagen, no sandbox lifecycle. Context file injection (MEMENTO, BACKPRESSURE) is handled by `cl`.
 - **NDJSON formatting**: Compact, readable output from Claude's stream-json format
 - **Completion detection**: Exit early when Claude signals task completion by creating the `.ralph-complete` sentinel file
 - **Interactive notification**: Play a sound on the host when Claude needs user input (via `.ralph-ding` sentinel file)
@@ -71,7 +70,6 @@ No custom error types. Fail loudly, continue when sensible:
 |----------|----------|
 | `cl` not found in PATH (no `--command`) | `tracing::error\!` + exit 1 (before loop starts) |
 | Default prompt file missing | `tracing::error\!` + exit 1 (before loop starts, only when no explicit prompt provided) |
-| Spec file missing (`--spec`) | `tracing::error\!` + exit 1 (e.g., `spec file not found: specs/auth.md`) |
 | Prompt file missing (`--prompt-file`) | `tracing::error\!` + exit 1 |
 | Agent/command spawn failure | `tracing::warn\!`, continue to next iteration |
 | NDJSON parse error (line starts with `{`) | Skip line, log at debug level |
@@ -142,7 +140,8 @@ Binary-level E2E tests using `cargo test -p ralph`. Each test:
 | AFK hides tool results | `afk-session.ndjson` | stdout does not contain tool result content from `user` events |
 | AFK detects completion file | `complete.ndjson` + sentinel file | exit code 0, sentinel cleaned up |
 | AFK exhausts iterations without completion | `afk-session.ndjson` | exit code 2 |
-| AFK startup banner uses box format | `afk-session.ndjson` | stdout contains `╭─ Ralph Loop Starting` |
+| AFK startup banner shown with --banner | `afk-session.ndjson` + `--banner` | stdout contains `╭─ Ralph Loop Starting` |
+| AFK startup banner hidden without --banner | `afk-session.ndjson` | stdout does NOT contain `╭─ Ralph Loop Starting` |
 | AFK iteration banner uses box format | `afk-session.ndjson` | stdout contains `╭─ Iteration 1 of` |
 | AFK completion banner uses box format | `complete.ndjson` + sentinel | stdout contains `╭─ Ralph COMPLETE` |
 | AFK max-iterations banner uses box format | `afk-session.ndjson` | stdout contains `╭─ Ralph reached max iterations` |
@@ -173,41 +172,6 @@ Fixtures are derived from real AFK output captured in [`ralph/tests/fixtures/ral
 `ralph/tests/fixtures/complete.ndjson` — modeled on iteration 9 of sample output. Covers:
 - Short session ending with a result event (sentinel file creation is handled by the mock script, not the NDJSON fixture)
 
-### Expected Formatted Output
-
-For `afk-session.ndjson`, the formatter should produce output like (ANSI styling indicated in brackets, not literal):
-
-```
-[bold][white]I'll start by studying the required files to understand the context and plan.[/white][/bold]
-
-  [dim]─[/dim] [bold][blue]Read[/blue][/bold]  [white]specs/README.md[/white]
-  [dim]─[/dim] [bold][blue]Read[/blue][/bold]  [white]plans/cleanup/buddy-llm.md[/white]
-
-[bold][white]Now I can see the cleanup plan. Many items are checked off...[/white][/bold]
-
-  [dim]─[/dim] [bold][cyan]TodoWrite[/cyan][/bold]  [white]3 items[/white]
-
-[bold][white]Let me read the relevant files in parallel...[/white][/bold]
-
-  [dim]─[/dim] [bold][blue]Read[/blue][/bold]  [white]specs/tokenizer-embedding.md[/white]
-  [dim]─[/dim] [bold][blue]Read[/blue][/bold]  [white]crates/buddy-llm/src/inference.rs 1:80[/white]
-  [dim]─[/dim] [bold][blue]Read[/blue][/bold]  [white]specs/buddy-llm.md[/white]
-
-[bold][white]Now I have full context...[/white][/bold]
-
-  [dim]─[/dim] [bold][magenta]Edit[/magenta][/bold]  [white]specs/tokenizer-embedding.md[/white]
-
-  [dim]─[/dim] [bold][yellow]Bash[/yellow][/bold]  [white]git diff specs/tokenizer-embedding.md plans/cleanup/buddy-llm.md[/white]
-
-  [dim]─[/dim] [bold][yellow]Bash[/yellow][/bold]  [white]cargo test -p ralph[/white]
-
-  [dim]─[/dim] [bold][yellow]Bash[/yellow][/bold]  [white]git add ... && git commit ...[/white]
-
-[bold][white]Done. Updated `specs/tokenizer-embedding.md`.[/white][/bold]
-
-  [dim]Input: 12,450 tokens · Output: 1,230 tokens[/dim]
-```
-
 ## Design Goals
 
 1. **Readable AFK output**: Styled, Claude Code-like terminal output — ANSI colors, tool call one-liners, truncated tool results, boxed banners
@@ -224,7 +188,7 @@ ralph [OPTIONS] [ITERATIONS] [PROMPT]
 When invoked by `sgf`, the full command looks like:
 
 ```
-[SGF_SPEC=auth] ralph [-a] [--loop-id ID] [--auto-push BOOL] [--spec auth] [--session-id UUID] ITERATIONS PROMPT
+ralph [-a] [--loop-id ID] [--auto-push BOOL] [--banner] [--session-id UUID] ITERATIONS PROMPT
 ```
 
 ### Arguments
@@ -250,9 +214,9 @@ The default value `prompt.md` is treated specially: if no explicit prompt is pro
 | `-a`, `--afk` | — | `false` | Run in AFK mode (non-interactive) |
 | `--loop-id` | — | — | Loop identifier (sgf-generated, included in banner output) |
 | `--auto-push` | `RALPH_AUTO_PUSH` | `true` | Auto-push after new commits (requires explicit value: `true`/`false`/`yes`/`no`/`1`/`0`) |
+| `--banner` | — | `false` | Display ASCII art startup banner. Controlled by cursus TOML iter `banner` field |
 | `--command` | `RALPH_COMMAND` | — | Override: path to executable replacing agent invocation (for testing) |
-| `--spec` | `SGF_SPEC` | — | Spec stem — fetches spec content from forma via `fm show <stem> --json` and injects it via `--append-system-prompt`. Fails with error if the spec does not exist in forma. |
-| `--prompt-file` | — | — | Additional prompt file path (repeatable). Added to the study instruction passed via `--append-system-prompt`. |
+| `--prompt-file` | — | — | Additional prompt file path (repeatable). File content is read and inlined into `--append-system-prompt`. Missing files are a fatal error (exit code 1). |
 | `--session-id` | — | — | Pre-assigned Claude session ID (UUID). Passed through to `cl` as `--session-id <uuid>` on iteration 1. On iterations 2+, ralph generates a fresh UUID for each iteration. |
 | `--resume` | — | — | Resume a previous Claude session. Passed through to `cl` as `--resume <session_id>`. Mutually exclusive with `--session-id`. Only applies to iteration 1. |
 
@@ -274,33 +238,28 @@ ralph 10 my-task.md                                    # Custom prompt file
 ralph 5 "fix the login bug"                            # Inline text prompt
 ralph -a 3 "refactor auth module"                      # AFK mode with inline text
 RALPH_AUTO_PUSH=false ralph -a 10                      # Disable auto-push
-ralph -a --loop-id build-auth-20260226T143000 10 prompt.md  # With loop ID
-ralph -a --spec auth 10 .sgf/prompts/build.md               # With spec
-ralph --prompt-file ./NOTES.md 5 prompt.md                   # Extra prompt file
-ralph --session-id a1b2c3d4-e5f6-... 10 prompt.md           # With pre-assigned session ID
-ralph --resume a1b2c3d4-e5f6-... 1 prompt.md                # Resume a previous session
+ralph -a --loop-id build-20260226T143000 10 prompt.md  # With loop ID
+ralph --banner -a 10 .sgf/prompts/build.md             # With banner
+ralph --prompt-file ./NOTES.md 5 prompt.md             # Extra prompt file
+ralph --session-id a1b2c3d4-e5f6-... 10 prompt.md     # With pre-assigned session ID
+ralph --resume a1b2c3d4-e5f6-... 1 prompt.md           # Resume a previous session
 ```
 
 ## Agent Invocation
 
-Ralph invokes `cl` (claude-wrapper) directly. It never calls `claude` or `claude-wrapper-secret`. Context file injection (MEMENTO.md, BACKPRESSURE.md, specs/README.md) is handled by `cl` — ralph does not manage these files.
+Ralph invokes `cl` (claude-wrapper) directly. It never calls `claude` or `claude-wrapper-secret`. Context file injection (MEMENTO.md, BACKPRESSURE.md) is handled by `cl` — ralph does not manage these files.
 
 When `--command` is set (testing mode), the command override replaces `cl` — used for integration tests with mock scripts.
 
 ## System Prompt Injection
 
-Ralph passes spec content and additional prompt files via `--append-system-prompt`. This is independent of `cl`'s own context injection — both `--append-system-prompt` arguments coexist.
+Ralph passes additional prompt files via `--append-system-prompt`. This is independent of `cl`'s own context injection — both `--append-system-prompt` arguments coexist.
 
 ### Sources
 
-1. **`--spec <stem>`** — If provided, ralph calls `fm show <stem> --json` to fetch the full spec (metadata + sections + refs) from the forma daemon. The JSON response is formatted as markdown and passed via `--append-system-prompt`. Fails with exit code 1 if `fm show` returns an error (spec not found, forma daemon unreachable, etc.).
-2. **`--prompt-file <path>`** (repeatable) — Additional explicit files. Missing files are a fatal error (exit code 1).
+1. **`--prompt-file <path>`** (repeatable) — Additional explicit files. Ralph reads each file's content and inlines it directly into `--append-system-prompt`. This ensures the content appears as literal text in the system prompt rather than as a file reference that requires agent-side expansion. Missing files are a fatal error (exit code 1).
 
-If neither `--spec` nor `--prompt-file` is provided, no `--append-system-prompt` argument is passed — `cl` still injects its own context files independently.
-
-### Spec Content Formatting
-
-Ralph receives the spec as structured JSON from `fm show <stem> --json` and renders it as markdown for injection into the system prompt. The rendering matches the format produced by `fm export` (see [forma spec](forma.md) — Export: Markdown Generation). This keeps spec content consistent whether an agent reads it via ralph injection or via the exported `.forma/specs/*.md` files.
+If no `--prompt-file` is provided, no `--append-system-prompt` argument is passed — `cl` still injects its own context files independently.
 
 ### Invocation
 
@@ -308,12 +267,11 @@ Ralph receives the spec as structured JSON from `fm show <stem> --json` and rend
 cl \
   --verbose \
   --dangerously-skip-permissions \
-  --settings '{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}' \
-  --append-system-prompt '<rendered spec markdown>' \
+  [--append-system-prompt '<prompt file content>'] \
   @prompt.md
 ```
 
-When `--command` is set (testing mode), the same arguments are passed to the mock command. In testing mode, `--spec` still calls `fm show` (the forma daemon must be running for spec-aware tests).
+When `--command` is set (testing mode), the same arguments are passed to the mock command.
 
 ## Modes
 
@@ -325,9 +283,8 @@ Spawns the agent with full terminal passthrough (stdin/stdout/stderr inherited).
 cl \
   --verbose \
   --dangerously-skip-permissions \
-  --settings '{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}' \
   [--session-id <uuid>]           # always (CLI-provided on iter 1, generated on iter 2+)
-  [--append-system-prompt 'study @<FILE>;...']  # from --spec, --prompt-file
+  [--append-system-prompt '<inlined content>']  # from --prompt-file
   @<PROMPT_FILE>       # always included
   # or: "<inline text>"  # always included
 ```
@@ -346,9 +303,8 @@ cl \
   --print \
   --output-format stream-json \
   --dangerously-skip-permissions \
-  --settings '{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}' \
   [--session-id <uuid>]           # always (CLI-provided on iter 1, generated on iter 2+)
-  [--append-system-prompt 'study @<FILE>;...']  # from --spec, --prompt-file
+  [--append-system-prompt '<inlined content>']  # from --prompt-file
   @<PROMPT_FILE>       # always included
   # or: "<inline text>"  # always included
 ```
@@ -360,6 +316,10 @@ Stdout is read line-by-line via `BufRead`, parsed as NDJSON, and formatted with 
 The `TeeWriter` writes styled output (with ANSI codes) to stdout and stripped output (ANSI codes removed) to the log file. ANSI stripping uses a simple regex: `\x1b\[[0-9;]*m`.
 
 After the process exits, ralph checks for the `.ralph-complete` sentinel file to determine if the task is complete.
+
+### Banner
+
+When `--banner` is passed, ralph displays the ASCII art startup banner before the first iteration. When omitted (the default), the banner is suppressed. The cursus TOML `banner` field controls this per iter.
 
 ## Signal Handling
 
@@ -746,7 +706,7 @@ Prompt resolution (before the loop):
 - If explicit prompt provided and it is a path to an existing file → use as file prompt (`@` prefix)
 - If explicit prompt provided and it is not an existing file → use as inline text (no `@` prefix)
 
-The startup banner includes mode, prompt source, iteration count, loop ID (if provided via `--loop-id`), and a list of spec/prompt files passed via `--spec` and `--prompt-file` (each on its own line, prefixed with `  - `).
+The startup banner (displayed only when `--banner` is passed) includes mode, prompt source, iteration count, loop ID (if provided via `--loop-id`), and a list of prompt files passed via `--prompt-file` (each on its own line, prefixed with `  - `).
 
 For each iteration `i` in `1..=iterations`:
 
@@ -796,6 +756,4 @@ This enables integration testing without a real agent binary. Tests create a moc
 
 ## Related Specifications
 
-- [forma](forma.md) — Specification management — forma daemon and fm CLI
-- [pensa](pensa.md) — Agent persistent memory — SQLite-backed issue/task tracker with pn CLI
 - [vcs-utils](vcs-utils.md) — Shared VCS utilities — git HEAD detection, auto-push

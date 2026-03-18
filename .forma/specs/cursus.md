@@ -9,7 +9,7 @@ Pipeline orchestration — declarative TOML-defined multi-iter workflows with co
 
 ## Overview
 
-Cursus is the pipeline orchestration subsystem of sgf. It replaces the current hardcoded prompt dispatch and `config.toml` with declarative TOML pipeline definitions.
+Cursus is the pipeline orchestration subsystem of sgf. It provides declarative TOML pipeline definitions for all commands.
 
 A **cursus** (Latin: "a running, course, path") is a named pipeline comprising one or more **iters** (Latin: "journey, passage") — discrete execution stages that run sequentially. Each iter invokes a prompt via ralph (AFK) or `cl` (interactive), with sentinel files controlling transitions between iters.
 
@@ -18,7 +18,7 @@ Cursus provides:
 - **Context passing between iters**: Each iter can produce a summary file; subsequent iters consume it via prompt injection
 - **Sentinel-based transitions**: Well-known sentinel files signal success, rejection, revision, or exhaustion — controlling which iter runs next
 - **Stall recovery**: When an iter exhausts its iterations, the pipeline enters a stalled state the user can inspect and resume
-- **Subsumption of prompts**: Single-iter cursus definitions replace the old `config.toml` entries. Every `sgf <command>` resolves to a cursus definition, whether it has one iter or many
+- **Unified command model**: Every `sgf <command>` resolves to a cursus definition, whether it has one iter or many. Single-iter cursus definitions are the standard way to define simple commands
 - **Foundation for evolution**: The TOML format accommodates future trigger types (event-driven daemons, cursus chaining) without structural changes. Only manual triggers are supported initially
 
 Cursus definitions follow the same layered resolution as prompts: project-local `./.sgf/cursus/` overrides global `~/.sgf/cursus/`.
@@ -131,10 +131,11 @@ Workspace crate dependencies (linked at compile time via springfield):
 - Parse valid single-iter cursus definition (e.g., `build.toml`)
 - Parse valid multi-iter cursus definition with transitions (e.g., `spec.toml`)
 - Parse cursus with `produces` and `consumes` fields
+- Parse cursus with `banner` field (true, false, default)
 - Reject duplicate iter names
 - Reject transition targets that reference non-existent iters
 - Reject `consumes` referencing non-existent `produces` keys
-- Default values: `mode` defaults to `interactive`, `iterations` defaults to 1, `trigger` defaults to `manual`, `auto_push` defaults to false
+- Default values: `mode` defaults to `interactive`, `iterations` defaults to 1, `trigger` defaults to `manual`, `auto_push` defaults to false, `banner` defaults to false
 - Alias validation: reject duplicate aliases, reject aliases that shadow cursus names
 
 #### `cursus/runner.rs`
@@ -147,6 +148,8 @@ Workspace crate dependencies (linked at compile time via springfield):
 - `produces` file path is correctly constructed under run directory
 - `consumes` files are correctly resolved and injected via `--append-system-prompt`
 - Missing `produces` file emits warning but continues
+- `banner` flag is passed to ralph when true, omitted when false
+- Iter with both `next` and `transitions` correctly uses transitions on reject/revise and `next` on complete
 
 #### `cursus/state.rs`
 - Run metadata serialization/deserialization roundtrip
@@ -169,7 +172,7 @@ Binary-level tests using `cargo test -p springfield`. Each test:
 
 | Test | Scenario | Asserts |
 |------|----------|---------|
-| Single-iter cursus | `build.toml` equivalent | Behaves identically to current `sgf build` |
+| Single-iter cursus | `build.toml` equivalent | Runs single iter, exits normally |
 | Multi-iter happy path | discuss → draft → review → approve | All iters run in sequence, exit 0 |
 | Reject transition | review signals `.ralph-reject` | Pipeline jumps back to draft iter |
 | Revise transition | review signals `.ralph-revise` | Pipeline jumps to revise, then back to review |
@@ -177,6 +180,7 @@ Binary-level tests using `cargo test -p springfield`. Each test:
 | Stall recovery | draft exhausts iterations | Pipeline enters stalled state, metadata persisted |
 | Resume stalled | Load stalled run, resume | Pipeline continues from stalled iter |
 | Layered resolution | Local cursus overrides global | Local TOML takes precedence |
+| Banner flag | iter with `banner = true` | Ralph receives `--banner` flag |
 
 ## TOML Format
 
@@ -195,17 +199,17 @@ auto_push = true
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `description` | string | required | Human-readable description of the cursus |
+| `description` | string | required | Human-readable description of the cursus. Used by `sgf list` |
 | `alias` | string | — | Short alias for the command (e.g., `"s"` for spec). Optional |
 | `trigger` | string | `"manual"` | How the cursus is started. Only `"manual"` is supported initially |
 | `auto_push` | bool | `false` | Auto-push after commits (applies to all iters unless overridden) |
 
 ### Iter Definition
 
-Iters are defined as an array of tables:
+Iters are defined as an array of tables using `[[iter]]` (singular):
 
 ```toml
-[[iters]]
+[[iter]]
 name = "discuss"
 prompt = "spec-discuss.md"
 mode = "interactive"
@@ -213,8 +217,9 @@ iterations = 1
 produces = "discuss-summary"
 consumes = []
 auto_push = false
+banner = false
 
-[[iters]]
+[[iter]]
 name = "draft"
 prompt = "spec-draft.md"
 mode = "afk"
@@ -222,18 +227,19 @@ iterations = 10
 produces = "draft-presentation"
 consumes = ["discuss-summary"]
 auto_push = true
+banner = true
 
-[[iters]]
+[[iter]]
 name = "review"
 prompt = "spec-review.md"
 mode = "interactive"
 consumes = ["discuss-summary", "draft-presentation"]
 
-  [iters.transitions]
+  [iter.transitions]
   on_reject = "draft"
   on_revise = "revise"
 
-[[iters]]
+[[iter]]
 name = "revise"
 prompt = "spec-revise.md"
 mode = "afk"
@@ -242,7 +248,7 @@ consumes = ["discuss-summary", "draft-presentation"]
 produces = "draft-presentation"
 next = "review"
 
-[[iters]]
+[[iter]]
 name = "approve"
 prompt = "spec-approve.md"
 mode = "interactive"
@@ -258,13 +264,14 @@ consumes = ["draft-presentation"]
 | `produces` | string | — | Key name for the summary file this iter writes. Stored at `.sgf/run/<run-id>/context/<key>.md` |
 | `consumes` | array of strings | `[]` | Keys of summary files from previous iters, injected into this iter's system prompt |
 | `auto_push` | bool | cursus-level default | Override auto-push for this specific iter |
+| `banner` | bool | `false` | Whether ralph displays the ASCII art startup banner. Default off |
 | `next` | string | — | Override: after completion, go to this iter instead of the next in the list |
 | `transitions` | table | — | Named transition overrides triggered by sentinel files |
 
 ### Transitions Table
 
 ```toml
-[iters.transitions]
+[iter.transitions]
 on_reject = "draft"
 on_revise = "revise"
 ```
@@ -276,24 +283,25 @@ on_revise = "revise"
 
 Transition targets must reference an iter name defined in the same cursus. This is validated at parse time.
 
-### Single-Iter Cursus (Prompt Replacement)
+An iter can define both `next` and `transitions`. They do not conflict — transitions take precedence when their sentinel is present; `next` only applies on successful completion (`.ralph-complete`).
 
-A single-iter cursus replaces a `config.toml` entry:
+### Single-Iter Cursus
+
+A single-iter cursus defines a simple command:
 
 ```toml
-# build.toml — equivalent to the old [build] config.toml entry
+# build.toml
 description = "Implementation loop"
 alias = "b"
 auto_push = true
 
-[[iters]]
+[[iter]]
 name = "build"
 prompt = "build.md"
 mode = "interactive"
 iterations = 30
+banner = true
 ```
-
-This is the migration path for all existing prompts. Every `[section]` in the old `config.toml` becomes its own `.toml` file in `.sgf/cursus/`.
 
 ### Validation Rules
 
@@ -417,7 +425,6 @@ Each cursus execution creates a run, tracked by metadata in `.sgf/run/`.
       "outcome": "complete"
     }
   ],
-  "spec": "auth",
   "mode_override": null,
   "created_at": "2026-03-17T14:00:00Z",
   "updated_at": "2026-03-17T14:10:00Z"
@@ -432,7 +439,6 @@ Each cursus execution creates a run, tracked by metadata in `.sgf/run/`.
 | `current_iter` | string | Name of the iter currently executing (or stalled at) |
 | `current_iter_index` | u32 | Position in the iters array (for ordered resumption) |
 | `iters_completed` | array | Record of each completed iter with session ID, timestamp, and outcome |
-| `spec` | string or null | Spec stem if provided via CLI |
 | `mode_override` | string or null | CLI mode override (`-a` or `-i`) that applies to all iters |
 | `created_at` | string | RFC3339 timestamp |
 | `updated_at` | string | RFC3339 timestamp (updated after each iter) |
@@ -474,9 +480,9 @@ When the user runs `sgf resume <run-id>`:
 
 ### Resume Integration
 
-`sgf resume` is extended to support both legacy session resumes and cursus run resumes:
+`sgf resume` supports both cursus run resumes and legacy session resumes:
 - If the argument matches a `.sgf/run/<id>/meta.json` with cursus metadata, it's a cursus resume
-- Otherwise, fall back to the existing session-resume behavior
+- Otherwise, fall back to the session-resume behavior (see [session-resume spec](session-resume.md))
 
 ## Iter Execution
 
@@ -489,10 +495,10 @@ For each iter in the cursus (starting from the first, or from the resume point):
    - Update `meta.json` with `current_iter` and `status: "running"`
    - Clean stale sentinel files (`.ralph-complete`, `.ralph-reject`, `.ralph-revise`)
    - Resolve `consumes` files and build system prompt injection content
-   - Set environment: `SGF_RUN_CONTEXT`, `SGF_SPEC` (if applicable)
+   - Set environment: `SGF_RUN_CONTEXT`
 
 2. **Invoke iter**:
-   - **AFK mode**: Invoke ralph with the iter's prompt, iterations, spec, and consumed context via `--append-system-prompt`
+   - **AFK mode**: Invoke ralph with the iter's prompt, iterations, banner flag, and consumed context via `--append-system-prompt`
    - **Interactive mode**: Invoke `cl` directly with the iter's prompt and consumed context via `--append-system-prompt`
    - Session ID management: fresh UUID per iter invocation (passed to ralph/cl)
 
@@ -516,57 +522,26 @@ For each iter in the cursus (starting from the first, or from the resume point):
 
 CLI flags `-a` and `-i` override the `mode` field for ALL iters in the cursus. This allows running an otherwise-AFK cursus interactively for debugging, or vice versa. The override is stored in `meta.json` as `mode_override`.
 
-### Spec Passthrough
-
-When `sgf <cursus> <spec>` is invoked with a spec argument:
-- `SGF_SPEC=<stem>` is set in the environment for all iters
-- Ralph receives `--spec <stem>` for AFK iters
-- `cl` receives `--append-system-prompt 'study @./specs/<stem>.md'` for interactive iters
-- Same behavior as the current `sgf build auth` pattern
-
 ## Command Resolution Changes
 
-Cursus changes how `sgf <command>` resolves what to run. The new resolution order:
+Cursus defines how `sgf <command>` resolves what to run. The resolution order:
 
-1. Check if `<command>` matches a reserved built-in (`init`, `logs`, `resume`, `status`). If so, run the built-in.
+1. Check if `<command>` matches a reserved built-in (`init`, `list`, `logs`, `resume`). If so, run the built-in.
 2. Check if `./.sgf/cursus/<command>.toml` exists (local override). If so, parse and run the cursus.
 3. Check if `~/.sgf/cursus/<command>.toml` exists (global default). If so, parse and run the cursus.
 4. Check if `<command>` matches an alias in any resolved cursus TOML. If so, resolve to the aliased cursus and run it.
-5. Fall back to `config.toml` resolution (legacy path — see Migration Strategy below).
-6. Error: `unknown command: <command>`.
+5. Error: `unknown command: <command>`.
 
-### What Changes
+### What This Means
 
-- `config.toml` is superseded by individual cursus TOML files. It remains functional during the transitional period but is removed once all commands have cursus TOMLs.
-- Prompt files (`.sgf/prompts/*.md`) remain unchanged — they are referenced by cursus definitions but no longer directly resolved by `sgf`.
-- The layered resolution logic (local → global) is the same, just applied to `.sgf/cursus/` instead of `.sgf/prompts/`.
-
-### Migration Strategy
-
-The cursus module is built alongside the existing orchestration code. Both resolution paths coexist during the transition:
-
-1. **Cursus TOML takes precedence**: If a cursus TOML exists for a command, it is used. The `config.toml` entry for that command is ignored.
-2. **`config.toml` fallback**: Commands without a cursus TOML continue to resolve via `config.toml` and the existing `orchestrate.rs` / `config.rs` code paths.
-3. **Incremental adoption**: Cursus TOMLs are created for each command as they are migrated. Single-iter cursus definitions are functionally identical to the old `config.toml` entries.
-4. **Final cleanup**: Once all commands have cursus TOMLs, the last implementation issue removes `config.toml` support, `config.rs`, and the legacy paths in `orchestrate.rs` and `loop_mgmt.rs`.
-
-### Migration Table
-
-Every `[section]` in the old `config.toml` becomes a cursus TOML:
-
-| Old (`config.toml`) | New (`.sgf/cursus/`) |
-|----------------------|----------------------|
-| `[build]` with `mode`, `iterations`, `auto_push`, `alias` | `build.toml` with one `[[iters]]` entry |
-| `[spec]` | `spec.toml` (initially one iter, later multi-iter for spec refinement) |
-| `[verify]` | `verify.toml` |
-| `[test]` | `test.toml` |
-| `[test-plan]` | `test-plan.toml` |
-| `[doc]` | `doc.toml` |
-| `[issues-log]` | `issues-log.toml` |
+- All commands are defined by cursus TOML files. There is no fallback mechanism.
+- Prompt files (`.sgf/prompts/*.md`) remain unchanged — they are referenced by cursus definitions but not directly resolved by `sgf`.
+- The layered resolution logic (local → global) is the same, applied to `.sgf/cursus/`.
+- Adding a new command is as simple as creating a new `.toml` file in `.sgf/cursus/`.
 
 ### CLI Changes
 
-No CLI changes. `sgf build -a -n 30` works exactly as before. The flags map to:
+No CLI changes. `sgf build -a -n 30` works as expected. The flags map to:
 - `-a` → `mode_override: "afk"` (overrides iter-level `mode`)
 - `-n 30` → overrides `iterations` on all iters (or on the single iter for single-iter cursus)
 - `--no-push` → overrides `auto_push` to false on all iters
@@ -589,13 +564,17 @@ Exit codes are limited (one integer) and consumed by ralph's existing protocol (
 
 Five alternatives were evaluated: accumulating context files, structured handoff files, using fm specs as context, pipeline-scoped variables, and prompt injection. Prompt injection was chosen because it requires no new tooling (uses existing `--append-system-prompt`), the cursus runner handles it transparently, and agents receive context exactly where they need it — in their prompt. The tradeoff is that agents must write a summary file, but this is a simple prompt instruction.
 
-### Why Subsume Prompts
+### Why Unified Command Model
 
-Rather than having `sgf <command>` resolve prompts directly and a separate `sgf seq` for pipelines, all commands resolve to cursus definitions. A single-iter cursus is functionally identical to a raw prompt invocation. This eliminates the awkward hierarchy where simple prompts had shorter commands than pipelines, and provides one mental model for users.
+All commands resolve to cursus definitions — a single-iter cursus is functionally identical to a raw prompt invocation. This provides one mental model for users and eliminates the need for separate configuration mechanisms.
 
 ### Why `iter` Not `stage`
 
 "Iter" (Latin: journey, passage) aligns with the project's Latin naming convention (forma, pensa, cursus). Each iter is a discrete passage through the pipeline.
+
+### Why `[[iter]]` Not `[[iters]]`
+
+TOML array tables use `[[iter]]` (singular) to match the naming convention of defining one iter per table entry. Each `[[iter]]` block defines a single iter; TOML's array-of-tables syntax naturally pluralizes by repetition.
 
 ## Future Evolution
 

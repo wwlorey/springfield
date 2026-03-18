@@ -13,7 +13,7 @@ CLI entry point for Springfield. All developer interaction goes through this bin
 
 `sgf` provides:
 - **Project scaffolding**: `sgf init` creates the project structure (`.sgf/`, `.pensa/`, `.forma/`, Claude deny settings, git hooks)
-- **Unified command dispatch**: `sgf <command>` resolves to a cursus TOML pipeline definition (local `./.sgf/cursus/` → global `~/.sgf/cursus/`), falling back to legacy `config.toml` prompt resolution during migration
+- **Unified command dispatch**: `sgf <command>` resolves to a cursus TOML pipeline definition (local `./.sgf/cursus/` → global `~/.sgf/cursus/`)
 - **Cursus orchestration**: Parse cursus TOML definitions, execute multi-iter pipelines with sentinel-based transitions, context passing, and stall recovery (see [cursus spec](cursus.md))
 - **Loop orchestration**: Launch ralph with the correct flags, manage PID files, tee logs
 - **Recovery**: Pre-launch cleanup of dirty state from crashed iterations
@@ -34,6 +34,7 @@ After `sgf init` and ongoing development, a project contains:
 .sgf/
 ├── MEMENTO.md                 (fm/pn workflow reference — authored per-project)
 ├── BACKPRESSURE.md            (build/test/lint/format reference — authored per-project)
+├── cursus/                    (project-local cursus pipeline overrides)
 ├── logs/                      (gitignored — AFK loop output)
 │   └── <loop-id>.log
 ├── run/                       (gitignored — PID files and session metadata for running/completed loops)
@@ -59,8 +60,12 @@ Populated by `just install` (rsync from the springfield repo's `.sgf/`):
 ~/.sgf/
 ├── MEMENTO.md                 (universal agent instructions — fm/pn workflows, conventions)
 ├── BACKPRESSURE.md            (universal build/test/lint/format reference)
+├── cursus/                    (global cursus pipeline definitions)
+│   ├── build.toml
+│   ├── spec.toml
+│   ├── verify.toml
+│   └── ...
 └── prompts/
-    ├── config.toml            (per-command defaults: mode, iterations, auto_push, alias)
     ├── build.md               (default prompts for all projects)
     ├── spec.md
     ├── verify.md
@@ -83,7 +88,7 @@ install:
     rsync -av --delete --exclude='logs/' --exclude='run/' .sgf/ ~/.sgf/
 ```
 
-The rsync copies prompts, config, MEMENTO.md, and BACKPRESSURE.md to `~/.sgf/`. The `--delete` flag removes files from `~/.sgf/` that no longer exist in the repo. Runtime directories (`logs/`, `run/`) are excluded.
+The rsync copies prompts, cursus definitions, MEMENTO.md, and BACKPRESSURE.md to `~/.sgf/`. The `--delete` flag removes files from `~/.sgf/` that no longer exist in the repo. Runtime directories (`logs/`, `run/`) are excluded.
 
 ### File Purposes
 
@@ -95,15 +100,13 @@ The rsync copies prompts, config, MEMENTO.md, and BACKPRESSURE.md to `~/.sgf/`. 
 
 **`CLAUDE.md`** — Entry point for Claude Code. Symlinks to AGENTS.md. Auto-loaded by Claude Code at the start of every session.
 
-**`config.toml`** — Per-command defaults. Defines `mode`, `iterations`, `auto_push`, and optional `alias` for each prompt. Lives in `~/.sgf/prompts/` (global) with optional per-project override in `./.sgf/prompts/config.toml`. Local config sections override global ones by key; global sections not overridden locally are preserved. See Prompt Configuration.
+**`~/.sgf/cursus/`** — Global cursus pipeline definitions. Each `.toml` file defines a command available via `sgf <name>`. Synced from the springfield repo via `just install`. To override a cursus for a specific project, create `./.sgf/cursus/<name>.toml` — that file takes precedence for that project only.
 
-**`~/.sgf/prompts/`** — Default prompts for all projects. Synced from the springfield repo via `just install`. To override a prompt for a specific project, create `./.sgf/prompts/<name>.md` — that file takes precedence for that project only. Adding a new `.md` file to either location makes it available as `sgf <name>` immediately (with fallback defaults if no config.toml entry exists).
+**`~/.sgf/prompts/`** — Default prompts for all projects. Synced from the springfield repo via `just install`. To override a prompt for a specific project, create `./.sgf/prompts/<name>.md` — that file takes precedence for that project only.
 
-**`.sgf/run/{loop_id}.json`** — Session metadata file. Contains `session_id` (UUID), loop config (`stage`, `spec`, `mode`, `prompt`, `iterations_completed`, `iterations_total`), and `status` (`running`, `completed`, `interrupted`, `exhausted`). Written before spawning cl/ralph and updated on exit. Enables `sgf resume` to restart previous sessions. See [session-resume spec](session-resume.md) for the full schema.
+**`.sgf/run/{loop_id}.json`** — Session metadata file. Contains `session_id` (UUID), loop config (`mode`, `prompt`, `iterations_completed`, `iterations_total`), and `status` (`running`, `completed`, `interrupted`, `exhausted`). Written before spawning cl/ralph and updated on exit. Enables `sgf resume` to restart previous sessions. See [session-resume spec](session-resume.md) for the full schema.
 
 **`.sgf/` and `.claude/` protection** — Both `.sgf/` and `.claude/` are protected from agent modification via Claude deny settings. `sgf init` scaffolds these rules. `.sgf/` protection prevents agents from modifying local overrides and reference files. `.claude/` protection prevents agents from weakening sandbox configuration or deny rules.
-
-**`SGF_SPEC`** (env var) — Spec stem for build/test stages. Set by sgf in ralph's environment (e.g., `SGF_SPEC=auth`). Ralph includes `./specs/${SGF_SPEC}.md` in its `study` instruction. Prompt files reference this env var directly (e.g., `$SGF_SPEC`).
 
 **`specs/`** — Prose specification files (one per topic of concern). Authored during the spec phase, consumed during builds. Indexed in `specs/README.md`.
 
@@ -112,9 +115,8 @@ The rsync copies prompts, config, MEMENTO.md, and BACKPRESSURE.md to `~/.sgf/`. 
 | Crate | Purpose |
 |-------|---------|
 | `clap` (4, derive + env) | CLI argument parsing |
-| `serde` (1, derive) | Serialization for config and run state |
+| `serde` (1, derive) | Serialization for run state |
 | `serde_json` (1) | JSON handling for run metadata |
-| `serde_yaml` (0.9) | YAML parsing (legacy config support) |
 | `chrono` (0.4) | Timestamps for run metadata and loop IDs |
 | `toml` (0.8) | Cursus TOML pipeline definition parsing |
 | `sha2` (0.10) | SHA-256 for daemon port derivation |
@@ -159,7 +161,7 @@ Claude Code crashes and push failures are handled within ralph as warnings — t
 
 ## Testing
 
-Springfield is tested via integration tests that exercise the full CLI. Key scenarios: sgf init idempotence, command resolution with aliases, config.toml layered merge, pre-launch recovery, daemon lifecycle, signal handling (double Ctrl+C/Ctrl+D), loop ID generation, console output formatting.
+Springfield is tested via integration tests that exercise the full CLI. Key scenarios: sgf init idempotence, command resolution with aliases, cursus TOML parsing, pre-launch recovery, daemon lifecycle, signal handling (double Ctrl+C/Ctrl+D), loop ID generation, console output formatting.
 
 All integration tests use a shared test harness (see `test-harness` spec) that provides:
 - **Shared mock binaries** (`MOCK_BINS` / `mock_bin_path()`) — single set of mock `pn`/`fm` scripts reused by all tests
@@ -169,23 +171,51 @@ All integration tests use a shared test harness (see `test-harness` spec) that p
 ## CLI Commands
 
 ```
-sgf <command> [spec] [-a | -i] [-n N] [--no-push]   — run a cursus pipeline
-sgf init [--force]                                    — scaffold a new project
-sgf logs <loop-id>                                    — tail a running loop's output
-sgf resume [run-id]                                   — resume a stalled/interrupted cursus run
-sgf status                                            — show project state (future work)
+sgf <command> [-a | -i] [-n N] [--no-push]   — run a cursus pipeline
+sgf init [--force]                            — scaffold a new project
+sgf list                                      — show available commands with descriptions
+sgf logs <loop-id>                            — tail a running loop's output
+sgf resume [run-id]                           — resume a stalled/interrupted cursus run
 ```
 
 Where `<command>` resolves to a cursus TOML pipeline definition. Commands can also be invoked by alias (e.g., `sgf b` for `sgf build` if `alias = "b"` is configured in the cursus TOML).
 
 ### Command Resolution
 
-1. Check if `<command>` matches a reserved built-in (`init`, `logs`, `resume`, `status`). If so, run the built-in.
+1. Check if `<command>` matches a reserved built-in (`init`, `list`, `logs`, `resume`). If so, run the built-in.
 2. Check if `./.sgf/cursus/<command>.toml` exists (local override). If so, parse and run the cursus.
 3. Check if `~/.sgf/cursus/<command>.toml` exists (global default). If so, parse and run the cursus.
 4. Check if `<command>` matches an alias in any resolved cursus TOML. If so, resolve to the aliased cursus and run it.
-5. Fall back to `config.toml` prompt resolution (legacy path — see [cursus spec](cursus.md) Migration Strategy).
-6. Error: `unknown command: <command>`.
+5. Error: `unknown command: <command>`.
+
+### Reserved Built-in: `list`
+
+```
+sgf list
+```
+
+Displays available commands with their descriptions. Reads `.sgf/cursus/` directories (local `./.sgf/cursus/` first, then global `~/.sgf/cursus/`), parses the `description` field from each TOML file, and displays a table of available commands. Local cursus definitions override global ones of the same name. Populated on the fly — no caching.
+
+Output format:
+
+```
+Available commands:
+
+  build        Implementation loop
+  spec         Spec creation and refinement
+  verify       Verification loop
+  test         Test execution loop
+  test-plan    Test plan generation
+  doc          Documentation triage
+  issues-log   Bug reporting
+
+Built-ins:
+
+  init         Scaffold a new project
+  list         Show available commands
+  logs         Tail a running loop's output
+  resume       Resume a stalled/interrupted run
+```
 
 ### Reserved Built-in: `resume`
 
@@ -206,108 +236,21 @@ Falls back to legacy session-resume behavior for non-cursus sessions (see [sessi
 | `--no-push` | `false` | Disable auto-push after commits (overrides `auto_push` on all iters) |
 | `-n` / `--iterations` | from cursus TOML | Number of iterations (overrides `iterations` on all iters) |
 
-`-a` and `-i` are mutually exclusive — passing both is an error (exit 1 with a clear message). When neither is passed, the default comes from the cursus TOML iter definition. When no cursus TOML exists (legacy fallback), the default comes from `config.toml`, with `interactive` as the ultimate fallback.
+`-a` and `-i` are mutually exclusive — passing both is an error (exit 1 with a clear message). When neither is passed, the default comes from the cursus TOML iter definition.
 
 ### Examples
 
 ```bash
-sgf build auth -a -n 30        # AFK build loop with spec, 30 iterations
-sgf b auth                     # same as sgf build auth (alias from cursus TOML)
+sgf build -a -n 30             # AFK build loop, 30 iterations
+sgf b                          # same as sgf build (alias from cursus TOML)
 sgf spec                       # multi-iter spec refinement pipeline (discuss → draft → review → approve)
-sgf build auth -i              # force interactive build (overrides cursus TOML mode)
+sgf build -i                   # force interactive build (overrides cursus TOML mode)
 sgf verify -a                  # force AFK verify
 sgf issues-log                 # interactive bug reporting
 sgf doc                        # interactive doc triage
+sgf list                       # show available commands
 sgf resume                     # interactive picker for stalled/interrupted runs
 sgf resume spec-20260317T140000  # resume specific cursus run
-```
-
-## Prompt Configuration
-
-**Note:** `config.toml` is the legacy configuration mechanism, superseded by cursus TOML pipeline definitions in `.sgf/cursus/`. Cursus TOMLs take precedence — if a cursus TOML exists for a command, its `config.toml` entry is ignored. `config.toml` remains functional as a fallback during the migration period. See [cursus spec](cursus.md) for the cursus TOML format and migration strategy.
-
----
-
-`config.toml` defines per-command defaults. Lives in the `.sgf/prompts/` directory and follows the same layered resolution as prompt files (local `./.sgf/prompts/config.toml` → global `~/.sgf/prompts/config.toml`). Parsed at command dispatch time.
-
-### Layered Resolution
-
-All prompt files and `config.toml` use two-tier lookup:
-
-1. `./.sgf/prompts/<file>` — project-local override
-2. `~/.sgf/prompts/<file>` — global default
-
-The first existing path wins, on a **file-by-file basis**. A project that overrides only `build.md` locally still uses all other prompts from `~/.sgf/prompts/`.
-
-For `config.toml`, the local file (if present) is merged key-by-key with the global file. Local `[sections]` override global `[sections]` of the same name; global sections not present locally are inherited.
-
-### Format
-
-```toml
-[build]
-alias = "b"
-mode = "interactive"
-iterations = 30
-auto_push = true
-
-[spec]
-alias = "s"
-mode = "interactive"
-iterations = 1
-auto_push = false
-
-[doc]
-mode = "interactive"
-iterations = 1
-auto_push = false
-
-[verify]
-alias = "v"
-mode = "afk"
-iterations = 30
-auto_push = true
-
-[test-plan]
-mode = "afk"
-iterations = 30
-auto_push = true
-
-[test]
-mode = "afk"
-iterations = 30
-auto_push = true
-
-[issues-log]
-mode = "interactive"
-iterations = 1
-auto_push = false
-```
-
-### Fields
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `alias` | string | — | Short alias for the command (e.g., `"b"` for build). Optional. |
-| `mode` | `"afk"` \| `"interactive"` | `"interactive"` | Default execution mode |
-| `iterations` | u32 | `1` | Default iteration count |
-| `auto_push` | bool | `false` | Auto-push after commits |
-
-### Validation
-
-- Aliases must be unique across all config entries. Duplicate aliases are a parse-time error (exit 1).
-- Aliases cannot shadow prompt file names. If `build.md` exists, no other entry can use `alias = "build"`.
-- One alias per prompt (the `alias` field is a single string, not an array).
-
-### Fallback Defaults
-
-If a prompt file exists in `.sgf/prompts/` but has no corresponding `[section]` in `config.toml`, sensible defaults apply: `mode = "interactive"`, `iterations = 1`, `auto_push = false`. This allows users to drop in a new prompt file and run it immediately without editing config.toml.
-
-### CLI Override Precedence
-
-CLI flags override cursus TOML defaults (or config.toml defaults for legacy commands). Cursus TOML defaults override fallback defaults.
-
-```
-CLI flags  >  cursus TOML / config.toml  >  fallback defaults
 ```
 
 ## sgf init
@@ -320,6 +263,7 @@ Scaffolds a new project. Creates the project-local directory structure and confi
 .pensa/                                (directory only — daemon creates db.sqlite on start)
 .forma/                                (directory only — daemon creates db.sqlite on start)
 .sgf/
+├── cursus/                            (empty — project-local cursus overrides)
 ├── logs/                              (empty, gitignored)
 └── run/                               (empty, gitignored)
 .claude/settings.json                  (deny rules for .sgf/** and .claude/**)
@@ -329,7 +273,7 @@ AGENTS.md                              (empty file)
 CLAUDE.md                              (`ln -s` to AGENTS.md)
 ```
 
-No `.sgf/prompts/` directory is created — prompts and config.toml resolve via layered lookup (local `./.sgf/prompts/` → global `~/.sgf/prompts/`). Users create `./.sgf/prompts/` manually when they need project-local overrides.
+No `.sgf/prompts/` directory is created — prompts resolve via layered lookup (local `./.sgf/prompts/` → global `~/.sgf/prompts/`). Users create `./.sgf/prompts/` manually when they need project-local overrides.
 
 Warns if `.sgf/MEMENTO.md` or `.sgf/BACKPRESSURE.md` is missing — agents need these for fm/pn workflow reference and build/test/lint commands. These files are not scaffolded; they are authored per-project.
 
@@ -381,7 +325,7 @@ Claude Code's native sandbox provides OS-level filesystem and network isolation 
 | `sandbox.network.allowedDomains` | `["localhost", "github.com", "*.githubusercontent.com", "crates.io", "*.crates.io"]` | `localhost` for pensa daemon access; GitHub for git operations; crates.io for cargo |
 | `sandbox.network.allowLocalBinding` | `true` | Allows test servers (e.g., `cargo test`) to bind localhost ports |
 
-**Automated stages (ralph):** Ralph overrides `sandbox.allowUnsandboxedCommands` to `false` via `--settings`, preventing the agent from escaping the sandbox. Combined with `--dangerously-skip-permissions`, this means automated agents operate freely within sandbox bounds but cannot break out.
+**Automated stages (ralph):** The sandbox configuration in `.claude/settings.json` applies to automated agents. Combined with `--dangerously-skip-permissions`, automated agents operate freely within sandbox bounds but cannot break out.
 
 **Interactive stages:** Use project settings as-is. The sandbox is active; `allowUnsandboxedCommands` is left to the developer's global settings.
 
@@ -483,6 +427,7 @@ Safety checks:
 
 Config merges (`.gitignore`, `.claude/settings.json`, `.pre-commit-config.yaml`) are unaffected by `--force` — they always use additive merge logic.
 
+
 ## Prompt Delivery
 
 sgf does not assemble, transform, or preprocess prompt files. Prompts in `.sgf/prompts/` are final — passed directly to ralph or `cl`.
@@ -490,29 +435,17 @@ sgf does not assemble, transform, or preprocess prompt files. Prompts in `.sgf/p
 ### What sgf Does
 
 1. **Resolve prompt** — find `.sgf/prompts/<stage>.md` via layered lookup (local `./.sgf/prompts/` → global `~/.sgf/prompts/`). Fail with a clear error if not found in either location.
-2. **Validate spec** — for stages given a spec (`build [spec]`, `test [spec]`), confirm `specs/<spec>.md` exists. Fail with a clear error (e.g., `spec not found: specs/auth.md`) if the file is missing. Skip this step when no spec is provided.
-3. **Set environment** — when a spec is provided, set `SGF_SPEC=<stem>` in ralph's environment. When no spec is given, neither `SGF_SPEC` nor `--spec` are set.
-4. **Inject spec study arg** — when a spec is provided, pass `--append-system-prompt 'study @./specs/<stem>.md'` to the invocation (`cl` in interactive mode, ralph via `--spec` in AFK mode). This ensures the agent actively reads the spec in both modes.
-5. **Pass the raw path** — give ralph or `cl` the resolved prompt path directly (no intermediate files).
+2. **Pass the raw path** — give ralph or `cl` the resolved prompt path directly (no intermediate files).
 
 ### System Prompt Injection
 
-**Context files (MEMENTO, BACKPRESSURE, specs/README):** `cl` handles injection for all modes — both interactive and automated. `cl` resolves each context file via layered `.sgf/` lookup, builds `--append-system-prompt "study @<file>;..."`, and forwards to the downstream binary. See [claude-wrapper spec](claude-wrapper.md).
+**Context files (MEMENTO, BACKPRESSURE):** `cl` handles injection for all modes — both interactive and automated. `cl` resolves each context file via layered `.sgf/` lookup, builds `--append-system-prompt "study @<file>;..."`, and forwards to the downstream binary. See [claude-wrapper spec](claude-wrapper.md).
 
-**Spec files:** Injected in both modes. In AFK mode, ralph passes `--spec <stem>` study args via its own `--append-system-prompt` to `cl`. In interactive mode, sgf passes `--append-system-prompt 'study @./specs/<stem>.md'` directly to `cl`. All `--append-system-prompt` arguments coexist — `cl`'s context injection and the spec injection are independent.
-
-**sgf does not inject context study args** (MEMENTO, BACKPRESSURE, specs/README — those belong to `cl`). It only injects the spec study arg when calling `cl` directly in interactive mode.
+**sgf does not inject context study args** (MEMENTO, BACKPRESSURE — those belong to `cl`). Sgf only passes the prompt path and cursus context (consumed summary files) to ralph or `cl`.
 
 ### Prompt Files
 
-Prompts are plain markdown files with no variable substitution. The spec name is available to the agent via:
-- The `SGF_SPEC` environment variable (readable by Claude Code)
-- The spec file content actively read by the agent via `study` instruction (injected by ralph in AFK mode, by sgf in interactive mode)
-
-For example, `build.md` uses `$SGF_SPEC` directly:
-```
-Run `pn ready --spec $SGF_SPEC --json`.
-```
+Prompts are plain markdown files with no variable substitution.
 
 ---
 
@@ -521,7 +454,7 @@ Run `pn ready --spec $SGF_SPEC --json`.
 ### Invocation
 
 ```
-[SGF_SPEC=<stem>] sgf → ralph [-a] [--loop-id ID] [--auto-push BOOL] [--spec STEM] [--session-id UUID] ITERATIONS PROMPT
+sgf → ralph [-a] [--loop-id ID] [--auto-push BOOL] [--banner] [--session-id UUID] ITERATIONS PROMPT
 ```
 
 `sgf` translates its own flags and hardcoded defaults into ralph CLI flags. Ralph does not read config files — all configuration arrives via flags and environment variables.
@@ -533,30 +466,24 @@ Run `pn ready --spec $SGF_SPEC --json`.
 | `-a` / `--afk` | bool | sgf command (e.g., `sgf build -a`) | AFK mode |
 | `--loop-id` | string | sgf-generated | Unique loop identifier |
 | `--auto-push` | bool | `true` unless `--no-push` passed to sgf | Auto-push after commits |
-| `--spec` | string | spec positional arg from sgf (optional) | Spec stem — ralph includes `./specs/<stem>.md` in its study instruction. Omitted when no spec is given. |
+| `--banner` | bool | from cursus TOML iter `banner` field | Display ASCII art startup banner |
 | `--session-id` | string (UUID) | sgf-generated | Pre-assigned session ID for new sessions. sgf generates a UUID before each launch and passes it to ralph. |
 | `--resume` | string (UUID) | sgf (from session metadata) | Session ID to resume. Used by `sgf resume` — reads the session ID from `.sgf/run/{loop_id}.json` and passes it to ralph. Mutually exclusive with `--session-id`. |
-| `ITERATIONS` | u32 | `-n` / `--iterations` or default `30` | Number of iterations |
+| `ITERATIONS` | u32 | `-n` / `--iterations` or from cursus TOML | Number of iterations |
 | `PROMPT` | path | resolved prompt file path | Raw prompt file (resolved via layered lookup) |
-
-### Environment Variables Passed to Ralph
-
-| Variable | Source | Description |
-|----------|--------|-------------|
-| `SGF_SPEC` | sgf | Spec stem (e.g., `auth`). Set only when a spec is provided to `build` or `test`. Not set when no spec is given. |
 
 ### Execution Model
 
-Execution mode is determined by the resolved `mode` (from CLI flags or config.toml defaults):
+Execution mode is determined by the resolved `mode` (from CLI flags or cursus TOML iter defaults):
 
 | Mode | Execution | Description |
 |------|-----------|-------------|
 | `interactive` | `cl` directly | Full terminal passthrough; calls `cl --verbose [--session-id UUID] [--append-system-prompt ...] @{prompt_path}`, inheriting stdio |
 | `afk` | ralph | Autonomous execution; ralph invokes `cl` with `--dangerously-skip-permissions`, NDJSON stream formatting |
 
-**Interactive mode**: Calls `cl` directly. No PID file, no log tee. Generates a loop_id and writes session metadata to `.sgf/run/{loop_id}.json` for resume capability. `cl` handles context file injection (MEMENTO, BACKPRESSURE, specs/README). When a spec is provided, sgf passes `--append-system-prompt 'study @./specs/<stem>.md'` to `cl`. When `auto_push` is true, auto-pushes after the session if HEAD changed. Passes `--session-id <uuid>` to `cl` for session tracking.
+**Interactive mode**: Calls `cl` directly. No PID file, no log tee. Generates a loop_id and writes session metadata to `.sgf/run/{loop_id}.json` for resume capability. `cl` handles context file injection (MEMENTO, BACKPRESSURE). When `auto_push` is true, auto-pushes after the session if HEAD changed. Passes `--session-id <uuid>` to `cl` for session tracking.
 
-**AFK mode**: Goes through ralph, which invokes `cl` directly on the host. Ralph passes spec study args via `--append-system-prompt`; `cl` handles context file injection. PID file, log tee, and loop ID are managed by sgf. Session metadata (`.sgf/run/{loop_id}.json`) is written before spawn and updated on exit.
+**AFK mode**: Goes through ralph, which invokes `cl` directly on the host. `cl` handles context file injection. PID file, log tee, and loop ID are managed by sgf. Session metadata (`.sgf/run/{loop_id}.json`) is written before spawn and updated on exit.
 
 #### Session Metadata
 
@@ -569,7 +496,7 @@ Interactive commands with `auto_push = true` auto-push after the Claude session 
 ### Exit Codes
 
 | Code | Meaning | sgf response |
-|------|---------|----|
+|------|---------|-----|
 | `0` | Sentinel found (`.ralph-complete`) — loop completed | Log success, clean up |
 | `1` | Error (bad args, missing prompt, etc.) | Log error, alert developer |
 | `2` | Iterations exhausted — may have remaining work | Developer decides: re-launch or stop |
@@ -630,8 +557,8 @@ Each message gets its own 3-line box. The box is always 7 characters wide (`╭�
 
 ```
 ╭─────╮
-│ sgf │ launching ralph [build-auth-20260312T143000]
-╰─────╯ stage: auth · iterations: 10 · mode: afk
+│ sgf │ launching ralph [build-20260312T143000]
+╰─────╯ iterations: 10 · mode: afk
 ╭─────╮
 │ sgf │ recovering from stale state...
 ╰─────╯
@@ -651,13 +578,13 @@ Each message gets its own 3-line box. The box is always 7 characters wide (`╭�
 │ sgf │ pushing → origin/main...
 ╰─────╯
 ╭─────╮
-│ sgf │ loop complete [build-auth-20260312T143000]
+│ sgf │ loop complete [build-20260312T143000]
 ╰─────╯
 ╭─────╮
-│ sgf │ ralph exited with error [build-auth-20260312T143000]
+│ sgf │ ralph exited with error [build-20260312T143000]
 ╰─────╯
 ╭─────╮
-│ sgf │ iterations exhausted [build-auth-20260312T143000]
+│ sgf │ iterations exhausted [build-20260312T143000]
 ╰─────╯
 ```
 
@@ -669,7 +596,7 @@ Each message gets its own 3-line box. The box is always 7 characters wide (`╭�
 | Success | Green | Completed operations: recovery complete, daemon ready, pn export ok, loop complete, pushed |
 | Warning | Yellow | Non-fatal issues: pn export skipped, pn doctor failed, iterations exhausted |
 | Error | Red | Fatal failures: ralph exited with error, pn export failed |
-| Detail | Dim (gray) | Supplementary info: stage, iterations, mode (below box, no badge) |
+| Detail | Dim (gray) | Supplementary info: iterations, mode (below box, no badge) |
 
 The box borders (`╭─────╮`, `│`, `╰─────╯`) are always **dim**. The `sgf` text inside the box is always **bold** (`\x1b[1m sgf \x1b[0m`) — normal text color regardless of message state.
 
@@ -688,18 +615,18 @@ The box is stateless — each semantic output call (`print_action`, `print_succe
 Detail lines appear on the bottom line of the box, to the right of `╰─────╯`, aligned with the message text on the middle line (8 characters: 7-char box width + 1-space gap). They are rendered in dim gray.
 
 Detail lines appear for:
-- **Ralph launch**: `stage: <spec> · iterations: <n> · mode: <afk|interactive>`
-- **Interactive launch**: `stage: <stage>`
+- **Ralph launch**: `iterations: <n> · mode: <afk|interactive>`
+- **Interactive launch**: `mode: interactive`
 
 ### NO_COLOR Support
 
 When the `NO_COLOR` environment variable is set, all ANSI codes and box-drawing characters are suppressed. The badge falls back to plain `sgf:` prefix. Detail lines are indented with plain spaces. Message text has no color formatting.
 
 ```
-sgf: launching ralph [build-auth-20260312T143000]
-     stage: auth · iterations: 30
+sgf: launching ralph [build-20260312T143000]
+     iterations: 30
 sgf: recovery complete
-sgf: ralph exited with error [build-auth-20260312T143000]
+sgf: ralph exited with error [build-20260312T143000]
 ```
 
 ### style.rs Module
@@ -729,7 +656,7 @@ The `vcs_utils::auto_push_if_changed()` callback emits raw messages (e.g., `"New
 
 ### Message Catalog
 
-Every `eprintln!("sgf: ...")` and `println!(...)` call in the springfield crate is replaced with a styled output call.
+Every `eprintln\!("sgf: ...")` and `println\!(...)` call in the springfield crate is replaced with a styled output call.
 
 | Message | Style | Source |
 |---------|-------|--------|
@@ -744,7 +671,7 @@ Every `eprintln!("sgf: ...")` and `println!(...)` call in the springfield crate 
 | pn export ok | success | orchestrate.rs |
 | pn export failed: {err} | error | orchestrate.rs |
 | pn export skipped (pn not found: {e}) | warning | orchestrate.rs |
-| launching interactive session [{stage}] | action | orchestrate.rs |
+| launching interactive session | action | orchestrate.rs |
 | launching ralph [{loop_id}] | action | orchestrate.rs |
 | loop complete [{loop_id}] | success | orchestrate.rs |
 | ralph exited with error [{loop_id}] | error | orchestrate.rs |
@@ -826,7 +753,7 @@ Both daemons are started in parallel. Both must be ready before proceeding with 
 
 ## Workflow Stages
 
-**Stage transitions are human-initiated.** The developer decides when to move between stages. Suggested heuristics: run verify when `pn ready --spec <stem>` returns nothing (all tasks for a spec are done); run test-plan after verify passes; run test after test-plan produces test items. These are guidelines, not gates.
+**Stage transitions are human-initiated.** The developer decides when to move between stages. Suggested heuristics: run verify when `pn ready` returns nothing (all tasks done); run test-plan after verify passes; run test after test-plan produces test items. These are guidelines, not gates.
 
 **Concurrency model**: Multiple loops (e.g., multiple `sgf build` instances) can run concurrently on the same branch. The pensa daemon serializes all database access, providing atomic claims via `pn update --claim` (fails with `already_claimed` if another agent got there first). `pn export` runs at commit time via the pre-commit hook. Concurrent agents share the same filesystem and git history. **Stop build loops before running `sgf spec`** to avoid task-supersession race conditions.
 
@@ -834,7 +761,7 @@ Both daemons are started in parallel. Both must be ready before proceeding with 
 
 Build, Test, and Issues Plan stages share a common iteration pattern. Each iteration:
 
-1. **Orient** — context files (MEMENTO, BACKPRESSURE, specs/README) are injected by `cl` via `study` instructions; spec files are injected by ralph via `--spec`.
+1. **Orient** — context files (MEMENTO, BACKPRESSURE) are injected by `cl` via `study` instructions. Agents fetch spec content via prompt instructions (e.g., `fm show <stem> --json`).
 2. **Query** — find work items via pensa (stage-specific query). If none, write `.ralph-complete` and exit.
 3. **Choose & Claim** — pick a task from the results, then `pn update <id> --claim`. If the claim fails (`already_claimed`), re-query and pick another.
 4. **Work** — stage-specific implementation
@@ -883,11 +810,11 @@ Tasks linked to a spec *are* the implementation plan. Query with `pn list -t tas
 4. Updates the spec via `fm`
 5. Restart build loops after revision is committed
 
-### 2. Build (`sgf build [spec]`)
+### 2. Build (`sgf build`)
 
-Follows the standard loop iteration. Runs via ralph using `.sgf/prompts/build.md`. The spec stem is **optional** — `sgf build auth` builds tasks for the `auth` spec, while `sgf build` runs without a spec filter. When a spec is provided, sgf validates that `specs/auth.md` exists before launching (fails with a clear error if not found).
+Follows the standard loop iteration. Runs via ralph using `.sgf/prompts/build.md`. The prompt instructs the agent to fetch relevant specs via `fm show` as needed.
 
-When a spec is given, sgf sets `SGF_SPEC=auth` in ralph's environment and passes `--spec auth` to ralph. Ralph includes `specs/auth.md` in its `study` instruction so the agent actively reads the full spec. When no spec is given, neither `SGF_SPEC` nor `--spec` are set. The build stage adds **backpressure** — after implementing the task, the agent runs build, test, and lint commands per `BACKPRESSURE.md`.
+The build stage adds **backpressure** — after implementing the task, the agent runs build, test, and lint commands per `BACKPRESSURE.md`.
 
 Run interactively first for a few supervised rounds, then switch to AFK mode (`-a`) for autonomous execution.
 
@@ -914,9 +841,9 @@ Runs via ralph using `.sgf/prompts/test-plan.md`. The agent:
 4. Creates test items via `pn create -t test --spec <stem>`, with dependencies and priorities
 5. Commits
 
-### 5. Test (`sgf test [spec]`)
+### 5. Test (`sgf test`)
 
-Follows the standard loop iteration. Runs via ralph using `.sgf/prompts/test.md`. The spec stem is **optional** — `sgf test auth` runs test items for the `auth` spec, while `sgf test` runs all test items regardless of spec. When a spec is provided, sgf validates that `specs/auth.md` exists before launching. Sets `SGF_SPEC` and `--spec` only when a spec is given.
+Follows the standard loop iteration. Runs via ralph using `.sgf/prompts/test.md`. The prompt instructs the agent to fetch relevant specs via `fm show` as needed.
 
 After all test items are closed, a final iteration generates `test-report.md` — a summary of all test results, pass/fail status, and any bugs logged.
 
@@ -928,7 +855,7 @@ Calls `cl` directly (no ralph) using `.sgf/prompts/issues-log.md`. Each session 
 2. The agent interviews them to capture details — steps to reproduce, expected vs actual behavior, relevant context
 3. Logs the bug via `pn create -t bug`
 
-One bug per session. The developer runs `sgf issues log` again for additional bugs — fresh context each time prevents accumulation across unrelated issues.
+One bug per session. The developer runs `sgf issues-log` again for additional bugs — fresh context each time prevents accumulation across unrelated issues.
 
 ### 7. Doc (`sgf doc`)
 
@@ -943,7 +870,7 @@ Auto-pushes after the session if HEAD changed (like `sgf spec`). Suppressed with
 
 ### 8. Inline Issue Logging
 
-Issues are also logged by agents during any stage via `pn create`. The build loop logs bugs it discovers during implementation. The verify loop logs spec gaps. The test loop logs test failures. `sgf issues log` is for developer-reported bugs; inline logging is for agent-discovered bugs.
+Issues are also logged by agents during any stage via `pn create`. The build loop logs bugs it discovers during implementation. The verify loop logs spec gaps. The test loop logs test failures. `sgf issues-log` is for developer-reported bugs; inline logging is for agent-discovered bugs.
 
 ---
 
@@ -965,7 +892,7 @@ The canonical prompts live in the springfield repo's `.sgf/prompts/` — do not 
 
 ### Custom Prompts
 
-Users can add custom prompts by creating a new `.md` file in `./.sgf/prompts/` (project-local) or `~/.sgf/prompts/` (global) and optionally adding a `[section]` in `config.toml`. For example, adding `deploy.md` and `[deploy]` in config.toml enables `sgf deploy`. Without a config.toml entry, `sgf deploy` still works with fallback defaults (interactive, 1 iteration, no auto-push).
+Users can add custom prompts by creating a new `.md` file in `./.sgf/prompts/` (project-local) or `~/.sgf/prompts/` (global) and a corresponding cursus TOML in `.sgf/cursus/`. For example, adding `deploy.md` and `deploy.toml` enables `sgf deploy`.
 
 ---
 
@@ -977,13 +904,13 @@ Users can add custom prompts by creating a new `.md` file in `./.sgf/prompts/` (
 
 ## Defaults
 
-Per-command defaults live in `.sgf/prompts/config.toml` (see [Prompt Configuration](#prompt-configuration)). CLI flags override config.toml values:
+Per-command defaults are defined in cursus TOML files (see [cursus spec](cursus.md)). CLI flags override cursus TOML values:
 
 | Setting | Fallback Default | Override |
 |---------|-----------------|----------|
 | Mode | `interactive` | `-a` / `-i` flags |
 | Iterations | `1` | `-n` / `--iterations` |
-| Auto-push | `false` | `--no-push` flag (disables), config.toml `auto_push` field |
+| Auto-push | `false` | `--no-push` flag (disables), cursus TOML `auto_push` field |
 | Pensa daemon port | per-project derived (`SHA256(path)`) | `--port` flag on `pn daemon` |
 | Forma daemon port | per-project derived (`SHA256("forma:" + path)`) | `--port` flag on `fm daemon` |
 
@@ -1001,15 +928,15 @@ Per-command defaults live in `.sgf/prompts/config.toml` (see [Prompt Configurati
 
 **Tasks as implementation plan**: There is no separate "implementation plan" entity. The living set of pensa tasks linked to a spec *is* the implementation plan. Query with `pn list -t task --spec <stem>`.
 
-**Editable prompts**: Prompts are plain markdown files. Global defaults live in `~/.sgf/prompts/` (synced from the springfield repo). Override per-project by creating `./.sgf/prompts/<name>.md`. Drop new `.md` files into either location to create new commands — no code changes required. To improve defaults for all projects, edit the files in the springfield repo's `.sgf/` and run `just install`.
+**Editable prompts**: Prompts are plain markdown files. Global defaults live in `~/.sgf/prompts/` (synced from the springfield repo). Override per-project by creating `./.sgf/prompts/<name>.md`. New commands are defined by creating a cursus TOML in `.sgf/cursus/` and a corresponding prompt file — no code changes required.
 
-**Layered context injection**: `cl` (claude-wrapper) resolves context files (MEMENTO.md, BACKPRESSURE.md, specs/README.md) via layered `.sgf/` lookup (local `./.sgf/` → global `~/.sgf/`) and injects them as `study` instructions into every Claude session. This applies uniformly to both interactive and automated stages. sgf does not inject context — it validates and resolves prompt paths, then delegates to `cl` or ralph.
+**Layered context injection**: `cl` (claude-wrapper) resolves context files (MEMENTO.md, BACKPRESSURE.md) via layered `.sgf/` lookup (local `./.sgf/` → global `~/.sgf/`) and injects them as `study` instructions into every Claude session. This applies uniformly to both interactive and automated stages. sgf does not inject context — it resolves prompt paths, then delegates to `cl` or ralph.
 
 **Protected scaffolding**: `.sgf/` and `.claude/` are protected from agent writes via Claude deny settings. The developer is the authority on prompts, settings, and project configuration.
 
 **Layered projects**: Springfield uses two-tier `.sgf/` resolution — project-local `./.sgf/` overrides global `~/.sgf/` on a file-by-file basis. Projects only need local overrides for project-specific customizations; everything else falls through to the global defaults.
 
-**Direct execution with native sandbox**: All stages invoke `cl` on the host — no Docker sandboxes, no Mutagen sync. Claude Code's native sandbox (Seatbelt on macOS, bubblewrap on Linux) provides OS-level filesystem and network isolation, enabled by default via `.claude/settings.json`. Automated stages go through ralph with `--dangerously-skip-permissions` and `sandbox.allowUnsandboxedCommands: false` — agents operate freely within sandbox bounds but cannot escape. Interactive stages use the sandbox with `allowUnsandboxedCommands: true` so developers can approve out-of-sandbox commands when needed.
+**Direct execution with native sandbox**: All stages invoke `cl` on the host — no Docker sandboxes, no Mutagen sync. Claude Code's native sandbox (Seatbelt on macOS, bubblewrap on Linux) provides OS-level filesystem and network isolation, enabled by default via `.claude/settings.json`. Automated stages go through ralph with `--dangerously-skip-permissions` — agents operate freely within sandbox bounds but cannot escape. Interactive stages use the sandbox with developer-controlled settings.
 
 ---
 
@@ -1019,7 +946,6 @@ Per-command defaults live in `.sgf/prompts/config.toml` (see [Prompt Configurati
 - **Claude Code hooks for enforcement**: Use `PreToolUse` / `PostToolUse` hooks to enforce backpressure at the framework level — auto-run linters after file edits, block destructive commands. Could be scaffolded by `sgf init`.
 - **TUI**: CLI-first for now. TUI can be added later as a view layer. Desired feel: Neovim-like (modal, keyboard-driven, information-dense, panes for multiple loops).
 - **Multi-project monitoring**: Deferred with TUI. For now, multiple terminals.
-- **`sgf status` output spec**: Define what `sgf status` shows (running loops, pensa summary, recent activity). Specify after real usage reveals what's needed.
 
 ## Related Specifications
 
