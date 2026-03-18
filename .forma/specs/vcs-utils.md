@@ -5,7 +5,7 @@ Shared VCS utilities — git HEAD detection, auto-push
 | Field | Value |
 |-------|-------|
 | Src | `crates/vcs-utils/` |
-| Status | draft |
+| Status | stable |
 
 ## Overview
 

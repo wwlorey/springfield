@@ -5,7 +5,7 @@ Agent persistent memory — SQLite-backed issue/task tracker with pn CLI
 | Field | Value |
 |-------|-------|
 | Src | `crates/pensa/` |
-| Status | draft |
+| Status | stable |
 
 ## Overview
 
