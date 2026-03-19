@@ -74,11 +74,6 @@ fn build_ralph_args(
         "true".to_string()
     });
 
-    if let Some(ref spec) = config.spec {
-        args.push("--spec".to_string());
-        args.push(spec.clone());
-    }
-
     if let Some(lp) = log_path {
         args.push("--log-file".to_string());
         args.push(lp.to_string_lossy().to_string());
@@ -282,7 +277,7 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
         style::print_action_detail(&format!("launching ralph [{loop_id}]"), &parts.join(" · "));
     }
 
-    let exit_code = run_ralph(&binary, &args, is_afk, config.spec.as_deref(), &controller)?;
+    let exit_code = run_ralph(&binary, &args, is_afk, &controller)?;
 
     append_iteration_to_metadata(root, &loop_id, 1, &session_id);
     update_metadata_on_exit(root, &loop_id, exit_code);
@@ -331,7 +326,6 @@ fn run_ralph(
     binary: &str,
     args: &[String],
     afk: bool,
-    spec: Option<&str>,
     controller: &ShutdownController,
 ) -> io::Result<i32> {
     let mut cmd = Command::new(binary);
@@ -340,9 +334,6 @@ fn run_ralph(
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .env("SGF_MANAGED", "1");
-    if let Some(stem) = spec {
-        cmd.env("SGF_SPEC", stem);
-    }
     if afk {
         unsafe {
             cmd.pre_exec(|| {
@@ -673,8 +664,6 @@ mod tests {
                 TEST_SESSION_ID,
                 "--auto-push",
                 "false",
-                "--spec",
-                "auth",
                 "10",
                 "/tmp/prompt.md",
             ]
@@ -978,10 +967,10 @@ mod tests {
     }
 
     #[test]
-    fn test_stage_passes_spec_flag() {
+    fn test_stage_does_not_pass_spec_flag() {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
-        setup_project(root, "test", "Test $SGF_SPEC items.");
+        setup_project(root, "test", "Test items.");
         setup_spec(root, "auth");
         setup_git_repo(root);
 
@@ -1005,8 +994,8 @@ mod tests {
 
         let args_content = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
         assert!(
-            args_content.contains("--spec auth"),
-            "should pass --spec to ralph, got: {args_content}"
+            !args_content.contains("--spec"),
+            "should NOT pass --spec to ralph, got: {args_content}"
         );
     }
 

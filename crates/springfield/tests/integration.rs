@@ -1037,15 +1037,8 @@ fn end_to_end_build_passes_raw_path_and_spec() {
         "should NOT pass assembled path, got: {args}"
     );
     assert!(
-        args.contains("--spec auth"),
-        "should pass --spec to ralph, got: {args}"
-    );
-
-    // Ralph should receive SGF_SPEC env var
-    let env = fs::read_to_string(&env_file).unwrap();
-    assert!(
-        env.contains("SGF_SPEC=auth"),
-        "should set SGF_SPEC env var, got: {env}"
+        !args.contains("--spec"),
+        "should NOT pass --spec to ralph, got: {args}"
     );
 }
 
@@ -1153,21 +1146,19 @@ fn build_without_spec_omits_spec_flag_and_env() {
 }
 
 #[test]
-fn build_with_spec_still_passes_spec_flag_and_env() {
+fn build_with_spec_does_not_pass_spec_to_ralph() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
     let args_file = mock_dir.path().join("ralph_args.txt");
-    let env_file = mock_dir.path().join("ralph_env.txt");
     let mock_ralph = create_mock_script(
         mock_dir.path(),
         "mock_ralph.sh",
         &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\necho \"SGF_SPEC=${{SGF_SPEC:-}}\" > \"{}\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
             args_file.display(),
-            env_file.display()
         ),
     );
 
@@ -1185,14 +1176,8 @@ fn build_with_spec_still_passes_spec_flag_and_env() {
 
     let args = fs::read_to_string(&args_file).unwrap();
     assert!(
-        args.contains("--spec auth"),
-        "should pass --spec auth, got: {args}"
-    );
-
-    let env = fs::read_to_string(&env_file).unwrap();
-    assert!(
-        env.contains("SGF_SPEC=auth"),
-        "should set SGF_SPEC=auth, got: {env}"
+        !args.contains("--spec"),
+        "should NOT pass --spec to ralph, got: {args}"
     );
 }
 
@@ -2968,7 +2953,7 @@ fn target_bin_dir() -> PathBuf {
 }
 
 #[test]
-fn e2e_sgf_ralph_cl_context_files_and_spec_in_append_system_prompt() {
+fn e2e_sgf_ralph_cl_context_files_in_append_system_prompt() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
     write_config_toml(
@@ -3013,7 +2998,7 @@ fn e2e_sgf_ralph_cl_context_files_and_spec_in_append_system_prompt() {
         bin_dir.join("cl").display()
     );
 
-    // Mock dir: claude-wrapper-secret (captures args) + pn (no-op) + fm (returns spec data)
+    // Mock dir: claude-wrapper-secret (captures args) + pn (no-op) + fm (no-op)
     let mock_dir = TempDir::new().unwrap();
     let captured_args = mock_dir.path().join("captured_args.txt");
 
@@ -3031,24 +3016,7 @@ fn e2e_sgf_ralph_cl_context_files_and_spec_in_append_system_prompt() {
         ),
     );
     create_mock_script(mock_dir.path(), "pn", "#!/bin/sh\nexit 0\n");
-    create_mock_script(
-        mock_dir.path(),
-        "fm",
-        concat!(
-            "#!/bin/sh\n",
-            "case \"$1\" in\n",
-            "  show)\n",
-            "    echo '{\"stem\":\"auth\",\"src\":\"crates/auth/\",\"purpose\":\"Authentication\",\"status\":\"active\",\"sections\":[{\"name\":\"Overview\",\"body\":\"# auth spec\"}],\"refs\":[]}'\n",
-            "    ;;\n",
-            "  list)\n",
-            "    echo '[{\"stem\":\"auth\",\"src\":\"crates/auth/\",\"purpose\":\"Authentication\",\"status\":\"active\",\"created_at\":\"2026-01-01T00:00:00Z\",\"updated_at\":\"2026-01-01T00:00:00Z\"}]'\n",
-            "    ;;\n",
-            "  *)\n",
-            "    exit 0\n",
-            "    ;;\n",
-            "esac\n",
-        ),
-    );
+    create_mock_script(mock_dir.path(), "fm", "#!/bin/sh\nexit 0\n");
 
     // PATH: mock_dir (claude-wrapper-secret, pn) → bin_dir (cl) → system
     let path = format!(
@@ -3076,7 +3044,7 @@ fn e2e_sgf_ralph_cl_context_files_and_spec_in_append_system_prompt() {
     let args = fs::read_to_string(&captured_args).expect("read captured args from mock agent");
     let lines: Vec<&str> = args.lines().collect();
 
-    // cl should inject --append-system-prompt with MEMENTO, BACKPRESSURE, specs/README
+    // cl should inject --append-system-prompt with MEMENTO, BACKPRESSURE context
     assert!(
         args.contains("--append-system-prompt"),
         "missing --append-system-prompt in captured args:\n{args}"
@@ -3088,21 +3056,6 @@ fn e2e_sgf_ralph_cl_context_files_and_spec_in_append_system_prompt() {
     assert!(
         args.contains("BACKPRESSURE.md"),
         "missing BACKPRESSURE.md in captured args:\n{args}"
-    );
-    // ralph should inject --append-system-prompt with rendered spec content from fm show
-    assert!(
-        args.contains("# auth Specification"),
-        "missing rendered auth spec content (from --spec via fm show) in captured args:\n{args}"
-    );
-
-    // At least 2 --append-system-prompt args: one from cl, one from ralph
-    let asp_count = lines
-        .iter()
-        .filter(|l| **l == "--append-system-prompt")
-        .count();
-    assert!(
-        asp_count >= 2,
-        "expected >= 2 --append-system-prompt args, got {asp_count}:\n{args}"
     );
 
     // ralph should pass AFK-mode flags

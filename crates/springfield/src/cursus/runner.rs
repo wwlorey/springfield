@@ -194,11 +194,6 @@ fn invoke_ralph(inv: &RalphInvocation<'_>, controller: &ShutdownController) -> i
     args.push("--auto-push".to_string());
     args.push(inv.auto_push.to_string());
 
-    if let Some(ref spec) = inv.config.spec {
-        args.push("--spec".to_string());
-        args.push(spec.clone());
-    }
-
     if inv.iter.banner {
         args.push("--banner".to_string());
     }
@@ -223,10 +218,6 @@ fn invoke_ralph(inv: &RalphInvocation<'_>, controller: &ShutdownController) -> i
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .env("SGF_MANAGED", "1");
-
-    if let Some(ref spec) = inv.config.spec {
-        cmd.env("SGF_SPEC", spec);
-    }
 
     let (ctx_env_name, ctx_env_val) = context::context_env_var(inv.root, inv.run_id);
     cmd.env(&ctx_env_name, &ctx_env_val);
@@ -1317,8 +1308,8 @@ exit 0
 
         let args = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
         assert!(
-            args.contains("--spec auth"),
-            "should pass --spec to ralph, got: {args}"
+            !args.contains("--spec"),
+            "should NOT pass --spec to ralph, got: {args}"
         );
 
         let run_dir = root.join(".sgf/run");

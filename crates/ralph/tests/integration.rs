@@ -88,47 +88,6 @@ fn ralph_cmd(dir: &TempDir) -> Command {
     cmd
 }
 
-fn create_mock_fm(dir: &TempDir, stem: &str) -> PathBuf {
-    let fm_dir = dir.path().join("fm-bin");
-    fs::create_dir_all(&fm_dir).expect("create fm-bin dir");
-    let fm_json = serde_json::json!({
-        "stem": stem,
-        "src": format!("crates/{}/", stem),
-        "purpose": format!("Test {} spec", stem),
-        "status": "stable",
-        "created_at": "2026-01-01T00:00:00Z",
-        "updated_at": "2026-01-01T00:00:00Z",
-        "sections": [
-            {"name": "Overview", "slug": "overview", "kind": "required", "body": "Test overview body.", "position": 0}
-        ],
-        "refs": []
-    });
-    let script = format!(
-        "#!/bin/bash\nif [ \"$1\" = \"show\" ] && [ \"$2\" = \"{}\" ]; then\n  echo '{}'\n  exit 0\nfi\necho '{{\"error\": \"spec not found\", \"code\": \"not_found\"}}' >&2\nexit 1\n",
-        stem,
-        fm_json.to_string().replace('\'', "'\\''")
-    );
-    let fm_path = fm_dir.join("fm");
-    fs::write(&fm_path, script).expect("write mock fm");
-    fs::set_permissions(&fm_path, fs::Permissions::from_mode(0o755)).expect("chmod fm");
-    fm_dir
-}
-
-fn create_failing_mock_fm(dir: &TempDir) -> PathBuf {
-    let fm_dir = dir.path().join("fm-bin");
-    fs::create_dir_all(&fm_dir).expect("create fm-bin dir");
-    let script = "#!/bin/bash\necho '{\"error\": \"spec not found\", \"code\": \"not_found\"}' >&2\nexit 1\n";
-    let fm_path = fm_dir.join("fm");
-    fs::write(&fm_path, script).expect("write mock fm");
-    fs::set_permissions(&fm_path, fs::Permissions::from_mode(0o755)).expect("chmod fm");
-    fm_dir
-}
-
-fn prepend_to_path(dir: &std::path::Path) -> String {
-    let existing = std::env::var("PATH").unwrap_or_default();
-    format!("{}:{}", dir.display(), existing)
-}
-
 #[test]
 fn afk_formats_text_blocks() {
     let dir = setup_test_dir();
@@ -706,69 +665,6 @@ fn explicit_file_prompt_shows_file_suffix() {
 }
 
 #[test]
-fn spec_flag_missing_spec_exits_1() {
-    let dir = setup_test_dir();
-    let mock = create_mock_script(&dir, "afk-session.ndjson");
-    let fm_dir = create_failing_mock_fm(&dir);
-
-    let output = ralph_cmd(&dir)
-        .env("PATH", prepend_to_path(&fm_dir))
-        .args([
-            "--afk",
-            "--spec",
-            "nonexistent",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    assert_eq!(
-        output.status.code(),
-        Some(1),
-        "should exit 1 when spec not found in forma"
-    );
-    assert!(
-        stderr.contains("fm show failed"),
-        "stderr should mention fm show failed, got:\n{stderr}"
-    );
-}
-
-#[test]
-fn spec_flag_existing_spec_accepted() {
-    let dir = setup_test_dir();
-    let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
-    let fm_dir = create_mock_fm(&dir, "auth");
-
-    let output = ralph_cmd(&dir)
-        .env("PATH", prepend_to_path(&fm_dir))
-        .args([
-            "--afk",
-            "--spec",
-            "auth",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    assert!(
-        output.status.success(),
-        "should exit 0 with valid spec, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
-        output.status.code()
-    );
-}
-
-#[test]
 fn prompt_file_missing_exits_1() {
     let dir = setup_test_dir();
     let mock = create_mock_script(&dir, "afk-session.ndjson");
@@ -863,36 +759,7 @@ fn multiple_prompt_files_accepted() {
 }
 
 #[test]
-fn spec_via_env_var() {
-    let dir = setup_test_dir();
-    let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
-    let fm_dir = create_mock_fm(&dir, "auth");
-
-    let output = ralph_cmd(&dir)
-        .env("SGF_SPEC", "auth")
-        .env("PATH", prepend_to_path(&fm_dir))
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    assert!(
-        output.status.success(),
-        "should exit 0 with SGF_SPEC env var, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
-        output.status.code()
-    );
-}
-
-#[test]
-fn no_append_system_prompt_without_spec_or_prompt_file() {
+fn no_append_system_prompt_without_prompt_file() {
     let dir = setup_test_dir();
     let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
 
@@ -909,7 +776,7 @@ fn no_append_system_prompt_without_spec_or_prompt_file() {
 
     assert!(
         output.status.success(),
-        "should exit 0 without --spec or --prompt-file"
+        "should exit 0 without --prompt-file"
     );
 
     let args =
@@ -917,36 +784,7 @@ fn no_append_system_prompt_without_spec_or_prompt_file() {
 
     assert!(
         !args.contains("--append-system-prompt"),
-        "should NOT pass --append-system-prompt when no --spec or --prompt-file, got:\n{args}"
-    );
-}
-
-#[test]
-fn spec_flag_overrides_env_var() {
-    let dir = setup_test_dir();
-    let mock = create_mock_script(&dir, "afk-session.ndjson");
-    let fm_dir = create_mock_fm(&dir, "auth");
-
-    // SGF_SPEC=auth but --spec=nonexistent should use the flag value
-    let output = ralph_cmd(&dir)
-        .env("SGF_SPEC", "auth")
-        .env("PATH", prepend_to_path(&fm_dir))
-        .args([
-            "--afk",
-            "--spec",
-            "nonexistent",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
-
-    assert_eq!(
-        output.status.code(),
-        Some(1),
-        "should exit 1 when --spec flag overrides env with nonexistent spec"
+        "should NOT pass --append-system-prompt when no --prompt-file, got:\n{args}"
     );
 }
 
@@ -1133,52 +971,6 @@ fn afk_single_ctrlc_resets_after_timeout() {
         output.status.code(),
         Some(2),
         "should exit 2 (iterations exhausted) after single Ctrl+C timeout"
-    );
-}
-
-#[test]
-fn spec_passes_append_system_prompt_with_rendered_markdown() {
-    let dir = setup_test_dir();
-    let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
-    let fm_dir = create_mock_fm(&dir, "auth");
-
-    let output = ralph_cmd(&dir)
-        .env("PATH", prepend_to_path(&fm_dir))
-        .args([
-            "--afk",
-            "--spec",
-            "auth",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    assert!(
-        output.status.success(),
-        "should exit 0, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
-        output.status.code()
-    );
-
-    let args =
-        fs::read_to_string(dir.path().join("captured-args.txt")).expect("read captured args");
-
-    assert!(
-        args.contains("--append-system-prompt"),
-        "should pass --append-system-prompt, got:\n{args}"
-    );
-    assert!(
-        args.contains("# auth Specification"),
-        "should contain rendered spec markdown title, got:\n{args}"
-    );
-    assert!(
-        args.contains("Test overview body."),
-        "should contain rendered spec section body, got:\n{args}"
     );
 }
 
