@@ -291,7 +291,7 @@ impl Client {
     ) -> Result<Value, FormaError> {
         let json_body = serde_json::json!({ "after": after });
         self.request(|http| {
-            http.post(format!(
+            http.patch(format!(
                 "{}/specs/{}/sections/{}/move",
                 self.base_url, stem, slug
             ))

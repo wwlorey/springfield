@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, patch, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 
@@ -85,7 +85,7 @@ pub async fn start_with_data_dir(port: u16, project_dir: PathBuf, data_dir: Opti
             "/specs/{stem}/sections/{slug}",
             get(get_section).put(set_section).delete(remove_section),
         )
-        .route("/specs/{stem}/sections/{slug}/move", post(move_section))
+        .route("/specs/{stem}/sections/{slug}/move", patch(move_section))
         // Ref routes
         .route("/specs/{stem}/refs", get(list_refs).post(add_ref))
         .route("/specs/{stem}/refs/tree", get(ref_tree))

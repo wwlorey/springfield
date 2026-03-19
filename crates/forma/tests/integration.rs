@@ -240,7 +240,7 @@ fn section_move() {
     );
 
     // Move custom-one after overview (position 0)
-    let resp = d.post(
+    let resp = d.patch(
         "/specs/auth/sections/custom-one/move",
         &json!({"after": "overview"}),
     );
