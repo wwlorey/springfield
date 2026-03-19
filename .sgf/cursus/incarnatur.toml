@@ -3,21 +3,21 @@ alias = "ic"
 
 [[iters]]
 name = "spec-to-issues"
-prompt = "incarnatur-0-spec-to-issues"
+prompt = "incarnatur-0-spec-to-issues.md"
 mode = "afk"
 iterations = 50
 
 
 [[iters]]
 name = "spec-to-issues-final-pass"
-prompt = "incarnatur-1-spec-to-issues-final-pass"
+prompt = "incarnatur-1-spec-to-issues-final-pass.md"
 mode = "afk"
 iterations = 1
 
 
 [[iters]]
 name = "build"
-prompt = "incarnatur-2-build"
+prompt = "incarnatur-2-build.md"
 mode = "afk"
 iterations = 500
 
