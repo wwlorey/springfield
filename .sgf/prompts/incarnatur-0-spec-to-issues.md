@@ -12,4 +12,5 @@
     iii. Integration test tasks that verify functionality works end-to-end.
   c. Use subagents.
 3. Move the spec from `stable` to `proven`.
-4. Commit your changes when finished.
+4. When you are finished with the ONE spec:
+  a. Commit your changes and end.
