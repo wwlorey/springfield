@@ -11,3 +11,5 @@
 {"id":"pn-e40d7885","issue_id":"pn-b625f48f","path":".forma/specs/shutdown.md","reason":"Testing section defines the 4 integration tests and their expected behavior","created_at":"2026-03-19T17:04:10Z"}
 {"id":"pn-b6b61284","issue_id":"pn-18fec2cd","path":"specs/claude-wrapper.md","reason":"Error handling spec defines the expected behavior","created_at":"2026-03-19T17:09:16Z"}
 {"id":"pn-59d86517","issue_id":"pn-00330fda","path":"crates/claude-wrapper/README.md","reason":"New file to create","created_at":"2026-03-19T17:09:32Z"}
+{"id":"pn-9a56050e","issue_id":"pn-cda5d899","path":"/Users/william/.sgf/cursus/","reason":"Update all global cursus TOML files from [[iters]] to [[iter]]","created_at":"2026-03-19T17:13:27Z"}
+{"id":"pn-a417169c","issue_id":"pn-8eb70d17","path":"/Users/william/.sgf/cursus/","reason":"Create verify.toml, test.toml, test-plan.toml, issues-log.toml with corresponding prompt references","created_at":"2026-03-19T17:13:50Z"}

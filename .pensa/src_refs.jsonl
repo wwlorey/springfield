@@ -45,3 +45,9 @@
 {"id":"pn-b2d39c40","issue_id":"pn-eb5fe980","path":"crates/ralph/src/main.rs","reason":"Ralph invokes cl as subprocess — verify invocation args","created_at":"2026-03-19T17:09:52Z"}
 {"id":"pn-ec09056f","issue_id":"pn-eb5fe980","path":"crates/claude-wrapper/tests/integration.rs","reason":"Reference existing integration test patterns","created_at":"2026-03-19T17:09:53Z"}
 {"id":"pn-e716e645","issue_id":"pn-eb5fe980","path":"crates/ralph/tests/","reason":"Location for new integration test","created_at":"2026-03-19T17:09:54Z"}
+{"id":"pn-d08ea035","issue_id":"pn-a104d8a2","path":"crates/springfield/src/cursus/toml.rs","reason":"Add banner: bool field with #[serde(default)] to IterDefinition struct","created_at":"2026-03-19T17:13:20Z"}
+{"id":"pn-72a9f723","issue_id":"pn-a104d8a2","path":"crates/springfield/src/cursus/runner.rs","reason":"Add --banner flag to ralph invocation when iter.banner is true","created_at":"2026-03-19T17:13:20Z"}
+{"id":"pn-9289299e","issue_id":"pn-cda5d899","path":"crates/springfield/src/cursus/toml.rs","reason":"Add #[serde(rename = \"iter\")] to iters field in CursusDefinition struct","created_at":"2026-03-19T17:13:27Z"}
+{"id":"pn-d060fd08","issue_id":"pn-612cf46e","path":"crates/springfield/src/main.rs","reason":"Remove legacy fallback steps 3-4 from resolve_command, remove ResolvedCommand::Legacy variant, remove run_legacy_dispatch fn, remove legacy fallback tests","created_at":"2026-03-19T17:13:34Z"}
+{"id":"pn-8564ab92","issue_id":"pn-612cf46e","path":"crates/springfield/src/config.rs","reason":"Evaluate if config.rs is still needed after removing legacy fallback; remove if unused","created_at":"2026-03-19T17:13:34Z"}
+{"id":"pn-a10c79b9","issue_id":"pn-3b876d68","path":"crates/springfield/tests/integration.rs","reason":"Add cursus_banner_flag_passed_to_ralph integration test alongside existing cursus tests","created_at":"2026-03-19T17:13:42Z"}
