@@ -1044,3 +1044,33 @@ fn e2e_pensa_forma_tight_coupling() {
         "create without spec should succeed regardless of forma state"
     );
 }
+
+#[test]
+fn ready_includes_unplanned_bugs() {
+    let d = PensaOnlyDaemon::start();
+
+    // Create a bug with no fix tasks
+    let resp = d
+        .client
+        .post(d.url("/issues"))
+        .json(&serde_json::json!({
+            "title": "Crash on empty input",
+            "issue_type": "bug",
+            "actor": "tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201, "bug creation should succeed");
+    let bug: Value = resp.json().unwrap();
+    let bug_id = bug["id"].as_str().unwrap().to_string();
+
+    // Query ready — the unplanned bug (no fix tasks) should appear
+    let resp = d.client.get(d.url("/issues/ready")).send().unwrap();
+    assert_eq!(resp.status(), 200);
+    let ready: Vec<Value> = resp.json().unwrap();
+    let ready_ids: Vec<&str> = ready.iter().filter_map(|i| i["id"].as_str()).collect();
+    assert!(
+        ready_ids.contains(&bug_id.as_str()),
+        "unplanned bug should appear in ready list, got: {ready_ids:?}"
+    );
+}
