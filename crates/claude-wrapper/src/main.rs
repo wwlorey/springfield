@@ -12,12 +12,12 @@ fn main() {
         std::process::exit(1);
     });
 
-    let home = dirs::home_dir().unwrap_or_else(|| {
+    let home = dirs::home_dir();
+    if home.is_none() {
         eprintln!("warning: cannot determine home directory, skipping global lookups");
-        cwd.clone()
-    });
+    }
 
-    let files = resolve::resolve_context_files(&cwd, &home);
+    let files = resolve::resolve_context_files(&cwd, home.as_deref());
 
     let passthrough_args: Vec<String> = env::args().skip(1).collect();
 
