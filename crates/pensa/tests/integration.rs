@@ -1379,3 +1379,116 @@ fn ready_type_filter_excludes_bugs() {
         "bug should NOT appear in ready list filtered by type=task, got: {task_ids:?}"
     );
 }
+
+#[test]
+fn multi_fix_all_or_nothing_auto_close() {
+    let d = PensaOnlyDaemon::start();
+
+    // Create a bug
+    let resp = d
+        .client
+        .post(d.url("/issues"))
+        .json(&serde_json::json!({
+            "title": "Data corruption on concurrent writes",
+            "issue_type": "bug",
+            "actor": "tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    let bug: Value = resp.json().unwrap();
+    let bug_id = bug["id"].as_str().unwrap().to_string();
+
+    // Create two fix tasks linked to the bug
+    let resp = d
+        .client
+        .post(d.url("/issues"))
+        .json(&serde_json::json!({
+            "title": "Add write lock to data store",
+            "issue_type": "task",
+            "fixes": bug_id,
+            "actor": "tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    let fix1: Value = resp.json().unwrap();
+    let fix1_id = fix1["id"].as_str().unwrap().to_string();
+
+    let resp = d
+        .client
+        .post(d.url("/issues"))
+        .json(&serde_json::json!({
+            "title": "Add integrity check on read",
+            "issue_type": "task",
+            "fixes": bug_id,
+            "actor": "tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    let fix2: Value = resp.json().unwrap();
+    let fix2_id = fix2["id"].as_str().unwrap().to_string();
+
+    // Close the first fix task
+    let resp = d
+        .client
+        .post(d.url(&format!("/issues/{fix1_id}/close")))
+        .json(&serde_json::json!({
+            "reason": "Write lock implemented",
+            "actor": "tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // Verify bug is still open (second fix task remains)
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{bug_id}")))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let bug_detail: Value = resp.json().unwrap();
+    assert_eq!(
+        bug_detail["status"], "open",
+        "bug should remain open while a fix task is still unclosed"
+    );
+    assert!(
+        bug_detail["closed_at"].is_null(),
+        "closed_at should be null while bug is still open"
+    );
+
+    // Close the second fix task
+    let resp = d
+        .client
+        .post(d.url(&format!("/issues/{fix2_id}/close")))
+        .json(&serde_json::json!({
+            "reason": "Integrity check added",
+            "actor": "tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // Verify the bug was auto-closed with reason "fixed"
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{bug_id}")))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let bug_detail: Value = resp.json().unwrap();
+    assert_eq!(
+        bug_detail["status"], "closed",
+        "bug should be auto-closed after all fix tasks are closed"
+    );
+    assert_eq!(
+        bug_detail["close_reason"], "fixed",
+        "auto-closed bug should have close_reason 'fixed'"
+    );
+    assert!(
+        bug_detail["closed_at"].is_string(),
+        "closed_at should be set on auto-closed bug"
+    );
+}
