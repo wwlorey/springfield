@@ -22,6 +22,9 @@ enum Commands {
         force: bool,
     },
 
+    /// Show available commands with descriptions
+    List,
+
     /// Show project state (future work)
     Status,
 
@@ -251,6 +254,37 @@ fn run_legacy_dispatch(root: &Path, args: &DynamicArgs, stage: &str) -> ! {
     }
 }
 
+fn run_list(root: &Path) {
+    let commands = cursus::list_all(root);
+
+    let builtins = [
+        ("init", "Scaffold a new project"),
+        ("list", "Show available commands"),
+        ("logs", "Tail a running loop's output"),
+        ("resume", "Resume a stalled/interrupted run"),
+    ];
+
+    let max_name = commands
+        .iter()
+        .map(|(n, _)| n.len())
+        .chain(builtins.iter().map(|(n, _)| n.len()))
+        .max()
+        .unwrap_or(0);
+
+    if !commands.is_empty() {
+        println!("Available commands:\n");
+        for (name, desc) in &commands {
+            println!("  {:<width$}  {}", name, desc, width = max_name);
+        }
+        println!();
+    }
+
+    println!("Built-ins:\n");
+    for (name, desc) in &builtins {
+        println!("  {:<width$}  {}", name, desc, width = max_name);
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
 
@@ -261,6 +295,10 @@ fn main() {
                 springfield::style::print_error(&format!("init: {e}"));
                 std::process::exit(1);
             }
+        }
+        Commands::List => {
+            let root = std::env::current_dir().expect("failed to get current directory");
+            run_list(&root);
         }
         Commands::Status => {
             springfield::style::print_warning("not yet implemented");

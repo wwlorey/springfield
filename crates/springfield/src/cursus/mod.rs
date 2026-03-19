@@ -100,6 +100,29 @@ pub fn resolve_alias(root: &Path, alias: &str) -> Option<ResolvedCursus> {
     None
 }
 
+pub fn list_all(root: &Path) -> Vec<(String, String)> {
+    list_all_with_global(root, global_cursus_dir().as_deref())
+}
+
+fn list_all_with_global(root: &Path, global_dir: Option<&Path>) -> Vec<(String, String)> {
+    let local_dir = root.join(".sgf/cursus");
+    let mut defs = load_all_from_dir(&local_dir);
+
+    if let Some(global_dir) = global_dir {
+        let global_defs = load_all_from_dir(global_dir);
+        for (name, def) in global_defs {
+            defs.entry(name).or_insert(def);
+        }
+    }
+
+    let mut entries: Vec<(String, String)> = defs
+        .into_iter()
+        .map(|(name, def)| (name, def.description))
+        .collect();
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    entries
+}
+
 pub fn resolve_command(root: &Path, command: &str) -> Result<ResolvedCursus, io::Error> {
     if let Some(resolved) = resolve_cursus(root, command) {
         return Ok(resolved);
@@ -266,5 +289,72 @@ prompt = "build.md"
         assert_eq!(defs.len(), 2);
         assert!(defs.contains_key("build"));
         assert!(defs.contains_key("test"));
+    }
+
+    #[test]
+    fn list_all_local_only() {
+        let tmp = TempDir::new().unwrap();
+        write_cursus_toml(&tmp.path().join(".sgf/cursus"), "build", SIMPLE_CURSUS);
+        write_cursus_toml(&tmp.path().join(".sgf/cursus"), "test", TEST_CURSUS);
+
+        let entries = list_all_with_global(tmp.path(), None);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0], ("build".to_string(), "Build loop".to_string()));
+        assert_eq!(entries[1], ("test".to_string(), "Test loop".to_string()));
+    }
+
+    #[test]
+    fn list_all_sorted_alphabetically() {
+        let tmp = TempDir::new().unwrap();
+        write_cursus_toml(&tmp.path().join(".sgf/cursus"), "zebra", TEST_CURSUS);
+        write_cursus_toml(&tmp.path().join(".sgf/cursus"), "alpha", SIMPLE_CURSUS);
+
+        let entries = list_all_with_global(tmp.path(), None);
+        assert_eq!(entries[0].0, "alpha");
+        assert_eq!(entries[1].0, "zebra");
+    }
+
+    #[test]
+    fn list_all_empty_when_no_cursus_dir() {
+        let tmp = TempDir::new().unwrap();
+        let entries = list_all_with_global(tmp.path(), None);
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn list_all_local_overrides_global() {
+        let tmp = TempDir::new().unwrap();
+        let global = tmp.path().join("global_cursus");
+        write_cursus_toml(
+            &global,
+            "build",
+            r#"
+description = "Global build"
+[[iter]]
+name = "build"
+prompt = "build.md"
+"#,
+        );
+        write_cursus_toml(&global, "verify", TEST_CURSUS);
+        write_cursus_toml(&tmp.path().join(".sgf/cursus"), "build", SIMPLE_CURSUS);
+
+        let entries = list_all_with_global(tmp.path(), Some(&global));
+        assert_eq!(entries.len(), 2);
+        let build_entry = entries.iter().find(|(n, _)| n == "build").unwrap();
+        assert_eq!(build_entry.1, "Build loop");
+        assert!(entries.iter().any(|(n, _)| n == "verify"));
+    }
+
+    #[test]
+    fn list_all_merges_global_commands() {
+        let tmp = TempDir::new().unwrap();
+        let global = tmp.path().join("global_cursus");
+        write_cursus_toml(&global, "verify", TEST_CURSUS);
+        write_cursus_toml(&tmp.path().join(".sgf/cursus"), "build", SIMPLE_CURSUS);
+
+        let entries = list_all_with_global(tmp.path(), Some(&global));
+        assert_eq!(entries.len(), 2);
+        assert!(entries.iter().any(|(n, _)| n == "build"));
+        assert!(entries.iter().any(|(n, _)| n == "verify"));
     }
 }
