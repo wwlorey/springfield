@@ -1567,7 +1567,7 @@ exit 0
             r#"
 description = "Build"
 
-[[iters]]
+[[iter]]
 name = "build"
 prompt = "build.md"
 "#,

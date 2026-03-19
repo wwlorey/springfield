@@ -490,7 +490,7 @@ description = "Build loop"
 alias = "b"
 auto_push = true
 
-[[iters]]
+[[iter]]
 name = "build"
 prompt = "build.md"
 mode = "interactive"
@@ -571,7 +571,7 @@ iterations = 30
 description = "Test"
 alias = "build"
 
-[[iters]]
+[[iter]]
 name = "test"
 prompt = "test.md"
 "#,

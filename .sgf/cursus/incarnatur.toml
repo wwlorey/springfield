@@ -2,28 +2,28 @@ description = "'It is incarnated' | Give flesh to the specs"
 alias = "ic"
 auto_push = true
 
-[[iters]]
+[[iter]]
 name = "spec-to-issues"
 prompt = "incarnatur-0-spec-to-issues.md"
 mode = "afk"
 iterations = 50
 
 
-[[iters]]
+[[iter]]
 name = "spec-to-issues-final-pass"
 prompt = "incarnatur-1-spec-to-issues-final-pass.md"
 mode = "afk"
 iterations = 1
 
 
-[[iters]]
+[[iter]]
 name = "build"
 prompt = "incarnatur-2-build.md"
 mode = "afk"
 iterations = 500
 
 
-# [[iters]]
+# [[iter]]
 # name = "flesh-audit"
 # prompt = "incarnatur-3-flesh-audit"
 # mode = "afk"
@@ -31,7 +31,7 @@ iterations = 500
 # produces = "flesh-audit-presentation"
 
 
-# [[iters]]
+# [[iter]]
 # name = "present"
 # prompt = "incarnatur-4-present"
 # mode = "interactive"

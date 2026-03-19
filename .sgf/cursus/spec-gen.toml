@@ -2,14 +2,14 @@ description = "Spec creation, refinement, and blessing"
 alias = "sg"
 
 
-[[iters]]
+[[iter]]
 name = "discuss-and-interview"
 prompt = "spec-gen-0-discuss-and-interview.md"
 mode = "interactive"
 produces = "discuss-and-interview-summary"
 
 
-[[iters]]
+[[iter]]
 name = "write"
 prompt = "spec-gen-1-write.md"
 mode = "afk"
@@ -19,18 +19,18 @@ produces = "draft-presentation"
 auto_push = true
 
 
-[[iters]]
+[[iter]]
 name = "review"
 prompt = "spec-gen-2-review.md"
 mode = "interactive"
 consumes = ["discuss-and-interview-summary", "draft-presentation"]
 next = "approve"
 
-  [iters.transitions]
+  [iter.transitions]
   on_revise = "revise"
 
 
-[[iters]]
+[[iter]]
 name = "revise"
 prompt = "spec-gen-3-revise.md"
 mode = "afk"
@@ -40,7 +40,7 @@ produces = "draft-presentation"
 next = "review"
 
 
-[[iters]]
+[[iter]]
 name = "approve"
 prompt = "spec-gen-4-approve.md"
 mode = "afk"

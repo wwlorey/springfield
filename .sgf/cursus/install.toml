@@ -1,7 +1,7 @@
 description = "Install project dependencies"
 alias = "i"
 
-[[iters]]
+[[iter]]
 name = "install"
 prompt = "install.md"
 mode = "afk"

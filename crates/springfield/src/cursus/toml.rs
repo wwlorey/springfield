@@ -57,6 +57,7 @@ pub struct CursusDefinition {
     pub trigger: String,
     #[serde(default)]
     pub auto_push: bool,
+    #[serde(rename = "iter")]
     pub iters: Vec<IterDefinition>,
 }
 
@@ -213,7 +214,7 @@ description = "Implementation loop"
 alias = "b"
 auto_push = true
 
-[[iters]]
+[[iter]]
 name = "build"
 prompt = "build.md"
 mode = "interactive"
@@ -245,7 +246,7 @@ alias = "s"
 trigger = "manual"
 auto_push = true
 
-[[iters]]
+[[iter]]
 name = "discuss"
 prompt = "spec-discuss.md"
 mode = "interactive"
@@ -254,7 +255,7 @@ produces = "discuss-summary"
 consumes = []
 auto_push = false
 
-[[iters]]
+[[iter]]
 name = "draft"
 prompt = "spec-draft.md"
 mode = "afk"
@@ -263,17 +264,17 @@ produces = "draft-presentation"
 consumes = ["discuss-summary"]
 auto_push = true
 
-[[iters]]
+[[iter]]
 name = "review"
 prompt = "spec-review.md"
 mode = "interactive"
 consumes = ["discuss-summary", "draft-presentation"]
 
-  [iters.transitions]
+  [iter.transitions]
   on_reject = "draft"
   on_revise = "revise"
 
-[[iters]]
+[[iter]]
 name = "revise"
 prompt = "spec-revise.md"
 mode = "afk"
@@ -282,7 +283,7 @@ consumes = ["discuss-summary", "draft-presentation"]
 produces = "draft-presentation"
 next = "review"
 
-[[iters]]
+[[iter]]
 name = "approve"
 prompt = "spec-approve.md"
 mode = "interactive"
@@ -309,12 +310,12 @@ consumes = ["draft-presentation"]
         let toml = r#"
 description = "Pipeline with context passing"
 
-[[iters]]
+[[iter]]
 name = "generate"
 prompt = "gen.md"
 produces = "output-summary"
 
-[[iters]]
+[[iter]]
 name = "verify"
 prompt = "verify.md"
 consumes = ["output-summary"]
@@ -329,7 +330,7 @@ consumes = ["output-summary"]
         let toml = r#"
 description = "Minimal"
 
-[[iters]]
+[[iter]]
 name = "run"
 prompt = "run.md"
 "#;
@@ -354,7 +355,7 @@ prompt = "run.md"
         let toml = r#"
 description = "Banner test"
 
-[[iters]]
+[[iter]]
 name = "run"
 prompt = "run.md"
 banner = true
@@ -368,7 +369,7 @@ banner = true
         let toml = r#"
 description = "Banner test"
 
-[[iters]]
+[[iter]]
 name = "run"
 prompt = "run.md"
 banner = false
@@ -382,7 +383,7 @@ banner = false
         let toml = r#"
 description = "Banner test"
 
-[[iters]]
+[[iter]]
 name = "run"
 prompt = "run.md"
 "#;
@@ -395,11 +396,11 @@ prompt = "run.md"
         let toml = r#"
 description = "Duplicate names"
 
-[[iters]]
+[[iter]]
 name = "build"
 prompt = "build.md"
 
-[[iters]]
+[[iter]]
 name = "build"
 prompt = "build2.md"
 "#;
@@ -413,11 +414,11 @@ prompt = "build2.md"
         let toml = r#"
 description = "Bad transition"
 
-[[iters]]
+[[iter]]
 name = "review"
 prompt = "review.md"
 
-  [iters.transitions]
+  [iter.transitions]
   on_reject = "nonexistent"
 "#;
         let def = parse(toml).unwrap();
@@ -430,7 +431,7 @@ prompt = "review.md"
         let toml = r#"
 description = "Bad next"
 
-[[iters]]
+[[iter]]
 name = "step"
 prompt = "step.md"
 next = "ghost"
@@ -445,11 +446,11 @@ next = "ghost"
         let toml = r#"
 description = "Bad revise"
 
-[[iters]]
+[[iter]]
 name = "review"
 prompt = "review.md"
 
-  [iters.transitions]
+  [iter.transitions]
   on_revise = "missing"
 "#;
         let def = parse(toml).unwrap();
@@ -462,17 +463,17 @@ prompt = "review.md"
         let toml = r#"
 description = "Valid pipeline"
 
-[[iters]]
+[[iter]]
 name = "draft"
 prompt = "draft.md"
 produces = "summary"
 
-[[iters]]
+[[iter]]
 name = "review"
 prompt = "review.md"
 consumes = ["summary"]
 
-  [iters.transitions]
+  [iter.transitions]
   on_reject = "draft"
 "#;
         let def = parse(toml).unwrap();
@@ -485,7 +486,7 @@ consumes = ["summary"]
 description = "Auto push test"
 auto_push = true
 
-[[iters]]
+[[iter]]
 name = "build"
 prompt = "build.md"
 "#;
@@ -499,7 +500,7 @@ prompt = "build.md"
 description = "Auto push override"
 auto_push = true
 
-[[iters]]
+[[iter]]
 name = "build"
 prompt = "build.md"
 auto_push = false
@@ -566,7 +567,7 @@ auto_push = false
         let toml = r#"
 description = "Bad mode"
 
-[[iters]]
+[[iter]]
 name = "run"
 prompt = "run.md"
 mode = "turbo"

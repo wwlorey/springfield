@@ -2,7 +2,7 @@ description = "Claim and implement one issue from the backlog"
 alias = "b"
 auto_push = true
 
-[[iters]]
+[[iter]]
 name = "build"
 prompt = "build.md"
 mode = "interactive"

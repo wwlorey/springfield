@@ -3665,7 +3665,7 @@ fn cursus_single_iter_dispatches_and_completes() {
             "alias = \"b\"\n",
             "auto_push = false\n",
             "\n",
-            "[[iters]]\n",
+            "[[iter]]\n",
             "name = \"build\"\n",
             "prompt = \"build.md\"\n",
             "mode = \"afk\"\n",
@@ -3783,7 +3783,7 @@ fn cursus_single_iter_alias_dispatch() {
             "alias = \"b\"\n",
             "auto_push = false\n",
             "\n",
-            "[[iters]]\n",
+            "[[iter]]\n",
             "name = \"build\"\n",
             "prompt = \"build.md\"\n",
             "mode = \"afk\"\n",
@@ -3841,7 +3841,7 @@ fn cursus_single_iter_sentinel_cleaned_on_exhausted() {
             "description = \"Test build cursus\"\n",
             "auto_push = false\n",
             "\n",
-            "[[iters]]\n",
+            "[[iter]]\n",
             "name = \"build\"\n",
             "prompt = \"build.md\"\n",
             "mode = \"afk\"\n",
@@ -3930,14 +3930,14 @@ const MULTI_ITER_CURSUS: &str = "\
 description = \"Multi-iter test cursus\"\n\
 auto_push = false\n\
 \n\
-[[iters]]\n\
+[[iter]]\n\
 name = \"discuss\"\n\
 prompt = \"discuss.md\"\n\
 mode = \"afk\"\n\
 iterations = 1\n\
 produces = \"discuss-summary\"\n\
 \n\
-[[iters]]\n\
+[[iter]]\n\
 name = \"draft\"\n\
 prompt = \"draft.md\"\n\
 mode = \"afk\"\n\
@@ -3945,7 +3945,7 @@ iterations = 10\n\
 consumes = [\"discuss-summary\"]\n\
 produces = \"draft-presentation\"\n\
 \n\
-[[iters]]\n\
+[[iter]]\n\
 name = \"review\"\n\
 prompt = \"review.md\"\n\
 mode = \"afk\"\n\
@@ -3953,11 +3953,11 @@ iterations = 1\n\
 consumes = [\"discuss-summary\", \"draft-presentation\"]\n\
 next = \"approve\"\n\
 \n\
-[iters.transitions]\n\
+[iter.transitions]\n\
 on_reject = \"draft\"\n\
 on_revise = \"revise\"\n\
 \n\
-[[iters]]\n\
+[[iter]]\n\
 name = \"revise\"\n\
 prompt = \"revise.md\"\n\
 mode = \"afk\"\n\
@@ -3966,7 +3966,7 @@ consumes = [\"discuss-summary\", \"draft-presentation\"]\n\
 produces = \"draft-presentation\"\n\
 next = \"review\"\n\
 \n\
-[[iters]]\n\
+[[iter]]\n\
 name = \"approve\"\n\
 prompt = \"approve.md\"\n\
 mode = \"afk\"\n\
@@ -4339,13 +4339,13 @@ fn cursus_multi_iter_stall_recovery() {
             "description = \"Stall test\"\n",
             "auto_push = false\n",
             "\n",
-            "[[iters]]\n",
+            "[[iter]]\n",
             "name = \"discuss\"\n",
             "prompt = \"discuss.md\"\n",
             "mode = \"afk\"\n",
             "iterations = 1\n",
             "\n",
-            "[[iters]]\n",
+            "[[iter]]\n",
             "name = \"draft\"\n",
             "prompt = \"draft.md\"\n",
             "mode = \"afk\"\n",
@@ -4429,13 +4429,13 @@ fn cursus_multi_iter_resume_stalled_run() {
             "description = \"Resume test\"\n",
             "auto_push = false\n",
             "\n",
-            "[[iters]]\n",
+            "[[iter]]\n",
             "name = \"discuss\"\n",
             "prompt = \"discuss.md\"\n",
             "mode = \"afk\"\n",
             "iterations = 1\n",
             "\n",
-            "[[iters]]\n",
+            "[[iter]]\n",
             "name = \"draft\"\n",
             "prompt = \"draft.md\"\n",
             "mode = \"afk\"\n",
@@ -4544,7 +4544,7 @@ fn cursus_layered_resolution_local_overrides_global() {
             "description = \"Global layered\"\n",
             "auto_push = false\n",
             "\n",
-            "[[iters]]\n",
+            "[[iter]]\n",
             "name = \"global-iter\"\n",
             "prompt = \"build.md\"\n",
             "mode = \"afk\"\n",
@@ -4562,7 +4562,7 @@ fn cursus_layered_resolution_local_overrides_global() {
             "description = \"Local layered\"\n",
             "auto_push = false\n",
             "\n",
-            "[[iters]]\n",
+            "[[iter]]\n",
             "name = \"local-iter\"\n",
             "prompt = \"build.md\"\n",
             "mode = \"afk\"\n",
