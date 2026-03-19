@@ -3,7 +3,6 @@ use std::path::Path;
 
 use clap::{Parser, Subcommand};
 
-use springfield::config::{self, Mode};
 use springfield::cursus;
 
 /// CLI entry point for Springfield — scaffolding, prompt delivery, loop orchestration.
@@ -120,30 +119,13 @@ fn parse_dynamic_args(args: Vec<OsString>) -> Result<DynamicArgs, String> {
     })
 }
 
-#[derive(Debug)]
-enum ResolvedCommand {
-    Cursus(cursus::ResolvedCursus),
-    Legacy(String),
-}
-
-fn resolve_command(root: &Path, name: &str) -> Result<ResolvedCommand, String> {
+fn resolve_command(root: &Path, name: &str) -> Result<cursus::ResolvedCursus, String> {
     if let Some(resolved) = cursus::resolve_cursus(root, name) {
-        return Ok(ResolvedCommand::Cursus(resolved));
+        return Ok(resolved);
     }
 
     if let Some(resolved) = cursus::resolve_alias(root, name) {
-        return Ok(ResolvedCommand::Cursus(resolved));
-    }
-
-    if springfield::prompt::resolve(root, name).is_some() {
-        return Ok(ResolvedCommand::Legacy(name.to_string()));
-    }
-
-    let configs = config::load(root).map_err(|e| format!("failed to load config: {e}"))?;
-    if let Some(resolved) = config::resolve_alias(&configs, name)
-        && springfield::prompt::resolve(root, resolved).is_some()
-    {
-        return Ok(ResolvedCommand::Legacy(resolved.to_string()));
+        return Ok(resolved);
     }
 
     Err(format!("unknown command: {name}"))
@@ -160,14 +142,7 @@ fn run_dynamic(args: DynamicArgs) -> ! {
         }
     };
 
-    match resolved {
-        ResolvedCommand::Cursus(resolved_cursus) => {
-            run_cursus_dispatch(&root, &args, resolved_cursus);
-        }
-        ResolvedCommand::Legacy(stage) => {
-            run_legacy_dispatch(&root, &args, &stage);
-        }
-    }
+    run_cursus_dispatch(&root, &args, resolved);
 }
 
 fn run_cursus_dispatch(root: &Path, args: &DynamicArgs, resolved: cursus::ResolvedCursus) -> ! {
@@ -203,6 +178,14 @@ fn run_cursus_dispatch(root: &Path, args: &DynamicArgs, resolved: cursus::Resolv
         None
     };
 
+    if let Some(ref stem) = args.spec {
+        let spec_path = root.join(format!("specs/{stem}.md"));
+        if !spec_path.exists() {
+            springfield::style::print_error(&format!("spec not found: specs/{stem}.md"));
+            std::process::exit(1);
+        }
+    }
+
     let config = cursus::runner::CursusConfig {
         spec: args.spec.clone(),
         mode_override,
@@ -220,39 +203,6 @@ fn run_cursus_dispatch(root: &Path, args: &DynamicArgs, resolved: cursus::Resolv
     }
 }
 
-fn run_legacy_dispatch(root: &Path, args: &DynamicArgs, stage: &str) -> ! {
-    let configs = config::load(root).unwrap_or_default();
-    let cmd_config = configs.get(stage).cloned().unwrap_or_default();
-
-    let mode = if args.afk {
-        Mode::Afk
-    } else if args.interactive {
-        Mode::Interactive
-    } else {
-        cmd_config.mode.clone()
-    };
-
-    let iterations = args.iterations.unwrap_or(cmd_config.iterations);
-    let no_push = args.no_push || !cmd_config.auto_push;
-
-    let config = springfield::orchestrate::LoopConfig {
-        stage: stage.to_string(),
-        spec: args.spec.clone(),
-        mode,
-        no_push,
-        iterations,
-        ralph_binary: None,
-        skip_preflight: false,
-    };
-
-    match springfield::orchestrate::run(root, &config) {
-        Ok(code) => std::process::exit(code),
-        Err(e) => {
-            springfield::style::print_error(&format!("{stage}: {e}"));
-            std::process::exit(1);
-        }
-    }
-}
 
 fn run_list(root: &Path) {
     let commands = cursus::list_all(root);
@@ -542,7 +492,7 @@ iterations = 30
         fs::write(tmp.path().join(".sgf/cursus/build.toml"), SIMPLE_CURSUS).unwrap();
 
         let resolved = resolve_command(tmp.path(), "build").unwrap();
-        assert!(matches!(resolved, ResolvedCommand::Cursus(ref c) if c.name == "build"));
+        assert_eq!(resolved.name, "build");
     }
 
     #[test]
@@ -552,41 +502,17 @@ iterations = 30
         fs::write(tmp.path().join(".sgf/cursus/build.toml"), SIMPLE_CURSUS).unwrap();
 
         let resolved = resolve_command(tmp.path(), "b").unwrap();
-        assert!(matches!(resolved, ResolvedCommand::Cursus(ref c) if c.name == "build"));
+        assert_eq!(resolved.name, "build");
     }
 
     #[test]
-    fn resolve_cursus_takes_precedence_over_legacy() {
-        let tmp = TempDir::new().unwrap();
-        fs::create_dir_all(tmp.path().join(".sgf/cursus")).unwrap();
-        fs::create_dir_all(tmp.path().join(".sgf/prompts")).unwrap();
-        fs::write(tmp.path().join(".sgf/cursus/build.toml"), SIMPLE_CURSUS).unwrap();
-        fs::write(tmp.path().join(".sgf/prompts/build.md"), "prompt").unwrap();
-
-        let resolved = resolve_command(tmp.path(), "build").unwrap();
-        assert!(matches!(resolved, ResolvedCommand::Cursus(_)));
-    }
-
-    #[test]
-    fn resolve_falls_back_to_legacy_prompt() {
+    fn resolve_bare_prompt_without_cursus_is_unknown() {
         let tmp = TempDir::new().unwrap();
         fs::create_dir_all(tmp.path().join(".sgf/prompts")).unwrap();
         fs::write(tmp.path().join(".sgf/prompts/deploy.md"), "prompt").unwrap();
 
-        let resolved = resolve_command(tmp.path(), "deploy").unwrap();
-        assert!(matches!(resolved, ResolvedCommand::Legacy(ref s) if s == "deploy"));
-    }
-
-    #[test]
-    fn resolve_falls_back_to_legacy_alias() {
-        let tmp = TempDir::new().unwrap();
-        let prompts_dir = tmp.path().join(".sgf/prompts");
-        fs::create_dir_all(&prompts_dir).unwrap();
-        fs::write(prompts_dir.join("deploy.md"), "prompt").unwrap();
-        fs::write(prompts_dir.join("config.toml"), "[deploy]\nalias = \"d\"\n").unwrap();
-
-        let resolved = resolve_command(tmp.path(), "d").unwrap();
-        assert!(matches!(resolved, ResolvedCommand::Legacy(ref s) if s == "deploy"));
+        let err = resolve_command(tmp.path(), "deploy").unwrap_err();
+        assert!(err.contains("unknown command: deploy"));
     }
 
     #[test]
@@ -616,8 +542,7 @@ prompt = "test.md"
         )
         .unwrap();
 
-        // "build" matches the direct cursus TOML, not the alias from test.toml
         let resolved = resolve_command(tmp.path(), "build").unwrap();
-        assert!(matches!(resolved, ResolvedCommand::Cursus(ref c) if c.name == "build"));
+        assert_eq!(resolved.name, "build");
     }
 }

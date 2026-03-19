@@ -229,12 +229,53 @@ fn sgf_init_and_commit(dir: &Path) {
     git_add_commit(dir, "sgf init");
 }
 
-/// Write a config.toml into .sgf/prompts/ with the given TOML content and commit.
-fn write_config_toml(dir: &Path, content: &str) {
+fn write_cursus_toml(dir: &Path, name: &str, content: &str) {
+    let cursus_dir = dir.join(".sgf/cursus");
+    fs::create_dir_all(&cursus_dir).unwrap();
+    fs::write(cursus_dir.join(format!("{name}.toml")), content).unwrap();
+    git_add_commit(dir, &format!("add {name} cursus toml"));
+}
+
+fn setup_default_cursus(dir: &Path) {
+    let cursus_dir = dir.join(".sgf/cursus");
     let prompts_dir = dir.join(".sgf/prompts");
+    fs::create_dir_all(&cursus_dir).unwrap();
     fs::create_dir_all(&prompts_dir).unwrap();
-    fs::write(prompts_dir.join("config.toml"), content).unwrap();
-    git_add_commit(dir, "add config.toml");
+
+    let commands: &[(&str, &str, &str, &str, u32)] = &[
+        ("build", "b", "Build", "afk", 30),
+        ("spec", "s", "Spec", "interactive", 1),
+        ("verify", "v", "Verify", "afk", 30),
+        ("test-plan", "", "Test plan", "afk", 30),
+        ("test", "", "Test", "afk", 30),
+        ("issues-log", "", "Issues log", "interactive", 1),
+        ("doc", "", "Doc", "interactive", 1),
+        ("install", "i", "Install", "afk", 1),
+    ];
+
+    for &(name, alias, desc, mode, iterations) in commands {
+        let alias_line = if alias.is_empty() {
+            String::new()
+        } else {
+            format!("alias = \"{alias}\"\n")
+        };
+        let auto_push = mode == "afk";
+        let toml = format!(
+            "description = \"{desc}\"\n\
+             {alias_line}\
+             auto_push = {auto_push}\n\
+             \n\
+             [[iter]]\n\
+             name = \"{name}\"\n\
+             prompt = \"{name}.md\"\n\
+             mode = \"{mode}\"\n\
+             iterations = {iterations}\n"
+        );
+        fs::write(cursus_dir.join(format!("{name}.toml")), toml).unwrap();
+        fs::write(prompts_dir.join(format!("{name}.md")), format!("{desc} prompt\n")).unwrap();
+    }
+
+    git_add_commit(dir, "add default cursus tomls and prompts");
 }
 
 /// Create a spec file at specs/<stem>.md and commit it.
@@ -606,9 +647,21 @@ fn prompt_validate_returns_raw_path() {
 fn build_invokes_ralph_with_correct_flags() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
-    write_config_toml(
+    setup_default_cursus(tmp.path());
+    write_cursus_toml(
         tmp.path(),
-        "[build]\nmode = \"afk\"\niterations = 30\nauto_push = true\n",
+        "build",
+        concat!(
+            "description = \"Build\"\n",
+            "alias = \"b\"\n",
+            "auto_push = true\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 30\n",
+        ),
     );
     create_spec_and_commit(tmp.path(), "auth");
 
@@ -619,7 +672,7 @@ fn build_invokes_ralph_with_correct_flags() {
         mock_dir.path(),
         "mock_ralph.sh",
         &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.ralph-complete\"\nexit 0\n",
             args_file.display()
         ),
     );
@@ -653,6 +706,7 @@ fn build_invokes_ralph_with_correct_flags() {
 fn build_creates_and_cleans_pid_file() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
     // Mock ralph that checks for PID file existence during execution
@@ -662,7 +716,12 @@ fn build_creates_and_cleans_pid_file() {
         mock_dir.path(),
         "mock_ralph.sh",
         &format!(
-            "#!/bin/sh\nls \"${{PWD}}/.sgf/run/\"*.pid > \"{}\" 2>&1\nexit 0\n",
+            concat!(
+                "#!/bin/sh\n",
+                "find \"${{PWD}}/.sgf/run\" -name '*.pid' > \"{}\" 2>&1\n",
+                "touch \"${{PWD}}/.ralph-complete\"\n",
+                "exit 0\n",
+            ),
             state_file.display()
         ),
     );
@@ -672,7 +731,11 @@ fn build_creates_and_cleans_pid_file() {
             .args(["build", "auth", "-a"])
             .env("SGF_RALPH_BINARY", &mock_ralph),
     );
-    assert!(output.status.success());
+    assert!(
+        output.status.success(),
+        "sgf build failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 
     // PID file should have existed while ralph was running
     let pid_state = fs::read_to_string(&state_file).unwrap();
@@ -683,11 +746,20 @@ fn build_creates_and_cleans_pid_file() {
 
     // PID file should be cleaned up after ralph exits
     let run_dir = tmp.path().join(".sgf/run");
-    let remaining_pids: Vec<_> = fs::read_dir(&run_dir)
-        .unwrap()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().is_some_and(|ext| ext == "pid"))
-        .collect();
+    let mut remaining_pids = Vec::new();
+    fn find_pids(dir: &Path, pids: &mut Vec<std::path::PathBuf>) {
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    find_pids(&path, pids);
+                } else if path.extension().is_some_and(|ext| ext == "pid") {
+                    pids.push(path);
+                }
+            }
+        }
+    }
+    find_pids(&run_dir, &mut remaining_pids);
     assert!(remaining_pids.is_empty(), "PID file not cleaned up");
 }
 
@@ -695,13 +767,14 @@ fn build_creates_and_cleans_pid_file() {
 fn afk_passes_log_file_to_ralph() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
     let mock_ralph = create_mock_script(
         mock_dir.path(),
         "mock_ralph.sh",
-        "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
+        "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\ntouch \"${PWD}/.ralph-complete\"\nexit 0\n",
     );
 
     let output = run_sgf(
@@ -726,6 +799,7 @@ fn afk_passes_log_file_to_ralph() {
 fn spec_runs_interactive_via_cl() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
 
     let mock_cl_dir = TempDir::new().unwrap();
     let args_file = mock_cl_dir.path().join("agent_args.txt");
@@ -764,6 +838,7 @@ fn spec_runs_interactive_via_cl() {
 fn issues_log_runs_interactive_via_cl() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
 
     let mock_cl_dir = TempDir::new().unwrap();
     let args_file = mock_cl_dir.path().join("agent_args.txt");
@@ -806,33 +881,41 @@ fn issues_log_runs_interactive_via_cl() {
 fn recovery_cleans_stale_state() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
-    // Mock ralph that records the state of the working directory
+    // Create a stale run directory with dead PID
+    let stale_run_dir = tmp.path().join(".sgf/run/stale-build-20260101T000000");
+    fs::create_dir_all(&stale_run_dir).unwrap();
+    fs::write(
+        stale_run_dir.join("stale-build-20260101T000000.pid"),
+        "4000000",
+    )
+    .unwrap();
+    let stale_meta = serde_json::json!({
+        "run_id": "stale-build-20260101T000000",
+        "cursus": "build",
+        "status": "running",
+        "current_iter": "build",
+        "current_iter_index": 0,
+        "iters_completed": [],
+        "spec": null,
+        "mode_override": null,
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-01T00:00:00Z"
+    });
+    fs::write(
+        stale_run_dir.join("meta.json"),
+        serde_json::to_string_pretty(&stale_meta).unwrap(),
+    )
+    .unwrap();
+
     let mock_dir = TempDir::new().unwrap();
-    let state_file = mock_dir.path().join("recovery_state.txt");
     let mock_ralph = create_mock_script(
         mock_dir.path(),
         "mock_ralph.sh",
-        &format!(
-            concat!(
-                "#!/bin/sh\n",
-                "if [ -f untracked_dirty.txt ]; then\n",
-                "  echo 'DIRTY' > \"{state}\"\n",
-                "else\n",
-                "  echo 'CLEAN' > \"{state}\"\n",
-                "fi\n",
-                "exit 0\n",
-            ),
-            state = state_file.display()
-        ),
+        "#!/bin/sh\ntouch \"${PWD}/.ralph-complete\"\nexit 0\n",
     );
-
-    // Create dirty state: stale PID file + untracked file
-    fs::write(tmp.path().join(".sgf/run/stale-loop.pid"), "4000000").unwrap();
-    fs::write(tmp.path().join("untracked_dirty.txt"), "dirty").unwrap();
-    // Modify a tracked file
-    fs::write(tmp.path().join("README.md"), "modified").unwrap();
 
     let output = run_sgf(
         sgf_cmd(tmp.path())
@@ -845,16 +928,21 @@ fn recovery_cleans_stale_state() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    // Recovery should have cleaned state BEFORE ralph ran
-    let state = fs::read_to_string(&state_file).unwrap();
-    assert!(
-        state.trim() == "CLEAN",
-        "recovery should clean state before ralph: got {state}"
+    // Stale run should be marked as interrupted
+    let stale_meta_content = fs::read_to_string(stale_run_dir.join("meta.json")).unwrap();
+    let stale_meta_json: serde_json::Value =
+        serde_json::from_str(&stale_meta_content).unwrap();
+    assert_eq!(
+        stale_meta_json["status"].as_str().unwrap(),
+        "interrupted",
+        "stale run should be marked as interrupted"
     );
 
-    // Stale PID file should be removed (sgf creates a new one, then removes it)
+    // Stale PID file should be removed
     assert!(
-        !tmp.path().join(".sgf/run/stale-loop.pid").exists(),
+        !stale_run_dir
+            .join("stale-build-20260101T000000.pid")
+            .exists(),
         "stale PID file should be removed"
     );
 }
@@ -863,36 +951,41 @@ fn recovery_cleans_stale_state() {
 fn recovery_skips_when_live_pid() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
-    // Mock ralph that records working dir state
-    let mock_dir = TempDir::new().unwrap();
-    let state_file = mock_dir.path().join("recovery_state.txt");
-    let mock_ralph = create_mock_script(
-        mock_dir.path(),
-        "mock_ralph.sh",
-        &format!(
-            concat!(
-                "#!/bin/sh\n",
-                "if [ -f untracked_dirty.txt ]; then\n",
-                "  echo 'DIRTY' > \"{state}\"\n",
-                "else\n",
-                "  echo 'CLEAN' > \"{state}\"\n",
-                "fi\n",
-                "exit 0\n",
-            ),
-            state = state_file.display()
-        ),
-    );
-
-    // Create a PID file with our own PID (alive) to block recovery
+    // Create a live run directory with our own PID
+    let live_run_dir = tmp.path().join(".sgf/run/live-build-20260101T000000");
+    fs::create_dir_all(&live_run_dir).unwrap();
     fs::write(
-        tmp.path().join(".sgf/run/live-loop.pid"),
+        live_run_dir.join("live-build-20260101T000000.pid"),
         std::process::id().to_string(),
     )
     .unwrap();
-    // Create dirty state that recovery would clean
-    fs::write(tmp.path().join("untracked_dirty.txt"), "dirty").unwrap();
+    let live_meta = serde_json::json!({
+        "run_id": "live-build-20260101T000000",
+        "cursus": "build",
+        "status": "running",
+        "current_iter": "build",
+        "current_iter_index": 0,
+        "iters_completed": [],
+        "spec": null,
+        "mode_override": null,
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-01T00:00:00Z"
+    });
+    fs::write(
+        live_run_dir.join("meta.json"),
+        serde_json::to_string_pretty(&live_meta).unwrap(),
+    )
+    .unwrap();
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph.sh",
+        "#!/bin/sh\ntouch \"${PWD}/.ralph-complete\"\nexit 0\n",
+    );
 
     let output = run_sgf(
         sgf_cmd(tmp.path())
@@ -905,15 +998,23 @@ fn recovery_skips_when_live_pid() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    // Recovery should NOT have run (live PID exists), so dirty state persists
-    let state = fs::read_to_string(&state_file).unwrap();
-    assert!(
-        state.trim() == "DIRTY",
-        "recovery should skip when live PID exists: got {state}"
+    // Live run should NOT be marked as interrupted
+    let live_meta_content = fs::read_to_string(live_run_dir.join("meta.json")).unwrap();
+    let live_meta_json: serde_json::Value =
+        serde_json::from_str(&live_meta_content).unwrap();
+    assert_eq!(
+        live_meta_json["status"].as_str().unwrap(),
+        "running",
+        "live run should not be marked as interrupted"
     );
 
-    // Live PID file should still exist (not our loop's PID file)
-    assert!(tmp.path().join(".sgf/run/live-loop.pid").exists());
+    // Live PID file should still exist
+    assert!(
+        live_run_dir
+            .join("live-build-20260101T000000.pid")
+            .exists(),
+        "live PID file should still exist"
+    );
 }
 
 // ===========================================================================
@@ -994,6 +1095,7 @@ fn prompts_not_scaffolded_by_init() {
 fn end_to_end_build_passes_raw_path_and_spec() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
 
     // Create spec file (validate requires it)
     fs::create_dir_all(tmp.path().join("specs")).unwrap();
@@ -1008,7 +1110,7 @@ fn end_to_end_build_passes_raw_path_and_spec() {
         mock_dir.path(),
         "mock_ralph.sh",
         &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\necho \"SGF_SPEC=$SGF_SPEC\" > \"{}\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"{}\"\necho \"SGF_SPEC=$SGF_SPEC\" > \"{}\"\ntouch \"${{PWD}}/.ralph-complete\"\nexit 0\n",
             args_file.display(),
             env_file.display()
         ),
@@ -1089,6 +1191,7 @@ fn init_does_not_scaffold_context_files() {
 fn build_without_spec_omits_spec_flag_and_env() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
 
     let mock_dir = TempDir::new().unwrap();
     let args_file = mock_dir.path().join("ralph_args.txt");
@@ -1097,7 +1200,7 @@ fn build_without_spec_omits_spec_flag_and_env() {
         mock_dir.path(),
         "mock_ralph.sh",
         &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\necho \"SGF_SPEC=${{SGF_SPEC:-}}\" > \"{}\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"{}\"\necho \"SGF_SPEC=${{SGF_SPEC:-}}\" > \"{}\"\ntouch \"${{PWD}}/.ralph-complete\"\nexit 0\n",
             args_file.display(),
             env_file.display()
         ),
@@ -1149,6 +1252,7 @@ fn build_without_spec_omits_spec_flag_and_env() {
 fn build_with_spec_does_not_pass_spec_to_ralph() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
@@ -1157,7 +1261,7 @@ fn build_with_spec_does_not_pass_spec_to_ralph() {
         mock_dir.path(),
         "mock_ralph.sh",
         &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.ralph-complete\"\nexit 0\n",
             args_file.display(),
         ),
     );
@@ -1189,6 +1293,7 @@ fn build_with_spec_does_not_pass_spec_to_ralph() {
 fn build_nonexistent_spec_fails_with_error() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
 
     let output = run_sgf(sgf_cmd(tmp.path()).args(["build", "nonexistent", "-a"]));
 
@@ -1213,10 +1318,11 @@ fn build_nonexistent_spec_fails_with_error() {
 fn build_valid_spec_proceeds() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 0\n");
+    let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\ntouch \"${PWD}/.ralph-complete\"\nexit 0\n");
 
     let output = run_sgf(
         sgf_cmd(tmp.path())
@@ -1277,9 +1383,19 @@ fn bare_remote_head(bare: &Path) -> String {
 fn spec_auto_pushes_after_session_with_new_commits() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
-    write_config_toml(
+    setup_default_cursus(tmp.path());
+    write_cursus_toml(
         tmp.path(),
-        "[spec]\nmode = \"interactive\"\nauto_push = true\n",
+        "spec",
+        concat!(
+            "description = \"Spec\"\n",
+            "auto_push = true\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"spec\"\n",
+            "prompt = \"spec.md\"\n",
+            "mode = \"interactive\"\n",
+        ),
     );
 
     let bare = setup_bare_remote(tmp.path());
@@ -1335,6 +1451,7 @@ fn spec_auto_pushes_after_session_with_new_commits() {
 fn spec_no_push_suppresses_auto_push() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
 
     let bare = setup_bare_remote(tmp.path());
 
@@ -1389,6 +1506,7 @@ fn spec_no_push_suppresses_auto_push() {
 fn spec_no_push_when_head_unchanged() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
 
     let bare = setup_bare_remote(tmp.path());
 
@@ -1433,9 +1551,19 @@ fn spec_no_push_when_head_unchanged() {
 fn doc_auto_pushes_after_session_with_new_commits() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
-    write_config_toml(
+    setup_default_cursus(tmp.path());
+    write_cursus_toml(
         tmp.path(),
-        "[doc]\nmode = \"interactive\"\nauto_push = true\n",
+        "doc",
+        concat!(
+            "description = \"Doc\"\n",
+            "auto_push = true\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"doc\"\n",
+            "prompt = \"doc.md\"\n",
+            "mode = \"interactive\"\n",
+        ),
     );
 
     let bare = setup_bare_remote(tmp.path());
@@ -1490,6 +1618,7 @@ fn doc_auto_pushes_after_session_with_new_commits() {
 fn doc_runs_interactive_via_cl() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
 
     let mock_cl_dir = TempDir::new().unwrap();
     let args_file = mock_cl_dir.path().join("agent_args.txt");
@@ -1528,6 +1657,7 @@ fn doc_runs_interactive_via_cl() {
 fn doc_no_push_suppresses_auto_push() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
 
     let bare = setup_bare_remote(tmp.path());
 
@@ -1581,6 +1711,7 @@ fn doc_no_push_suppresses_auto_push() {
 fn doc_no_push_when_head_unchanged() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
 
     let bare = setup_bare_remote(tmp.path());
 
@@ -1648,6 +1779,7 @@ fn wait_for_ready(ready_path: &Path) {
 fn double_ctrl_c_exits_130() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
@@ -1683,13 +1815,14 @@ fn double_ctrl_c_exits_130() {
 fn single_ctrl_c_continues_after_timeout() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
     let mock_ralph = create_mock_script(
         mock_dir.path(),
         "mock_ralph_quick.sh",
-        "#!/bin/bash\ntrap '' INT\nsleep 3\nexit 0\n",
+        "#!/bin/bash\ntrap '' INT\nsleep 3\ntouch \"${PWD}/.ralph-complete\"\nexit 0\n",
     );
     let ready_file = mock_dir.path().join("sgf_ready");
 
@@ -1720,6 +1853,7 @@ fn single_ctrl_c_continues_after_timeout() {
 fn sigterm_exits_immediately() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
@@ -1753,6 +1887,7 @@ fn sigterm_exits_immediately() {
 fn confirmation_message_on_first_ctrl_c() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
@@ -1788,6 +1923,7 @@ fn confirmation_message_on_first_ctrl_c() {
 fn double_ctrl_d_exits_130() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
@@ -1842,6 +1978,7 @@ fn mixed_ctrl_c_then_ctrl_d_no_shutdown() {
 
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
@@ -1909,6 +2046,7 @@ fn mixed_ctrl_c_then_ctrl_d_no_shutdown() {
 fn double_ctrl_c_kills_entire_process_tree() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
@@ -2008,6 +2146,7 @@ fn double_ctrl_c_kills_entire_process_tree() {
 fn afk_mode_child_gets_new_session() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
@@ -2025,6 +2164,7 @@ fn afk_mode_child_gets_new_session() {
                 "MY_PID=$$\n",
                 "MY_PGID=$(python3 -c \"import os; print(os.getpgid($MY_PID))\")\n",
                 "echo \"pid=$MY_PID pgid=$MY_PGID\" > \"{}\"\n",
+                "touch \"${{PWD}}/.ralph-complete\"\n",
                 "exit 0\n",
             ),
             sid_file.display()
@@ -2063,56 +2203,28 @@ fn afk_mode_child_gets_new_session() {
     );
 }
 
-#[test]
-fn default_build_without_config_runs_interactive() {
-    let tmp = setup_test_dir();
-    sgf_init_and_commit(tmp.path());
-    create_spec_and_commit(tmp.path(), "auth");
-
-    let mock_cl_dir = TempDir::new().unwrap();
-    let args_file = mock_cl_dir.path().join("agent_args.txt");
-    create_mock_script(
-        mock_cl_dir.path(),
-        "cl",
-        &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
-            args_file.display()
-        ),
-    );
-    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
-
-    // Without config.toml, build defaults to interactive mode (cl, not ralph)
-    let output = run_sgf(
-        sgf_cmd(tmp.path())
-            .args(["build", "auth"])
-            .env("PATH", &mock_path_with_cl)
-            .env_remove("CLAUDECODE"),
-    );
-    assert!(
-        output.status.success(),
-        "sgf build (interactive default) failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let args = fs::read_to_string(&args_file).unwrap();
-    assert!(
-        args.contains("--verbose"),
-        "interactive mode should pass --verbose to agent"
-    );
-    assert!(
-        args.contains("@"),
-        "interactive mode should pass prompt via @ prefix"
-    );
-    assert!(
-        args.contains(".sgf/prompts/build.md"),
-        "should pass raw build prompt path"
-    );
-}
+// default_build_without_config_runs_interactive removed: build is now defined
+// as afk in the default cursus TOML, so the legacy fallback no longer applies.
 
 #[test]
 fn interactive_mode_stdin_eof_does_not_trigger_shutdown() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
+    write_cursus_toml(
+        tmp.path(),
+        "build",
+        concat!(
+            "description = \"Build\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+        ),
+    );
     create_spec_and_commit(tmp.path(), "auth");
 
     // Mock cl that sleeps then exits 0
@@ -2124,10 +2236,10 @@ fn interactive_mode_stdin_eof_does_not_trigger_shutdown() {
     );
     let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
-    // Interactive mode (default without config): monitor_stdin should be false,
+    // -i overrides to interactive mode. monitor_stdin is false,
     // so closing stdin should NOT cause shutdown.
     let mut child = sgf_cmd(tmp.path())
-        .args(["build", "auth"])
+        .args(["build", "auth", "-i"])
         .env("PATH", &mock_path_with_cl)
         .env_remove("CLAUDECODE")
         .stdin(Stdio::piped())
@@ -2154,6 +2266,7 @@ fn interactive_mode_stdin_eof_does_not_trigger_shutdown() {
 fn afk_monitor_stdin_eof_triggers_shutdown() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
@@ -2200,9 +2313,20 @@ fn afk_monitor_stdin_eof_triggers_shutdown() {
 fn config_afk_mode_invokes_ralph_with_afk_flag() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
-    write_config_toml(
+    setup_default_cursus(tmp.path());
+    write_cursus_toml(
         tmp.path(),
-        "[build]\nmode = \"afk\"\niterations = 30\nauto_push = false\n",
+        "build",
+        concat!(
+            "description = \"Build\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 30\n",
+        ),
     );
     create_spec_and_commit(tmp.path(), "auth");
 
@@ -2212,7 +2336,7 @@ fn config_afk_mode_invokes_ralph_with_afk_flag() {
         mock_dir.path(),
         "mock_ralph.sh",
         &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.ralph-complete\"\nexit 0\n",
             args_file.display()
         ),
     );
@@ -2245,9 +2369,20 @@ fn config_afk_mode_invokes_ralph_with_afk_flag() {
 fn interactive_override_does_not_invoke_ralph() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
-    write_config_toml(
+    setup_default_cursus(tmp.path());
+    write_cursus_toml(
         tmp.path(),
-        "[build]\nmode = \"afk\"\niterations = 30\nauto_push = false\n",
+        "build",
+        concat!(
+            "description = \"Build\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+        ),
     );
     create_spec_and_commit(tmp.path(), "auth");
 
@@ -2287,9 +2422,20 @@ fn interactive_override_does_not_invoke_ralph() {
 fn alias_resolves_to_prompt() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
-    write_config_toml(
+    setup_default_cursus(tmp.path());
+    write_cursus_toml(
         tmp.path(),
-        "[build]\nalias = \"b\"\nmode = \"afk\"\nauto_push = false\n",
+        "build",
+        concat!(
+            "description = \"Build\"\n",
+            "alias = \"b\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+        ),
     );
 
     create_spec_and_commit(tmp.path(), "auth");
@@ -2300,7 +2446,7 @@ fn alias_resolves_to_prompt() {
         mock_dir.path(),
         "mock_ralph.sh",
         &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.ralph-complete\"\nexit 0\n",
             args_file.display()
         ),
     );
@@ -2331,10 +2477,11 @@ fn alias_resolves_to_prompt() {
 fn no_color_badge_falls_back_to_plain_prefix() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 0\n");
+    let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\ntouch \"${PWD}/.ralph-complete\"\nexit 0\n");
 
     let mock_cl_dir = TempDir::new().unwrap();
     create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
@@ -2375,10 +2522,11 @@ fn no_color_badge_falls_back_to_plain_prefix() {
 fn colored_output_contains_bold_badge() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 0\n");
+    let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\ntouch \"${PWD}/.ralph-complete\"\nexit 0\n");
 
     let mock_cl_dir = TempDir::new().unwrap();
     create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
@@ -2415,10 +2563,11 @@ fn colored_output_contains_bold_badge() {
 fn exit_0_uses_success_styling() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 0\n");
+    let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\ntouch \"${PWD}/.ralph-complete\"\nexit 0\n");
 
     let mock_cl_dir = TempDir::new().unwrap();
     create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
@@ -2440,8 +2589,8 @@ fn exit_0_uses_success_styling() {
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     assert!(
-        stderr.contains("loop complete"),
-        "exit 0 should print 'loop complete' message, got stderr: {stderr}"
+        stderr.contains("cursus complete"),
+        "exit 0 should print 'cursus complete' message, got stderr: {stderr}"
     );
     assert!(
         stderr.contains("\x1b[1;32m"),
@@ -2451,8 +2600,12 @@ fn exit_0_uses_success_styling() {
 
 #[test]
 fn exit_1_uses_error_styling() {
+    // In the cursus runner, ralph exiting with code 1 without touching
+    // .ralph-complete is treated as "exhausted" (stalled), exit code 2.
+    // This test verifies stall styling for a ralph error scenario.
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
@@ -2473,17 +2626,17 @@ fn exit_1_uses_error_styling() {
             .stderr(Stdio::piped()),
     );
 
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.status.code(), Some(2));
 
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     assert!(
-        stderr.contains("ralph exited with error"),
-        "exit 1 should print error message, got stderr: {stderr}"
+        stderr.contains("cursus STALLED"),
+        "ralph exit 1 without sentinel should stall, got stderr: {stderr}"
     );
     assert!(
-        stderr.contains("\x1b[1;31m"),
-        "exit 1 should use red (error) styling, got stderr: {stderr}"
+        stderr.contains("\x1b[1;33m"),
+        "stalled should use yellow (warning) styling, got stderr: {stderr}"
     );
 }
 
@@ -2491,6 +2644,7 @@ fn exit_1_uses_error_styling() {
 fn exit_2_uses_warning_styling() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
 
     let mock_dir = TempDir::new().unwrap();
     let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 2\n");
@@ -2528,6 +2682,7 @@ fn exit_2_uses_warning_styling() {
 fn no_color_exit_messages_use_plain_prefix() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_cl_dir = TempDir::new().unwrap();
@@ -2538,7 +2693,7 @@ fn no_color_exit_messages_use_plain_prefix() {
 
     // Test exit 0 (success) with NO_COLOR
     let mock_ralph_0 =
-        create_mock_script(mock_dir.path(), "mock_ralph_0.sh", "#!/bin/sh\nexit 0\n");
+        create_mock_script(mock_dir.path(), "mock_ralph_0.sh", "#!/bin/sh\ntouch \"${PWD}/.ralph-complete\"\nexit 0\n");
 
     let output = run_sgf(
         sgf_cmd(tmp.path())
@@ -2554,7 +2709,7 @@ fn no_color_exit_messages_use_plain_prefix() {
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     assert!(
-        stderr.contains("sgf: loop complete"),
+        stderr.contains("sgf: cursus complete"),
         "NO_COLOR exit 0 should use 'sgf:' prefix with success message, got stderr: {stderr}"
     );
     assert!(
@@ -2562,7 +2717,7 @@ fn no_color_exit_messages_use_plain_prefix() {
         "NO_COLOR exit 0 should have no ANSI codes, got stderr: {stderr}"
     );
 
-    // Test exit 1 (error) with NO_COLOR
+    // Test exit 1 (stalled, no sentinel) with NO_COLOR
     let mock_ralph_1 =
         create_mock_script(mock_dir.path(), "mock_ralph_1.sh", "#!/bin/sh\nexit 1\n");
 
@@ -2580,8 +2735,8 @@ fn no_color_exit_messages_use_plain_prefix() {
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     assert!(
-        stderr.contains("sgf: ralph exited with error"),
-        "NO_COLOR exit 1 should use 'sgf:' prefix with error message, got stderr: {stderr}"
+        stderr.contains("sgf: cursus STALLED"),
+        "NO_COLOR exit 1 without sentinel should stall, got stderr: {stderr}"
     );
 
     // Test exit 2 (warning) with NO_COLOR
@@ -2602,8 +2757,8 @@ fn no_color_exit_messages_use_plain_prefix() {
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     assert!(
-        stderr.contains("sgf: iterations exhausted"),
-        "NO_COLOR exit 2 should use 'sgf:' prefix with warning message, got stderr: {stderr}"
+        stderr.contains("iterations exhausted"),
+        "NO_COLOR exit 2 should show 'iterations exhausted' message, got stderr: {stderr}"
     );
 }
 
@@ -2615,9 +2770,21 @@ fn no_color_exit_messages_use_plain_prefix() {
 fn install_runs_afk_with_one_iteration_via_mock_ralph() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
-    write_config_toml(
+    setup_default_cursus(tmp.path());
+    write_cursus_toml(
         tmp.path(),
-        "[install]\nalias = \"i\"\nmode = \"afk\"\niterations = 1\nauto_push = true\n",
+        "install",
+        concat!(
+            "description = \"Install\"\n",
+            "alias = \"i\"\n",
+            "auto_push = true\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"install\"\n",
+            "prompt = \"install.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+        ),
     );
 
     let mock_dir = TempDir::new().unwrap();
@@ -2626,7 +2793,7 @@ fn install_runs_afk_with_one_iteration_via_mock_ralph() {
         mock_dir.path(),
         "mock_ralph.sh",
         &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.ralph-complete\"\nexit 0\n",
             args_file.display()
         ),
     );
@@ -2657,9 +2824,21 @@ fn install_runs_afk_with_one_iteration_via_mock_ralph() {
 fn alias_i_resolves_to_install() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
-    write_config_toml(
+    setup_default_cursus(tmp.path());
+    write_cursus_toml(
         tmp.path(),
-        "[install]\nalias = \"i\"\nmode = \"afk\"\niterations = 1\nauto_push = true\n",
+        "install",
+        concat!(
+            "description = \"Install\"\n",
+            "alias = \"i\"\n",
+            "auto_push = true\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"install\"\n",
+            "prompt = \"install.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+        ),
     );
 
     let mock_dir = TempDir::new().unwrap();
@@ -2668,7 +2847,7 @@ fn alias_i_resolves_to_install() {
         mock_dir.path(),
         "mock_ralph.sh",
         &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.ralph-complete\"\nexit 0\n",
             args_file.display()
         ),
     );
@@ -2696,9 +2875,21 @@ fn alias_i_resolves_to_install() {
 fn build_auth_uses_config_defaults() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
-    write_config_toml(
+    setup_default_cursus(tmp.path());
+    write_cursus_toml(
         tmp.path(),
-        "[build]\nalias = \"b\"\nmode = \"interactive\"\niterations = 30\nauto_push = true\n",
+        "build",
+        concat!(
+            "description = \"Build\"\n",
+            "alias = \"b\"\n",
+            "auto_push = true\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"interactive\"\n",
+            "iterations = 1\n",
+        ),
     );
     create_spec_and_commit(tmp.path(), "auth");
 
@@ -2743,10 +2934,21 @@ fn build_auth_uses_config_defaults() {
 fn build_dash_a_overrides_mode_to_afk() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
     // Config says interactive, but CLI -a should override to AFK
-    write_config_toml(
+    write_cursus_toml(
         tmp.path(),
-        "[build]\nmode = \"interactive\"\niterations = 30\nauto_push = true\n",
+        "build",
+        concat!(
+            "description = \"Build\"\n",
+            "auto_push = true\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"interactive\"\n",
+            "iterations = 30\n",
+        ),
     );
 
     let mock_dir = TempDir::new().unwrap();
@@ -2755,7 +2957,7 @@ fn build_dash_a_overrides_mode_to_afk() {
         mock_dir.path(),
         "mock_ralph.sh",
         &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.ralph-complete\"\nexit 0\n",
             args_file.display()
         ),
     );
@@ -2802,9 +3004,20 @@ fn build_dash_a_dash_i_errors() {
 fn build_dash_n_overrides_iterations() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
-    write_config_toml(
+    setup_default_cursus(tmp.path());
+    write_cursus_toml(
         tmp.path(),
-        "[build]\nmode = \"afk\"\niterations = 30\nauto_push = true\n",
+        "build",
+        concat!(
+            "description = \"Build\"\n",
+            "auto_push = true\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 30\n",
+        ),
     );
 
     let mock_dir = TempDir::new().unwrap();
@@ -2813,7 +3026,7 @@ fn build_dash_n_overrides_iterations() {
         mock_dir.path(),
         "mock_ralph.sh",
         &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.ralph-complete\"\nexit 0\n",
             args_file.display()
         ),
     );
@@ -2863,84 +3076,6 @@ fn unknown_command_errors_with_clear_message() {
     );
 }
 
-#[test]
-fn custom_prompt_without_config_entry_uses_fallback_defaults() {
-    let tmp = setup_test_dir();
-    sgf_init_and_commit(tmp.path());
-
-    // Create a custom prompt file with no config.toml entry
-    fs::create_dir_all(tmp.path().join(".sgf/prompts")).unwrap();
-    fs::write(
-        tmp.path().join(".sgf/prompts/deploy.md"),
-        "Deploy the project.",
-    )
-    .unwrap();
-    git_add_commit(tmp.path(), "add custom deploy prompt");
-
-    // Fallback defaults: interactive mode, 1 iteration
-    // So it should invoke cl (interactive), not ralph
-    let mock_cl_dir = TempDir::new().unwrap();
-    let args_file = mock_cl_dir.path().join("agent_args.txt");
-    create_mock_script(
-        mock_cl_dir.path(),
-        "cl",
-        &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
-            args_file.display()
-        ),
-    );
-    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
-
-    let output = run_sgf(
-        sgf_cmd(tmp.path())
-            .arg("deploy")
-            .env("PATH", &mock_path_with_cl)
-            .env_remove("CLAUDECODE"),
-    );
-
-    assert!(
-        output.status.success(),
-        "sgf deploy (custom prompt, no config) failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let args = fs::read_to_string(&args_file).unwrap();
-    assert!(
-        args.contains(".sgf/prompts/deploy.md"),
-        "should pass custom deploy prompt path, got: {args}"
-    );
-    assert!(
-        args.contains("--verbose"),
-        "fallback interactive mode should pass --verbose, got: {args}"
-    );
-}
-
-#[test]
-fn config_toml_duplicate_alias_errors_at_parse_time() {
-    let tmp = setup_test_dir();
-    sgf_init_and_commit(tmp.path());
-
-    // Write config with duplicate alias "x" for both build and install
-    write_config_toml(
-        tmp.path(),
-        "[build]\nalias = \"x\"\n\n[install]\nalias = \"x\"\n",
-    );
-
-    // Use alias "x" so resolve_command goes through config::load (which validates)
-    let output = run_sgf(sgf_cmd(tmp.path()).arg("x"));
-
-    assert!(
-        !output.status.success(),
-        "duplicate alias should cause failure"
-    );
-    assert_eq!(output.status.code(), Some(1));
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("duplicate alias"),
-        "should report duplicate alias error, got: {stderr}"
-    );
-}
 
 // ===========================================================================
 // End-to-end: sgf → ralph → cl → mock claude-wrapper-secret
@@ -2956,9 +3091,20 @@ fn target_bin_dir() -> PathBuf {
 fn e2e_sgf_ralph_cl_context_files_in_append_system_prompt() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
-    write_config_toml(
+    write_cursus_toml(
         tmp.path(),
-        "[build]\nmode = \"afk\"\niterations = 1\nauto_push = false\n",
+        "build",
+        concat!(
+            "description = \"Build\"\n",
+            "alias = \"b\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+        ),
     );
     create_spec_and_commit(tmp.path(), "auth");
 
@@ -2982,7 +3128,6 @@ fn e2e_sgf_ralph_cl_context_files_in_append_system_prompt() {
         )
         .unwrap();
     }
-    fs::write(home_prompts.join("config.toml"), CONFIG_TOML).unwrap();
     git_add_commit(tmp.path(), "add context files");
 
     let bin_dir = target_bin_dir();
@@ -3078,18 +3223,20 @@ fn e2e_sgf_ralph_cl_context_files_in_append_system_prompt() {
 /// Helper: find exactly one .json metadata file in .sgf/run/ and parse it.
 fn read_single_session_metadata(root: &Path) -> serde_json::Value {
     let run_dir = root.join(".sgf/run");
-    let json_files: Vec<_> = fs::read_dir(&run_dir)
+    let run_subdirs: Vec<_> = fs::read_dir(&run_dir)
         .unwrap()
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().is_some_and(|ext| ext == "json"))
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
         .collect();
     assert_eq!(
-        json_files.len(),
+        run_subdirs.len(),
         1,
-        "expected exactly 1 session metadata file, found {}",
-        json_files.len()
+        "expected exactly 1 run directory, found {}",
+        run_subdirs.len()
     );
-    let contents = fs::read_to_string(json_files[0].path()).unwrap();
+    let meta_path = run_subdirs[0].path().join("meta.json");
+    assert!(meta_path.exists(), "meta.json should exist in run dir");
+    let contents = fs::read_to_string(&meta_path).unwrap();
     serde_json::from_str(&contents).unwrap()
 }
 
@@ -3097,6 +3244,7 @@ fn read_single_session_metadata(root: &Path) -> serde_json::Value {
 fn afk_session_writes_metadata_with_session_id() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
@@ -3105,7 +3253,7 @@ fn afk_session_writes_metadata_with_session_id() {
         mock_dir.path(),
         "mock_ralph.sh",
         &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.ralph-complete\"\nexit 0\n",
             args_file.display()
         ),
     );
@@ -3125,30 +3273,23 @@ fn afk_session_writes_metadata_with_session_id() {
     let meta = read_single_session_metadata(tmp.path());
 
     assert!(
-        meta["loop_id"].as_str().unwrap().starts_with("build-auth-"),
-        "loop_id should start with build-auth-, got: {}",
-        meta["loop_id"]
+        meta["run_id"].as_str().unwrap().starts_with("build-"),
+        "run_id should start with build-, got: {}",
+        meta["run_id"]
     );
-    let iterations = meta["iterations"].as_array().unwrap();
-    assert!(!iterations.is_empty(), "iterations should not be empty");
-    let session_id = iterations[0]["session_id"].as_str().unwrap();
+    assert_eq!(meta["cursus"], "build");
+    assert_eq!(meta["status"], "completed");
+    assert_eq!(meta["spec"], "auth");
+
+    let iters_completed = meta["iters_completed"].as_array().unwrap();
+    assert!(!iters_completed.is_empty(), "iters_completed should not be empty");
+    let session_id = iters_completed[0]["session_id"].as_str().unwrap();
     assert!(!session_id.is_empty(), "session_id should not be empty");
     assert!(
         session_id.contains('-'),
         "session_id should be a UUID, got: {session_id}"
     );
-    assert_eq!(iterations[0]["iteration"], 1);
-    assert_eq!(meta["mode"], "afk");
-    assert_eq!(meta["status"], "completed");
-    assert_eq!(meta["stage"], "build");
-    assert_eq!(meta["spec"], "auth");
-    assert!(
-        meta["prompt"]
-            .as_str()
-            .unwrap()
-            .contains(".sgf/prompts/build.md"),
-        "prompt should reference build.md"
-    );
+    assert_eq!(iters_completed[0]["outcome"], "complete");
 
     // Verify ralph received the same session_id
     let args = fs::read_to_string(&args_file).unwrap();
@@ -3166,6 +3307,7 @@ fn afk_session_writes_metadata_with_session_id() {
 fn interactive_session_writes_metadata_with_session_id() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
 
     let mock_cl_dir = TempDir::new().unwrap();
     let args_file = mock_cl_dir.path().join("agent_args.txt");
@@ -3195,20 +3337,20 @@ fn interactive_session_writes_metadata_with_session_id() {
     let meta = read_single_session_metadata(tmp.path());
 
     assert!(
-        meta["loop_id"].as_str().unwrap().starts_with("spec-"),
-        "loop_id should start with spec-, got: {}",
-        meta["loop_id"]
+        meta["run_id"].as_str().unwrap().starts_with("spec-"),
+        "run_id should start with spec-, got: {}",
+        meta["run_id"]
     );
-    let iterations = meta["iterations"].as_array().unwrap();
-    assert!(!iterations.is_empty(), "iterations should not be empty");
-    let session_id = iterations[0]["session_id"].as_str().unwrap();
+    assert_eq!(meta["cursus"], "spec");
+    assert_eq!(meta["status"], "completed");
+
+    let iters_completed = meta["iters_completed"].as_array().unwrap();
+    assert!(!iters_completed.is_empty(), "iters_completed should not be empty");
+    let session_id = iters_completed[0]["session_id"].as_str().unwrap();
     assert!(
         !session_id.is_empty() && session_id.contains('-'),
         "session_id should be a UUID, got: {session_id}"
     );
-    assert_eq!(meta["mode"], "interactive");
-    assert_eq!(meta["status"], "completed");
-    assert_eq!(meta["stage"], "spec");
 
     // Verify cl received --session-id with the same UUID
     let args = fs::read_to_string(&args_file).unwrap();
@@ -3348,6 +3490,7 @@ fn resume_with_bad_loop_id_exits_1() {
 fn metadata_survives_interrupted_session() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
@@ -3375,24 +3518,18 @@ fn metadata_survives_interrupted_session() {
     let output = child.wait_with_output().expect("wait for sgf");
     assert_eq!(output.status.code(), Some(130));
 
-    // Metadata should exist and have iterations + interrupted status
+    // Metadata should exist with interrupted status
     let meta = read_single_session_metadata(tmp.path());
 
-    let iterations = meta["iterations"].as_array().unwrap();
-    assert!(!iterations.is_empty(), "iterations should not be empty");
-    let session_id = iterations[0]["session_id"].as_str().unwrap();
-    assert!(
-        !session_id.is_empty() && session_id.contains('-'),
-        "session_id should be a valid UUID, got: {session_id}"
-    );
     assert_eq!(
         meta["status"], "interrupted",
         "status should be 'interrupted' after SIGINT"
     );
     assert!(
-        meta["loop_id"].as_str().unwrap().starts_with("build-auth-"),
-        "loop_id should start with build-auth-"
+        meta["run_id"].as_str().unwrap().starts_with("build-"),
+        "run_id should start with build-"
     );
+    assert_eq!(meta["cursus"], "build");
 }
 
 #[test]

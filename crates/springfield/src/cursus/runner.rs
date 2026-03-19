@@ -72,7 +72,7 @@ fn find_sentinel(dir: &Path, name: &str, max_depth: usize) -> Option<PathBuf> {
     None
 }
 
-pub fn detect_outcome(root: &Path, iter: &IterDefinition) -> IterOutcome {
+pub fn detect_outcome(root: &Path, iter: &IterDefinition, effective_mode: &Mode) -> IterOutcome {
     if find_sentinel(root, ".ralph-complete", SENTINEL_MAX_DEPTH).is_some() {
         return IterOutcome::Complete;
     }
@@ -82,7 +82,7 @@ pub fn detect_outcome(root: &Path, iter: &IterDefinition) -> IterOutcome {
     if find_sentinel(root, ".ralph-revise", SENTINEL_MAX_DEPTH).is_some() {
         return IterOutcome::Revise;
     }
-    if iter.mode == Mode::Interactive && iter.iterations <= 1 {
+    if *effective_mode == Mode::Interactive && iter.iterations <= 1 {
         return IterOutcome::Complete;
     }
     IterOutcome::Exhausted
@@ -354,10 +354,15 @@ fn run_cursus_loop(
     metadata: &mut RunMetadata,
     start_index: usize,
 ) -> io::Result<i32> {
+    let monitor_stdin = std::env::var("SGF_MONITOR_STDIN").is_ok();
     let controller = ShutdownController::new(ShutdownConfig {
-        monitor_stdin: false,
+        monitor_stdin,
         ..Default::default()
     })?;
+
+    if let Ok(ready_path) = std::env::var("SGF_READY_FILE") {
+        let _ = fs::write(&ready_path, "");
+    }
 
     let mut current_index = start_index;
 
@@ -407,6 +412,12 @@ fn run_cursus_loop(
             ),
         );
 
+        let head_before = if auto_push && effective_mode == Mode::Interactive {
+            vcs_utils::git_head()
+        } else {
+            None
+        };
+
         let exit_code = match effective_mode {
             Mode::Afk => invoke_ralph(
                 &RalphInvocation {
@@ -431,6 +442,12 @@ fn run_cursus_loop(
             )?,
         };
 
+        if let Some(ref before) = head_before {
+            vcs_utils::auto_push_if_changed(before, |msg| {
+                style::print_action(msg);
+            });
+        }
+
         if exit_code == 130 {
             metadata.status = RunStatus::Interrupted;
             metadata.touch();
@@ -439,7 +456,7 @@ fn run_cursus_loop(
             return Ok(130);
         }
 
-        let outcome = detect_outcome(root, iter);
+        let outcome = detect_outcome(root, iter, &effective_mode);
         clean_sentinels(root);
 
         metadata.iters_completed.push(CompletedIter {
@@ -655,7 +672,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         fs::write(tmp.path().join(".ralph-complete"), "").unwrap();
         let iter = make_iter("build", Mode::Afk, 10, None, None, None);
-        assert_eq!(detect_outcome(tmp.path(), &iter), IterOutcome::Complete);
+        assert_eq!(detect_outcome(tmp.path(), &iter, &iter.mode), IterOutcome::Complete);
     }
 
     #[test]
@@ -663,7 +680,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         fs::write(tmp.path().join(".ralph-reject"), "").unwrap();
         let iter = make_iter("review", Mode::Interactive, 1, None, Some("draft"), None);
-        assert_eq!(detect_outcome(tmp.path(), &iter), IterOutcome::Reject);
+        assert_eq!(detect_outcome(tmp.path(), &iter, &iter.mode), IterOutcome::Reject);
     }
 
     #[test]
@@ -671,7 +688,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         fs::write(tmp.path().join(".ralph-revise"), "").unwrap();
         let iter = make_iter("review", Mode::Interactive, 1, None, None, Some("revise"));
-        assert_eq!(detect_outcome(tmp.path(), &iter), IterOutcome::Revise);
+        assert_eq!(detect_outcome(tmp.path(), &iter, &iter.mode), IterOutcome::Revise);
     }
 
     #[test]
@@ -681,7 +698,7 @@ mod tests {
         fs::write(tmp.path().join(".ralph-reject"), "").unwrap();
         fs::write(tmp.path().join(".ralph-revise"), "").unwrap();
         let iter = make_iter("review", Mode::Afk, 10, None, Some("draft"), Some("fix"));
-        assert_eq!(detect_outcome(tmp.path(), &iter), IterOutcome::Complete);
+        assert_eq!(detect_outcome(tmp.path(), &iter, &iter.mode), IterOutcome::Complete);
     }
 
     #[test]
@@ -690,28 +707,28 @@ mod tests {
         fs::write(tmp.path().join(".ralph-reject"), "").unwrap();
         fs::write(tmp.path().join(".ralph-revise"), "").unwrap();
         let iter = make_iter("review", Mode::Afk, 10, None, Some("draft"), Some("fix"));
-        assert_eq!(detect_outcome(tmp.path(), &iter), IterOutcome::Reject);
+        assert_eq!(detect_outcome(tmp.path(), &iter, &iter.mode), IterOutcome::Reject);
     }
 
     #[test]
     fn interactive_no_sentinel_is_complete() {
         let tmp = TempDir::new().unwrap();
         let iter = make_iter("review", Mode::Interactive, 1, None, None, None);
-        assert_eq!(detect_outcome(tmp.path(), &iter), IterOutcome::Complete);
+        assert_eq!(detect_outcome(tmp.path(), &iter, &iter.mode), IterOutcome::Complete);
     }
 
     #[test]
     fn afk_no_sentinel_is_exhausted() {
         let tmp = TempDir::new().unwrap();
         let iter = make_iter("build", Mode::Afk, 10, None, None, None);
-        assert_eq!(detect_outcome(tmp.path(), &iter), IterOutcome::Exhausted);
+        assert_eq!(detect_outcome(tmp.path(), &iter, &iter.mode), IterOutcome::Exhausted);
     }
 
     #[test]
     fn interactive_multi_iteration_no_sentinel_is_exhausted() {
         let tmp = TempDir::new().unwrap();
         let iter = make_iter("review", Mode::Interactive, 5, None, None, None);
-        assert_eq!(detect_outcome(tmp.path(), &iter), IterOutcome::Exhausted);
+        assert_eq!(detect_outcome(tmp.path(), &iter, &iter.mode), IterOutcome::Exhausted);
     }
 
     #[test]
@@ -721,7 +738,7 @@ mod tests {
         fs::create_dir(&nested).unwrap();
         fs::write(nested.join(".ralph-complete"), "").unwrap();
         let iter = make_iter("build", Mode::Afk, 10, None, None, None);
-        assert_eq!(detect_outcome(tmp.path(), &iter), IterOutcome::Complete);
+        assert_eq!(detect_outcome(tmp.path(), &iter, &iter.mode), IterOutcome::Complete);
     }
 
     #[test]
@@ -731,7 +748,7 @@ mod tests {
         fs::create_dir_all(&deep).unwrap();
         fs::write(deep.join(".ralph-complete"), "").unwrap();
         let iter = make_iter("build", Mode::Interactive, 5, None, None, None);
-        assert_eq!(detect_outcome(tmp.path(), &iter), IterOutcome::Exhausted);
+        assert_eq!(detect_outcome(tmp.path(), &iter, &iter.mode), IterOutcome::Exhausted);
     }
 
     #[test]
@@ -862,7 +879,7 @@ mod tests {
             make_iter("review", Mode::Interactive, 1, None, Some("draft"), None),
         ];
 
-        let outcome = detect_outcome(tmp.path(), &iters[1]);
+        let outcome = detect_outcome(tmp.path(), &iters[1], &iters[1].mode);
         assert_eq!(outcome, IterOutcome::Reject);
 
         let next = resolve_transition(&iters[1], &outcome).unwrap();
