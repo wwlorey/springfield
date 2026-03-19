@@ -59,3 +59,15 @@
 {"id":"pn-5da8ff92","issue_id":"pn-bf95e750","path":"crates/forma/src/types.rs","reason":"Reference for struct definitions and serialization attributes","created_at":"2026-03-19T17:18:46Z"}
 {"id":"pn-8af55890","issue_id":"pn-32612187","path":"crates/forma/tests/integration.rs","reason":"Add end-to-end lifecycle test here","created_at":"2026-03-19T17:18:53Z"}
 {"id":"pn-488763f4","issue_id":"pn-32612187","path":"crates/forma/src/db.rs","reason":"Export/import/check/doctor logic to exercise","created_at":"2026-03-19T17:18:53Z"}
+{"id":"pn-cbfcd33e","issue_id":"pn-ab3e0496","path":"crates/pensa/tests/integration.rs","reason":"Add CRUD lifecycle E2E test here alongside existing integration tests","created_at":"2026-03-19T17:23:00Z"}
+{"id":"pn-0b6f1032","issue_id":"pn-ab3e0496","path":"crates/pensa/src/daemon.rs","reason":"Review daemon endpoints used in the test flow (create/show/update/close/reopen)","created_at":"2026-03-19T17:23:00Z"}
+{"id":"pn-64341626","issue_id":"pn-ad156ce1","path":"crates/pensa/tests/integration.rs","reason":"Add multi-fix all-or-nothing test here","created_at":"2026-03-19T17:23:01Z"}
+{"id":"pn-1939caea","issue_id":"pn-ad156ce1","path":"crates/pensa/src/db.rs","reason":"Review close_issue auto-close logic at line ~409-468","created_at":"2026-03-19T17:23:01Z"}
+{"id":"pn-f26be1f0","issue_id":"pn-337b7a7a","path":"crates/pensa/tests/integration.rs","reason":"Add ready type filter test here","created_at":"2026-03-19T17:23:03Z"}
+{"id":"pn-a2b5bf65","issue_id":"pn-337b7a7a","path":"crates/pensa/src/db.rs","reason":"Review ready_issues query that handles bug filtering","created_at":"2026-03-19T17:23:03Z"}
+{"id":"pn-dec6d649","issue_id":"pn-96363e0a","path":"crates/pensa/tests/integration.rs","reason":"Add concurrent claims test here","created_at":"2026-03-19T17:23:03Z"}
+{"id":"pn-da79c67b","issue_id":"pn-96363e0a","path":"crates/pensa/src/db.rs","reason":"Review claim_issue atomic update logic","created_at":"2026-03-19T17:23:03Z"}
+{"id":"pn-5fee2181","issue_id":"pn-59f03fd0","path":"crates/pensa/tests/integration.rs","reason":"Add claim semantics full flow test here","created_at":"2026-03-19T17:23:04Z"}
+{"id":"pn-90c93545","issue_id":"pn-59f03fd0","path":"crates/pensa/src/daemon.rs","reason":"Review claim/release endpoints","created_at":"2026-03-19T17:23:04Z"}
+{"id":"pn-d5379e7c","issue_id":"pn-b4b90676","path":"crates/pensa/tests/integration.rs","reason":"Add dependency flow test here","created_at":"2026-03-19T17:23:05Z"}
+{"id":"pn-123c42f5","issue_id":"pn-b4b90676","path":"crates/pensa/src/db.rs","reason":"Review ready_issues and blocked_issues query logic","created_at":"2026-03-19T17:23:05Z"}
