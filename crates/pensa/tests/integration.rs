@@ -1145,6 +1145,76 @@ fn cycle_detection_rejects_circular_dependencies() {
 }
 
 #[test]
+fn single_fix_auto_close() {
+    let d = PensaOnlyDaemon::start();
+
+    // Create a bug
+    let resp = d
+        .client
+        .post(d.url("/issues"))
+        .json(&serde_json::json!({
+            "title": "Widget crashes on nil input",
+            "issue_type": "bug",
+            "actor": "tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201, "bug creation should succeed");
+    let bug: Value = resp.json().unwrap();
+    let bug_id = bug["id"].as_str().unwrap().to_string();
+    assert_eq!(bug["status"], "open");
+
+    // Create a fix task linked to the bug
+    let resp = d
+        .client
+        .post(d.url("/issues"))
+        .json(&serde_json::json!({
+            "title": "Handle nil input in widget",
+            "issue_type": "task",
+            "fixes": bug_id,
+            "actor": "tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201, "fix task creation should succeed");
+    let fix_task: Value = resp.json().unwrap();
+    let fix_id = fix_task["id"].as_str().unwrap().to_string();
+
+    // Close the fix task
+    let resp = d
+        .client
+        .post(d.url(&format!("/issues/{fix_id}/close")))
+        .json(&serde_json::json!({
+            "reason": "Nil guard added",
+            "actor": "tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200, "closing fix task should succeed");
+
+    // Verify the bug was auto-closed with reason "fixed"
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{bug_id}")))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let bug_detail: Value = resp.json().unwrap();
+    assert_eq!(
+        bug_detail["status"], "closed",
+        "bug should be auto-closed after its only fix task is closed"
+    );
+    assert_eq!(
+        bug_detail["close_reason"], "fixed",
+        "auto-closed bug should have close_reason 'fixed'"
+    );
+    assert!(
+        bug_detail["closed_at"].is_string(),
+        "closed_at should be set on auto-closed bug"
+    );
+}
+
+#[test]
 fn ready_type_filter_excludes_bugs() {
     let d = PensaOnlyDaemon::start();
 
