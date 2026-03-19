@@ -1074,3 +1074,50 @@ fn ready_includes_unplanned_bugs() {
         "unplanned bug should appear in ready list, got: {ready_ids:?}"
     );
 }
+
+#[test]
+fn ready_type_filter_excludes_bugs() {
+    let d = PensaOnlyDaemon::start();
+
+    // Create a bug (no fix tasks)
+    let resp = d
+        .client
+        .post(d.url("/issues"))
+        .json(&serde_json::json!({
+            "title": "Segfault on startup",
+            "issue_type": "bug",
+            "actor": "tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201, "bug creation should succeed");
+    let bug: Value = resp.json().unwrap();
+    let bug_id = bug["id"].as_str().unwrap().to_string();
+
+    // Unfiltered ready should include the bug
+    let resp = d.client.get(d.url("/issues/ready")).send().unwrap();
+    assert_eq!(resp.status(), 200);
+    let ready: Vec<Value> = resp.json().unwrap();
+    let ready_ids: Vec<&str> = ready.iter().filter_map(|i| i["id"].as_str()).collect();
+    assert!(
+        ready_ids.contains(&bug_id.as_str()),
+        "bug should appear in unfiltered ready list, got: {ready_ids:?}"
+    );
+
+    // Filtered ready with type=task should exclude the bug
+    let resp = d
+        .client
+        .get(d.url("/issues/ready?type=task"))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let ready_tasks: Vec<Value> = resp.json().unwrap();
+    let task_ids: Vec<&str> = ready_tasks
+        .iter()
+        .filter_map(|i| i["id"].as_str())
+        .collect();
+    assert!(
+        !task_ids.contains(&bug_id.as_str()),
+        "bug should NOT appear in ready list filtered by type=task, got: {task_ids:?}"
+    );
+}
