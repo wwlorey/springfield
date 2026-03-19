@@ -38,3 +38,10 @@
 {"id":"pn-ff18aa38","issue_id":"pn-b625f48f","path":"crates/ralph/tests/integration.rs","reason":"Add 4 shutdown signal integration tests here (file exists, add new test functions)","created_at":"2026-03-19T17:04:07Z"}
 {"id":"pn-afe18c15","issue_id":"pn-b625f48f","path":"crates/springfield/tests/integration.rs","reason":"Reference existing sgf-level shutdown integration tests as pattern to follow","created_at":"2026-03-19T17:04:08Z"}
 {"id":"pn-a7d7e089","issue_id":"pn-b625f48f","path":"crates/shutdown/src/lib.rs","reason":"Reference ShutdownController API and behavior being tested","created_at":"2026-03-19T17:04:09Z"}
+{"id":"pn-c84b1705","issue_id":"pn-18fec2cd","path":"crates/claude-wrapper/src/main.rs","reason":"Update home_dir fallback to pass None instead of cwd","created_at":"2026-03-19T17:09:14Z"}
+{"id":"pn-df789a3b","issue_id":"pn-18fec2cd","path":"crates/claude-wrapper/src/resolve.rs","reason":"Change resolve_context_files signature to accept Option<Path> for home param","created_at":"2026-03-19T17:09:15Z"}
+{"id":"pn-692012f8","issue_id":"pn-18c92cf3","path":"crates/claude-wrapper/src/resolve.rs","reason":"Remove has_global field and simplify layered lookup","created_at":"2026-03-19T17:09:25Z"}
+{"id":"pn-0931d35c","issue_id":"pn-0e513104","path":"crates/claude-wrapper/src/resolve.rs","reason":"Add new unit test for None home parameter","created_at":"2026-03-19T17:09:43Z"}
+{"id":"pn-b2d39c40","issue_id":"pn-eb5fe980","path":"crates/ralph/src/main.rs","reason":"Ralph invokes cl as subprocess — verify invocation args","created_at":"2026-03-19T17:09:52Z"}
+{"id":"pn-ec09056f","issue_id":"pn-eb5fe980","path":"crates/claude-wrapper/tests/integration.rs","reason":"Reference existing integration test patterns","created_at":"2026-03-19T17:09:53Z"}
+{"id":"pn-e716e645","issue_id":"pn-eb5fe980","path":"crates/ralph/tests/","reason":"Location for new integration test","created_at":"2026-03-19T17:09:54Z"}

@@ -5,7 +5,7 @@ Agent wrapper — layered .sgf/ context injection, cl binary
 | Field | Value |
 |-------|-------|
 | Src | `crates/claude-wrapper/` |
-| Status | stable |
+| Status | proven |
 
 ## Overview
 
