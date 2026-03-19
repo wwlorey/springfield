@@ -1076,6 +1076,75 @@ fn ready_includes_unplanned_bugs() {
 }
 
 #[test]
+fn cycle_detection_rejects_circular_dependencies() {
+    let d = PensaOnlyDaemon::start();
+
+    // Create two issues
+    let resp = d
+        .client
+        .post(d.url("/issues"))
+        .json(&serde_json::json!({
+            "title": "Task A",
+            "issue_type": "task",
+            "actor": "tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    let a: Value = resp.json().unwrap();
+    let a_id = a["id"].as_str().unwrap().to_string();
+
+    let resp = d
+        .client
+        .post(d.url("/issues"))
+        .json(&serde_json::json!({
+            "title": "Task B",
+            "issue_type": "task",
+            "actor": "tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    let b: Value = resp.json().unwrap();
+    let b_id = b["id"].as_str().unwrap().to_string();
+
+    // A depends on B — should succeed
+    let resp = d
+        .client
+        .post(d.url("/deps"))
+        .json(&serde_json::json!({
+            "issue_id": a_id,
+            "depends_on_id": b_id,
+            "actor": "tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200, "first dep should succeed");
+
+    // B depends on A — would form a cycle, should be rejected
+    let resp = d
+        .client
+        .post(d.url("/deps"))
+        .json(&serde_json::json!({
+            "issue_id": b_id,
+            "depends_on_id": a_id,
+            "actor": "tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        409,
+        "circular dependency should be rejected with 409 Conflict"
+    );
+    let body: Value = resp.json().unwrap();
+    assert_eq!(
+        body["code"], "cycle_detected",
+        "error code should be cycle_detected, got: {body}"
+    );
+}
+
+#[test]
 fn ready_type_filter_excludes_bugs() {
     let d = PensaOnlyDaemon::start();
 
