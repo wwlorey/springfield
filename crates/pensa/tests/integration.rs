@@ -1215,6 +1215,125 @@ fn single_fix_auto_close() {
 }
 
 #[test]
+fn claim_semantics_full_flow() {
+    let d = PensaOnlyDaemon::start();
+
+    // 1. Create an issue
+    let resp = d
+        .client
+        .post(d.url("/issues"))
+        .json(&serde_json::json!({
+            "title": "Implement auth",
+            "issue_type": "task",
+            "actor": "alice"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    let issue: Value = resp.json().unwrap();
+    let id = issue["id"].as_str().unwrap().to_string();
+    assert_eq!(issue["status"], "open");
+    assert!(issue["assignee"].is_null());
+
+    // 2. Claim it — should succeed, status becomes in_progress, assignee set
+    let resp = d
+        .client
+        .patch(d.url(&format!("/issues/{id}")))
+        .json(&serde_json::json!({
+            "claim": true,
+            "actor": "alice"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200, "claim should succeed");
+    let claimed: Value = resp.json().unwrap();
+    assert_eq!(
+        claimed["status"], "in_progress",
+        "claimed issue should be in_progress"
+    );
+    assert_eq!(
+        claimed["assignee"], "alice",
+        "claimed issue should have assignee set"
+    );
+
+    // 3. Attempt second claim — should fail with already_claimed
+    let resp = d
+        .client
+        .patch(d.url(&format!("/issues/{id}")))
+        .json(&serde_json::json!({
+            "claim": true,
+            "actor": "bob"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        409,
+        "second claim should fail with 409 Conflict"
+    );
+    let err: Value = resp.json().unwrap();
+    assert_eq!(
+        err["code"], "already_claimed",
+        "error code should be already_claimed"
+    );
+    let err_msg = err["error"].as_str().unwrap();
+    assert!(
+        err_msg.contains("alice"),
+        "error should report who holds the claim, got: {err_msg}"
+    );
+
+    // 4. Release — should succeed, back to open with no assignee
+    let resp = d
+        .client
+        .post(d.url(&format!("/issues/{id}/release")))
+        .header("x-pensa-actor", "alice")
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200, "release should succeed");
+    let released: Value = resp.json().unwrap();
+    assert_eq!(
+        released["status"], "open",
+        "released issue should be back to open"
+    );
+    assert!(
+        released["assignee"].is_null(),
+        "released issue should have no assignee"
+    );
+
+    // Verify via show
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{id}")))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let detail: Value = resp.json().unwrap();
+    assert_eq!(detail["status"], "open");
+    assert!(detail["assignee"].is_null());
+
+    // 5. Claim again — should succeed
+    let resp = d
+        .client
+        .patch(d.url(&format!("/issues/{id}")))
+        .json(&serde_json::json!({
+            "claim": true,
+            "actor": "bob"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200, "re-claim after release should succeed");
+    let reclaimed: Value = resp.json().unwrap();
+    assert_eq!(
+        reclaimed["status"], "in_progress",
+        "re-claimed issue should be in_progress"
+    );
+    assert_eq!(
+        reclaimed["assignee"], "bob",
+        "re-claimed issue should have new assignee"
+    );
+}
+
+#[test]
 fn ready_type_filter_excludes_bugs() {
     let d = PensaOnlyDaemon::start();
 
