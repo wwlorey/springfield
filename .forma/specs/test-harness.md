@@ -5,7 +5,7 @@ Integration test harness — shared fixtures, concurrency control, and mock infr
 | Field | Value |
 |-------|-------|
 | Src | `crates/springfield/tests/` |
-| Status | stable |
+| Status | proven |
 
 ## Overview
 
