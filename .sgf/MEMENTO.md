@@ -191,11 +191,6 @@ Specifications are the **source of truth** for all code. They are managed exclus
 ## IMPORTANT
 
 - **Use relative paths—from the repo root—for file operations, not absolute paths.**
-- **When spawning agents/subagents for autonomous tasks**:
-  * Use `cl` instead of the Agent tool:
-    + `cl -p --dangerously-skip-permissions --max-turns 50 "task description here"`
-  * Run multiple in parallel via background bash calls.
-  * Do NOT use your Agent tool or any other built-in functionality for spawning agents.
 - **When asked about what has been built** IN GENERAL or ON A PARTICULAR DAY/TIME:
   * Read the logs in `./.sgf/logs` to help formulate your answer.
 
