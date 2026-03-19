@@ -741,6 +741,160 @@ fn ref_on_nonexistent_issue_returns_404() {
 }
 
 #[test]
+fn crud_lifecycle() {
+    let d = PensaOnlyDaemon::start();
+
+    // 1. Create an issue
+    let resp = d
+        .client
+        .post(d.url("/issues"))
+        .json(&serde_json::json!({
+            "title": "Implement widget",
+            "issue_type": "task",
+            "priority": "p2",
+            "description": "Build the widget feature",
+            "actor": "tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201, "create should succeed");
+    let issue: Value = resp.json().unwrap();
+    let id = issue["id"].as_str().unwrap();
+    assert_eq!(issue["title"], "Implement widget");
+    assert_eq!(issue["issue_type"], "task");
+    assert_eq!(issue["priority"], "p2");
+    assert_eq!(issue["description"], "Build the widget feature");
+    assert_eq!(issue["status"], "open");
+
+    // 2. Show the issue and verify all fields
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{id}")))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let detail: Value = resp.json().unwrap();
+    assert_eq!(detail["id"], id);
+    assert_eq!(detail["title"], "Implement widget");
+    assert_eq!(detail["status"], "open");
+    assert_eq!(detail["issue_type"], "task");
+    assert_eq!(detail["priority"], "p2");
+    assert_eq!(detail["description"], "Build the widget feature");
+    assert!(detail["assignee"].is_null());
+    assert!(detail["closed_at"].is_null());
+    assert!(detail["close_reason"].is_null());
+
+    // 3. Update fields: title, priority, description
+    let resp = d
+        .client
+        .patch(d.url(&format!("/issues/{id}")))
+        .json(&serde_json::json!({
+            "title": "Implement widget v2",
+            "priority": "p1",
+            "description": "Build the improved widget feature",
+            "actor": "tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200, "update should succeed");
+    let updated: Value = resp.json().unwrap();
+    assert_eq!(updated["title"], "Implement widget v2");
+    assert_eq!(updated["priority"], "p1");
+    assert_eq!(updated["description"], "Build the improved widget feature");
+    assert_eq!(
+        updated["status"], "open",
+        "status should remain open after field update"
+    );
+
+    // Verify via show
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{id}")))
+        .send()
+        .unwrap();
+    let detail: Value = resp.json().unwrap();
+    assert_eq!(detail["title"], "Implement widget v2");
+    assert_eq!(detail["priority"], "p1");
+
+    // 4. Close the issue
+    let resp = d
+        .client
+        .post(d.url(&format!("/issues/{id}/close")))
+        .json(&serde_json::json!({
+            "reason": "Feature complete",
+            "actor": "tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200, "close should succeed");
+    let closed: Value = resp.json().unwrap();
+    assert_eq!(closed["status"], "closed");
+
+    // Verify closed state via show
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{id}")))
+        .send()
+        .unwrap();
+    let detail: Value = resp.json().unwrap();
+    assert_eq!(detail["status"], "closed");
+    assert!(detail["closed_at"].is_string(), "closed_at should be set");
+    assert_eq!(detail["close_reason"], "Feature complete");
+
+    // 5. Reopen the issue
+    let resp = d
+        .client
+        .post(d.url(&format!("/issues/{id}/reopen")))
+        .json(&serde_json::json!({
+            "reason": "Found edge case",
+            "actor": "tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200, "reopen should succeed");
+    let reopened: Value = resp.json().unwrap();
+    assert_eq!(reopened["status"], "open");
+
+    // Verify reopened state via show
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{id}")))
+        .send()
+        .unwrap();
+    let detail: Value = resp.json().unwrap();
+    assert_eq!(detail["status"], "open");
+    assert!(
+        detail["closed_at"].is_null(),
+        "closed_at should be cleared after reopen"
+    );
+
+    // 6. Close again
+    let resp = d
+        .client
+        .post(d.url(&format!("/issues/{id}/close")))
+        .json(&serde_json::json!({
+            "reason": "Edge case fixed",
+            "actor": "tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200, "second close should succeed");
+    let closed2: Value = resp.json().unwrap();
+    assert_eq!(closed2["status"], "closed");
+
+    // Final verification
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{id}")))
+        .send()
+        .unwrap();
+    let detail: Value = resp.json().unwrap();
+    assert_eq!(detail["status"], "closed");
+    assert_eq!(detail["close_reason"], "Edge case fixed");
+    assert!(detail["closed_at"].is_string());
+}
+
+#[test]
 fn remove_nonexistent_ref_returns_404() {
     let d = PensaOnlyDaemon::start();
 

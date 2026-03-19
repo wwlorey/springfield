@@ -672,7 +672,10 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         fs::write(tmp.path().join(".ralph-complete"), "").unwrap();
         let iter = make_iter("build", Mode::Afk, 10, None, None, None);
-        assert_eq!(detect_outcome(tmp.path(), &iter, &iter.mode), IterOutcome::Complete);
+        assert_eq!(
+            detect_outcome(tmp.path(), &iter, &iter.mode),
+            IterOutcome::Complete
+        );
     }
 
     #[test]
@@ -680,7 +683,10 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         fs::write(tmp.path().join(".ralph-reject"), "").unwrap();
         let iter = make_iter("review", Mode::Interactive, 1, None, Some("draft"), None);
-        assert_eq!(detect_outcome(tmp.path(), &iter, &iter.mode), IterOutcome::Reject);
+        assert_eq!(
+            detect_outcome(tmp.path(), &iter, &iter.mode),
+            IterOutcome::Reject
+        );
     }
 
     #[test]
@@ -688,7 +694,10 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         fs::write(tmp.path().join(".ralph-revise"), "").unwrap();
         let iter = make_iter("review", Mode::Interactive, 1, None, None, Some("revise"));
-        assert_eq!(detect_outcome(tmp.path(), &iter, &iter.mode), IterOutcome::Revise);
+        assert_eq!(
+            detect_outcome(tmp.path(), &iter, &iter.mode),
+            IterOutcome::Revise
+        );
     }
 
     #[test]
@@ -698,7 +707,10 @@ mod tests {
         fs::write(tmp.path().join(".ralph-reject"), "").unwrap();
         fs::write(tmp.path().join(".ralph-revise"), "").unwrap();
         let iter = make_iter("review", Mode::Afk, 10, None, Some("draft"), Some("fix"));
-        assert_eq!(detect_outcome(tmp.path(), &iter, &iter.mode), IterOutcome::Complete);
+        assert_eq!(
+            detect_outcome(tmp.path(), &iter, &iter.mode),
+            IterOutcome::Complete
+        );
     }
 
     #[test]
@@ -707,28 +719,40 @@ mod tests {
         fs::write(tmp.path().join(".ralph-reject"), "").unwrap();
         fs::write(tmp.path().join(".ralph-revise"), "").unwrap();
         let iter = make_iter("review", Mode::Afk, 10, None, Some("draft"), Some("fix"));
-        assert_eq!(detect_outcome(tmp.path(), &iter, &iter.mode), IterOutcome::Reject);
+        assert_eq!(
+            detect_outcome(tmp.path(), &iter, &iter.mode),
+            IterOutcome::Reject
+        );
     }
 
     #[test]
     fn interactive_no_sentinel_is_complete() {
         let tmp = TempDir::new().unwrap();
         let iter = make_iter("review", Mode::Interactive, 1, None, None, None);
-        assert_eq!(detect_outcome(tmp.path(), &iter, &iter.mode), IterOutcome::Complete);
+        assert_eq!(
+            detect_outcome(tmp.path(), &iter, &iter.mode),
+            IterOutcome::Complete
+        );
     }
 
     #[test]
     fn afk_no_sentinel_is_exhausted() {
         let tmp = TempDir::new().unwrap();
         let iter = make_iter("build", Mode::Afk, 10, None, None, None);
-        assert_eq!(detect_outcome(tmp.path(), &iter, &iter.mode), IterOutcome::Exhausted);
+        assert_eq!(
+            detect_outcome(tmp.path(), &iter, &iter.mode),
+            IterOutcome::Exhausted
+        );
     }
 
     #[test]
     fn interactive_multi_iteration_no_sentinel_is_exhausted() {
         let tmp = TempDir::new().unwrap();
         let iter = make_iter("review", Mode::Interactive, 5, None, None, None);
-        assert_eq!(detect_outcome(tmp.path(), &iter, &iter.mode), IterOutcome::Exhausted);
+        assert_eq!(
+            detect_outcome(tmp.path(), &iter, &iter.mode),
+            IterOutcome::Exhausted
+        );
     }
 
     #[test]
@@ -738,7 +762,10 @@ mod tests {
         fs::create_dir(&nested).unwrap();
         fs::write(nested.join(".ralph-complete"), "").unwrap();
         let iter = make_iter("build", Mode::Afk, 10, None, None, None);
-        assert_eq!(detect_outcome(tmp.path(), &iter, &iter.mode), IterOutcome::Complete);
+        assert_eq!(
+            detect_outcome(tmp.path(), &iter, &iter.mode),
+            IterOutcome::Complete
+        );
     }
 
     #[test]
@@ -748,7 +775,10 @@ mod tests {
         fs::create_dir_all(&deep).unwrap();
         fs::write(deep.join(".ralph-complete"), "").unwrap();
         let iter = make_iter("build", Mode::Interactive, 5, None, None, None);
-        assert_eq!(detect_outcome(tmp.path(), &iter, &iter.mode), IterOutcome::Exhausted);
+        assert_eq!(
+            detect_outcome(tmp.path(), &iter, &iter.mode),
+            IterOutcome::Exhausted
+        );
     }
 
     #[test]

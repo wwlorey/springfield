@@ -203,7 +203,6 @@ fn run_cursus_dispatch(root: &Path, args: &DynamicArgs, resolved: cursus::Resolv
     }
 }
 
-
 fn run_list(root: &Path) {
     let commands = cursus::list_all(root);
 

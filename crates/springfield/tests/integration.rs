@@ -272,7 +272,11 @@ fn setup_default_cursus(dir: &Path) {
              iterations = {iterations}\n"
         );
         fs::write(cursus_dir.join(format!("{name}.toml")), toml).unwrap();
-        fs::write(prompts_dir.join(format!("{name}.md")), format!("{desc} prompt\n")).unwrap();
+        fs::write(
+            prompts_dir.join(format!("{name}.md")),
+            format!("{desc} prompt\n"),
+        )
+        .unwrap();
     }
 
     git_add_commit(dir, "add default cursus tomls and prompts");
@@ -930,8 +934,7 @@ fn recovery_cleans_stale_state() {
 
     // Stale run should be marked as interrupted
     let stale_meta_content = fs::read_to_string(stale_run_dir.join("meta.json")).unwrap();
-    let stale_meta_json: serde_json::Value =
-        serde_json::from_str(&stale_meta_content).unwrap();
+    let stale_meta_json: serde_json::Value = serde_json::from_str(&stale_meta_content).unwrap();
     assert_eq!(
         stale_meta_json["status"].as_str().unwrap(),
         "interrupted",
@@ -1000,8 +1003,7 @@ fn recovery_skips_when_live_pid() {
 
     // Live run should NOT be marked as interrupted
     let live_meta_content = fs::read_to_string(live_run_dir.join("meta.json")).unwrap();
-    let live_meta_json: serde_json::Value =
-        serde_json::from_str(&live_meta_content).unwrap();
+    let live_meta_json: serde_json::Value = serde_json::from_str(&live_meta_content).unwrap();
     assert_eq!(
         live_meta_json["status"].as_str().unwrap(),
         "running",
@@ -1010,9 +1012,7 @@ fn recovery_skips_when_live_pid() {
 
     // Live PID file should still exist
     assert!(
-        live_run_dir
-            .join("live-build-20260101T000000.pid")
-            .exists(),
+        live_run_dir.join("live-build-20260101T000000.pid").exists(),
         "live PID file should still exist"
     );
 }
@@ -1322,7 +1322,11 @@ fn build_valid_spec_proceeds() {
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\ntouch \"${PWD}/.ralph-complete\"\nexit 0\n");
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph.sh",
+        "#!/bin/sh\ntouch \"${PWD}/.ralph-complete\"\nexit 0\n",
+    );
 
     let output = run_sgf(
         sgf_cmd(tmp.path())
@@ -2481,7 +2485,11 @@ fn no_color_badge_falls_back_to_plain_prefix() {
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\ntouch \"${PWD}/.ralph-complete\"\nexit 0\n");
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph.sh",
+        "#!/bin/sh\ntouch \"${PWD}/.ralph-complete\"\nexit 0\n",
+    );
 
     let mock_cl_dir = TempDir::new().unwrap();
     create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
@@ -2526,7 +2534,11 @@ fn colored_output_contains_bold_badge() {
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\ntouch \"${PWD}/.ralph-complete\"\nexit 0\n");
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph.sh",
+        "#!/bin/sh\ntouch \"${PWD}/.ralph-complete\"\nexit 0\n",
+    );
 
     let mock_cl_dir = TempDir::new().unwrap();
     create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
@@ -2567,7 +2579,11 @@ fn exit_0_uses_success_styling() {
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\ntouch \"${PWD}/.ralph-complete\"\nexit 0\n");
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph.sh",
+        "#!/bin/sh\ntouch \"${PWD}/.ralph-complete\"\nexit 0\n",
+    );
 
     let mock_cl_dir = TempDir::new().unwrap();
     create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
@@ -2692,8 +2708,11 @@ fn no_color_exit_messages_use_plain_prefix() {
     let mock_dir = TempDir::new().unwrap();
 
     // Test exit 0 (success) with NO_COLOR
-    let mock_ralph_0 =
-        create_mock_script(mock_dir.path(), "mock_ralph_0.sh", "#!/bin/sh\ntouch \"${PWD}/.ralph-complete\"\nexit 0\n");
+    let mock_ralph_0 = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph_0.sh",
+        "#!/bin/sh\ntouch \"${PWD}/.ralph-complete\"\nexit 0\n",
+    );
 
     let output = run_sgf(
         sgf_cmd(tmp.path())
@@ -3076,7 +3095,6 @@ fn unknown_command_errors_with_clear_message() {
     );
 }
 
-
 // ===========================================================================
 // End-to-end: sgf → ralph → cl → mock claude-wrapper-secret
 // ===========================================================================
@@ -3282,7 +3300,10 @@ fn afk_session_writes_metadata_with_session_id() {
     assert_eq!(meta["spec"], "auth");
 
     let iters_completed = meta["iters_completed"].as_array().unwrap();
-    assert!(!iters_completed.is_empty(), "iters_completed should not be empty");
+    assert!(
+        !iters_completed.is_empty(),
+        "iters_completed should not be empty"
+    );
     let session_id = iters_completed[0]["session_id"].as_str().unwrap();
     assert!(!session_id.is_empty(), "session_id should not be empty");
     assert!(
@@ -3345,7 +3366,10 @@ fn interactive_session_writes_metadata_with_session_id() {
     assert_eq!(meta["status"], "completed");
 
     let iters_completed = meta["iters_completed"].as_array().unwrap();
-    assert!(!iters_completed.is_empty(), "iters_completed should not be empty");
+    assert!(
+        !iters_completed.is_empty(),
+        "iters_completed should not be empty"
+    );
     let session_id = iters_completed[0]["session_id"].as_str().unwrap();
     assert!(
         !session_id.is_empty() && session_id.contains('-'),
