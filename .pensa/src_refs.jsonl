@@ -80,10 +80,15 @@
 {"id":"pn-d7def74b","issue_id":"pn-1d1b7850","path":"crates/ralph/tests/integration.rs","reason":"Add missing prompt file error integration test","created_at":"2026-03-19T17:27:54Z"}
 {"id":"pn-7e8eef14","issue_id":"pn-19d7f782","path":"crates/springfield/src/main.rs","reason":"Add List variant to Commands enum and implement handler that loads cursus TOMLs and displays table","created_at":"2026-03-19T17:37:43Z"}
 {"id":"pn-c8c8bf05","issue_id":"pn-19d7f782","path":"crates/springfield/src/cursus/mod.rs","reason":"Uses load_all_from_dir() to gather cursus definitions for listing","created_at":"2026-03-19T17:37:44Z"}
-{"id":"pn-364aadf8","issue_id":"pn-247855f4","path":"crates/springfield/src/cursus/toml.rs","reason":"Add banner: Option<bool> field to IterDefinition struct with serde default","created_at":"2026-03-19T17:37:45Z"}
-{"id":"pn-baea6086","issue_id":"pn-247855f4","path":"crates/springfield/src/cursus/runner.rs","reason":"Pass --banner flag to ralph in invoke_ralph when iter banner=true","created_at":"2026-03-19T17:37:46Z"}
-{"id":"pn-d6887f3a","issue_id":"pn-247855f4","path":"crates/springfield/src/orchestrate.rs","reason":"Pass --banner flag in build_ralph_args for legacy mode","created_at":"2026-03-19T17:37:47Z"}
 {"id":"pn-22130a87","issue_id":"pn-bddc2ed6","path":"crates/springfield/src/main.rs","reason":"Remove Commands::Status variant or replace with real implementation","created_at":"2026-03-19T17:37:48Z"}
 {"id":"pn-d1c47a33","issue_id":"pn-bd8bbecd","path":"crates/springfield/src/orchestrate.rs","reason":"Change monitor_stdin on line 262-263 to unconditionally true when is_afk","created_at":"2026-03-19T17:37:49Z"}
 {"id":"pn-72773f21","issue_id":"pn-020449f4","path":"crates/springfield/tests/integration.rs","reason":"Add test for sgf list output format with mock cursus TOML files","created_at":"2026-03-19T17:38:03Z"}
 {"id":"pn-f8ee340b","issue_id":"pn-4d623008","path":"crates/springfield/tests/integration.rs","reason":"Add test verifying --banner flag appears in ralph args when banner=true in cursus TOML","created_at":"2026-03-19T17:38:03Z"}
+{"id":"pn-17fbfb19","issue_id":"pn-c9397560","path":"crates/pensa/tests/integration.rs","reason":"Add cycle detection E2E test here","created_at":"2026-03-19T17:47:12Z"}
+{"id":"pn-bf9166f7","issue_id":"pn-746ae867","path":"crates/pensa/tests/integration.rs","reason":"Add single-fix auto-close E2E test here","created_at":"2026-03-19T17:47:13Z"}
+{"id":"pn-9c1d7c1b","issue_id":"pn-69ac548f","path":"crates/pensa/tests/integration.rs","reason":"Add unplanned bugs ready test here","created_at":"2026-03-19T17:47:13Z"}
+{"id":"pn-07b26151","issue_id":"pn-bfdbfa77","path":"crates/pensa/tests/integration.rs","reason":"Add planned bugs ready exclusion test here","created_at":"2026-03-19T17:47:14Z"}
+{"id":"pn-198a4dcc","issue_id":"pn-c677ed23","path":"crates/pensa/tests/integration.rs","reason":"Add doctor --fix E2E test here","created_at":"2026-03-19T17:47:14Z"}
+{"id":"pn-c1978f6d","issue_id":"pn-128892f5","path":"crates/pensa/tests/integration.rs","reason":"Add JSON output shape validation test here","created_at":"2026-03-19T17:47:15Z"}
+{"id":"pn-9e0dd5c5","issue_id":"pn-7b24eadb","path":"crates/forma/src/main.rs","reason":"Add stem validation before dispatching to daemon","created_at":"2026-03-19T17:47:17Z"}
+{"id":"pn-274bb0f3","issue_id":"pn-1722864b","path":"crates/ralph/src/main.rs","reason":"Fix result event styling at lines 741-747","created_at":"2026-03-19T17:47:17Z"}
