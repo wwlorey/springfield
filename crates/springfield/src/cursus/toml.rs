@@ -36,6 +36,8 @@ pub struct IterDefinition {
     pub auto_push: Option<bool>,
     pub next: Option<String>,
     #[serde(default)]
+    pub banner: bool,
+    #[serde(default)]
     pub transitions: Transitions,
 }
 
@@ -348,6 +350,47 @@ prompt = "run.md"
     }
 
     #[test]
+    fn parse_banner_true() {
+        let toml = r#"
+description = "Banner test"
+
+[[iters]]
+name = "run"
+prompt = "run.md"
+banner = true
+"#;
+        let def = parse(toml).unwrap();
+        assert!(def.iters[0].banner);
+    }
+
+    #[test]
+    fn parse_banner_false() {
+        let toml = r#"
+description = "Banner test"
+
+[[iters]]
+name = "run"
+prompt = "run.md"
+banner = false
+"#;
+        let def = parse(toml).unwrap();
+        assert!(!def.iters[0].banner);
+    }
+
+    #[test]
+    fn parse_banner_defaults_to_false() {
+        let toml = r#"
+description = "Banner test"
+
+[[iters]]
+name = "run"
+prompt = "run.md"
+"#;
+        let def = parse(toml).unwrap();
+        assert!(!def.iters[0].banner);
+    }
+
+    #[test]
     fn reject_duplicate_iter_names() {
         let toml = r#"
 description = "Duplicate names"
@@ -480,6 +523,7 @@ auto_push = false
                 consumes: vec![],
                 auto_push: None,
                 next: None,
+                banner: false,
                 transitions: Transitions::default(),
             }],
         }
@@ -557,6 +601,7 @@ mode = "turbo"
                 consumes: vec![],
                 auto_push: None,
                 next: None,
+                banner: false,
                 transitions: Transitions::default(),
             }],
         };
@@ -583,6 +628,7 @@ mode = "turbo"
                 consumes: vec![],
                 auto_push: None,
                 next: None,
+                banner: false,
                 transitions: Transitions::default(),
             }],
         };
@@ -613,6 +659,7 @@ mode = "turbo"
                     consumes: vec![],
                     auto_push: None,
                     next: None,
+                    banner: false,
                     transitions: Transitions::default(),
                 },
                 IterDefinition {
@@ -624,6 +671,7 @@ mode = "turbo"
                     consumes: vec![],
                     auto_push: None,
                     next: None,
+                    banner: false,
                     transitions: Transitions::default(),
                 },
             ],

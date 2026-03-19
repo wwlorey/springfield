@@ -199,6 +199,10 @@ fn invoke_ralph(inv: &RalphInvocation<'_>, controller: &ShutdownController) -> i
         args.push(spec.clone());
     }
 
+    if inv.iter.banner {
+        args.push("--banner".to_string());
+    }
+
     if !inv.consumed_content.is_empty() {
         let ctx_file = context::context_file_path(inv.root, inv.run_id, "_consumed");
         fs::write(&ctx_file, inv.consumed_content)?;
@@ -647,6 +651,7 @@ mod tests {
             consumes: vec![],
             auto_push: None,
             next: next.map(|s| s.to_string()),
+            banner: false,
             transitions: Transitions {
                 on_reject: on_reject.map(|s| s.to_string()),
                 on_revise: on_revise.map(|s| s.to_string()),
@@ -948,6 +953,7 @@ mod tests {
             consumes: consumes.into_iter().map(|s| s.to_string()).collect(),
             auto_push: None,
             next: next.map(|s| s.to_string()),
+            banner: false,
             transitions: Transitions {
                 on_reject: on_reject.map(|s| s.to_string()),
                 on_revise: on_revise.map(|s| s.to_string()),

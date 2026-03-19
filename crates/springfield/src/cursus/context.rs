@@ -103,6 +103,7 @@ mod tests {
                     consumes: consumes.into_iter().map(|c| c.to_string()).collect(),
                     auto_push: None,
                     next: None,
+                    banner: false,
                     transitions: Transitions::default(),
                 })
                 .collect(),
