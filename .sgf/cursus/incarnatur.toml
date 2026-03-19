@@ -1,5 +1,6 @@
 description = "'It is incarnated' | Give flesh to the specs"
 alias = "ic"
+auto_push = true
 
 [[iters]]
 name = "spec-to-issues"
