@@ -98,6 +98,10 @@ struct Cli {
     #[arg(short = 'a', long)]
     afk: bool,
 
+    /// Display ASCII art startup banner
+    #[arg(long)]
+    banner: bool,
+
     /// Loop identifier (sgf-generated, included in banner output)
     #[arg(long)]
     loop_id: Option<String>,
@@ -352,7 +356,9 @@ fn main() {
         cli.iterations
     };
 
-    print_banner(&cli, iterations, is_file, &prompt_files, &agent_cmd, &tee);
+    if cli.banner {
+        print_banner(&cli, iterations, is_file, &prompt_files, &agent_cmd, &tee);
+    }
 
     remove_sentinel();
     let _ = fs::remove_file(DING_SENTINEL);
@@ -946,5 +952,17 @@ mod tests {
     fn cli_session_id_and_resume_conflict() {
         let result = Cli::try_parse_from(["ralph", "--session-id", "id1", "--resume", "id2", "1"]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn cli_banner_flag_defaults_false() {
+        let cli = Cli::parse_from(["ralph", "1", "prompt.md"]);
+        assert!(!cli.banner);
+    }
+
+    #[test]
+    fn cli_banner_flag_parses() {
+        let cli = Cli::parse_from(["ralph", "--banner", "1", "prompt.md"]);
+        assert!(cli.banner);
     }
 }

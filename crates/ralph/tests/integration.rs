@@ -320,6 +320,7 @@ fn explicit_nonexistent_file_treated_as_inline_text() {
     let output = ralph_cmd(&dir)
         .args([
             "--afk",
+            "--banner",
             "--command",
             mock.to_str().unwrap(),
             "1",
@@ -472,6 +473,7 @@ fn inline_text_prompt() {
     let output = ralph_cmd(&dir)
         .args([
             "--afk",
+            "--banner",
             "--command",
             mock.to_str().unwrap(),
             "1",
@@ -575,6 +577,7 @@ fn loop_id_in_startup_banner() {
     let output = ralph_cmd(&dir)
         .args([
             "--afk",
+            "--banner",
             "--loop-id",
             "build-auth-20260226T143000",
             "--command",
@@ -660,6 +663,7 @@ fn cl_command_in_banner() {
     let output = ralph_cmd(&dir)
         .args([
             "--afk",
+            "--banner",
             "--command",
             mock.to_str().unwrap(),
             "1",
@@ -684,6 +688,7 @@ fn explicit_file_prompt_shows_file_suffix() {
     let output = ralph_cmd(&dir)
         .args([
             "--afk",
+            "--banner",
             "--command",
             mock.to_str().unwrap(),
             "1",
@@ -1580,7 +1585,13 @@ fn afk_startup_banner_uses_box_format() {
 
     let output = ralph_cmd(&dir)
         .env("NO_COLOR", "1")
-        .args(["--afk", "--command", mock.to_str().unwrap(), "1"])
+        .args([
+            "--afk",
+            "--banner",
+            "--command",
+            mock.to_str().unwrap(),
+            "1",
+        ])
         .output()
         .expect("run ralph");
 
@@ -1589,6 +1600,29 @@ fn afk_startup_banner_uses_box_format() {
     assert!(
         stdout.contains("╭─ Ralph Loop Starting"),
         "startup banner should use box format, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn banner_suppressed_by_default() {
+    let dir = setup_test_dir();
+    let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
+
+    let output = ralph_cmd(&dir)
+        .env("NO_COLOR", "1")
+        .args(["--afk", "--command", mock.to_str().unwrap(), "1"])
+        .output()
+        .expect("run ralph");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        !stdout.contains("Ralph Loop Starting"),
+        "startup banner should NOT appear without --banner flag, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("╭─ Iteration 1 of"),
+        "iteration banners should still appear, got:\n{stdout}"
     );
 }
 
@@ -1659,6 +1693,7 @@ fn afk_no_color_disables_ansi() {
         .env("NO_COLOR", "1")
         .args([
             "--afk",
+            "--banner",
             "--command",
             mock.to_str().unwrap(),
             "1",
