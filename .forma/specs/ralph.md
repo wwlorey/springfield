@@ -5,7 +5,7 @@ Iterative Claude Code runner — invokes cl (claude-wrapper) with NDJSON formatt
 | Field | Value |
 |-------|-------|
 | Src | `crates/ralph/` |
-| Status | stable |
+| Status | proven |
 
 ## Overview
 

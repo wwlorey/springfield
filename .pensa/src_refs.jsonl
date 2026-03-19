@@ -71,3 +71,10 @@
 {"id":"pn-90c93545","issue_id":"pn-59f03fd0","path":"crates/pensa/src/daemon.rs","reason":"Review claim/release endpoints","created_at":"2026-03-19T17:23:04Z"}
 {"id":"pn-d5379e7c","issue_id":"pn-b4b90676","path":"crates/pensa/tests/integration.rs","reason":"Add dependency flow test here","created_at":"2026-03-19T17:23:05Z"}
 {"id":"pn-123c42f5","issue_id":"pn-b4b90676","path":"crates/pensa/src/db.rs","reason":"Review ready_issues and blocked_issues query logic","created_at":"2026-03-19T17:23:05Z"}
+{"id":"pn-041e3350","issue_id":"pn-a6681a60","path":"crates/ralph/src/main.rs","reason":"Add banner: bool field to Cli struct, gate print_banner() call on this flag","created_at":"2026-03-19T17:27:49Z"}
+{"id":"pn-15cf33c3","issue_id":"pn-60d64cfc","path":"crates/ralph/src/main.rs","reason":"Remove --spec CLI option, FmSpecDetail/FmSection/FmRefSpec structs, fetch_spec_markdown/render_spec_markdown/resolve_spec_content functions, spec-related arg building in build_append_system_prompt_args","created_at":"2026-03-19T17:27:49Z"}
+{"id":"pn-a2b89b69","issue_id":"pn-60d64cfc","path":"crates/springfield/src/orchestrate.rs","reason":"Remove --spec argument from build_ralph_args() call site","created_at":"2026-03-19T17:27:51Z"}
+{"id":"pn-9bf3fd25","issue_id":"pn-ee059497","path":"crates/ralph/tests/integration.rs","reason":"Add banner conditional display and box format integration tests","created_at":"2026-03-19T17:27:52Z"}
+{"id":"pn-46cedbf9","issue_id":"pn-9309f46a","path":"crates/ralph/tests/integration.rs","reason":"Add tool result hiding and NO_COLOR integration tests","created_at":"2026-03-19T17:27:53Z"}
+{"id":"pn-47009bd6","issue_id":"pn-d04b4b4c","path":"crates/ralph/tests/integration.rs","reason":"Add double Ctrl+C abort and single Ctrl+C reset integration tests","created_at":"2026-03-19T17:27:53Z"}
+{"id":"pn-d7def74b","issue_id":"pn-1d1b7850","path":"crates/ralph/tests/integration.rs","reason":"Add missing prompt file error integration test","created_at":"2026-03-19T17:27:54Z"}

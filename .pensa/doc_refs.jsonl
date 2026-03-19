@@ -15,3 +15,4 @@
 {"id":"pn-a417169c","issue_id":"pn-8eb70d17","path":"/Users/william/.sgf/cursus/","reason":"Create verify.toml, test.toml, test-plan.toml, issues-log.toml with corresponding prompt references","created_at":"2026-03-19T17:13:50Z"}
 {"id":"pn-0a27bbeb","issue_id":"pn-6883c0d9","path":".forma/specs/forma.md","reason":"Generated spec markdown that reflects the architecture section content","created_at":"2026-03-19T17:18:32Z"}
 {"id":"pn-96c2e209","issue_id":"pn-6a0e8f44","path":"crates/forma/README.md","reason":"New file to create","created_at":"2026-03-19T17:18:38Z"}
+{"id":"pn-b290b226","issue_id":"pn-2902ec56","path":"crates/ralph/README.md","reason":"Update README to remove --max-iterations refs, fix --spec description, add --banner/--log-file/--session-id/--resume docs, update examples","created_at":"2026-03-19T17:27:55Z"}
