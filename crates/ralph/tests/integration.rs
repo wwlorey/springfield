@@ -1000,20 +1000,25 @@ fn prompt_file_flag_passed_as_append_system_prompt() {
         fs::read_to_string(dir.path().join("captured-args.txt")).expect("read captured args");
     let arg_lines: Vec<&str> = args.lines().collect();
 
-    let asp_value: Option<&str> = arg_lines
-        .windows(2)
-        .find(|w| w[0] == "--append-system-prompt")
-        .map(|w| w[1]);
+    let asp_idx = arg_lines
+        .iter()
+        .position(|l| *l == "--append-system-prompt")
+        .expect("should pass --append-system-prompt flag");
 
-    let study = asp_value.expect("should pass --append-system-prompt with study instructions");
+    let content_lines: Vec<&str> = arg_lines[asp_idx + 1..]
+        .iter()
+        .take_while(|l| !l.starts_with('-') && !l.starts_with('@'))
+        .copied()
+        .collect();
+    let content = content_lines.join("\n");
 
     assert!(
-        study.contains("study @") && study.contains("NOTES.md"),
-        "should include study @NOTES.md, got: {study}"
+        content.contains("# Notes"),
+        "should inline NOTES.md content, got: {content}"
     );
     assert!(
-        study.contains("EXTRA.md"),
-        "should include study @EXTRA.md, got: {study}"
+        content.contains("# Extra"),
+        "should inline EXTRA.md content, got: {content}"
     );
 }
 
