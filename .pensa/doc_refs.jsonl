@@ -13,3 +13,5 @@
 {"id":"pn-59d86517","issue_id":"pn-00330fda","path":"crates/claude-wrapper/README.md","reason":"New file to create","created_at":"2026-03-19T17:09:32Z"}
 {"id":"pn-9a56050e","issue_id":"pn-cda5d899","path":"/Users/william/.sgf/cursus/","reason":"Update all global cursus TOML files from [[iters]] to [[iter]]","created_at":"2026-03-19T17:13:27Z"}
 {"id":"pn-a417169c","issue_id":"pn-8eb70d17","path":"/Users/william/.sgf/cursus/","reason":"Create verify.toml, test.toml, test-plan.toml, issues-log.toml with corresponding prompt references","created_at":"2026-03-19T17:13:50Z"}
+{"id":"pn-0a27bbeb","issue_id":"pn-6883c0d9","path":".forma/specs/forma.md","reason":"Generated spec markdown that reflects the architecture section content","created_at":"2026-03-19T17:18:32Z"}
+{"id":"pn-96c2e209","issue_id":"pn-6a0e8f44","path":"crates/forma/README.md","reason":"New file to create","created_at":"2026-03-19T17:18:38Z"}

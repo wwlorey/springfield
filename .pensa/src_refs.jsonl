@@ -51,3 +51,11 @@
 {"id":"pn-d060fd08","issue_id":"pn-612cf46e","path":"crates/springfield/src/main.rs","reason":"Remove legacy fallback steps 3-4 from resolve_command, remove ResolvedCommand::Legacy variant, remove run_legacy_dispatch fn, remove legacy fallback tests","created_at":"2026-03-19T17:13:34Z"}
 {"id":"pn-8564ab92","issue_id":"pn-612cf46e","path":"crates/springfield/src/config.rs","reason":"Evaluate if config.rs is still needed after removing legacy fallback; remove if unused","created_at":"2026-03-19T17:13:34Z"}
 {"id":"pn-a10c79b9","issue_id":"pn-3b876d68","path":"crates/springfield/tests/integration.rs","reason":"Add cursus_banner_flag_passed_to_ralph integration test alongside existing cursus tests","created_at":"2026-03-19T17:13:42Z"}
+{"id":"pn-000abe4f","issue_id":"pn-e19cd1ea","path":"crates/forma/src/daemon.rs","reason":"Route definition uses post(move_section), needs to change to patch(move_section)","created_at":"2026-03-19T17:18:23Z"}
+{"id":"pn-cb906502","issue_id":"pn-e19cd1ea","path":"crates/forma/src/client.rs","reason":"Client HTTP method for move_section needs to change from POST to PATCH","created_at":"2026-03-19T17:18:23Z"}
+{"id":"pn-0b8b238e","issue_id":"pn-e19cd1ea","path":"crates/forma/tests/integration.rs","reason":"Update any tests hitting the section move endpoint to use PATCH","created_at":"2026-03-19T17:18:23Z"}
+{"id":"pn-d785874e","issue_id":"pn-6a0e8f44","path":"crates/forma/src/lib.rs","reason":"Reference for understanding public API surface","created_at":"2026-03-19T17:18:38Z"}
+{"id":"pn-e916dafb","issue_id":"pn-bf95e750","path":"crates/forma/tests/integration.rs","reason":"Add JSON shape assertion tests here","created_at":"2026-03-19T17:18:46Z"}
+{"id":"pn-5da8ff92","issue_id":"pn-bf95e750","path":"crates/forma/src/types.rs","reason":"Reference for struct definitions and serialization attributes","created_at":"2026-03-19T17:18:46Z"}
+{"id":"pn-8af55890","issue_id":"pn-32612187","path":"crates/forma/tests/integration.rs","reason":"Add end-to-end lifecycle test here","created_at":"2026-03-19T17:18:53Z"}
+{"id":"pn-488763f4","issue_id":"pn-32612187","path":"crates/forma/src/db.rs","reason":"Export/import/check/doctor logic to exercise","created_at":"2026-03-19T17:18:53Z"}

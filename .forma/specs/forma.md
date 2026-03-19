@@ -5,7 +5,7 @@ Specification management — forma daemon and fm CLI
 | Field | Value |
 |-------|-------|
 | Src | `crates/forma/` |
-| Status | stable |
+| Status | proven |
 
 ## Overview
 
