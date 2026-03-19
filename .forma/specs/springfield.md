@@ -5,7 +5,7 @@ CLI entry point — scaffolding, prompt delivery, loop orchestration, recovery, 
 | Field | Value |
 |-------|-------|
 | Src | `crates/springfield/` |
-| Status | stable |
+| Status | proven |
 
 ## Overview
 

@@ -78,3 +78,12 @@
 {"id":"pn-46cedbf9","issue_id":"pn-9309f46a","path":"crates/ralph/tests/integration.rs","reason":"Add tool result hiding and NO_COLOR integration tests","created_at":"2026-03-19T17:27:53Z"}
 {"id":"pn-47009bd6","issue_id":"pn-d04b4b4c","path":"crates/ralph/tests/integration.rs","reason":"Add double Ctrl+C abort and single Ctrl+C reset integration tests","created_at":"2026-03-19T17:27:53Z"}
 {"id":"pn-d7def74b","issue_id":"pn-1d1b7850","path":"crates/ralph/tests/integration.rs","reason":"Add missing prompt file error integration test","created_at":"2026-03-19T17:27:54Z"}
+{"id":"pn-7e8eef14","issue_id":"pn-19d7f782","path":"crates/springfield/src/main.rs","reason":"Add List variant to Commands enum and implement handler that loads cursus TOMLs and displays table","created_at":"2026-03-19T17:37:43Z"}
+{"id":"pn-c8c8bf05","issue_id":"pn-19d7f782","path":"crates/springfield/src/cursus/mod.rs","reason":"Uses load_all_from_dir() to gather cursus definitions for listing","created_at":"2026-03-19T17:37:44Z"}
+{"id":"pn-364aadf8","issue_id":"pn-247855f4","path":"crates/springfield/src/cursus/toml.rs","reason":"Add banner: Option<bool> field to IterDefinition struct with serde default","created_at":"2026-03-19T17:37:45Z"}
+{"id":"pn-baea6086","issue_id":"pn-247855f4","path":"crates/springfield/src/cursus/runner.rs","reason":"Pass --banner flag to ralph in invoke_ralph when iter banner=true","created_at":"2026-03-19T17:37:46Z"}
+{"id":"pn-d6887f3a","issue_id":"pn-247855f4","path":"crates/springfield/src/orchestrate.rs","reason":"Pass --banner flag in build_ralph_args for legacy mode","created_at":"2026-03-19T17:37:47Z"}
+{"id":"pn-22130a87","issue_id":"pn-bddc2ed6","path":"crates/springfield/src/main.rs","reason":"Remove Commands::Status variant or replace with real implementation","created_at":"2026-03-19T17:37:48Z"}
+{"id":"pn-d1c47a33","issue_id":"pn-bd8bbecd","path":"crates/springfield/src/orchestrate.rs","reason":"Change monitor_stdin on line 262-263 to unconditionally true when is_afk","created_at":"2026-03-19T17:37:49Z"}
+{"id":"pn-72773f21","issue_id":"pn-020449f4","path":"crates/springfield/tests/integration.rs","reason":"Add test for sgf list output format with mock cursus TOML files","created_at":"2026-03-19T17:38:03Z"}
+{"id":"pn-f8ee340b","issue_id":"pn-4d623008","path":"crates/springfield/tests/integration.rs","reason":"Add test verifying --banner flag appears in ralph args when banner=true in cursus TOML","created_at":"2026-03-19T17:38:03Z"}
