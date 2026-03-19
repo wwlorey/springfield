@@ -229,6 +229,43 @@ impl fmt::Display for FormaError {
 
 impl std::error::Error for FormaError {}
 
+pub fn validate_stem(stem: &str) -> Result<(), FormaError> {
+    if stem.is_empty() {
+        return Err(FormaError::ValidationFailed(
+            "stem cannot be empty".to_string(),
+        ));
+    }
+    if stem != stem.to_lowercase() {
+        return Err(FormaError::ValidationFailed(format!(
+            "invalid stem \"{stem}\": must be lowercase"
+        )));
+    }
+    if stem.contains(' ') {
+        return Err(FormaError::ValidationFailed(format!(
+            "invalid stem \"{stem}\": must not contain spaces"
+        )));
+    }
+    if !stem
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    {
+        return Err(FormaError::ValidationFailed(format!(
+            "invalid stem \"{stem}\": must contain only lowercase alphanumeric characters and hyphens"
+        )));
+    }
+    if stem.starts_with('-') || stem.ends_with('-') {
+        return Err(FormaError::ValidationFailed(format!(
+            "invalid stem \"{stem}\": must not start or end with a hyphen"
+        )));
+    }
+    if stem.contains("--") {
+        return Err(FormaError::ValidationFailed(format!(
+            "invalid stem \"{stem}\": must not contain consecutive hyphens"
+        )));
+    }
+    Ok(())
+}
+
 pub fn slugify(name: &str) -> String {
     name.to_lowercase()
         .split_whitespace()
@@ -242,6 +279,50 @@ pub fn slugify(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn validate_stem_accepts_valid() {
+        assert!(validate_stem("auth").is_ok());
+        assert!(validate_stem("claude-wrapper").is_ok());
+        assert!(validate_stem("my-crate-123").is_ok());
+        assert!(validate_stem("a").is_ok());
+    }
+
+    #[test]
+    fn validate_stem_rejects_empty() {
+        assert!(validate_stem("").is_err());
+    }
+
+    #[test]
+    fn validate_stem_rejects_uppercase() {
+        assert!(validate_stem("Auth").is_err());
+        assert!(validate_stem("UPPER").is_err());
+        assert!(validate_stem("camelCase").is_err());
+    }
+
+    #[test]
+    fn validate_stem_rejects_spaces() {
+        assert!(validate_stem("my spec").is_err());
+        assert!(validate_stem(" leading").is_err());
+    }
+
+    #[test]
+    fn validate_stem_rejects_invalid_chars() {
+        assert!(validate_stem("foo_bar").is_err());
+        assert!(validate_stem("foo.bar").is_err());
+        assert!(validate_stem("foo@bar").is_err());
+    }
+
+    #[test]
+    fn validate_stem_rejects_leading_trailing_hyphens() {
+        assert!(validate_stem("-leading").is_err());
+        assert!(validate_stem("trailing-").is_err());
+    }
+
+    #[test]
+    fn validate_stem_rejects_consecutive_hyphens() {
+        assert!(validate_stem("foo--bar").is_err());
+    }
 
     #[test]
     fn slugify_basic() {

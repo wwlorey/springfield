@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 
 use forma::client::Client;
 use forma::output::{self, OutputMode};
-use forma::types::FormaError;
+use forma::types::{FormaError, validate_stem};
 
 #[derive(Parser)]
 #[command(name = "fm", about = "Specification management — forma")]
@@ -175,6 +175,12 @@ fn fail(err: FormaError, mode: OutputMode) -> ! {
     process::exit(1);
 }
 
+fn check_stem(stem: &str, mode: OutputMode) {
+    if let Err(e) = validate_stem(stem) {
+        fail(e, mode);
+    }
+}
+
 fn read_stdin() -> String {
     let mut buf = String::new();
     std::io::stdin().read_to_string(&mut buf).unwrap_or(0);
@@ -326,6 +332,7 @@ fn main() {
         }
 
         Commands::Create { stem, src, purpose } => {
+            check_stem(&stem, mode);
             let client = Client::new();
             match client.create_spec(&stem, src.as_deref(), &purpose, &actor) {
                 Ok(v) => output::print_spec(&v, mode),
@@ -334,6 +341,7 @@ fn main() {
         }
 
         Commands::Show { stem } => {
+            check_stem(&stem, mode);
             let client = Client::new();
             match client.get_spec(&stem) {
                 Ok(v) => output::print_spec_detail(&v, mode),
@@ -355,6 +363,7 @@ fn main() {
             src,
             purpose,
         } => {
+            check_stem(&stem, mode);
             let client = Client::new();
             match client.update_spec(
                 &stem,
@@ -369,6 +378,7 @@ fn main() {
         }
 
         Commands::Delete { stem, force } => {
+            check_stem(&stem, mode);
             let client = Client::new();
             match client.delete_spec(&stem, force) {
                 Ok(_) => output::print_deleted(&stem, mode),
@@ -401,6 +411,7 @@ fn main() {
         }
 
         Commands::History { stem } => {
+            check_stem(&stem, mode);
             let client = Client::new();
             match client.spec_history(&stem) {
                 Ok(v) => output::print_events(&v, mode),
@@ -417,6 +428,7 @@ fn main() {
                     body_stdin,
                     after,
                 } => {
+                    check_stem(&stem, mode);
                     let body = if body_stdin {
                         read_stdin()
                     } else {
@@ -432,6 +444,7 @@ fn main() {
                     slug,
                     body_stdin,
                 } => {
+                    check_stem(&stem, mode);
                     let body = if body_stdin {
                         read_stdin()
                     } else {
@@ -442,21 +455,29 @@ fn main() {
                         Err(e) => fail(e, mode),
                     }
                 }
-                SectionSubcommand::Get { stem, slug } => match client.get_section(&stem, &slug) {
-                    Ok(v) => output::print_section_body(&v, mode),
-                    Err(e) => fail(e, mode),
-                },
-                SectionSubcommand::List { stem } => match client.list_sections(&stem) {
-                    Ok(v) => output::print_section_list(&v, mode),
-                    Err(e) => fail(e, mode),
-                },
+                SectionSubcommand::Get { stem, slug } => {
+                    check_stem(&stem, mode);
+                    match client.get_section(&stem, &slug) {
+                        Ok(v) => output::print_section_body(&v, mode),
+                        Err(e) => fail(e, mode),
+                    }
+                }
+                SectionSubcommand::List { stem } => {
+                    check_stem(&stem, mode);
+                    match client.list_sections(&stem) {
+                        Ok(v) => output::print_section_list(&v, mode),
+                        Err(e) => fail(e, mode),
+                    }
+                }
                 SectionSubcommand::Remove { stem, slug } => {
+                    check_stem(&stem, mode);
                     match client.remove_section(&stem, &slug, &actor) {
                         Ok(_) => output::print_section_removed(&stem, &slug, mode),
                         Err(e) => fail(e, mode),
                     }
                 }
                 SectionSubcommand::Move { stem, slug, after } => {
+                    check_stem(&stem, mode);
                     match client.move_section(&stem, &slug, &after, &actor) {
                         Ok(v) => output::print_section(&v, mode),
                         Err(e) => fail(e, mode),
@@ -469,22 +490,30 @@ fn main() {
             let client = Client::new();
             match subcmd {
                 RefSubcommand::Add { stem, target } => {
+                    check_stem(&stem, mode);
+                    check_stem(&target, mode);
                     match client.add_ref(&stem, &target, &actor) {
                         Ok(v) => output::print_ref_status(&v, mode),
                         Err(e) => fail(e, mode),
                     }
                 }
                 RefSubcommand::Remove { stem, target } => {
+                    check_stem(&stem, mode);
+                    check_stem(&target, mode);
                     match client.remove_ref(&stem, &target, &actor) {
                         Ok(v) => output::print_ref_status(&v, mode),
                         Err(e) => fail(e, mode),
                     }
                 }
-                RefSubcommand::List { stem } => match client.list_refs(&stem) {
-                    Ok(v) => output::print_ref_list(&v, mode),
-                    Err(e) => fail(e, mode),
-                },
+                RefSubcommand::List { stem } => {
+                    check_stem(&stem, mode);
+                    match client.list_refs(&stem) {
+                        Ok(v) => output::print_ref_list(&v, mode),
+                        Err(e) => fail(e, mode),
+                    }
+                }
                 RefSubcommand::Tree { stem, direction } => {
+                    check_stem(&stem, mode);
                     match client.ref_tree(&stem, &direction) {
                         Ok(v) => output::print_ref_tree(&v, mode),
                         Err(e) => fail(e, mode),
