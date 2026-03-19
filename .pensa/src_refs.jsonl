@@ -35,3 +35,6 @@
 {"id":"pn-31246a1d","issue_id":"pn-82452d46","path":"crates/springfield/src/init.rs","reason":"Update init to scaffold .sgf/cursus/ directory","created_at":"2026-03-17T21:26:33Z"}
 {"id":"pn-03dae060","issue_id":"pn-585480f8","path":"crates/springfield/tests/integration.rs","reason":"Add single-iter cursus integration test","created_at":"2026-03-17T21:26:53Z"}
 {"id":"pn-c98eb6cf","issue_id":"pn-79693ba6","path":"crates/springfield/tests/integration.rs","reason":"Add multi-iter cursus integration tests for transitions, context, stall, resume, layered resolution","created_at":"2026-03-17T21:27:02Z"}
+{"id":"pn-ff18aa38","issue_id":"pn-b625f48f","path":"crates/ralph/tests/integration.rs","reason":"Add 4 shutdown signal integration tests here (file exists, add new test functions)","created_at":"2026-03-19T17:04:07Z"}
+{"id":"pn-afe18c15","issue_id":"pn-b625f48f","path":"crates/springfield/tests/integration.rs","reason":"Reference existing sgf-level shutdown integration tests as pattern to follow","created_at":"2026-03-19T17:04:08Z"}
+{"id":"pn-a7d7e089","issue_id":"pn-b625f48f","path":"crates/shutdown/src/lib.rs","reason":"Reference ShutdownController API and behavior being tested","created_at":"2026-03-19T17:04:09Z"}

@@ -8,3 +8,4 @@
 {"id":"pn-58ae45cb","issue_id":"pn-14d41e20","path":".sgf/cursus/spec.toml","reason":"Multi-iter cursus definition for spec refinement workflow","created_at":"2026-03-17T21:26:41Z"}
 {"id":"pn-ee6e7998","issue_id":"pn-14d41e20","path":".sgf/prompts/","reason":"Prompt files for each spec refinement iter","created_at":"2026-03-17T21:26:41Z"}
 {"id":"pn-76ce6245","issue_id":"pn-6342e675","path":"README.md","reason":"Add cursus pipeline documentation","created_at":"2026-03-17T21:26:47Z"}
+{"id":"pn-e40d7885","issue_id":"pn-b625f48f","path":".forma/specs/shutdown.md","reason":"Testing section defines the 4 integration tests and their expected behavior","created_at":"2026-03-19T17:04:10Z"}
