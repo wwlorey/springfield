@@ -1,9 +1,19 @@
+use shutdown::ProcessSemaphore;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::LazyLock;
 use std::time::Duration;
 use tempfile::TempDir;
+
+static RALPH_PERMITS: LazyLock<ProcessSemaphore> =
+    LazyLock::new(|| ProcessSemaphore::from_env("SGF_TEST_MAX_CONCURRENT", 8));
+
+fn run_ralph(cmd: &mut Command) -> std::process::Output {
+    let _permit = RALPH_PERMITS.acquire();
+    cmd.output().expect("failed to run ralph")
+}
 
 fn fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -16,6 +26,7 @@ fn setup_test_dir() -> TempDir {
     fs::write(dir.path().join("prompt.md"), "Test prompt.\n").expect("write prompt.md");
     // Initialize a git repo with an initial commit so git_head() works
     let run = |args: &[&str]| {
+        let _permit = RALPH_PERMITS.acquire();
         Command::new("git")
             .args(args)
             .current_dir(dir.path())
@@ -94,16 +105,13 @@ fn afk_formats_text_blocks() {
     let dir = setup_test_dir();
     let mock = create_mock_script(&dir, "afk-session.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+        "prompt.md",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -128,17 +136,13 @@ fn afk_formats_tool_calls_as_one_liners() {
     let dir = setup_test_dir();
     let mock = create_mock_script(&dir, "afk-session.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .env("NO_COLOR", "1")
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).env("NO_COLOR", "1").args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+        "prompt.md",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -210,16 +214,13 @@ fn afk_detects_completion_file() {
     let dir = setup_test_dir();
     let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+        "prompt.md",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -247,16 +248,13 @@ fn afk_exhausts_iterations_without_promise() {
     let dir = setup_test_dir();
     let mock = create_mock_script(&dir, "afk-session.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+        "prompt.md",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -277,17 +275,14 @@ fn explicit_nonexistent_file_treated_as_inline_text() {
     let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
 
     // "nonexistent.md" doesn't exist as a file, so it's treated as inline text
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--banner",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "nonexistent.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--afk",
+        "--banner",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+        "nonexistent.md",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -313,16 +308,13 @@ fn iterations_clamped_at_1000() {
     let dir = setup_test_dir();
     let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "5000",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "5000",
+        "prompt.md",
+    ]));
 
     let stderr = String::from_utf8_lossy(&output.stderr);
 
@@ -334,10 +326,7 @@ fn iterations_clamped_at_1000() {
 
 #[test]
 fn help_flag() {
-    let output = Command::new(env!("CARGO_BIN_EXE_ralph"))
-        .arg("--help")
-        .output()
-        .expect("run ralph --help");
+    let output = run_ralph(Command::new(env!("CARGO_BIN_EXE_ralph")).arg("--help"));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -353,17 +342,13 @@ fn bash_command_truncation() {
     let dir = setup_test_dir();
     let mock = create_mock_script(&dir, "afk-session.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .env("NO_COLOR", "1")
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).env("NO_COLOR", "1").args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+        "prompt.md",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -397,16 +382,13 @@ fn afk_detects_nested_completion_file() {
     let dir = setup_test_dir();
     let mock = create_mock_script_with_nested_sentinel(&dir, "complete.ndjson", "sub/project");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+        "prompt.md",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -430,17 +412,14 @@ fn inline_text_prompt() {
     let dir = setup_test_dir();
     let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--banner",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "fix the bug",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--afk",
+        "--banner",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+        "fix the bug",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -468,10 +447,7 @@ fn iterations_defaults_to_one() {
     let dir = setup_test_dir();
     let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .args(["--afk", "--command", mock.to_str().unwrap()])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args(["--afk", "--command", mock.to_str().unwrap()]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -491,6 +467,7 @@ fn default_prompt_missing() {
     let dir = TempDir::new().expect("create temp dir");
     // Initialize git but do NOT create prompt.md
     let run = |args: &[&str]| {
+        let _permit = RALPH_PERMITS.acquire();
         Command::new("git")
             .args(args)
             .current_dir(dir.path())
@@ -511,10 +488,8 @@ fn default_prompt_missing() {
 
     let mock = create_mock_script(&dir, "afk-session.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .args(["--afk", "--command", mock.to_str().unwrap(), "1"])
-        .output()
-        .expect("run ralph");
+    let output =
+        run_ralph(ralph_cmd(&dir).args(["--afk", "--command", mock.to_str().unwrap(), "1"]));
 
     let stderr = String::from_utf8_lossy(&output.stderr);
 
@@ -534,19 +509,16 @@ fn loop_id_in_startup_banner() {
     let dir = setup_test_dir();
     let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--banner",
-            "--loop-id",
-            "build-auth-20260226T143000",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--afk",
+        "--banner",
+        "--loop-id",
+        "build-auth-20260226T143000",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+        "prompt.md",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -561,18 +533,15 @@ fn loop_id_in_iteration_banner() {
     let dir = setup_test_dir();
     let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--loop-id",
-            "build-auth-20260226T143000",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--afk",
+        "--loop-id",
+        "build-auth-20260226T143000",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+        "prompt.md",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -587,16 +556,13 @@ fn no_loop_id_when_not_provided() {
     let dir = setup_test_dir();
     let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+        "prompt.md",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -620,17 +586,14 @@ fn cl_command_in_banner() {
     let dir = setup_test_dir();
     let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--banner",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--afk",
+        "--banner",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+        "prompt.md",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -645,17 +608,14 @@ fn explicit_file_prompt_shows_file_suffix() {
     let dir = setup_test_dir();
     let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--banner",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--afk",
+        "--banner",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+        "prompt.md",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -670,18 +630,15 @@ fn prompt_file_missing_exits_1() {
     let dir = setup_test_dir();
     let mock = create_mock_script(&dir, "afk-session.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--prompt-file",
-            "./does-not-exist.md",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--afk",
+        "--prompt-file",
+        "./does-not-exist.md",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+        "prompt.md",
+    ]));
 
     let stderr = String::from_utf8_lossy(&output.stderr);
 
@@ -703,18 +660,15 @@ fn prompt_file_existing_accepted() {
 
     fs::write(dir.path().join("NOTES.md"), "# Notes\n").expect("write notes file");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--prompt-file",
-            "./NOTES.md",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--afk",
+        "--prompt-file",
+        "./NOTES.md",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+        "prompt.md",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -734,20 +688,17 @@ fn multiple_prompt_files_accepted() {
     fs::write(dir.path().join("NOTES.md"), "# Notes\n").expect("write notes");
     fs::write(dir.path().join("EXTRA.md"), "# Extra\n").expect("write extra");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--prompt-file",
-            "./NOTES.md",
-            "--prompt-file",
-            "./EXTRA.md",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--afk",
+        "--prompt-file",
+        "./NOTES.md",
+        "--prompt-file",
+        "./EXTRA.md",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+        "prompt.md",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -764,16 +715,13 @@ fn no_append_system_prompt_without_prompt_file() {
     let dir = setup_test_dir();
     let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+        "prompt.md",
+    ]));
 
     assert!(
         output.status.success(),
@@ -811,20 +759,17 @@ fn prompt_file_flag_passed_as_append_system_prompt() {
     fs::write(dir.path().join("NOTES.md"), "# Notes\n").expect("write notes");
     fs::write(dir.path().join("EXTRA.md"), "# Extra\n").expect("write extra");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "--prompt-file",
-            "NOTES.md",
-            "--prompt-file",
-            "EXTRA.md",
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "--prompt-file",
+        "NOTES.md",
+        "--prompt-file",
+        "EXTRA.md",
+        "1",
+        "prompt.md",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -981,17 +926,14 @@ fn afk_log_file_captures_output() {
     let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
     let log_path = dir.path().join("logs/test.log");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "--log-file",
-            log_path.to_str().unwrap(),
-            "1",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "--log-file",
+        log_path.to_str().unwrap(),
+        "1",
+    ]));
 
     assert!(
         output.status.success(),
@@ -1018,17 +960,14 @@ fn afk_log_file_creates_parent_dirs() {
     let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
     let log_path = dir.path().join("deeply/nested/dir/test.log");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "--log-file",
-            log_path.to_str().unwrap(),
-            "1",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "--log-file",
+        log_path.to_str().unwrap(),
+        "1",
+    ]));
 
     assert!(
         output.status.success(),
@@ -1046,10 +985,8 @@ fn no_log_file_by_default() {
     let dir = setup_test_dir();
     let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .args(["--afk", "--command", mock.to_str().unwrap(), "1"])
-        .output()
-        .expect("run ralph");
+    let output =
+        run_ralph(ralph_cmd(&dir).args(["--afk", "--command", mock.to_str().unwrap(), "1"]));
 
     assert!(output.status.success());
 
@@ -1068,12 +1005,12 @@ fn no_log_file_by_default() {
 fn cl_required_without_command_override() {
     let dir = setup_test_dir();
 
-    let output = ralph_cmd(&dir)
-        .env_remove("RALPH_COMMAND")
-        .env("PATH", dir.path().join("empty-bin"))
-        .args(["--afk", "1", "prompt.md"])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(
+        ralph_cmd(&dir)
+            .env_remove("RALPH_COMMAND")
+            .env("PATH", dir.path().join("empty-bin"))
+            .args(["--afk", "1", "prompt.md"]),
+    );
 
     let stderr = String::from_utf8_lossy(&output.stderr);
 
@@ -1093,16 +1030,13 @@ fn cl_not_required_with_command_override() {
     let dir = setup_test_dir();
     let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+        "prompt.md",
+    ]));
 
     assert!(
         output.status.success(),
@@ -1115,16 +1049,13 @@ fn afk_invocation_passes_correct_flags() {
     let dir = setup_test_dir();
     let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+        "prompt.md",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1182,10 +1113,8 @@ fn interactive_invocation_passes_correct_flags() {
     let dir = setup_test_dir();
     let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .args(["--command", mock.to_str().unwrap(), "1", "prompt.md"])
-        .output()
-        .expect("run ralph");
+    let output =
+        run_ralph(ralph_cmd(&dir).args(["--command", mock.to_str().unwrap(), "1", "prompt.md"]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1233,16 +1162,13 @@ fn inline_text_prompt_not_prefixed_with_at() {
     let dir = setup_test_dir();
     let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "fix the login bug",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+        "fix the login bug",
+    ]));
 
     assert!(
         output.status.success(),
@@ -1267,6 +1193,7 @@ fn auto_push_pushes_when_head_changes() {
 
     let bare_dir = TempDir::new().expect("create bare repo dir");
     let run_git = |args: &[&str], cwd: &std::path::Path| {
+        let _permit = RALPH_PERMITS.acquire();
         Command::new("git")
             .args(args)
             .current_dir(cwd)
@@ -1297,17 +1224,13 @@ fn auto_push_pushes_when_head_changes() {
     fs::write(&script_path, content).expect("write mock script");
     fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755)).expect("chmod");
 
-    let output = ralph_cmd(&dir)
-        .env("RALPH_AUTO_PUSH", "true")
-        .args([
-            "--afk",
-            "--command",
-            script_path.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).env("RALPH_AUTO_PUSH", "true").args([
+        "--afk",
+        "--command",
+        script_path.to_str().unwrap(),
+        "1",
+        "prompt.md",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1351,16 +1274,13 @@ fn auto_push_disabled_does_not_push() {
     fs::write(&script_path, content).expect("write mock script");
     fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755)).expect("chmod");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--command",
-            script_path.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--afk",
+        "--command",
+        script_path.to_str().unwrap(),
+        "1",
+        "prompt.md",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -1381,17 +1301,13 @@ fn afk_startup_banner_uses_box_format() {
     let dir = setup_test_dir();
     let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .env("NO_COLOR", "1")
-        .args([
-            "--afk",
-            "--banner",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).env("NO_COLOR", "1").args([
+        "--afk",
+        "--banner",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -1406,11 +1322,12 @@ fn banner_suppressed_by_default() {
     let dir = setup_test_dir();
     let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .env("NO_COLOR", "1")
-        .args(["--afk", "--command", mock.to_str().unwrap(), "1"])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).env("NO_COLOR", "1").args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -1429,11 +1346,12 @@ fn afk_iteration_banner_uses_box_format() {
     let dir = setup_test_dir();
     let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .env("NO_COLOR", "1")
-        .args(["--afk", "--command", mock.to_str().unwrap(), "1"])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).env("NO_COLOR", "1").args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -1448,11 +1366,12 @@ fn afk_completion_banner_uses_box_format() {
     let dir = setup_test_dir();
     let mock = create_mock_script_with_sentinel(&dir, "complete.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .env("NO_COLOR", "1")
-        .args(["--afk", "--command", mock.to_str().unwrap(), "1"])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).env("NO_COLOR", "1").args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -1467,11 +1386,12 @@ fn afk_max_iterations_banner_uses_box_format() {
     let dir = setup_test_dir();
     let mock = create_mock_script(&dir, "afk-session.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .env("NO_COLOR", "1")
-        .args(["--afk", "--command", mock.to_str().unwrap(), "1"])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).env("NO_COLOR", "1").args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -1487,18 +1407,14 @@ fn afk_no_color_disables_ansi() {
     let dir = setup_test_dir();
     let mock = create_mock_script(&dir, "afk-session.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .env("NO_COLOR", "1")
-        .args([
-            "--afk",
-            "--banner",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).env("NO_COLOR", "1").args([
+        "--afk",
+        "--banner",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+        "prompt.md",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -1546,17 +1462,13 @@ fn afk_hides_tool_results() {
     let dir = setup_test_dir();
     let mock = create_mock_script(&dir, "afk-session.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .env("NO_COLOR", "1")
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).env("NO_COLOR", "1").args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+        "prompt.md",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -1579,17 +1491,13 @@ fn afk_tool_calls_have_ansi_colors() {
     let dir = setup_test_dir();
     let mock = create_mock_script(&dir, "afk-session.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .env_remove("NO_COLOR")
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).env_remove("NO_COLOR").args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+        "prompt.md",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -1641,17 +1549,13 @@ fn afk_agent_text_has_bold_white_ansi() {
     let dir = setup_test_dir();
     let mock = create_mock_script(&dir, "afk-session.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .env_remove("NO_COLOR")
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).env_remove("NO_COLOR").args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+        "prompt.md",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -1671,17 +1575,13 @@ fn afk_hides_test_result_lines() {
     let dir = setup_test_dir();
     let mock = create_mock_script(&dir, "test-results.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .env_remove("NO_COLOR")
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).env_remove("NO_COLOR").args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "1",
+        "prompt.md",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -1701,18 +1601,15 @@ fn session_id_passed_to_command_args() {
     let dir = setup_test_dir();
     let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "--session-id",
-            "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "--session-id",
+        "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        "1",
+        "prompt.md",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1749,17 +1646,14 @@ fn resume_passed_to_command_args() {
     let dir = setup_test_dir();
     let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "--resume",
-            "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-            "1",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "--resume",
+        "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        "1",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1790,17 +1684,14 @@ fn resume_omits_prompt_arg() {
     let dir = setup_test_dir();
     let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "--resume",
-            "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-            "1",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "--resume",
+        "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        "1",
+    ]));
 
     assert!(
         output.status.success(),
@@ -1825,19 +1716,16 @@ fn session_id_and_resume_mutually_exclusive() {
     let dir = setup_test_dir();
     let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "--session-id",
-            "id1",
-            "--resume",
-            "id2",
-            "1",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "--session-id",
+        "id1",
+        "--resume",
+        "id2",
+        "1",
+    ]));
 
     assert!(
         !output.status.success(),
@@ -1856,17 +1744,14 @@ fn interactive_session_id_passed_to_command_args() {
     let dir = setup_test_dir();
     let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--command",
-            mock.to_str().unwrap(),
-            "--session-id",
-            "deadbeef-1234-5678-9abc-def012345678",
-            "1",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--command",
+        mock.to_str().unwrap(),
+        "--session-id",
+        "deadbeef-1234-5678-9abc-def012345678",
+        "1",
+        "prompt.md",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1897,16 +1782,13 @@ fn interactive_resume_passed_to_command_args_and_omits_prompt() {
     let dir = setup_test_dir();
     let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--command",
-            mock.to_str().unwrap(),
-            "--resume",
-            "deadbeef-1234-5678-9abc-def012345678",
-            "1",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--command",
+        mock.to_str().unwrap(),
+        "--resume",
+        "deadbeef-1234-5678-9abc-def012345678",
+        "1",
+    ]));
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1997,16 +1879,13 @@ fn afk_terminal_restore_graceful_with_non_tty_stdin() {
     let dir = setup_test_dir();
     let mock = create_mock_script(&dir, "complete.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "2",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "2",
+        "prompt.md",
+    ]));
 
     assert_eq!(
         output.status.code(),
@@ -2039,17 +1918,17 @@ fn interactive_restores_terminal_settings_after_agent_corrupts() {
     fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755)).expect("chmod");
 
     let bin = env!("CARGO_BIN_EXE_ralph");
-    let output = Command::new(bin)
-        .current_dir(dir.path())
-        .env("RALPH_AUTO_PUSH", "false")
-        .env("RUST_LOG", "warn")
-        .env("SGF_MANAGED", "1")
-        .stdin(std::process::Stdio::from(slave))
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .args(["--command", script_path.to_str().unwrap(), "2", "prompt.md"])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(
+        Command::new(bin)
+            .current_dir(dir.path())
+            .env("RALPH_AUTO_PUSH", "false")
+            .env("RUST_LOG", "warn")
+            .env("SGF_MANAGED", "1")
+            .stdin(std::process::Stdio::from(slave))
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .args(["--command", script_path.to_str().unwrap(), "2", "prompt.md"]),
+    );
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(
@@ -2108,18 +1987,15 @@ fn multi_iteration_generates_fresh_session_id_per_iteration() {
     let dir = setup_test_dir();
     let mock = create_multi_iteration_arg_capturing_mock(&dir, "complete.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "--session-id",
-            "initial-uuid-from-sgf",
-            "2",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "--session-id",
+        "initial-uuid-from-sgf",
+        "2",
+        "prompt.md",
+    ]));
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(
@@ -2178,16 +2054,13 @@ fn multi_iteration_without_session_id_generates_fresh_uuid_on_iter2() {
     let dir = setup_test_dir();
     let mock = create_multi_iteration_arg_capturing_mock(&dir, "complete.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "2",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "2",
+        "prompt.md",
+    ]));
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(
@@ -2231,17 +2104,14 @@ fn multi_iteration_interactive_generates_fresh_session_id_per_iteration() {
     let dir = setup_test_dir();
     let mock = create_multi_iteration_arg_capturing_mock(&dir, "complete.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--command",
-            mock.to_str().unwrap(),
-            "--session-id",
-            "initial-interactive-uuid",
-            "2",
-            "prompt.md",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--command",
+        mock.to_str().unwrap(),
+        "--session-id",
+        "initial-interactive-uuid",
+        "2",
+        "prompt.md",
+    ]));
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert_eq!(
@@ -2310,17 +2180,14 @@ fn resume_on_iteration1_passes_resume_and_omits_prompt() {
     let dir = setup_test_dir();
     let mock = create_arg_capturing_mock(&dir, "complete.ndjson");
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "--resume",
-            "resume-session-uuid",
-            "1",
-        ])
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(ralph_cmd(&dir).args([
+        "--afk",
+        "--command",
+        mock.to_str().unwrap(),
+        "--resume",
+        "resume-session-uuid",
+        "1",
+    ]));
 
     assert!(
         output.status.success(),
@@ -2491,18 +2358,18 @@ fn ralph_to_cl_e2e_invocation_chain() {
         std::env::var("PATH").unwrap_or_default()
     );
 
-    let output = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--command",
-            cl_path.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .env("PATH", &path_var)
-        .env("HOME", dir.path().to_str().unwrap())
-        .output()
-        .expect("run ralph");
+    let output = run_ralph(
+        ralph_cmd(&dir)
+            .args([
+                "--afk",
+                "--command",
+                cl_path.to_str().unwrap(),
+                "1",
+                "prompt.md",
+            ])
+            .env("PATH", &path_var)
+            .env("HOME", dir.path().to_str().unwrap()),
+    );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
