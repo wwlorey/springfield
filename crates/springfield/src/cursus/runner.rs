@@ -1,5 +1,6 @@
 use std::fs;
 use std::io;
+use std::io::IsTerminal;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -370,7 +371,8 @@ fn run_cursus_loop(
             && def.iters[start_index..].iter().any(|i| i.mode == Mode::Afk));
     let monitor_stdin = config.monitor_stdin_override.unwrap_or_else(|| {
         if is_afk {
-            std::env::var("SGF_MONITOR_STDIN").map_or(true, |v| v != "0")
+            std::env::var("SGF_MONITOR_STDIN")
+                .map_or_else(|_| std::io::stdin().is_terminal(), |v| v != "0")
         } else {
             false
         }

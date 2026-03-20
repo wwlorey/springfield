@@ -995,17 +995,6 @@ fn logs_exits_1_for_missing() {
 }
 
 #[test]
-fn status_prints_placeholder() {
-    let tmp = setup_test_dir();
-
-    let output = run_sgf(sgf_cmd(tmp.path()).arg("status"));
-
-    assert!(output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("not yet implemented"));
-}
-
-#[test]
 fn help_flag() {
     let tmp = setup_test_dir();
     let output = run_sgf(sgf_cmd(tmp.path()).arg("--help"));
@@ -1013,10 +1002,6 @@ fn help_flag() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("init"), "help should list init built-in");
-    assert!(
-        stdout.contains("status"),
-        "help should list status built-in"
-    );
     assert!(stdout.contains("logs"), "help should list logs built-in");
 }
 
