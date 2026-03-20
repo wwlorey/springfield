@@ -5145,3 +5145,107 @@ fn list_commands_sorted_alphabetically() {
         "alpha should appear before zebra (sorted): {stdout}"
     );
 }
+
+#[test]
+fn cursus_afk_then_interactive_stdin_not_stolen() {
+    use std::io::Write;
+
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
+
+    create_spec_and_commit(tmp.path(), "auth");
+
+    let mock_dir = TempDir::new().unwrap();
+    let stdin_capture = mock_dir.path().join("stdin_capture.txt");
+
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph.sh",
+        concat!(
+            "#!/bin/sh\n",
+            "mkdir -p \"$SGF_RUN_CONTEXT\"\n",
+            "echo 'gathered' > \"$SGF_RUN_CONTEXT/gather-output.md\"\n",
+            "touch \"${PWD}/.ralph-complete\"\n",
+            "exit 0\n",
+        ),
+    );
+
+    let mock_cl_dir = TempDir::new().unwrap();
+    create_mock_script(
+        mock_cl_dir.path(),
+        "cl",
+        &format!(
+            concat!(
+                "#!/bin/bash\n",
+                "read -t 5 LINE\n",
+                "echo \"$LINE\" > \"{capture}\"\n",
+                "exit 0\n",
+            ),
+            capture = stdin_capture.display()
+        ),
+    );
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
+
+    write_cursus_toml(
+        tmp.path(),
+        "mixed",
+        concat!(
+            "description = \"Mixed afk-then-interactive\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"gather\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+            "produces = \"gather-output\"\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"discuss\"\n",
+            "prompt = \"spec.md\"\n",
+            "mode = \"interactive\"\n",
+            "consumes = [\"gather-output\"]\n",
+        ),
+    );
+
+    let mut guard = ChildGuard::spawn(
+        sgf_cmd(tmp.path())
+            .args(["mixed", "auth"])
+            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("PATH", &mock_path_with_cl)
+            .env("SGF_MONITOR_STDIN", "1")
+            .env_remove("CLAUDECODE")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn sgf");
+
+    let mut stdin = guard.child_mut().stdin.take().expect("open stdin");
+
+    let writer = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(1));
+        let _ = stdin.write_all(b"hello_from_stdin\n");
+        let _ = stdin.flush();
+        std::thread::sleep(Duration::from_secs(1));
+        drop(stdin);
+    });
+
+    let output = guard
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("wait for sgf");
+    writer.join().ok();
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "sgf should succeed, stderr: {stderr}"
+    );
+
+    let captured = fs::read_to_string(&stdin_capture).unwrap_or_default();
+    assert!(
+        captured.contains("hello_from_stdin"),
+        "interactive cl should receive stdin data, but got: {captured:?}\nstderr: {stderr}"
+    );
+}

@@ -147,6 +147,7 @@ pub struct ShutdownController {
     last_seen_eof: std::cell::Cell<u64>,
     confirmed_shutdown: std::cell::Cell<bool>,
     signal_ids: Vec<SigId>,
+    stdin_thread: Option<thread::JoinHandle<()>>,
 }
 
 impl ShutdownController {
@@ -171,25 +172,44 @@ impl ShutdownController {
         let sigterm_id = signal_hook::flag::register(SIGTERM, Arc::clone(&inner.sigterm))?;
         signal_ids.push(sigterm_id);
 
-        if config.monitor_stdin {
+        let stdin_thread = if config.monitor_stdin {
             let inner_stdin = Arc::clone(&inner);
-            thread::Builder::new()
-                .name("shutdown-stdin".into())
-                .spawn(move || {
-                    let stdin = io::stdin();
-                    let mut handle = stdin.lock();
-                    let mut buf = [0u8; 256];
-                    while !inner_stdin.stop.load(Ordering::Relaxed) {
-                        match handle.read(&mut buf) {
-                            Ok(0) => {
-                                inner_stdin.eof_count.fetch_add(1, Ordering::SeqCst);
+            Some(
+                thread::Builder::new()
+                    .name("shutdown-stdin".into())
+                    .spawn(move || {
+                        use std::os::unix::io::AsRawFd;
+                        let stdin = io::stdin();
+                        let fd = stdin.as_raw_fd();
+                        let mut buf = [0u8; 256];
+                        while !inner_stdin.stop.load(Ordering::Relaxed) {
+                            let mut pfd = libc::pollfd {
+                                fd,
+                                events: libc::POLLIN,
+                                revents: 0,
+                            };
+                            let ret = unsafe { libc::poll(&mut pfd, 1, 200) };
+                            if inner_stdin.stop.load(Ordering::Relaxed) {
+                                break;
                             }
-                            Ok(_) => {}
-                            Err(_) => break,
+                            if ret <= 0 {
+                                continue;
+                            }
+                            let mut handle = stdin.lock();
+                            match handle.read(&mut buf) {
+                                Ok(0) => {
+                                    inner_stdin.eof_count.fetch_add(1, Ordering::SeqCst);
+                                }
+                                Ok(_) => {}
+                                Err(_) => break,
+                            }
+                            drop(handle);
                         }
-                    }
-                })?;
-        }
+                    })?,
+            )
+        } else {
+            None
+        };
 
         Ok(Self {
             inner,
@@ -200,6 +220,7 @@ impl ShutdownController {
             last_seen_eof: std::cell::Cell::new(0),
             confirmed_shutdown: std::cell::Cell::new(false),
             signal_ids,
+            stdin_thread,
         })
     }
 
@@ -306,6 +327,9 @@ impl Drop for ShutdownController {
             signal_hook::low_level::unregister(*id);
         }
         self.inner.stop.store(true, Ordering::Relaxed);
+        if let Some(handle) = self.stdin_thread.take() {
+            let _ = handle.join();
+        }
     }
 }
 

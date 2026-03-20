@@ -366,22 +366,6 @@ fn run_cursus_loop(
     metadata: &mut RunMetadata,
     start_index: usize,
 ) -> io::Result<i32> {
-    let is_afk = config.mode_override.as_ref() == Some(&Mode::Afk)
-        || (config.mode_override.is_none()
-            && def.iters[start_index..].iter().any(|i| i.mode == Mode::Afk));
-    let monitor_stdin = config.monitor_stdin_override.unwrap_or_else(|| {
-        if is_afk {
-            std::env::var("SGF_MONITOR_STDIN")
-                .map_or_else(|_| std::io::stdin().is_terminal(), |v| v != "0")
-        } else {
-            false
-        }
-    });
-    let controller = ShutdownController::new(ShutdownConfig {
-        monitor_stdin,
-        ..Default::default()
-    })?;
-
     if let Ok(ready_path) = std::env::var("SGF_READY_FILE") {
         let _ = fs::write(&ready_path, "");
     }
@@ -406,6 +390,20 @@ fn run_cursus_loop(
             .mode_override
             .clone()
             .unwrap_or_else(|| iter.mode.clone());
+
+        let is_afk = effective_mode == Mode::Afk;
+        let monitor_stdin = config.monitor_stdin_override.unwrap_or_else(|| {
+            if is_afk {
+                std::env::var("SGF_MONITOR_STDIN")
+                    .map_or_else(|_| std::io::stdin().is_terminal(), |v| v != "0")
+            } else {
+                false
+            }
+        });
+        let controller = ShutdownController::new(ShutdownConfig {
+            monitor_stdin,
+            ..Default::default()
+        })?;
         let session_id = Uuid::new_v4().to_string();
 
         let prompt_path = resolve_prompt(root, &iter.prompt).ok_or_else(|| {

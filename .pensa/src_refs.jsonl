@@ -98,3 +98,6 @@
 {"id":"pn-3294243e","issue_id":"pn-5bd3cc96","path":"crates/springfield/src/orchestrate.rs","reason":"setsid in AFK ralph spawn at line 340","created_at":"2026-03-20T14:40:33Z"}
 {"id":"pn-f502c7ac","issue_id":"pn-5bd3cc96","path":"crates/springfield/src/cursus/runner.rs","reason":"setsid in cursus ralph spawn at line 234","created_at":"2026-03-20T14:40:33Z"}
 {"id":"pn-2b389c11","issue_id":"pn-5bd3cc96","path":"crates/ralph/tests/integration.rs","reason":"58 unguarded .output() calls, no ProcessSemaphore","created_at":"2026-03-20T14:40:33Z"}
+{"id":"pn-2c7134e4","issue_id":"pn-9478d17d","path":"crates/springfield/src/cursus/runner.rs","reason":"run_cursus_loop: move ShutdownController creation inside per-iter loop","created_at":"2026-03-20T21:36:48Z"}
+{"id":"pn-1fe3ed8e","issue_id":"pn-7f1f6f14","path":"crates/shutdown/src/lib.rs","reason":"Replace blocking read with poll-based loop, store JoinHandle, join on Drop","created_at":"2026-03-20T21:36:48Z"}
+{"id":"pn-e1475440","issue_id":"pn-ade3d2bf","path":"crates/springfield/tests/integration.rs","reason":"Add cursus_afk_then_interactive_stdin_not_stolen test","created_at":"2026-03-20T21:36:48Z"}
