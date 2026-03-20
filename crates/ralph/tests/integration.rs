@@ -2443,6 +2443,125 @@ fn sigterm_exits_immediately() {
 }
 
 #[test]
+fn ralph_to_cl_e2e_invocation_chain() {
+    let dir = setup_test_dir();
+    let fixture_path = fixtures_dir().join("complete.ndjson");
+
+    // Create .sgf/ context files in the work directory
+    fs::create_dir_all(dir.path().join(".sgf")).expect("create .sgf dir");
+    fs::write(dir.path().join(".sgf/MEMENTO.md"), "memento content").expect("write MEMENTO.md");
+    fs::write(
+        dir.path().join(".sgf/BACKPRESSURE.md"),
+        "backpressure content",
+    )
+    .expect("write BACKPRESSURE.md");
+
+    // Create mock claude-wrapper-secret that captures args and outputs NDJSON
+    let mock_dir = tempfile::TempDir::new().expect("create mock dir");
+    let args_file = dir.path().join("captured-secret-args.txt");
+    let mock_script = mock_dir.path().join("claude-wrapper-secret");
+    let script_content = format!(
+        "#!/bin/bash\nprintf '%s\\n' \"$@\" > {args}\ncat {fixture}\ntouch {sentinel}\n",
+        args = args_file.display(),
+        fixture = fixture_path.display(),
+        sentinel = dir.path().join(".ralph-complete").display(),
+    );
+    fs::write(&mock_script, script_content).expect("write mock claude-wrapper-secret");
+    fs::set_permissions(&mock_script, fs::Permissions::from_mode(0o755)).expect("chmod");
+
+    // Find cl binary in the cargo target directory
+    let cl_path = {
+        let mut p = std::env::current_exe().unwrap();
+        p.pop(); // test binary name
+        p.pop(); // deps/
+        p.push("cl");
+        p
+    };
+    assert!(
+        cl_path.exists(),
+        "cl binary not found at {}; build with `cargo build --workspace`",
+        cl_path.display()
+    );
+
+    // Put mock claude-wrapper-secret in PATH ahead of everything else
+    let path_var = format!(
+        "{}:{}",
+        mock_dir.path().to_string_lossy(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+
+    let output = ralph_cmd(&dir)
+        .args([
+            "--afk",
+            "--command",
+            cl_path.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .env("PATH", &path_var)
+        .env("HOME", dir.path().to_str().unwrap())
+        .output()
+        .expect("run ralph");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "ralph → cl → mock should exit 0, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        output.status.code()
+    );
+
+    // Verify mock claude-wrapper-secret was invoked
+    assert!(
+        args_file.exists(),
+        "claude-wrapper-secret was never invoked — the chain is broken"
+    );
+
+    let captured = fs::read_to_string(&args_file).expect("read captured args");
+    let lines: Vec<&str> = captured.lines().collect();
+
+    // Verify cl injected --append-system-prompt with study @ context
+    let asp_idx = lines
+        .iter()
+        .position(|&l| l == "--append-system-prompt")
+        .expect("cl should inject --append-system-prompt for context files");
+    let study_arg = lines[asp_idx + 1];
+    assert!(
+        study_arg.contains("study @") && study_arg.contains("MEMENTO.md"),
+        "should contain study @...MEMENTO.md, got: {study_arg}"
+    );
+    assert!(
+        study_arg.contains("BACKPRESSURE.md"),
+        "should contain BACKPRESSURE.md, got: {study_arg}"
+    );
+
+    // Verify ralph's standard args were forwarded through cl
+    assert!(
+        lines.contains(&"--verbose"),
+        "should forward --verbose from ralph, got:\n{captured}"
+    );
+    assert!(
+        lines.contains(&"--dangerously-skip-permissions"),
+        "should forward --dangerously-skip-permissions from ralph, got:\n{captured}"
+    );
+    assert!(
+        lines.contains(&"--print"),
+        "should forward --print (AFK mode) from ralph, got:\n{captured}"
+    );
+    assert!(
+        lines.contains(&"stream-json"),
+        "should forward stream-json output format from ralph, got:\n{captured}"
+    );
+
+    // Verify prompt was forwarded
+    assert!(
+        lines.iter().any(|&l| l == "@prompt.md"),
+        "should forward prompt arg through the chain, got:\n{captured}"
+    );
+}
+
+#[test]
 fn confirmation_message_on_first_ctrl_c() {
     let dir = setup_test_dir();
     let script_path = dir.path().join("mock_slow_confirm.sh");
