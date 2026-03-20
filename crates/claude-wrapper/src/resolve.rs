@@ -3,15 +3,15 @@ use std::path::Path;
 pub fn resolve_context_files(cwd: &Path, home: Option<&Path>) -> Vec<String> {
     let mut files = Vec::new();
 
-    let layered = [("MEMENTO.md", true), ("BACKPRESSURE.md", true)];
+    let layered = ["MEMENTO.md", "BACKPRESSURE.md"];
 
-    for (filename, has_global) in layered {
+    for filename in layered {
         let local = cwd.join(".sgf").join(filename);
         if local.exists() {
             files.push(local.to_string_lossy().into_owned());
             continue;
         }
-        if has_global && let Some(home) = home {
+        if let Some(home) = home {
             let global = home.join(".sgf").join(filename);
             if global.exists() {
                 files.push(global.to_string_lossy().into_owned());
