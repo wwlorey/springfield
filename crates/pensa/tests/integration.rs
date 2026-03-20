@@ -1124,6 +1124,60 @@ fn ready_includes_unplanned_bugs() {
 }
 
 #[test]
+fn ready_excludes_planned_bugs() {
+    let d = PensaOnlyDaemon::start();
+
+    // Create a bug
+    let resp = d
+        .client
+        .post(d.url("/issues"))
+        .json(&serde_json::json!({
+            "title": "Login crash on empty password",
+            "issue_type": "bug",
+            "actor": "tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201, "bug creation should succeed");
+    let bug: Value = resp.json().unwrap();
+    let bug_id = bug["id"].as_str().unwrap().to_string();
+
+    // Bug should appear in ready (unplanned — no fix tasks)
+    let resp = d.client.get(d.url("/issues/ready")).send().unwrap();
+    assert_eq!(resp.status(), 200);
+    let ready: Vec<Value> = resp.json().unwrap();
+    let ready_ids: Vec<&str> = ready.iter().filter_map(|i| i["id"].as_str()).collect();
+    assert!(
+        ready_ids.contains(&bug_id.as_str()),
+        "unplanned bug should appear in ready list before fix task is created, got: {ready_ids:?}"
+    );
+
+    // Create a fix task with --fixes pointing to the bug
+    let resp = d
+        .client
+        .post(d.url("/issues"))
+        .json(&serde_json::json!({
+            "title": "Add empty password validation",
+            "issue_type": "task",
+            "fixes": bug_id,
+            "actor": "tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201, "fix task creation should succeed");
+
+    // Bug should no longer appear in ready (now planned)
+    let resp = d.client.get(d.url("/issues/ready")).send().unwrap();
+    assert_eq!(resp.status(), 200);
+    let ready: Vec<Value> = resp.json().unwrap();
+    let ready_ids: Vec<&str> = ready.iter().filter_map(|i| i["id"].as_str()).collect();
+    assert!(
+        !ready_ids.contains(&bug_id.as_str()),
+        "planned bug should NOT appear in ready list, got: {ready_ids:?}"
+    );
+}
+
+#[test]
 fn cycle_detection_rejects_circular_dependencies() {
     let d = PensaOnlyDaemon::start();
 
@@ -1686,7 +1740,11 @@ fn doctor_fix_releases_in_progress_claims() {
 
     // Verify the two are in_progress and the third is open
     for (i, id) in ids.iter().enumerate() {
-        let resp = d.client.get(d.url(&format!("/issues/{id}"))).send().unwrap();
+        let resp = d
+            .client
+            .get(d.url(&format!("/issues/{id}")))
+            .send()
+            .unwrap();
         let issue: Value = resp.json().unwrap();
         if i < 2 {
             assert_eq!(issue["status"], "in_progress");
@@ -1698,16 +1756,14 @@ fn doctor_fix_releases_in_progress_claims() {
     }
 
     // Run doctor --fix
-    let resp = d
-        .client
-        .post(d.url("/doctor?fix=true"))
-        .send()
-        .unwrap();
+    let resp = d.client.post(d.url("/doctor?fix=true")).send().unwrap();
     assert_eq!(resp.status(), 200);
     let report: Value = resp.json().unwrap();
 
     // Verify findings detected the stale claims
-    let findings = report["findings"].as_array().expect("findings should be array");
+    let findings = report["findings"]
+        .as_array()
+        .expect("findings should be array");
     assert_eq!(findings.len(), 2, "should find 2 stale in_progress claims");
     assert!(
         findings.iter().all(|f| f["check"] == "stale_claim"),
@@ -1715,12 +1771,18 @@ fn doctor_fix_releases_in_progress_claims() {
     );
 
     // Verify fixes were applied
-    let fixes = report["fixes_applied"].as_array().expect("fixes_applied should be array");
+    let fixes = report["fixes_applied"]
+        .as_array()
+        .expect("fixes_applied should be array");
     assert!(!fixes.is_empty(), "fixes should have been applied");
 
     // Verify all issues are now open with no assignee
     for id in &ids {
-        let resp = d.client.get(d.url(&format!("/issues/{id}"))).send().unwrap();
+        let resp = d
+            .client
+            .get(d.url(&format!("/issues/{id}")))
+            .send()
+            .unwrap();
         let issue: Value = resp.json().unwrap();
         assert_eq!(
             issue["status"], "open",
