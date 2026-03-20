@@ -3,6 +3,7 @@ use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, ExitStatus, Output};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -268,6 +269,55 @@ impl Drop for ShutdownController {
             signal_hook::low_level::unregister(*id);
         }
         self.inner.stop.store(true, Ordering::Relaxed);
+    }
+}
+
+pub struct ProcessSemaphore {
+    mutex: Mutex<usize>,
+    condvar: Condvar,
+    max: usize,
+}
+
+impl ProcessSemaphore {
+    pub fn new(max: usize) -> Self {
+        Self {
+            mutex: Mutex::new(0),
+            condvar: Condvar::new(),
+            max,
+        }
+    }
+
+    pub fn from_env(var: &str, default: usize) -> Self {
+        let max = std::env::var(var)
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(default);
+        Self::new(max)
+    }
+
+    pub fn max(&self) -> usize {
+        self.max
+    }
+
+    pub fn acquire(&self) -> ProcessSemaphoreGuard<'_> {
+        let mut count = self.mutex.lock().unwrap();
+        while *count >= self.max {
+            count = self.condvar.wait(count).unwrap();
+        }
+        *count += 1;
+        ProcessSemaphoreGuard { sem: self }
+    }
+}
+
+pub struct ProcessSemaphoreGuard<'a> {
+    sem: &'a ProcessSemaphore,
+}
+
+impl Drop for ProcessSemaphoreGuard<'_> {
+    fn drop(&mut self) {
+        let mut count = self.sem.mutex.lock().unwrap();
+        *count -= 1;
+        self.sem.condvar.notify_one();
     }
 }
 
@@ -579,6 +629,109 @@ mod tests {
                         wait_for_pid_dead(*pid, Duration::from_secs(5)),
                         "pid {} still alive", pid
                     );
+                }
+            }
+        }
+    }
+
+    mod semaphore_tests {
+        use super::*;
+
+        #[test]
+        fn acquire_up_to_max() {
+            let sem = ProcessSemaphore::new(4);
+            let _g1 = sem.acquire();
+            let _g2 = sem.acquire();
+            let _g3 = sem.acquire();
+            let _g4 = sem.acquire();
+        }
+
+        #[test]
+        fn acquire_blocks_at_max() {
+            use std::sync::Arc;
+            use std::sync::atomic::{AtomicBool, Ordering};
+
+            let sem = Arc::new(ProcessSemaphore::new(1));
+            let _g = sem.acquire();
+
+            let blocked = Arc::new(AtomicBool::new(true));
+            let blocked_clone = Arc::clone(&blocked);
+            let sem_clone = Arc::clone(&sem);
+
+            let handle = thread::spawn(move || {
+                let _g2 = sem_clone.acquire();
+                blocked_clone.store(false, Ordering::SeqCst);
+            });
+
+            thread::sleep(Duration::from_millis(100));
+            assert!(blocked.load(Ordering::SeqCst), "thread should be blocked");
+
+            drop(_g);
+            handle.join().unwrap();
+            assert!(
+                !blocked.load(Ordering::SeqCst),
+                "thread should have unblocked"
+            );
+        }
+
+        #[test]
+        fn guard_releases_on_drop() {
+            let sem = ProcessSemaphore::new(1);
+            let g = sem.acquire();
+            drop(g);
+            let _g2 = sem.acquire();
+        }
+
+        #[test]
+        fn from_env_reads_variable() {
+            let key = "SGF_TEST_SEM_READ_VAR_TEST";
+            unsafe { std::env::set_var(key, "3") };
+            let sem = ProcessSemaphore::from_env(key, 10);
+            assert_eq!(sem.max(), 3);
+            unsafe { std::env::remove_var(key) };
+        }
+
+        #[test]
+        fn from_env_uses_default() {
+            let key = "SGF_TEST_SEM_NONEXISTENT_VAR";
+            unsafe { std::env::remove_var(key) };
+            let sem = ProcessSemaphore::from_env(key, 5);
+            assert_eq!(sem.max(), 5);
+        }
+
+        mod prop {
+            use super::*;
+            use proptest::prelude::*;
+            use std::sync::Arc;
+            use std::sync::atomic::{AtomicUsize, Ordering};
+
+            proptest! {
+                #![proptest_config(ProptestConfig::with_cases(32))]
+                #[test]
+                fn active_permits_never_exceed_max(max in 2usize..=8, n_threads in 2usize..=16) {
+                    let sem = Arc::new(ProcessSemaphore::new(max));
+                    let active = Arc::new(AtomicUsize::new(0));
+                    let violated = Arc::new(AtomicBool::new(false));
+
+                    let handles: Vec<_> = (0..n_threads).map(|_| {
+                        let sem = Arc::clone(&sem);
+                        let active = Arc::clone(&active);
+                        let violated = Arc::clone(&violated);
+                        thread::spawn(move || {
+                            let _g = sem.acquire();
+                            let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+                            if current > max {
+                                violated.store(true, Ordering::SeqCst);
+                            }
+                            thread::sleep(Duration::from_millis(5));
+                            active.fetch_sub(1, Ordering::SeqCst);
+                        })
+                    }).collect();
+
+                    for h in handles {
+                        h.join().unwrap();
+                    }
+                    prop_assert!(!violated.load(Ordering::SeqCst), "active permits exceeded max");
                 }
             }
         }

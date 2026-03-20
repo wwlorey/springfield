@@ -29,3 +29,4 @@ portpicker = "0.1"
 proptest = "1"
 forma = { path = "../forma" }
 reqwest = { version = "0.12", features = ["blocking", "json"] }
+shutdown = { path = "../shutdown" }

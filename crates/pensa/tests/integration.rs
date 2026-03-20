@@ -1,54 +1,13 @@
 use std::process::Command;
-use std::sync::{Condvar, LazyLock, Mutex};
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use serde_json::Value;
+use shutdown::ProcessSemaphore;
 use tempfile::TempDir;
 
-struct ProcessSemaphore {
-    mutex: Mutex<usize>,
-    condvar: Condvar,
-    max: usize,
-}
-
-impl ProcessSemaphore {
-    fn new(max: usize) -> Self {
-        Self {
-            mutex: Mutex::new(0),
-            condvar: Condvar::new(),
-            max,
-        }
-    }
-
-    fn acquire(&self) -> SemaphoreGuard<'_> {
-        let mut count = self.mutex.lock().unwrap();
-        while *count >= self.max {
-            count = self.condvar.wait(count).unwrap();
-        }
-        *count += 1;
-        SemaphoreGuard { sem: self }
-    }
-}
-
-struct SemaphoreGuard<'a> {
-    sem: &'a ProcessSemaphore,
-}
-
-impl Drop for SemaphoreGuard<'_> {
-    fn drop(&mut self) {
-        let mut count = self.sem.mutex.lock().unwrap();
-        *count -= 1;
-        self.sem.condvar.notify_one();
-    }
-}
-
-static PN_PERMITS: LazyLock<ProcessSemaphore> = LazyLock::new(|| {
-    let max = std::env::var("SGF_TEST_MAX_CONCURRENT")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(8);
-    ProcessSemaphore::new(max)
-});
+static PN_PERMITS: LazyLock<ProcessSemaphore> =
+    LazyLock::new(|| ProcessSemaphore::from_env("SGF_TEST_MAX_CONCURRENT", 8));
 
 fn pn_bin() -> String {
     env!("CARGO_BIN_EXE_pn").to_string()

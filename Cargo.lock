@@ -295,6 +295,7 @@ name = "claude-wrapper"
 version = "0.1.0"
 dependencies = [
  "dirs",
+ "shutdown",
  "tempfile",
 ]
 
@@ -1230,6 +1231,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "shutdown",
  "tempfile",
  "tokio",
  "tracing",

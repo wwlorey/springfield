@@ -2,11 +2,11 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::LazyLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Condvar, LazyLock, Mutex};
 use std::time::Duration;
 
-use shutdown::ChildGuard;
+use shutdown::{ChildGuard, ProcessSemaphore};
 use tempfile::TempDir;
 
 // ---------------------------------------------------------------------------
@@ -93,50 +93,8 @@ fn sgf_bin() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_sgf"))
 }
 
-struct SgfSemaphore {
-    mutex: Mutex<usize>,
-    condvar: Condvar,
-    max: usize,
-}
-
-impl SgfSemaphore {
-    fn new(max: usize) -> Self {
-        Self {
-            mutex: Mutex::new(0),
-            condvar: Condvar::new(),
-            max,
-        }
-    }
-
-    fn acquire(&self) -> SemaphoreGuard<'_> {
-        let mut count = self.mutex.lock().unwrap();
-        while *count >= self.max {
-            count = self.condvar.wait(count).unwrap();
-        }
-        *count += 1;
-        SemaphoreGuard { sem: self }
-    }
-}
-
-struct SemaphoreGuard<'a> {
-    sem: &'a SgfSemaphore,
-}
-
-impl Drop for SemaphoreGuard<'_> {
-    fn drop(&mut self) {
-        let mut count = self.sem.mutex.lock().unwrap();
-        *count -= 1;
-        self.sem.condvar.notify_one();
-    }
-}
-
-static SGF_PERMITS: LazyLock<SgfSemaphore> = LazyLock::new(|| {
-    let max = std::env::var("SGF_TEST_MAX_CONCURRENT")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(8);
-    SgfSemaphore::new(max)
-});
+static SGF_PERMITS: LazyLock<ProcessSemaphore> =
+    LazyLock::new(|| ProcessSemaphore::from_env("SGF_TEST_MAX_CONCURRENT", 8));
 
 static MOCK_BINS: LazyLock<(TempDir, String)> = LazyLock::new(|| {
     let mock_dir = TempDir::new().unwrap();
@@ -4116,7 +4074,7 @@ fn cursus_single_iter_sentinel_cleaned_on_exhausted() {
 
 #[test]
 fn harness_semaphore_limits_concurrency() {
-    let sem = SgfSemaphore::new(3);
+    let sem = ProcessSemaphore::new(3);
     let peak = AtomicUsize::new(0);
     let current = AtomicUsize::new(0);
 
