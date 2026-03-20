@@ -1436,6 +1436,105 @@ fn claim_semantics_full_flow() {
 }
 
 #[test]
+fn concurrent_claims_exactly_one_succeeds() {
+    let d = PensaOnlyDaemon::start();
+
+    let resp = d
+        .client
+        .post(d.url("/issues"))
+        .json(&serde_json::json!({
+            "title": "Concurrent claim target",
+            "issue_type": "task",
+            "actor": "setup"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    let issue: Value = resp.json().unwrap();
+    let id = issue["id"].as_str().unwrap().to_string();
+
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+
+    let url1 = d.url(&format!("/issues/{id}"));
+    let b1 = barrier.clone();
+    let h1 = std::thread::spawn(move || {
+        let client = reqwest::blocking::Client::new();
+        b1.wait();
+        client
+            .patch(&url1)
+            .json(&serde_json::json!({
+                "claim": true,
+                "actor": "agent-1"
+            }))
+            .send()
+            .unwrap()
+    });
+
+    let url2 = d.url(&format!("/issues/{id}"));
+    let b2 = barrier.clone();
+    let h2 = std::thread::spawn(move || {
+        let client = reqwest::blocking::Client::new();
+        b2.wait();
+        client
+            .patch(&url2)
+            .json(&serde_json::json!({
+                "claim": true,
+                "actor": "agent-2"
+            }))
+            .send()
+            .unwrap()
+    });
+
+    let r1 = h1.join().unwrap();
+    let r2 = h2.join().unwrap();
+
+    let s1 = r1.status().as_u16();
+    let s2 = r2.status().as_u16();
+
+    let statuses = [s1, s2];
+    let success_count = statuses.iter().filter(|&&s| s == 200).count();
+    let conflict_count = statuses.iter().filter(|&&s| s == 409).count();
+
+    assert_eq!(
+        success_count, 1,
+        "exactly one claim should succeed, got statuses: {statuses:?}"
+    );
+    assert_eq!(
+        conflict_count, 1,
+        "exactly one claim should fail with 409, got statuses: {statuses:?}"
+    );
+
+    let (winner_body, loser_body) = if s1 == 200 {
+        (r1.json::<Value>().unwrap(), r2.json::<Value>().unwrap())
+    } else {
+        (r2.json::<Value>().unwrap(), r1.json::<Value>().unwrap())
+    };
+
+    assert_eq!(winner_body["status"], "in_progress");
+    assert!(
+        winner_body["assignee"] == "agent-1" || winner_body["assignee"] == "agent-2",
+        "winner should be one of the agents"
+    );
+
+    assert_eq!(loser_body["code"], "already_claimed");
+    let winner_name = winner_body["assignee"].as_str().unwrap();
+    let err_msg = loser_body["error"].as_str().unwrap();
+    assert!(
+        err_msg.contains(winner_name),
+        "error should report the winner ({winner_name}), got: {err_msg}"
+    );
+
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{id}")))
+        .send()
+        .unwrap();
+    let detail: Value = resp.json().unwrap();
+    assert_eq!(detail["status"], "in_progress");
+    assert_eq!(detail["assignee"], winner_name);
+}
+
+#[test]
 fn ready_type_filter_excludes_bugs() {
     let d = PensaOnlyDaemon::start();
 
