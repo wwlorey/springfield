@@ -11,3 +11,4 @@ libc = "0.2"
 [dev-dependencies]
 nix = { version = "0.29", features = ["signal", "process"] }
 serial_test = "3"
+proptest = "1"

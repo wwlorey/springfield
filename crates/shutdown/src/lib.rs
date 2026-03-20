@@ -1,4 +1,6 @@
 use std::io::{self, Read as _};
+use std::os::unix::process::CommandExt;
+use std::process::{Child, Command, ExitStatus, Output};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
@@ -6,6 +8,69 @@ use std::time::{Duration, Instant};
 
 use signal_hook::SigId;
 use signal_hook::consts::{SIGINT, SIGTERM};
+
+const CHILD_GUARD_KILL_TIMEOUT: Duration = Duration::from_millis(200);
+
+pub struct ChildGuard {
+    child: Option<Child>,
+    pid: u32,
+}
+
+impl ChildGuard {
+    pub fn spawn(cmd: &mut Command) -> io::Result<Self> {
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::setpgid(0, 0);
+                Ok(())
+            });
+        }
+        let child = cmd.spawn()?;
+        let pid = child.id();
+        Ok(Self {
+            child: Some(child),
+            pid,
+        })
+    }
+
+    pub fn new(child: Child) -> Self {
+        let pid = child.id();
+        Self {
+            child: Some(child),
+            pid,
+        }
+    }
+
+    pub fn id(&self) -> u32 {
+        self.pid
+    }
+
+    pub fn child_mut(&mut self) -> &mut Child {
+        self.child.as_mut().expect("child already consumed")
+    }
+
+    pub fn wait_with_output(mut self) -> io::Result<Output> {
+        let child = self.child.take().expect("child already consumed");
+        child.wait_with_output()
+    }
+
+    pub fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
+        self.child_mut().try_wait()
+    }
+}
+
+impl Drop for ChildGuard {
+    fn drop(&mut self) {
+        let Some(mut child) = self.child.take() else {
+            return;
+        };
+
+        if !kill_process_group(self.pid, CHILD_GUARD_KILL_TIMEOUT) {
+            let _ = child.kill();
+        }
+
+        let _ = child.wait();
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShutdownStatus {
@@ -374,5 +439,148 @@ mod tests {
 
         thread::sleep(Duration::from_millis(150));
         assert_eq!(ctrl.poll(), ShutdownStatus::Running);
+    }
+
+    fn spawn_guard(args: &[&str]) -> ChildGuard {
+        let mut cmd = Command::new(args[0]);
+        if args.len() > 1 {
+            cmd.args(&args[1..]);
+        }
+        cmd.stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        ChildGuard::spawn(&mut cmd).unwrap()
+    }
+
+    #[test]
+    fn drop_kills_running_process() {
+        let guard = spawn_guard(&["sleep", "60"]);
+        let pid = guard.id();
+        thread::sleep(Duration::from_millis(50));
+        drop(guard);
+        assert!(wait_for_pid_dead(pid, Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn drop_kills_descendants() {
+        let guard = spawn_guard(&["sh", "-c", "sleep 60 & sleep 60 & wait"]);
+        let pid = guard.id();
+        thread::sleep(Duration::from_millis(200));
+        drop(guard);
+        assert!(wait_for_pid_dead(pid, Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn drop_during_panic_cleans_up() {
+        let pid;
+        {
+            let guard = spawn_guard(&["sleep", "60"]);
+            pid = guard.id();
+            thread::sleep(Duration::from_millis(50));
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _guard = guard;
+                panic!("intentional panic");
+            }));
+            assert!(result.is_err());
+        }
+        assert!(wait_for_pid_dead(pid, Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn wait_with_output_consumes_child() {
+        let guard = spawn_guard(&["true"]);
+        let pid = guard.id();
+        let output = guard.wait_with_output().unwrap();
+        assert!(output.status.success());
+        assert!(wait_for_pid_dead(pid, Duration::from_secs(2)));
+    }
+
+    #[test]
+    fn already_exited_no_error() {
+        let guard = spawn_guard(&["true"]);
+        let pid = guard.id();
+        thread::sleep(Duration::from_millis(200));
+        drop(guard);
+        assert!(wait_for_pid_dead(pid, Duration::from_secs(2)));
+    }
+
+    #[test]
+    fn no_zombie_after_drop() {
+        let guard = spawn_guard(&["true"]);
+        let pid = guard.id();
+        thread::sleep(Duration::from_millis(200));
+        drop(guard);
+        thread::sleep(Duration::from_millis(100));
+        let ret = unsafe { libc::waitpid(pid as i32, std::ptr::null_mut(), libc::WNOHANG) };
+        assert!(ret == 0 || ret == -1, "no zombie: waitpid returned {ret}");
+        if ret == -1 {
+            assert_eq!(
+                io::Error::last_os_error().raw_os_error(),
+                Some(libc::ECHILD)
+            );
+        }
+    }
+
+    #[test]
+    fn fallback_kills_non_group_leader() {
+        let child = Command::new("sleep")
+            .arg("60")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        let guard = ChildGuard::new(child);
+        thread::sleep(Duration::from_millis(50));
+        drop(guard);
+        assert!(wait_for_pid_dead(pid, Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn concurrent_guards_all_cleanup() {
+        let mut pids = Vec::new();
+        let mut guards = Vec::new();
+        for _ in 0..10 {
+            let g = spawn_guard(&["sleep", "60"]);
+            pids.push(g.id());
+            guards.push(g);
+        }
+        thread::sleep(Duration::from_millis(100));
+        drop(guards);
+        for pid in &pids {
+            assert!(
+                wait_for_pid_dead(*pid, Duration::from_secs(5)),
+                "pid {pid} still alive"
+            );
+        }
+    }
+
+    mod prop {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            #![proptest_config(proptest::prelude::ProptestConfig::with_cases(16))]
+            #[test]
+            #[ignore]
+            fn no_process_leak(n in 1usize..=12) {
+                let mut pids = Vec::new();
+                let mut guards = Vec::new();
+                for _ in 0..n {
+                    let g = spawn_guard(&["sleep", "60"]);
+                    pids.push(g.id());
+                    guards.push(g);
+                }
+                thread::sleep(Duration::from_millis(100));
+                drop(guards);
+                for pid in &pids {
+                    prop_assert!(
+                        wait_for_pid_dead(*pid, Duration::from_secs(5)),
+                        "pid {} still alive", pid
+                    );
+                }
+            }
+        }
     }
 }
