@@ -11,15 +11,24 @@ ralph [OPTIONS] [ITERATIONS] [PROMPT]
 When invoked by `sgf`, the full command looks like:
 
 ```
-ralph [-a] [--loop-id ID] [--auto-push BOOL] [--max-iterations N] ITERATIONS PROMPT
+ralph [-a] [--loop-id ID] [--auto-push BOOL] [--banner] [--session-id UUID] ITERATIONS PROMPT
 ```
 
 ### Arguments
 
 | Argument | Type | Default | Description |
 |----------|------|---------|-------------|
-| `ITERATIONS` | u32 | `1` | Number of iterations to run |
+| `ITERATIONS` | u32 | `1` | Number of iterations to run (clamped to 1000 max) |
 | `PROMPT` | String | `prompt.md` | Prompt file path or inline text string |
+
+### Prompt Resolution
+
+The `PROMPT` argument accepts either a file path or an inline text string. Ralph uses a simple heuristic:
+
+1. If the value is a path to an existing file, read the file and pass its contents to Claude (via `@` prefix)
+2. If the value is not a path to an existing file, pass it directly as literal text to Claude
+
+The default value `prompt.md` is treated specially: if no explicit prompt is provided and `prompt.md` does not exist, ralph exits with an error (code 1).
 
 ### Flags and Options
 
@@ -27,23 +36,28 @@ ralph [-a] [--loop-id ID] [--auto-push BOOL] [--max-iterations N] ITERATIONS PRO
 |-------------|---------|---------|-------------|
 | `-a`, `--afk` | — | `false` | Run in AFK mode (non-interactive) |
 | `--loop-id` | — | — | Loop identifier (sgf-generated, included in banner output) |
-| `--max-iterations` | `RALPH_MAX_ITERATIONS` | `100` | Safety limit for iterations |
-| `--auto-push` | `RALPH_AUTO_PUSH` | `true` | Auto-push after new commits |
+| `--auto-push` | `RALPH_AUTO_PUSH` | `true` | Auto-push after new commits (requires explicit value: `true`/`false`/`yes`/`no`/`1`/`0`) |
+| `--banner` | — | `false` | Display ASCII art startup banner. Controlled by cursus TOML iter `banner` field |
 | `--command` | `RALPH_COMMAND` | — | Override: path to executable replacing agent invocation (for testing) |
-| `--spec` | `SGF_SPEC` | — | Spec stem — appends ./specs/<stem>.md as a system prompt file |
-| `--prompt-file` | — | — | Additional prompt file path (repeatable) |
+| `--prompt-file` | — | — | Additional prompt file path (repeatable). File content is read and inlined into `--append-system-prompt`. Missing files are a fatal error (exit code 1). |
 | `--log-file` | — | — | Path to log file — ralph tees its output here |
+| `--session-id` | — | — | Pre-assigned Claude session ID (UUID). Passed through to `cl` as `--session-id <uuid>` on iteration 1. On iterations 2+, ralph generates a fresh UUID for each iteration. |
+| `--resume` | — | — | Resume a previous Claude session. Passed through to `cl` as `--resume <session_id>`. Mutually exclusive with `--session-id`. Only applies to iteration 1. |
 
 ### Examples
 
 ```bash
-ralph 10                              # Interactive, 10 iterations, prompt.md
-ralph -a 5                            # AFK mode, 5 iterations
-ralph 10 my-task.md                   # Custom prompt file
-ralph 5 "fix the login bug"           # Inline text prompt
-ralph -a 3 "refactor auth module"     # AFK mode with inline text
-RALPH_AUTO_PUSH=false ralph -a 10     # Disable auto-push
-ralph -a --loop-id build-auth-20260226T143000 10 prompt.md  # With loop ID
+ralph 10                                               # Interactive, 10 iterations, prompt.md
+ralph -a 5                                             # AFK mode, 5 iterations
+ralph 10 my-task.md                                    # Custom prompt file
+ralph 5 "fix the login bug"                            # Inline text prompt
+ralph -a 3 "refactor auth module"                      # AFK mode with inline text
+RALPH_AUTO_PUSH=false ralph -a 10                      # Disable auto-push
+ralph -a --loop-id build-20260226T143000 10 prompt.md  # With loop ID
+ralph --banner -a 10 .sgf/prompts/build.md             # With banner
+ralph --prompt-file ./NOTES.md 5 prompt.md             # Extra prompt file
+ralph --session-id a1b2c3d4-e5f6-... 10 prompt.md     # With pre-assigned session ID
+ralph --resume a1b2c3d4-e5f6-... 1 prompt.md           # Resume a previous session
 ```
 
 ## Modes
