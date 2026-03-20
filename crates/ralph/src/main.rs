@@ -647,7 +647,7 @@ fn run_afk(
                 format::FormattedOutput::Result(text) => {
                     tee.write_ansi_line("");
                     for l in text.split('\n') {
-                        tee.write_ansi_line(&style::white(&style::bold(l)));
+                        tee.write_ansi_line(l);
                     }
                     tee.write_ansi_line("");
                 }
