@@ -4,3 +4,56 @@ auto_push = true
 
 # TODO: update Bug Fix Workflow & how it says to update specs.
 
+
+# 0
+# study bugs since last run (?)
+# discuss and interview how to sweep these changes up into the specs
+# produces = "discuss-and-interview-summary"
+
+
+[[iter]]
+name = "listen-discuss-and-interview"
+prompt = "spec-gen-0-discuss-and-interview.md"
+mode = "interactive"
+produces = "discuss-and-interview-summary"
+
+
+
+# SPEC-GEN[1:]
+
+[[iter]]
+name = "write"
+prompt = "spec-gen-1-write.md"
+mode = "afk"
+iterations = 1
+consumes = ["discuss-and-interview-summary"]
+produces = "draft-presentation"
+auto_push = true
+
+
+[[iter]]
+name = "review"
+prompt = "spec-gen-2-review.md"
+mode = "interactive"
+consumes = ["discuss-and-interview-summary", "draft-presentation"]
+next = "approve"
+
+  [iter.transitions]
+  on_revise = "revise"
+
+
+[[iter]]
+name = "revise"
+prompt = "spec-gen-3-revise.md"
+mode = "afk"
+iterations = 1
+consumes = ["discuss-and-interview-summary", "draft-presentation"]
+produces = "draft-presentation"
+next = "review"
+
+
+[[iter]]
+name = "approve"
+prompt = "spec-gen-4-approve.md"
+mode = "afk"
+
