@@ -1,0 +1,9 @@
+(You are in the GATHER PRECES phase of the precatur cursus.)
+
+Study `./.sgf/precatum-est.json`
+
+Query for all `pn` issues of type `bug` with status `closed`.
+
+For every `pn` bug that is NOT in `precatum-est.json`, write it to `$SGF_RUN_CONTEXT/preces-json.md`
+
+Touch `.ralph-complete` and end.

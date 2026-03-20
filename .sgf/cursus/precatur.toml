@@ -2,28 +2,25 @@ description = "'It prays' | Entreat that the specs may be changed"
 alias = "pc"
 auto_push = true
 
-# TODO: update Bug Fix Workflow & how it says to update specs.
 
-
-# 0
-# study bugs since last run (?)
-# discuss and interview how to sweep these changes up into the specs
-# produces = "discuss-and-interview-summary"
+[[iter]]
+name = "gather-preces"
+prompt = "precatur-0-gather-preces"
+mode = "afk"
+produces = "preces-json"
 
 
 [[iter]]
-name = "listen-discuss-and-interview"
-prompt = "spec-gen-0-discuss-and-interview.md"
+name = "discuss-and-interview"
+prompt = "precatur-1-discuss-and-interview.md"
 mode = "interactive"
+consumes = ["preces-json"]
 produces = "discuss-and-interview-summary"
 
 
-
-# SPEC-GEN[1:]
-
 [[iter]]
 name = "write"
-prompt = "spec-gen-1-write.md"
+prompt = "precatur-1-write.md"
 mode = "afk"
 iterations = 1
 consumes = ["discuss-and-interview-summary"]
@@ -33,7 +30,7 @@ auto_push = true
 
 [[iter]]
 name = "review"
-prompt = "spec-gen-2-review.md"
+prompt = "precatur-2-review.md"
 mode = "interactive"
 consumes = ["discuss-and-interview-summary", "draft-presentation"]
 next = "approve"
@@ -44,7 +41,7 @@ next = "approve"
 
 [[iter]]
 name = "revise"
-prompt = "spec-gen-3-revise.md"
+prompt = "precatur-3-revise.md"
 mode = "afk"
 iterations = 1
 consumes = ["discuss-and-interview-summary", "draft-presentation"]
@@ -54,6 +51,10 @@ next = "review"
 
 [[iter]]
 name = "approve"
-prompt = "spec-gen-4-approve.md"
+prompt = "precatur-4-approve.md"
 mode = "afk"
+
+
+
+
 
