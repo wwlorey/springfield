@@ -1806,3 +1806,585 @@ fn doctor_fix_releases_in_progress_claims() {
         );
     }
 }
+
+fn assert_issue_fields(v: &Value, context: &str) {
+    assert!(v["id"].is_string(), "{context}: id should be string");
+    assert!(v["title"].is_string(), "{context}: title should be string");
+    assert!(
+        v["issue_type"].is_string(),
+        "{context}: issue_type should be string"
+    );
+    assert!(
+        v["status"].is_string(),
+        "{context}: status should be string"
+    );
+    assert!(
+        v["priority"].is_string(),
+        "{context}: priority should be string"
+    );
+    assert!(
+        v["created_at"].is_string(),
+        "{context}: created_at should be string"
+    );
+    assert!(
+        v["updated_at"].is_string(),
+        "{context}: updated_at should be string"
+    );
+    let id = v["id"].as_str().unwrap();
+    assert!(
+        id.starts_with("pn-") && id.len() == 11,
+        "{context}: id should be pn- + 8 hex chars, got: {id}"
+    );
+    let status = v["status"].as_str().unwrap();
+    assert!(
+        ["open", "in_progress", "closed"].contains(&status),
+        "{context}: invalid status: {status}"
+    );
+    let priority = v["priority"].as_str().unwrap();
+    assert!(
+        ["p0", "p1", "p2", "p3"].contains(&priority),
+        "{context}: invalid priority: {priority}"
+    );
+    let issue_type = v["issue_type"].as_str().unwrap();
+    assert!(
+        ["bug", "task", "test", "chore"].contains(&issue_type),
+        "{context}: invalid issue_type: {issue_type}"
+    );
+}
+
+#[test]
+fn json_output_shape_validation() {
+    let d = PensaOnlyDaemon::start();
+
+    // --- create → single issue object ---
+    let resp = d
+        .client
+        .post(d.url("/issues"))
+        .json(&serde_json::json!({
+            "title": "Shape test issue",
+            "issue_type": "task",
+            "priority": "p1",
+            "description": "Testing JSON shapes",
+            "actor": "shape-tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201, "create should return 201");
+    let created: Value = resp.json().unwrap();
+    assert_issue_fields(&created, "create");
+    assert_eq!(created["description"], "Testing JSON shapes");
+    assert_eq!(created["status"], "open");
+
+    let id = created["id"].as_str().unwrap().to_string();
+
+    // --- show → single issue detail object with arrays ---
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{id}")))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let detail: Value = resp.json().unwrap();
+    assert_issue_fields(&detail, "show");
+    assert!(
+        detail["deps"].is_array(),
+        "show: deps should be array, got: {}",
+        detail["deps"]
+    );
+    assert!(
+        detail["comments"].is_array(),
+        "show: comments should be array"
+    );
+    assert!(
+        detail["src_refs"].is_array(),
+        "show: src_refs should be array"
+    );
+    assert!(
+        detail["doc_refs"].is_array(),
+        "show: doc_refs should be array"
+    );
+    // Null arrays should be [] not null
+    assert_eq!(detail["deps"].as_array().unwrap().len(), 0);
+    assert_eq!(detail["comments"].as_array().unwrap().len(), 0);
+    assert_eq!(detail["src_refs"].as_array().unwrap().len(), 0);
+    assert_eq!(detail["doc_refs"].as_array().unwrap().len(), 0);
+
+    // --- update → single issue object ---
+    let resp = d
+        .client
+        .patch(d.url(&format!("/issues/{id}")))
+        .json(&serde_json::json!({
+            "title": "Shape test issue (updated)",
+            "actor": "shape-tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let updated: Value = resp.json().unwrap();
+    assert_issue_fields(&updated, "update");
+    assert_eq!(updated["title"], "Shape test issue (updated)");
+
+    // --- list → array of issue objects ---
+    let resp = d.client.get(d.url("/issues")).send().unwrap();
+    assert_eq!(resp.status(), 200);
+    let list: Vec<Value> = resp.json().unwrap();
+    assert!(!list.is_empty(), "list should have at least one issue");
+    for item in &list {
+        assert_issue_fields(item, "list");
+    }
+
+    // --- ready → array of issue objects ---
+    let resp = d.client.get(d.url("/issues/ready")).send().unwrap();
+    assert_eq!(resp.status(), 200);
+    let ready: Vec<Value> = resp.json().unwrap();
+    assert!(!ready.is_empty(), "ready should have at least one issue");
+    for item in &ready {
+        assert_issue_fields(item, "ready");
+    }
+
+    // --- search → array of issue objects ---
+    let resp = d
+        .client
+        .get(d.url("/issues/search?q=Shape"))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let search: Vec<Value> = resp.json().unwrap();
+    assert!(!search.is_empty(), "search should find the test issue");
+    for item in &search {
+        assert_issue_fields(item, "search");
+    }
+
+    // --- blocked → array of issue objects (empty is fine) ---
+    let resp = d.client.get(d.url("/issues/blocked")).send().unwrap();
+    assert_eq!(resp.status(), 200);
+    let blocked: Vec<Value> = resp.json().unwrap();
+    // Just verify it's a valid array (may be empty)
+    let _ = blocked;
+
+    // --- count (ungrouped) → {"count": N} ---
+    let resp = d.client.get(d.url("/issues/count")).send().unwrap();
+    assert_eq!(resp.status(), 200);
+    let count: Value = resp.json().unwrap();
+    assert!(
+        count["count"].is_number(),
+        "count: should have numeric count field, got: {count}"
+    );
+
+    // --- count (grouped by status) → {"total": N, "groups": [...]} ---
+    let resp = d
+        .client
+        .get(d.url("/issues/count?by_status=true"))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let grouped: Value = resp.json().unwrap();
+    assert!(
+        grouped["total"].is_number(),
+        "count grouped: should have numeric total, got: {grouped}"
+    );
+    assert!(
+        grouped["groups"].is_array(),
+        "count grouped: should have groups array, got: {grouped}"
+    );
+
+    // --- status → summary object (array of per-type counts) ---
+    let resp = d.client.get(d.url("/status")).send().unwrap();
+    assert_eq!(resp.status(), 200);
+    let status: Value = resp.json().unwrap();
+    assert!(
+        status.is_array(),
+        "status should be an array, got: {status}"
+    );
+    let status_arr = status.as_array().unwrap();
+    if !status_arr.is_empty() {
+        let entry = &status_arr[0];
+        assert!(
+            entry["issue_type"].is_string(),
+            "status entry: issue_type should be string"
+        );
+        assert!(
+            entry["open"].is_number(),
+            "status entry: open should be number"
+        );
+        assert!(
+            entry["in_progress"].is_number(),
+            "status entry: in_progress should be number"
+        );
+        assert!(
+            entry["closed"].is_number(),
+            "status entry: closed should be number"
+        );
+    }
+
+    // --- comment add → single comment object ---
+    let resp = d
+        .client
+        .post(d.url(&format!("/issues/{id}/comments")))
+        .json(&serde_json::json!({
+            "text": "Shape validation comment",
+            "actor": "shape-tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    let comment: Value = resp.json().unwrap();
+    assert!(comment["id"].is_string(), "comment: id should be string");
+    assert_eq!(comment["issue_id"], id.as_str());
+    assert!(
+        comment["actor"].is_string(),
+        "comment: actor should be string"
+    );
+    assert!(
+        comment["text"].is_string(),
+        "comment: text should be string"
+    );
+    assert!(
+        comment["created_at"].is_string(),
+        "comment: created_at should be string"
+    );
+
+    // --- comment list → array of comment objects ---
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{id}/comments")))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let comments: Vec<Value> = resp.json().unwrap();
+    assert_eq!(comments.len(), 1);
+    assert!(comments[0]["id"].is_string());
+    assert!(comments[0]["text"].is_string());
+
+    // --- src-ref add → single src_ref object ---
+    let resp = d
+        .client
+        .post(d.url(&format!("/issues/{id}/src-refs")))
+        .json(&serde_json::json!({
+            "path": "crates/pensa/src/db.rs",
+            "reason": "shape test ref",
+            "actor": "shape-tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    let src_ref: Value = resp.json().unwrap();
+    assert!(src_ref["id"].is_string(), "src_ref: id should be string");
+    assert_eq!(src_ref["issue_id"], id.as_str());
+    assert_eq!(src_ref["path"], "crates/pensa/src/db.rs");
+    assert_eq!(src_ref["reason"], "shape test ref");
+    assert!(
+        src_ref["created_at"].is_string(),
+        "src_ref: created_at should be string"
+    );
+    let sr_id = src_ref["id"].as_str().unwrap().to_string();
+
+    // --- src-ref list → array of src_ref objects ---
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{id}/src-refs")))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let src_refs: Vec<Value> = resp.json().unwrap();
+    assert_eq!(src_refs.len(), 1);
+
+    // --- src-ref remove → {"status": "deleted"} ---
+    let resp = d
+        .client
+        .delete(d.url(&format!("/src-refs/{sr_id}")))
+        .header("x-pensa-actor", "shape-tester")
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 204);
+
+    // --- doc-ref add → single doc_ref object ---
+    let resp = d
+        .client
+        .post(d.url(&format!("/issues/{id}/doc-refs")))
+        .json(&serde_json::json!({
+            "path": "specs/pensa.md",
+            "reason": "shape test doc ref",
+            "actor": "shape-tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    let doc_ref: Value = resp.json().unwrap();
+    assert!(doc_ref["id"].is_string(), "doc_ref: id should be string");
+    assert_eq!(doc_ref["issue_id"], id.as_str());
+    assert_eq!(doc_ref["path"], "specs/pensa.md");
+    assert_eq!(doc_ref["reason"], "shape test doc ref");
+    assert!(
+        doc_ref["created_at"].is_string(),
+        "doc_ref: created_at should be string"
+    );
+    let dr_id = doc_ref["id"].as_str().unwrap().to_string();
+
+    // --- doc-ref list → array of doc_ref objects ---
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{id}/doc-refs")))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let doc_refs: Vec<Value> = resp.json().unwrap();
+    assert_eq!(doc_refs.len(), 1);
+
+    // --- doc-ref remove → {"status": "deleted"} ---
+    let resp = d
+        .client
+        .delete(d.url(&format!("/doc-refs/{dr_id}")))
+        .header("x-pensa-actor", "shape-tester")
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 204);
+
+    // --- history → array of event objects ---
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{id}/history")))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let history: Vec<Value> = resp.json().unwrap();
+    assert!(
+        !history.is_empty(),
+        "history should have events for create/update/comment"
+    );
+    for event in &history {
+        assert!(
+            event["id"].is_number() || event["id"].is_string(),
+            "event: id should exist, got: {}",
+            event
+        );
+        assert!(
+            event["event_type"].is_string(),
+            "event: event_type should be string"
+        );
+        assert!(
+            event["created_at"].is_string(),
+            "event: created_at should be string"
+        );
+    }
+
+    // --- Create a second issue for dependency tests ---
+    let resp = d
+        .client
+        .post(d.url("/issues"))
+        .json(&serde_json::json!({
+            "title": "Dep target issue",
+            "issue_type": "task",
+            "actor": "shape-tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    let dep_target: Value = resp.json().unwrap();
+    let dep_id = dep_target["id"].as_str().unwrap().to_string();
+
+    // --- dep add → {"status": "added", "issue_id": ..., "depends_on_id": ...} ---
+    let resp = d
+        .client
+        .post(d.url("/deps"))
+        .json(&serde_json::json!({
+            "issue_id": id,
+            "depends_on_id": dep_id,
+            "actor": "shape-tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let dep_added: Value = resp.json().unwrap();
+    assert_eq!(dep_added["status"], "added");
+    assert_eq!(dep_added["issue_id"], id.as_str());
+    assert_eq!(dep_added["depends_on_id"], dep_id.as_str());
+
+    // --- dep list → array of issue objects ---
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{id}/deps")))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let dep_list: Vec<Value> = resp.json().unwrap();
+    assert_eq!(dep_list.len(), 1);
+    assert_issue_fields(&dep_list[0], "dep list");
+
+    // --- dep tree → flat array of tree nodes ---
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{id}/deps/tree")))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let dep_tree: Vec<Value> = resp.json().unwrap();
+    if !dep_tree.is_empty() {
+        let node = &dep_tree[0];
+        assert!(node["id"].is_string(), "tree node: id should be string");
+        assert!(
+            node["title"].is_string(),
+            "tree node: title should be string"
+        );
+        assert!(
+            node["status"].is_string(),
+            "tree node: status should be string"
+        );
+        assert!(
+            node["priority"].is_string(),
+            "tree node: priority should be string"
+        );
+        assert!(
+            node["issue_type"].is_string(),
+            "tree node: issue_type should be string"
+        );
+        assert!(
+            node["depth"].is_number(),
+            "tree node: depth should be number"
+        );
+    }
+
+    // --- dep cycles → array of arrays ---
+    let resp = d.client.get(d.url("/deps/cycles")).send().unwrap();
+    assert_eq!(resp.status(), 200);
+    let cycles: Vec<Value> = resp.json().unwrap();
+    assert!(
+        cycles.is_empty(),
+        "dep cycles should be empty (no cycles), got: {cycles:?}"
+    );
+
+    // --- dep remove → {"status": "removed", "issue_id": ..., "depends_on_id": ...} ---
+    let resp = d
+        .client
+        .delete(d.url(&format!("/deps?issue_id={}&depends_on_id={}", id, dep_id)))
+        .header("x-pensa-actor", "shape-tester")
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let dep_removed: Value = resp.json().unwrap();
+    assert_eq!(dep_removed["status"], "removed");
+    assert_eq!(dep_removed["issue_id"], id.as_str());
+    assert_eq!(dep_removed["depends_on_id"], dep_id.as_str());
+
+    // --- close → single issue object ---
+    let resp = d
+        .client
+        .post(d.url(&format!("/issues/{id}/close")))
+        .json(&serde_json::json!({
+            "reason": "Shape test complete",
+            "actor": "shape-tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let closed: Value = resp.json().unwrap();
+    assert_issue_fields(&closed, "close");
+    assert_eq!(closed["status"], "closed");
+    assert!(
+        closed["closed_at"].is_string(),
+        "close: closed_at should be set"
+    );
+    assert_eq!(closed["close_reason"], "Shape test complete");
+
+    // --- reopen → single issue object ---
+    let resp = d
+        .client
+        .post(d.url(&format!("/issues/{id}/reopen")))
+        .json(&serde_json::json!({
+            "reason": "Need more testing",
+            "actor": "shape-tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let reopened: Value = resp.json().unwrap();
+    assert_issue_fields(&reopened, "reopen");
+    assert_eq!(reopened["status"], "open");
+    assert!(
+        reopened["closed_at"].is_null(),
+        "reopen: closed_at should be cleared"
+    );
+
+    // --- release (claim first, then release) → single issue object ---
+    let resp = d
+        .client
+        .patch(d.url(&format!("/issues/{id}")))
+        .json(&serde_json::json!({
+            "claim": true,
+            "actor": "shape-tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let resp = d
+        .client
+        .post(d.url(&format!("/issues/{id}/release")))
+        .header("x-pensa-actor", "shape-tester")
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let released: Value = resp.json().unwrap();
+    assert_issue_fields(&released, "release");
+    assert_eq!(released["status"], "open");
+    assert!(released["assignee"].is_null());
+
+    // --- export → {"status": "ok", "issues": N, "deps": N, "comments": N, "src_refs": N, "doc_refs": N} ---
+    let resp = d.client.post(d.url("/export")).send().unwrap();
+    assert_eq!(resp.status(), 200);
+    let export: Value = resp.json().unwrap();
+    assert_eq!(export["status"], "ok", "export: status should be 'ok'");
+    assert!(
+        export["issues"].is_number(),
+        "export: issues should be number"
+    );
+    assert!(export["deps"].is_number(), "export: deps should be number");
+    assert!(
+        export["comments"].is_number(),
+        "export: comments should be number"
+    );
+    assert!(
+        export["src_refs"].is_number(),
+        "export: src_refs should be number"
+    );
+    assert!(
+        export["doc_refs"].is_number(),
+        "export: doc_refs should be number"
+    );
+
+    // --- import → {"status": "ok", "issues": N, "deps": N, "comments": N, "src_refs": N, "doc_refs": N} ---
+    let resp = d.client.post(d.url("/import")).send().unwrap();
+    assert_eq!(resp.status(), 200);
+    let import: Value = resp.json().unwrap();
+    assert_eq!(import["status"], "ok", "import: status should be 'ok'");
+    assert!(
+        import["issues"].is_number(),
+        "import: issues should be number"
+    );
+    assert!(import["deps"].is_number(), "import: deps should be number");
+    assert!(
+        import["comments"].is_number(),
+        "import: comments should be number"
+    );
+    assert!(
+        import["src_refs"].is_number(),
+        "import: src_refs should be number"
+    );
+    assert!(
+        import["doc_refs"].is_number(),
+        "import: doc_refs should be number"
+    );
+
+    // --- doctor → report object with findings and fixes_applied ---
+    let resp = d.client.post(d.url("/doctor")).send().unwrap();
+    assert_eq!(resp.status(), 200);
+    let doctor: Value = resp.json().unwrap();
+    assert!(
+        doctor["findings"].is_array(),
+        "doctor: findings should be array, got: {doctor}"
+    );
+    assert!(
+        doctor["fixes_applied"].is_array(),
+        "doctor: fixes_applied should be array, got: {doctor}"
+    );
+}
