@@ -65,7 +65,7 @@ prek install
 
 ### Usage
 
-Every `sgf <command>` resolves to a **cursus** pipeline definition (see [Cursus Pipelines](#cursus-pipelines) below). Built-in commands (`init`, `logs`, `resume`, `status`) are resolved first; everything else maps to a `.toml` file in `.sgf/cursus/`.
+Every `sgf <command>` resolves to a **cursus** pipeline definition (see [Cursus Pipelines](#cursus-pipelines) below). Built-in commands (`init`, `list`, `logs`, `resume`, `status`) are resolved first; everything else maps to a `.toml` file in `.sgf/cursus/`.
 
 ```sh
 sgf spec                    # spec creation and refinement (multi-iter pipeline)
@@ -76,9 +76,32 @@ sgf test-plan               # generate test items
 sgf test [spec]             # execute test items
 sgf doc                     # documentation generation
 sgf issues-log              # log bugs interactively
+sgf list                    # show available commands
 sgf logs <loop-id>          # tail a running loop's output
 sgf resume                  # resume a previous session or stalled cursus run
 sgf resume <run-id>         # resume a specific session or cursus run by ID
+```
+
+`sgf list` displays all available cursus commands (from `.sgf/cursus/`) and built-in commands:
+
+```
+$ sgf list
+Available commands:
+
+  build       Claim and implement one issue from the backlog
+  doc         Run pn and fm doctor checks and remediate findings
+  issues-log  Review codebase and log issues found
+  spec-gen    Spec creation, refinement, and blessing
+  test        Run tests and fix any failures
+  test-plan   Create or update test plans for a spec
+  verify      Run full backpressure checks and fix any issues
+
+Built-ins:
+
+  init        Scaffold a new project
+  list        Show available commands
+  logs        Tail a running loop's output
+  resume      Resume a stalled/interrupted run
 ```
 
 CLI flags apply to all iters in a cursus:
@@ -275,7 +298,7 @@ Resume with `sgf resume <run-id>` to retry the stalled iter, skip to the next it
 
 Resolution order for `sgf <command>`:
 
-1. Reserved built-ins: `init`, `logs`, `resume`, `status`
+1. Reserved built-ins: `init`, `list`, `logs`, `resume`, `status`
 2. `./.sgf/cursus/<command>.toml` (project-local override)
 3. `~/.sgf/cursus/<command>.toml` (global default)
 4. Alias match across all resolved cursus definitions
