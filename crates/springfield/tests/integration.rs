@@ -4845,3 +4845,207 @@ fn cursus_banner_false_omits_banner_flag() {
         "should not pass --banner flag when banner is not set, got: {args}"
     );
 }
+
+// ===========================================================================
+// sgf list
+// ===========================================================================
+
+#[test]
+fn list_shows_builtins_when_no_cursus() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let output = run_sgf(sgf_cmd(tmp.path()).arg("list"));
+
+    assert!(output.status.success(), "sgf list should succeed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        stdout.contains("Built-ins:"),
+        "should show Built-ins header: {stdout}"
+    );
+    assert!(stdout.contains("init"), "should list init builtin");
+    assert!(stdout.contains("list"), "should list list builtin");
+    assert!(stdout.contains("logs"), "should list logs builtin");
+    assert!(stdout.contains("resume"), "should list resume builtin");
+    assert!(
+        !stdout.contains("Available commands:"),
+        "should not show Available commands when no cursus defined: {stdout}"
+    );
+}
+
+#[test]
+fn list_shows_local_cursus_commands() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
+
+    let output = run_sgf(sgf_cmd(tmp.path()).arg("list"));
+
+    assert!(output.status.success(), "sgf list should succeed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        stdout.contains("Available commands:"),
+        "should show Available commands header: {stdout}"
+    );
+
+    for name in [
+        "build",
+        "doc",
+        "install",
+        "issues-log",
+        "spec",
+        "test",
+        "test-plan",
+        "verify",
+    ] {
+        assert!(
+            stdout.contains(name),
+            "should list '{name}' command: {stdout}"
+        );
+    }
+
+    assert!(
+        stdout.contains("Built-ins:"),
+        "should still show Built-ins: {stdout}"
+    );
+}
+
+#[test]
+fn list_shows_descriptions_from_cursus_toml() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    write_cursus_toml(
+        tmp.path(),
+        "deploy",
+        "description = \"Deploy the app\"\nauto_push = false\n\n\
+         [[iter]]\nname = \"deploy\"\nprompt = \"deploy.md\"\n\
+         mode = \"afk\"\niterations = 1\n",
+    );
+
+    let output = run_sgf(sgf_cmd(tmp.path()).arg("list"));
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Deploy the app"),
+        "should show description from TOML: {stdout}"
+    );
+}
+
+/// Create a temporary HOME with .sgf/prompts (like fake_home) but isolated
+/// so global cursus files don't leak between tests.
+fn isolated_home_with_global_cursus(cursus_files: &[(&str, &str)]) -> TempDir {
+    let home = TempDir::new().unwrap();
+    let prompts = home.path().join(".sgf/prompts");
+    fs::create_dir_all(&prompts).unwrap();
+    for name in PROMPT_NAMES {
+        fs::write(
+            prompts.join(format!("{name}.md")),
+            format!("{name} prompt\n"),
+        )
+        .unwrap();
+    }
+    fs::write(prompts.join("config.toml"), CONFIG_TOML).unwrap();
+
+    let global_cursus = home.path().join(".sgf/cursus");
+    fs::create_dir_all(&global_cursus).unwrap();
+    for &(name, content) in cursus_files {
+        fs::write(global_cursus.join(format!("{name}.toml")), content).unwrap();
+    }
+    home
+}
+
+#[test]
+fn list_global_cursus_appears_when_no_local() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let home = isolated_home_with_global_cursus(&[(
+        "global-cmd",
+        "description = \"A global command\"\nauto_push = false\n\n\
+         [[iter]]\nname = \"global-cmd\"\nprompt = \"build.md\"\n\
+         mode = \"afk\"\niterations = 1\n",
+    )]);
+
+    let output = run_sgf(sgf_cmd(tmp.path()).env("HOME", home.path()).arg("list"));
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("global-cmd"),
+        "should show global cursus command: {stdout}"
+    );
+    assert!(
+        stdout.contains("A global command"),
+        "should show global command description: {stdout}"
+    );
+}
+
+#[test]
+fn list_local_overrides_global_cursus() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let home = isolated_home_with_global_cursus(&[(
+        "shared-cmd",
+        "description = \"Global version\"\nauto_push = false\n\n\
+         [[iter]]\nname = \"shared-cmd\"\nprompt = \"build.md\"\n\
+         mode = \"afk\"\niterations = 1\n",
+    )]);
+
+    write_cursus_toml(
+        tmp.path(),
+        "shared-cmd",
+        "description = \"Local version\"\nauto_push = false\n\n\
+         [[iter]]\nname = \"shared-cmd\"\nprompt = \"build.md\"\n\
+         mode = \"afk\"\niterations = 1\n",
+    );
+
+    let output = run_sgf(sgf_cmd(tmp.path()).env("HOME", home.path()).arg("list"));
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Local version"),
+        "local should override global description: {stdout}"
+    );
+    assert!(
+        !stdout.contains("Global version"),
+        "global description should not appear when overridden: {stdout}"
+    );
+}
+
+#[test]
+fn list_commands_sorted_alphabetically() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    write_cursus_toml(
+        tmp.path(),
+        "zebra",
+        "description = \"Zebra cmd\"\nauto_push = false\n\n\
+         [[iter]]\nname = \"zebra\"\nprompt = \"build.md\"\n\
+         mode = \"afk\"\niterations = 1\n",
+    );
+    write_cursus_toml(
+        tmp.path(),
+        "alpha",
+        "description = \"Alpha cmd\"\nauto_push = false\n\n\
+         [[iter]]\nname = \"alpha\"\nprompt = \"build.md\"\n\
+         mode = \"afk\"\niterations = 1\n",
+    );
+
+    let output = run_sgf(sgf_cmd(tmp.path()).arg("list"));
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let alpha_pos = stdout.find("alpha").expect("should contain alpha");
+    let zebra_pos = stdout.find("zebra").expect("should contain zebra");
+    assert!(
+        alpha_pos < zebra_pos,
+        "alpha should appear before zebra (sorted): {stdout}"
+    );
+}
