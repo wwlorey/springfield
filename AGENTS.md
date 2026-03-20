@@ -17,6 +17,7 @@ just install
 - **No comments** unless code is complex and requires context for future developers.
 - **Logging:** Use structured logging (`tracing`). Never log secrets directly.
 - **Instrumentation:** Use `#[instrument(skip(self, secrets, large_args), fields(id = %id))]`. Always skip secrets.
+- **Process spawns:** `Child` has no `Drop` — dropped handles leak processes. Use `shutdown::ChildGuard` for `.spawn()` calls; never fire-and-forget a spawn. In tests, use `shutdown::ProcessSemaphore` to throttle `.output()` calls and set `SGF_TEST_NO_SETSID=1` on spawned commands so children stay killable.
 
 ## IMPORTANT
 
