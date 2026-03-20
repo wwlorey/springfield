@@ -24,9 +24,6 @@ enum Commands {
     /// Show available commands with descriptions
     List,
 
-    /// Show project state (future work)
-    Status,
-
     /// Tail a running loop's output
     Logs {
         /// Loop ID to tail
@@ -249,9 +246,6 @@ fn main() {
         Commands::List => {
             let root = std::env::current_dir().expect("failed to get current directory");
             run_list(&root);
-        }
-        Commands::Status => {
-            springfield::style::print_warning("not yet implemented");
         }
         Commands::Logs { loop_id } => {
             let root = std::env::current_dir().expect("failed to get current directory");
