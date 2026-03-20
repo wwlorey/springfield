@@ -1,23 +1,74 @@
 use std::process::Command;
+use std::sync::{Condvar, LazyLock, Mutex};
 use std::time::Duration;
 
 use serde_json::Value;
 use tempfile::TempDir;
 
+struct ProcessSemaphore {
+    mutex: Mutex<usize>,
+    condvar: Condvar,
+    max: usize,
+}
+
+impl ProcessSemaphore {
+    fn new(max: usize) -> Self {
+        Self {
+            mutex: Mutex::new(0),
+            condvar: Condvar::new(),
+            max,
+        }
+    }
+
+    fn acquire(&self) -> SemaphoreGuard<'_> {
+        let mut count = self.mutex.lock().unwrap();
+        while *count >= self.max {
+            count = self.condvar.wait(count).unwrap();
+        }
+        *count += 1;
+        SemaphoreGuard { sem: self }
+    }
+}
+
+struct SemaphoreGuard<'a> {
+    sem: &'a ProcessSemaphore,
+}
+
+impl Drop for SemaphoreGuard<'_> {
+    fn drop(&mut self) {
+        let mut count = self.sem.mutex.lock().unwrap();
+        *count -= 1;
+        self.sem.condvar.notify_one();
+    }
+}
+
+static PN_PERMITS: LazyLock<ProcessSemaphore> = LazyLock::new(|| {
+    let max = std::env::var("SGF_TEST_MAX_CONCURRENT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(8);
+    ProcessSemaphore::new(max)
+});
+
 fn pn_bin() -> String {
     env!("CARGO_BIN_EXE_pn").to_string()
+}
+
+fn run_pn(cmd: &mut Command) -> std::process::Output {
+    let _permit = PN_PERMITS.acquire();
+    cmd.output().expect("failed to run pn")
 }
 
 #[test]
 fn daemon_status_unreachable() {
     // Use a port that no daemon is listening on
     let port = portpicker::pick_unused_port().expect("no free port");
-    let output = Command::new(pn_bin())
-        .env("PN_DAEMON", format!("http://localhost:{port}"))
-        .env_remove("PN_DAEMON_HOST")
-        .args(["daemon", "status"])
-        .output()
-        .expect("run daemon status");
+    let output = run_pn(
+        Command::new(pn_bin())
+            .env("PN_DAEMON", format!("http://localhost:{port}"))
+            .env_remove("PN_DAEMON_HOST")
+            .args(["daemon", "status"]),
+    );
     assert!(
         !output.status.success(),
         "daemon status should fail when daemon is not running"
@@ -27,12 +78,12 @@ fn daemon_status_unreachable() {
 #[test]
 fn remote_host_pn_daemon_refuses_auto_start() {
     let port = portpicker::pick_unused_port().expect("no free port");
-    let output = Command::new(pn_bin())
-        .env("PN_DAEMON", format!("http://localhost:{port}"))
-        .env_remove("PN_DAEMON_HOST")
-        .args(["list", "--json"])
-        .output()
-        .expect("run pn list with PN_DAEMON pointing to unreachable");
+    let output = run_pn(
+        Command::new(pn_bin())
+            .env("PN_DAEMON", format!("http://localhost:{port}"))
+            .env_remove("PN_DAEMON_HOST")
+            .args(["list", "--json"]),
+    );
     assert!(
         !output.status.success(),
         "should fail when PN_DAEMON points to unreachable daemon"
@@ -52,13 +103,13 @@ fn remote_host_pn_daemon_host_refuses_auto_start() {
     std::fs::create_dir_all(&port_file).unwrap();
     std::fs::write(port_file.join("daemon.port"), port.to_string()).unwrap();
 
-    let output = Command::new(pn_bin())
-        .env("PN_DAEMON_HOST", "remote.example.com")
-        .env_remove("PN_DAEMON")
-        .current_dir(dir.path())
-        .args(["list", "--json"])
-        .output()
-        .expect("run pn list with PN_DAEMON_HOST=remote.example.com");
+    let output = run_pn(
+        Command::new(pn_bin())
+            .env("PN_DAEMON_HOST", "remote.example.com")
+            .env_remove("PN_DAEMON")
+            .current_dir(dir.path())
+            .args(["list", "--json"]),
+    );
     assert!(
         !output.status.success(),
         "should fail when PN_DAEMON_HOST is remote and daemon unreachable"
@@ -72,12 +123,12 @@ fn remote_host_pn_daemon_host_refuses_auto_start() {
 
 #[test]
 fn localhost_daemon_host_allows_auto_start_attempt() {
-    let output = Command::new(pn_bin())
-        .env("PN_DAEMON_HOST", "localhost")
-        .env_remove("PN_DAEMON")
-        .args(["list", "--json"])
-        .output()
-        .expect("run pn list with PN_DAEMON_HOST=localhost");
+    let output = run_pn(
+        Command::new(pn_bin())
+            .env("PN_DAEMON_HOST", "localhost")
+            .env_remove("PN_DAEMON")
+            .args(["list", "--json"]),
+    );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         !stderr.contains("remote host configured"),
@@ -88,10 +139,7 @@ fn localhost_daemon_host_allows_auto_start_attempt() {
 #[test]
 fn pn_where() {
     // `pn where` should work without a running daemon
-    let output = Command::new(pn_bin())
-        .args(["where"])
-        .output()
-        .expect("run pn where");
+    let output = run_pn(Command::new(pn_bin()).args(["where"]));
     assert!(output.status.success(), "pn where should exit 0");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
@@ -113,13 +161,13 @@ fn daemon_url_file_remote_refuses_auto_start() {
     )
     .unwrap();
 
-    let output = Command::new(pn_bin())
-        .env_remove("PN_DAEMON")
-        .env_remove("PN_DAEMON_HOST")
-        .current_dir(dir.path())
-        .args(["list", "--json"])
-        .output()
-        .expect("run pn list with daemon.url");
+    let output = run_pn(
+        Command::new(pn_bin())
+            .env_remove("PN_DAEMON")
+            .env_remove("PN_DAEMON_HOST")
+            .current_dir(dir.path())
+            .args(["list", "--json"]),
+    );
     assert!(
         !output.status.success(),
         "should fail when daemon.url points to unreachable remote daemon"
@@ -143,13 +191,13 @@ fn daemon_url_file_localhost_allows_auto_start() {
     )
     .unwrap();
 
-    let output = Command::new(pn_bin())
-        .env_remove("PN_DAEMON")
-        .env_remove("PN_DAEMON_HOST")
-        .current_dir(dir.path())
-        .args(["list", "--json"])
-        .output()
-        .expect("run pn list with localhost daemon.url");
+    let output = run_pn(
+        Command::new(pn_bin())
+            .env_remove("PN_DAEMON")
+            .env_remove("PN_DAEMON_HOST")
+            .current_dir(dir.path())
+            .args(["list", "--json"]),
+    );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         !stderr.contains("remote host configured"),
@@ -164,13 +212,13 @@ fn empty_daemon_url_is_ignored() {
     std::fs::create_dir_all(&pensa_dir).unwrap();
     std::fs::write(pensa_dir.join("daemon.url"), "  \n").unwrap();
 
-    let output = Command::new(pn_bin())
-        .env_remove("PN_DAEMON")
-        .env_remove("PN_DAEMON_HOST")
-        .current_dir(dir.path())
-        .args(["list", "--json"])
-        .output()
-        .expect("run pn list with empty daemon.url");
+    let output = run_pn(
+        Command::new(pn_bin())
+            .env_remove("PN_DAEMON")
+            .env_remove("PN_DAEMON_HOST")
+            .current_dir(dir.path())
+            .args(["list", "--json"]),
+    );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         !stderr.contains("remote host configured"),
@@ -196,13 +244,13 @@ fn stale_daemon_project_clears_port_file() {
     )
     .unwrap();
 
-    let output = Command::new(pn_bin())
-        .env_remove("PN_DAEMON")
-        .env_remove("PN_DAEMON_HOST")
-        .current_dir(dir.path())
-        .args(["list", "--json"])
-        .output()
-        .expect("run pn list with stale daemon.project");
+    let output = run_pn(
+        Command::new(pn_bin())
+            .env_remove("PN_DAEMON")
+            .env_remove("PN_DAEMON_HOST")
+            .current_dir(dir.path())
+            .args(["list", "--json"]),
+    );
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
@@ -242,13 +290,13 @@ fn matching_daemon_project_is_not_stale() {
     )
     .unwrap();
 
-    let output = Command::new(pn_bin())
-        .env_remove("PN_DAEMON")
-        .env_remove("PN_DAEMON_HOST")
-        .current_dir(dir.path())
-        .args(["list", "--json"])
-        .output()
-        .expect("run pn list with matching daemon.project");
+    let output = run_pn(
+        Command::new(pn_bin())
+            .env_remove("PN_DAEMON")
+            .env_remove("PN_DAEMON_HOST")
+            .current_dir(dir.path())
+            .args(["list", "--json"]),
+    );
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
@@ -267,13 +315,13 @@ fn missing_daemon_project_is_not_stale() {
     let port = portpicker::pick_unused_port().expect("no free port");
     std::fs::write(pensa_dir.join("daemon.port"), port.to_string()).unwrap();
 
-    let output = Command::new(pn_bin())
-        .env_remove("PN_DAEMON")
-        .env_remove("PN_DAEMON_HOST")
-        .current_dir(dir.path())
-        .args(["list", "--json"])
-        .output()
-        .expect("run pn list without daemon.project");
+    let output = run_pn(
+        Command::new(pn_bin())
+            .env_remove("PN_DAEMON")
+            .env_remove("PN_DAEMON_HOST")
+            .current_dir(dir.path())
+            .args(["list", "--json"]),
+    );
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(

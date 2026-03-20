@@ -1,7 +1,58 @@
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::process::Command;
+use std::sync::{Condvar, LazyLock, Mutex};
 use tempfile::TempDir;
+
+struct ProcessSemaphore {
+    mutex: Mutex<usize>,
+    condvar: Condvar,
+    max: usize,
+}
+
+impl ProcessSemaphore {
+    fn new(max: usize) -> Self {
+        Self {
+            mutex: Mutex::new(0),
+            condvar: Condvar::new(),
+            max,
+        }
+    }
+
+    fn acquire(&self) -> SemaphoreGuard<'_> {
+        let mut count = self.mutex.lock().unwrap();
+        while *count >= self.max {
+            count = self.condvar.wait(count).unwrap();
+        }
+        *count += 1;
+        SemaphoreGuard { sem: self }
+    }
+}
+
+struct SemaphoreGuard<'a> {
+    sem: &'a ProcessSemaphore,
+}
+
+impl Drop for SemaphoreGuard<'_> {
+    fn drop(&mut self) {
+        let mut count = self.sem.mutex.lock().unwrap();
+        *count -= 1;
+        self.sem.condvar.notify_one();
+    }
+}
+
+static CL_PERMITS: LazyLock<ProcessSemaphore> = LazyLock::new(|| {
+    let max = std::env::var("SGF_TEST_MAX_CONCURRENT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(8);
+    ProcessSemaphore::new(max)
+});
+
+fn run_cl(cmd: &mut Command) -> std::process::Output {
+    let _permit = CL_PERMITS.acquire();
+    cmd.output().expect("failed to run cl")
+}
 
 fn cl_binary() -> String {
     let mut path = std::env::current_exe().unwrap();
@@ -48,13 +99,13 @@ fn invokes_claude_wrapper_secret_not_claude() {
 
     let output_file = mock_dir.path().join("output.txt");
 
-    let result = Command::new(cl_binary())
-        .current_dir(workdir.path())
-        .env("HOME", workdir.path().to_str().unwrap())
-        .env("PATH", prepend_to_path(mock_dir.path()))
-        .env("CL_TEST_OUTPUT", &output_file)
-        .output()
-        .unwrap();
+    let result = run_cl(
+        Command::new(cl_binary())
+            .current_dir(workdir.path())
+            .env("HOME", workdir.path().to_str().unwrap())
+            .env("PATH", prepend_to_path(mock_dir.path()))
+            .env("CL_TEST_OUTPUT", &output_file),
+    );
 
     assert!(
         result.status.success(),
@@ -85,12 +136,12 @@ fn context_files_appear_in_append_system_prompt() {
 
     let output_file = mock_dir.path().join("output.txt");
 
-    let result = Command::new(cl_binary())
-        .current_dir(cwd)
-        .env("PATH", prepend_to_path(mock_dir.path()))
-        .env("CL_TEST_OUTPUT", &output_file)
-        .output()
-        .unwrap();
+    let result = run_cl(
+        Command::new(cl_binary())
+            .current_dir(cwd)
+            .env("PATH", prepend_to_path(mock_dir.path()))
+            .env("CL_TEST_OUTPUT", &output_file),
+    );
 
     assert!(
         result.status.success(),
@@ -122,13 +173,13 @@ fn local_override_takes_precedence_over_global() {
     create_mock_secret(mock_dir.path());
     let output_file = mock_dir.path().join("output.txt");
 
-    let result = Command::new(cl_binary())
-        .current_dir(cwd)
-        .env("HOME", home.to_str().unwrap())
-        .env("PATH", prepend_to_path(mock_dir.path()))
-        .env("CL_TEST_OUTPUT", &output_file)
-        .output()
-        .unwrap();
+    let result = run_cl(
+        Command::new(cl_binary())
+            .current_dir(cwd)
+            .env("HOME", home.to_str().unwrap())
+            .env("PATH", prepend_to_path(mock_dir.path()))
+            .env("CL_TEST_OUTPUT", &output_file),
+    );
 
     assert!(
         result.status.success(),
@@ -151,13 +202,13 @@ fn missing_context_files_are_skipped_no_error_exit() {
     create_mock_secret(mock_dir.path());
     let output_file = mock_dir.path().join("output.txt");
 
-    let result = Command::new(cl_binary())
-        .current_dir(workdir.path())
-        .env("HOME", workdir.path().to_str().unwrap())
-        .env("PATH", prepend_to_path(mock_dir.path()))
-        .env("CL_TEST_OUTPUT", &output_file)
-        .output()
-        .unwrap();
+    let result = run_cl(
+        Command::new(cl_binary())
+            .current_dir(workdir.path())
+            .env("HOME", workdir.path().to_str().unwrap())
+            .env("PATH", prepend_to_path(mock_dir.path()))
+            .env("CL_TEST_OUTPUT", &output_file),
+    );
 
     assert!(result.status.success());
 
@@ -172,14 +223,14 @@ fn passthrough_args_forwarded_unchanged() {
     create_mock_secret(mock_dir.path());
     let output_file = mock_dir.path().join("output.txt");
 
-    let result = Command::new(cl_binary())
-        .args(["--print", "hello world", "-v"])
-        .current_dir(workdir.path())
-        .env("HOME", workdir.path().to_str().unwrap())
-        .env("PATH", prepend_to_path(mock_dir.path()))
-        .env("CL_TEST_OUTPUT", &output_file)
-        .output()
-        .unwrap();
+    let result = run_cl(
+        Command::new(cl_binary())
+            .args(["--print", "hello world", "-v"])
+            .current_dir(workdir.path())
+            .env("HOME", workdir.path().to_str().unwrap())
+            .env("PATH", prepend_to_path(mock_dir.path()))
+            .env("CL_TEST_OUTPUT", &output_file),
+    );
 
     assert!(result.status.success());
 
@@ -202,14 +253,14 @@ fn multiple_append_system_prompt_coexist() {
     create_mock_secret(mock_dir.path());
     let output_file = mock_dir.path().join("output.txt");
 
-    let result = Command::new(cl_binary())
-        .args(["--append-system-prompt", "caller prompt"])
-        .current_dir(cwd)
-        .env("HOME", workdir.path().to_str().unwrap())
-        .env("PATH", prepend_to_path(mock_dir.path()))
-        .env("CL_TEST_OUTPUT", &output_file)
-        .output()
-        .unwrap();
+    let result = run_cl(
+        Command::new(cl_binary())
+            .args(["--append-system-prompt", "caller prompt"])
+            .current_dir(cwd)
+            .env("HOME", workdir.path().to_str().unwrap())
+            .env("PATH", prepend_to_path(mock_dir.path()))
+            .env("CL_TEST_OUTPUT", &output_file),
+    );
 
     assert!(
         result.status.success(),
@@ -232,12 +283,12 @@ fn multiple_append_system_prompt_coexist() {
 fn exits_1_when_downstream_binary_missing() {
     let workdir = TempDir::new().unwrap();
 
-    let result = Command::new(cl_binary())
-        .current_dir(workdir.path())
-        .env("HOME", workdir.path().to_str().unwrap())
-        .env("PATH", "/nonexistent")
-        .output()
-        .unwrap();
+    let result = run_cl(
+        Command::new(cl_binary())
+            .current_dir(workdir.path())
+            .env("HOME", workdir.path().to_str().unwrap())
+            .env("PATH", "/nonexistent"),
+    );
 
     assert!(!result.status.success());
     let stderr = String::from_utf8_lossy(&result.stderr);
