@@ -3969,9 +3969,9 @@ fn cursus_single_iter_sentinel_cleaned_on_exhausted() {
     fs::write(prompts_dir.join("build.md"), "Build prompt\n").unwrap();
     git_add_commit(tmp.path(), "add cursus and prompt");
 
-    // Mock ralph that does NOT touch any sentinel (simulates exhaustion)
+    // Mock ralph that does NOT touch any sentinel and exits 2 (simulates exhaustion)
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 0\n");
+    let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 2\n");
 
     let output = run_sgf(
         sgf_cmd(tmp.path())
@@ -4483,9 +4483,10 @@ fn cursus_multi_iter_stall_recovery() {
             "PROMPT=\"${@: -1}\"\n",
             "if echo \"$PROMPT\" | grep -q 'discuss.md'; then\n",
             "  touch \"${PWD}/.ralph-complete\"\n",
+            "  exit 0\n",
             "fi\n",
-            "# draft does NOT touch any sentinel -> exhaustion\n",
-            "exit 0\n",
+            "# draft does NOT touch any sentinel -> exhaustion (exit 2)\n",
+            "exit 2\n",
         ),
     );
 
@@ -4574,8 +4575,9 @@ fn cursus_multi_iter_resume_stalled_run() {
             "PROMPT=\"${@: -1}\"\n",
             "if echo \"$PROMPT\" | grep -q 'discuss.md'; then\n",
             "  touch \"${PWD}/.ralph-complete\"\n",
+            "  exit 0\n",
             "fi\n",
-            "exit 0\n",
+            "exit 2\n",
         ),
     );
 

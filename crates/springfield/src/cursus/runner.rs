@@ -72,7 +72,12 @@ fn find_sentinel(dir: &Path, name: &str, max_depth: usize) -> Option<PathBuf> {
     None
 }
 
-pub fn detect_outcome(root: &Path, iter: &IterDefinition, effective_mode: &Mode) -> IterOutcome {
+pub fn detect_outcome(
+    root: &Path,
+    iter: &IterDefinition,
+    effective_mode: &Mode,
+    exit_code: i32,
+) -> IterOutcome {
     if find_sentinel(root, ".ralph-complete", SENTINEL_MAX_DEPTH).is_some() {
         return IterOutcome::Complete;
     }
@@ -83,6 +88,9 @@ pub fn detect_outcome(root: &Path, iter: &IterDefinition, effective_mode: &Mode)
         return IterOutcome::Revise;
     }
     if *effective_mode == Mode::Interactive && iter.iterations <= 1 {
+        return IterOutcome::Complete;
+    }
+    if exit_code == 0 {
         return IterOutcome::Complete;
     }
     IterOutcome::Exhausted
@@ -456,7 +464,7 @@ fn run_cursus_loop(
             return Ok(130);
         }
 
-        let outcome = detect_outcome(root, iter, &effective_mode);
+        let outcome = detect_outcome(root, iter, &effective_mode, exit_code);
         clean_sentinels(root);
 
         metadata.iters_completed.push(CompletedIter {
@@ -673,7 +681,7 @@ mod tests {
         fs::write(tmp.path().join(".ralph-complete"), "").unwrap();
         let iter = make_iter("build", Mode::Afk, 10, None, None, None);
         assert_eq!(
-            detect_outcome(tmp.path(), &iter, &iter.mode),
+            detect_outcome(tmp.path(), &iter, &iter.mode, 2),
             IterOutcome::Complete
         );
     }
@@ -684,7 +692,7 @@ mod tests {
         fs::write(tmp.path().join(".ralph-reject"), "").unwrap();
         let iter = make_iter("review", Mode::Interactive, 1, None, Some("draft"), None);
         assert_eq!(
-            detect_outcome(tmp.path(), &iter, &iter.mode),
+            detect_outcome(tmp.path(), &iter, &iter.mode, 2),
             IterOutcome::Reject
         );
     }
@@ -695,7 +703,7 @@ mod tests {
         fs::write(tmp.path().join(".ralph-revise"), "").unwrap();
         let iter = make_iter("review", Mode::Interactive, 1, None, None, Some("revise"));
         assert_eq!(
-            detect_outcome(tmp.path(), &iter, &iter.mode),
+            detect_outcome(tmp.path(), &iter, &iter.mode, 2),
             IterOutcome::Revise
         );
     }
@@ -708,7 +716,7 @@ mod tests {
         fs::write(tmp.path().join(".ralph-revise"), "").unwrap();
         let iter = make_iter("review", Mode::Afk, 10, None, Some("draft"), Some("fix"));
         assert_eq!(
-            detect_outcome(tmp.path(), &iter, &iter.mode),
+            detect_outcome(tmp.path(), &iter, &iter.mode, 2),
             IterOutcome::Complete
         );
     }
@@ -720,7 +728,7 @@ mod tests {
         fs::write(tmp.path().join(".ralph-revise"), "").unwrap();
         let iter = make_iter("review", Mode::Afk, 10, None, Some("draft"), Some("fix"));
         assert_eq!(
-            detect_outcome(tmp.path(), &iter, &iter.mode),
+            detect_outcome(tmp.path(), &iter, &iter.mode, 2),
             IterOutcome::Reject
         );
     }
@@ -730,7 +738,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let iter = make_iter("review", Mode::Interactive, 1, None, None, None);
         assert_eq!(
-            detect_outcome(tmp.path(), &iter, &iter.mode),
+            detect_outcome(tmp.path(), &iter, &iter.mode, 2),
             IterOutcome::Complete
         );
     }
@@ -740,7 +748,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let iter = make_iter("build", Mode::Afk, 10, None, None, None);
         assert_eq!(
-            detect_outcome(tmp.path(), &iter, &iter.mode),
+            detect_outcome(tmp.path(), &iter, &iter.mode, 2),
             IterOutcome::Exhausted
         );
     }
@@ -750,7 +758,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let iter = make_iter("review", Mode::Interactive, 5, None, None, None);
         assert_eq!(
-            detect_outcome(tmp.path(), &iter, &iter.mode),
+            detect_outcome(tmp.path(), &iter, &iter.mode, 2),
             IterOutcome::Exhausted
         );
     }
@@ -763,7 +771,7 @@ mod tests {
         fs::write(nested.join(".ralph-complete"), "").unwrap();
         let iter = make_iter("build", Mode::Afk, 10, None, None, None);
         assert_eq!(
-            detect_outcome(tmp.path(), &iter, &iter.mode),
+            detect_outcome(tmp.path(), &iter, &iter.mode, 2),
             IterOutcome::Complete
         );
     }
@@ -776,7 +784,7 @@ mod tests {
         fs::write(deep.join(".ralph-complete"), "").unwrap();
         let iter = make_iter("build", Mode::Interactive, 5, None, None, None);
         assert_eq!(
-            detect_outcome(tmp.path(), &iter, &iter.mode),
+            detect_outcome(tmp.path(), &iter, &iter.mode, 2),
             IterOutcome::Exhausted
         );
     }
@@ -909,7 +917,7 @@ mod tests {
             make_iter("review", Mode::Interactive, 1, None, Some("draft"), None),
         ];
 
-        let outcome = detect_outcome(tmp.path(), &iters[1], &iters[1].mode);
+        let outcome = detect_outcome(tmp.path(), &iters[1], &iters[1].mode, 2);
         assert_eq!(outcome, IterOutcome::Reject);
 
         let next = resolve_transition(&iters[1], &outcome).unwrap();
@@ -917,6 +925,26 @@ mod tests {
 
         let idx = resolve_iter_index(&iters, 1, &next);
         assert_eq!(idx, Some(0));
+    }
+
+    #[test]
+    fn exit_code_zero_without_sentinel_is_complete() {
+        let tmp = TempDir::new().unwrap();
+        let iter = make_iter("build", Mode::Afk, 10, None, None, None);
+        assert_eq!(
+            detect_outcome(tmp.path(), &iter, &iter.mode, 0),
+            IterOutcome::Complete
+        );
+    }
+
+    #[test]
+    fn exit_code_nonzero_without_sentinel_is_exhausted() {
+        let tmp = TempDir::new().unwrap();
+        let iter = make_iter("build", Mode::Afk, 10, None, None, None);
+        assert_eq!(
+            detect_outcome(tmp.path(), &iter, &iter.mode, 2),
+            IterOutcome::Exhausted
+        );
     }
 
     #[test]
@@ -1054,8 +1082,8 @@ mod tests {
         let root = tmp.path();
         setup_cursus_project(root, &["build.md"]);
 
-        // Mock that does NOT create any sentinel → exhausted for AFK mode
-        let ralph = mock_script(root, "mock_ralph.sh", "#!/bin/sh\nexit 0\n");
+        // Mock that does NOT create any sentinel and exits 2 → exhausted for AFK mode
+        let ralph = mock_script(root, "mock_ralph.sh", "#!/bin/sh\nexit 2\n");
 
         let def = make_cursus_def(
             vec![make_iter("build", Mode::Afk, 5, None, None, None)],
