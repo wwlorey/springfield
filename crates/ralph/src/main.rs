@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::Duration;
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 struct TeeWriter {
     log_file: Option<Mutex<fs::File>>,
@@ -328,6 +328,8 @@ fn main() {
             std::process::exit(0);
         }
 
+        log_resource_usage(i);
+
         tee.writeln("");
         tee.writeln(&style::dim(&format!(
             "Iteration {} complete, continuing...",
@@ -596,7 +598,7 @@ fn run_afk(
     let reader = BufReader::new(stdout);
     let (tx, rx) = mpsc::channel();
 
-    thread::spawn(move || {
+    let reader_handle = thread::spawn(move || {
         for line in reader.lines() {
             if tx.send(line).is_err() {
                 break;
@@ -604,10 +606,13 @@ fn run_afk(
         }
     });
 
+    let child_pid = child.id();
+
     loop {
         if controller.poll() == ShutdownStatus::Shutdown {
-            kill_process_group(child.id(), Duration::from_millis(200));
+            kill_process_group(child_pid, Duration::from_millis(200));
             let _ = child.wait();
+            let _ = reader_handle.join();
             return;
         }
 
@@ -656,9 +661,28 @@ fn run_afk(
         }
     }
 
+    kill_process_group(child_pid, Duration::from_millis(200));
     if let Err(e) = child.wait() {
         warn!(error = %e, "error waiting for child process");
     }
+    let _ = reader_handle.join();
+}
+
+fn log_resource_usage(iteration: u32) {
+    let pid = std::process::id();
+    let open_fds = fs::read_dir("/dev/fd").map(|d| d.count()).unwrap_or(0);
+
+    let mut rlim: libc::rlimit = unsafe { std::mem::zeroed() };
+    let fd_limit = if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut rlim) } == 0 {
+        rlim.rlim_cur
+    } else {
+        0
+    };
+
+    info!(
+        iteration,
+        pid, open_fds, fd_limit, "resource usage after iteration"
+    );
 }
 
 fn auto_push_if_changed(cli: &Cli, head_before: &Option<String>, tee: &TeeWriter) {
