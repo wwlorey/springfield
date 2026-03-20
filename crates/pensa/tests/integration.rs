@@ -1648,3 +1648,99 @@ fn dependency_flow_with_ready_and_blocked() {
         "child should no longer be in blocked list after parent is closed"
     );
 }
+
+#[test]
+fn doctor_fix_releases_in_progress_claims() {
+    let d = PensaOnlyDaemon::start();
+
+    // Create three issues
+    let mut ids = Vec::new();
+    for title in ["Alpha task", "Beta task", "Gamma task"] {
+        let resp = d
+            .client
+            .post(d.url("/issues"))
+            .json(&serde_json::json!({
+                "title": title,
+                "issue_type": "task"
+            }))
+            .send()
+            .unwrap();
+        assert_eq!(resp.status(), 201);
+        let issue: Value = resp.json().unwrap();
+        ids.push(issue["id"].as_str().unwrap().to_string());
+    }
+
+    // Claim the first two (sets them to in_progress)
+    for id in &ids[..2] {
+        let resp = d
+            .client
+            .patch(d.url(&format!("/issues/{id}")))
+            .json(&serde_json::json!({
+                "claim": true,
+                "actor": "agent-1"
+            }))
+            .send()
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+    }
+
+    // Verify the two are in_progress and the third is open
+    for (i, id) in ids.iter().enumerate() {
+        let resp = d.client.get(d.url(&format!("/issues/{id}"))).send().unwrap();
+        let issue: Value = resp.json().unwrap();
+        if i < 2 {
+            assert_eq!(issue["status"], "in_progress");
+            assert_eq!(issue["assignee"], "agent-1");
+        } else {
+            assert_eq!(issue["status"], "open");
+            assert!(issue["assignee"].is_null());
+        }
+    }
+
+    // Run doctor --fix
+    let resp = d
+        .client
+        .post(d.url("/doctor?fix=true"))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let report: Value = resp.json().unwrap();
+
+    // Verify findings detected the stale claims
+    let findings = report["findings"].as_array().expect("findings should be array");
+    assert_eq!(findings.len(), 2, "should find 2 stale in_progress claims");
+    assert!(
+        findings.iter().all(|f| f["check"] == "stale_claim"),
+        "all findings should be stale_claim"
+    );
+
+    // Verify fixes were applied
+    let fixes = report["fixes_applied"].as_array().expect("fixes_applied should be array");
+    assert!(!fixes.is_empty(), "fixes should have been applied");
+
+    // Verify all issues are now open with no assignee
+    for id in &ids {
+        let resp = d.client.get(d.url(&format!("/issues/{id}"))).send().unwrap();
+        let issue: Value = resp.json().unwrap();
+        assert_eq!(
+            issue["status"], "open",
+            "issue {id} should be open after doctor --fix"
+        );
+        assert!(
+            issue["assignee"].is_null(),
+            "issue {id} should have no assignee after doctor --fix"
+        );
+    }
+
+    // Verify all three now appear in ready list
+    let resp = d.client.get(d.url("/issues/ready")).send().unwrap();
+    assert_eq!(resp.status(), 200);
+    let ready: Vec<Value> = resp.json().unwrap();
+    let ready_ids: Vec<&str> = ready.iter().filter_map(|i| i["id"].as_str()).collect();
+    for id in &ids {
+        assert!(
+            ready_ids.contains(&id.as_str()),
+            "issue {id} should be in ready list after doctor --fix"
+        );
+    }
+}
