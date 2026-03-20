@@ -1514,3 +1514,263 @@ fn json_shape_error_response() {
     assert!(body["code"].is_string());
     assert_eq!(body["code"], "not_found");
 }
+
+// ===========================================================================
+// Full lifecycle end-to-end
+// ===========================================================================
+
+#[test]
+fn full_lifecycle_end_to_end() {
+    let d = TestDaemon::start();
+
+    // --- 1. Create specs ---
+    let resp = d.post(
+        "/specs",
+        &json!({"stem": "core", "src": "crates/core/", "purpose": "Core library"}),
+    );
+    assert_eq!(resp.status(), 201);
+
+    let resp = d.post(
+        "/specs",
+        &json!({"stem": "api", "src": "crates/api/", "purpose": "REST API layer"}),
+    );
+    assert_eq!(resp.status(), 201);
+
+    let resp = d.post(
+        "/specs",
+        &json!({"stem": "cli", "src": "crates/cli/", "purpose": "CLI frontend"}),
+    );
+    assert_eq!(resp.status(), 201);
+
+    // Verify list returns all 3
+    let resp = d.get("/specs");
+    let specs: Vec<Value> = resp.json().unwrap();
+    assert_eq!(specs.len(), 3);
+
+    // --- 2. Fill required sections ---
+    d.put(
+        "/specs/core/sections/overview",
+        &json!({"body": "Core provides shared types and utilities."}),
+    );
+    d.put(
+        "/specs/core/sections/architecture",
+        &json!({"body": "Single crate with modules: types, util, error."}),
+    );
+    d.put(
+        "/specs/core/sections/dependencies",
+        &json!({"body": "serde, thiserror"}),
+    );
+    d.put(
+        "/specs/core/sections/error-handling",
+        &json!({"body": "All errors use CoreError enum with thiserror derives."}),
+    );
+    d.put(
+        "/specs/core/sections/testing",
+        &json!({"body": "Unit tests per module, proptest for serialization round-trips."}),
+    );
+
+    d.put(
+        "/specs/api/sections/overview",
+        &json!({"body": "REST API built on axum."}),
+    );
+
+    // --- 3. Add custom sections ---
+    let resp = d.post(
+        "/specs/core/sections",
+        &json!({"name": "Performance Notes", "body": "Target <10ms p99 for all operations.", "after": "testing"}),
+    );
+    assert_eq!(resp.status(), 201);
+
+    // Verify section count: 5 required + 1 custom = 6
+    let resp = d.get("/specs/core/sections");
+    let sections: Vec<Value> = resp.json().unwrap();
+    assert_eq!(sections.len(), 6);
+    let custom = sections
+        .iter()
+        .find(|s| s["slug"] == "performance-notes")
+        .unwrap();
+    assert_eq!(custom["body"], "Target <10ms p99 for all operations.");
+    assert_eq!(custom["kind"], "custom");
+
+    // --- 4. Add cross-references ---
+    let resp = d.post("/specs/api/refs", &json!({"target": "core"}));
+    assert_eq!(resp.status(), 201);
+
+    let resp = d.post("/specs/cli/refs", &json!({"target": "core"}));
+    assert_eq!(resp.status(), 201);
+
+    let resp = d.post("/specs/cli/refs", &json!({"target": "api"}));
+    assert_eq!(resp.status(), 201);
+
+    // Verify refs
+    let resp = d.get("/specs/cli/refs");
+    let refs: Vec<Value> = resp.json().unwrap();
+    assert_eq!(refs.len(), 2);
+
+    // Verify no cycles
+    let resp = d.get("/refs/cycles");
+    let cycles: Vec<Vec<String>> = resp.json().unwrap();
+    assert!(cycles.is_empty(), "should have no reference cycles");
+
+    // Verify ref tree (down from cli)
+    let resp = d.get("/specs/cli/refs/tree?direction=down");
+    let tree: Vec<Value> = resp.json().unwrap();
+    assert!(tree.len() >= 2, "cli ref tree should include core and api");
+
+    // --- 5. Status transitions ---
+    d.patch("/specs/core", &json!({"status": "stable"}));
+    d.patch("/specs/core", &json!({"status": "proven"}));
+
+    let resp = d.get("/specs/core");
+    let detail: Value = resp.json().unwrap();
+    assert_eq!(detail["status"], "proven");
+
+    // Verify list filter by status
+    let resp = d.get("/specs?status=proven");
+    let proven: Vec<Value> = resp.json().unwrap();
+    assert_eq!(proven.len(), 1);
+    assert_eq!(proven[0]["stem"], "core");
+
+    // --- 6. Search ---
+    let resp = d.get("/specs/search?q=REST");
+    let results: Vec<Value> = resp.json().unwrap();
+    assert!(
+        results.iter().any(|r| r["stem"] == "api"),
+        "search for 'REST' should find api spec"
+    );
+
+    // --- 7. History ---
+    let resp = d.get("/specs/core/history");
+    let events: Vec<Value> = resp.json().unwrap();
+    assert!(
+        events.len() >= 3,
+        "core should have create + status updates in history"
+    );
+
+    // --- 8. Export ---
+    // Create src dirs so check passes
+    std::fs::create_dir_all(d._dir.path().join("crates/core")).unwrap();
+    std::fs::create_dir_all(d._dir.path().join("crates/api")).unwrap();
+    std::fs::create_dir_all(d._dir.path().join("crates/cli")).unwrap();
+
+    let resp = d.post("/export", &json!({}));
+    assert_eq!(resp.status(), 200);
+    let export_result: Value = resp.json().unwrap();
+    assert_eq!(export_result["specs"], 3);
+    assert_eq!(export_result["sections"], 16); // 5 required * 3 + 1 custom
+    assert_eq!(export_result["refs"], 3);
+
+    let forma_dir = d._dir.path().join(".forma");
+    assert!(forma_dir.join("specs.jsonl").exists());
+    assert!(forma_dir.join("sections.jsonl").exists());
+    assert!(forma_dir.join("refs.jsonl").exists());
+
+    // Verify generated markdown
+    let core_md = std::fs::read_to_string(forma_dir.join("specs/core.md")).unwrap();
+    assert!(core_md.contains("# core Specification"));
+    assert!(core_md.contains("Core provides shared types and utilities."));
+    assert!(core_md.contains("## Performance Notes"));
+    assert!(core_md.contains("| Status | proven |"));
+
+    let cli_md = std::fs::read_to_string(forma_dir.join("specs/cli.md")).unwrap();
+    assert!(cli_md.contains("## Related Specifications"));
+
+    // Verify README
+    let readme = std::fs::read_to_string(forma_dir.join("README.md")).unwrap();
+    assert!(readme.contains("[core](specs/core.md)"));
+    assert!(readme.contains("[api](specs/api.md)"));
+    assert!(readme.contains("[cli](specs/cli.md)"));
+
+    // --- 9. Import (rebuild from JSONL) ---
+    let resp = d.post("/import", &json!({}));
+    assert_eq!(resp.status(), 200);
+    let import_result: Value = resp.json().unwrap();
+    assert_eq!(import_result["specs"], 3);
+    assert_eq!(import_result["sections"], 16);
+    assert_eq!(import_result["refs"], 3);
+
+    // Verify data survived round-trip
+    let resp = d.get("/specs/core");
+    let core_after: Value = resp.json().unwrap();
+    assert_eq!(core_after["stem"], "core");
+    assert_eq!(core_after["purpose"], "Core library");
+    assert_eq!(core_after["status"], "proven");
+
+    let sections_after = core_after["sections"].as_array().unwrap();
+    assert_eq!(sections_after.len(), 6);
+    let overview = sections_after
+        .iter()
+        .find(|s| s["slug"] == "overview")
+        .unwrap();
+    assert_eq!(
+        overview["body"],
+        "Core provides shared types and utilities."
+    );
+    let perf = sections_after
+        .iter()
+        .find(|s| s["slug"] == "performance-notes")
+        .unwrap();
+    assert_eq!(perf["body"], "Target <10ms p99 for all operations.");
+
+    let empty_refs = vec![];
+    let refs_after = core_after["refs"].as_array().unwrap_or(&empty_refs);
+    // core has no outgoing refs (api and cli reference core, not vice versa)
+    assert!(refs_after.is_empty());
+
+    // Verify cli refs survived
+    let resp = d.get("/specs/cli");
+    let cli_after: Value = resp.json().unwrap();
+    let cli_refs = cli_after["refs"].as_array().unwrap();
+    assert_eq!(cli_refs.len(), 2);
+
+    // --- 10. Check (validation report) ---
+    let resp = d.get("/check");
+    assert_eq!(resp.status(), 200);
+    let check: Value = resp.json().unwrap();
+    assert!(check["ok"].is_boolean());
+    assert!(check["errors"].is_array());
+    assert!(check["warnings"].is_array());
+
+    // core has all sections filled → no warnings for core
+    // api/cli have unfilled required sections → warnings expected
+    let warnings = check["warnings"].as_array().unwrap();
+    let api_warnings: Vec<_> = warnings
+        .iter()
+        .filter(|w| {
+            w["check"] == "required_sections_nonempty"
+                && w["message"].as_str().map_or(false, |m| m.contains("'api'"))
+        })
+        .collect();
+    assert!(
+        !api_warnings.is_empty(),
+        "api should have empty-section warnings"
+    );
+
+    // --- 11. Doctor ---
+    let resp = d.post("/doctor", &json!({}));
+    assert_eq!(resp.status(), 200);
+    let doctor: Value = resp.json().unwrap();
+    assert!(doctor["findings"].is_array());
+    assert!(doctor["fixes_applied"].is_array());
+
+    // After export+import, no sync drift expected
+    let drift: Vec<_> = doctor["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|f| f["check"] == "sync_drift")
+        .collect();
+    assert!(
+        drift.is_empty(),
+        "no sync drift expected after export+import"
+    );
+
+    // --- 12. Count ---
+    let resp = d.get("/specs/count?by_status=true");
+    let count: Value = resp.json().unwrap();
+    assert!(count.is_object() || count.is_array());
+
+    // --- 13. Project status ---
+    let resp = d.get("/status");
+    assert_eq!(resp.status(), 200);
+}
