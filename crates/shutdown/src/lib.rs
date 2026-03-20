@@ -54,6 +54,43 @@ impl ChildGuard {
         child.wait_with_output()
     }
 
+    pub fn wait_with_output_timeout(mut self, timeout: Duration) -> io::Result<Output> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            match self.try_wait()? {
+                Some(status) => {
+                    #[allow(clippy::zombie_processes)]
+                    let mut child = self.child.take().expect("child already consumed");
+                    let mut stdout = Vec::new();
+                    let mut stderr = Vec::new();
+                    if let Some(mut out) = child.stdout.take() {
+                        let _ = out.read_to_end(&mut stdout);
+                    }
+                    if let Some(mut err) = child.stderr.take() {
+                        let _ = err.read_to_end(&mut stderr);
+                    }
+                    return Ok(Output {
+                        status,
+                        stdout,
+                        stderr,
+                    });
+                }
+                None if Instant::now() >= deadline => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        format!(
+                            "child process {} did not exit within {:?}",
+                            self.pid, timeout
+                        ),
+                    ));
+                }
+                None => {
+                    thread::sleep(Duration::from_millis(50));
+                }
+            }
+        }
+    }
+
     pub fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
         self.child_mut().try_wait()
     }
@@ -307,6 +344,21 @@ impl ProcessSemaphore {
         *count += 1;
         ProcessSemaphoreGuard { sem: self }
     }
+
+    pub fn acquire_timeout(&self, timeout: Duration) -> Option<ProcessSemaphoreGuard<'_>> {
+        let deadline = Instant::now() + timeout;
+        let mut count = self.mutex.lock().unwrap();
+        while *count >= self.max {
+            let remaining = deadline.checked_duration_since(Instant::now())?;
+            let (new_count, wait_result) = self.condvar.wait_timeout(count, remaining).unwrap();
+            count = new_count;
+            if wait_result.timed_out() && *count >= self.max {
+                return None;
+            }
+        }
+        *count += 1;
+        Some(ProcessSemaphoreGuard { sem: self })
+    }
 }
 
 pub struct ProcessSemaphoreGuard<'a> {
@@ -546,6 +598,30 @@ mod tests {
     }
 
     #[test]
+    fn wait_with_output_timeout_succeeds() {
+        let mut cmd = Command::new("echo");
+        cmd.arg("hello")
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        let guard = ChildGuard::spawn(&mut cmd).unwrap();
+        let output = guard
+            .wait_with_output_timeout(Duration::from_secs(5))
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "hello");
+    }
+
+    #[test]
+    fn wait_with_output_timeout_kills_on_expire() {
+        let guard = spawn_guard(&["sleep", "60"]);
+        let pid = guard.id();
+        let result = guard.wait_with_output_timeout(Duration::from_millis(200));
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::TimedOut);
+        assert!(wait_for_pid_dead(pid, Duration::from_secs(5)));
+    }
+
+    #[test]
     fn already_exited_no_error() {
         let guard = spawn_guard(&["true"]);
         let pid = guard.id();
@@ -680,6 +756,22 @@ mod tests {
             let g = sem.acquire();
             drop(g);
             let _g2 = sem.acquire();
+        }
+
+        #[test]
+        fn acquire_timeout_returns_none_on_expire() {
+            let sem = ProcessSemaphore::new(1);
+            let _g = sem.acquire();
+            let result = sem.acquire_timeout(Duration::from_millis(200));
+            assert!(result.is_none());
+        }
+
+        #[test]
+        fn acquire_timeout_succeeds_when_available() {
+            let sem = ProcessSemaphore::new(2);
+            let _g1 = sem.acquire();
+            let g2 = sem.acquire_timeout(Duration::from_millis(200));
+            assert!(g2.is_some());
         }
 
         #[test]
