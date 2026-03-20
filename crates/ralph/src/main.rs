@@ -430,9 +430,12 @@ fn ding_watcher(stop: &AtomicBool) {
     while !stop.load(Ordering::Relaxed) {
         if Path::new(DING_SENTINEL).exists() {
             let _ = fs::remove_file(DING_SENTINEL);
-            let _ = Command::new("afplay")
+            if let Ok(mut child) = Command::new("afplay")
                 .arg("/System/Library/Sounds/Blow.aiff")
-                .spawn();
+                .spawn()
+            {
+                let _ = child.wait();
+            }
         }
         thread::sleep(Duration::from_millis(100));
     }
