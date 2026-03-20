@@ -8,4 +8,6 @@ For every `pn` bug that is NOT in `precatum-est.json`:
 1. Write it to `$SGF_RUN_CONTEXT/preces-json.md`
 2. Write it to `precatum-est.json`, so that closed bugs are present there.
 
+Commit your changes.
+
 Touch `.ralph-complete` and end.

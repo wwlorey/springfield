@@ -3,6 +3,7 @@
 A list of `pn` bugs has been injected into your context.
 1. Query for them using `pn` and
 2. Study these issues and their fixes (i.e. the issues which fix the bugs).
+  a. Use subagents.
 
 Let's have a discussion and you can interview me about how:
 1. The fixes for these bugs have led the codebase to diverge from the specs and
