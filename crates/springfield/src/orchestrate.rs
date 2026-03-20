@@ -1,4 +1,4 @@
-use std::io;
+use std::io::{self, IsTerminal};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -255,7 +255,8 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
     );
 
     let monitor_stdin = if is_afk {
-        std::env::var("SGF_MONITOR_STDIN").map_or(true, |v| v != "0")
+        std::env::var("SGF_MONITOR_STDIN")
+            .map_or_else(|_| std::io::stdin().is_terminal(), |v| v != "0")
     } else {
         false
     };
