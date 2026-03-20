@@ -1492,3 +1492,111 @@ fn multi_fix_all_or_nothing_auto_close() {
         "closed_at should be set on auto-closed bug"
     );
 }
+
+#[test]
+fn dependency_flow_with_ready_and_blocked() {
+    let d = PensaOnlyDaemon::start();
+
+    // Create parent issue
+    let resp = d
+        .client
+        .post(d.url("/issues"))
+        .json(&serde_json::json!({
+            "title": "Parent task",
+            "issue_type": "task",
+            "actor": "tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    let parent: Value = resp.json().unwrap();
+    let parent_id = parent["id"].as_str().unwrap().to_string();
+
+    // Create child issue
+    let resp = d
+        .client
+        .post(d.url("/issues"))
+        .json(&serde_json::json!({
+            "title": "Child task",
+            "issue_type": "task",
+            "actor": "tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    let child: Value = resp.json().unwrap();
+    let child_id = child["id"].as_str().unwrap().to_string();
+
+    // Add dependency: child depends on parent
+    let resp = d
+        .client
+        .post(d.url("/deps"))
+        .json(&serde_json::json!({
+            "issue_id": child_id,
+            "depends_on_id": parent_id,
+            "actor": "tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200, "adding dependency should succeed");
+
+    // Verify child is excluded from ready list
+    let resp = d.client.get(d.url("/issues/ready")).send().unwrap();
+    assert_eq!(resp.status(), 200);
+    let ready: Vec<Value> = resp.json().unwrap();
+    let ready_ids: Vec<&str> = ready.iter().filter_map(|i| i["id"].as_str()).collect();
+    assert!(
+        ready_ids.contains(&parent_id.as_str()),
+        "parent should be in ready list"
+    );
+    assert!(
+        !ready_ids.contains(&child_id.as_str()),
+        "child should NOT be in ready list while parent is open"
+    );
+
+    // Verify child appears in blocked list
+    let resp = d.client.get(d.url("/issues/blocked")).send().unwrap();
+    assert_eq!(resp.status(), 200);
+    let blocked: Vec<Value> = resp.json().unwrap();
+    let blocked_ids: Vec<&str> = blocked.iter().filter_map(|i| i["id"].as_str()).collect();
+    assert!(
+        blocked_ids.contains(&child_id.as_str()),
+        "child should appear in blocked list"
+    );
+    assert!(
+        !blocked_ids.contains(&parent_id.as_str()),
+        "parent should NOT appear in blocked list"
+    );
+
+    // Close the parent issue
+    let resp = d
+        .client
+        .post(d.url(&format!("/issues/{parent_id}/close")))
+        .json(&serde_json::json!({
+            "reason": "Parent work completed",
+            "actor": "tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // Verify child now appears in ready list
+    let resp = d.client.get(d.url("/issues/ready")).send().unwrap();
+    assert_eq!(resp.status(), 200);
+    let ready: Vec<Value> = resp.json().unwrap();
+    let ready_ids: Vec<&str> = ready.iter().filter_map(|i| i["id"].as_str()).collect();
+    assert!(
+        ready_ids.contains(&child_id.as_str()),
+        "child should now be in ready list after parent is closed"
+    );
+
+    // Verify child no longer appears in blocked list
+    let resp = d.client.get(d.url("/issues/blocked")).send().unwrap();
+    assert_eq!(resp.status(), 200);
+    let blocked: Vec<Value> = resp.json().unwrap();
+    let blocked_ids: Vec<&str> = blocked.iter().filter_map(|i| i["id"].as_str()).collect();
+    assert!(
+        !blocked_ids.contains(&child_id.as_str()),
+        "child should no longer be in blocked list after parent is closed"
+    );
+}
