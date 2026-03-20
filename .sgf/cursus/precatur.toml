@@ -5,7 +5,7 @@ auto_push = true
 
 [[iter]]
 name = "gather-preces"
-prompt = "precatur-0-gather-preces"
+prompt = "precatur-0-gather-preces.md"
 mode = "afk"
 produces = "preces-json"
 
