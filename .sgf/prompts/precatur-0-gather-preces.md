@@ -1,6 +1,6 @@
 (You are in the GATHER PRECES phase of the precatur cursus.)
 
-Study `./.sgf/precatum-est.json`
+Study `./.pensa/precatum-est.json`
 
 Query for all `pn` issues of type `bug` with status `closed`.
 
