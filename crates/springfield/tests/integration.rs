@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Condvar, LazyLock, Mutex};
 use std::time::Duration;
 
+use shutdown::ChildGuard;
 use tempfile::TempDir;
 
 // ---------------------------------------------------------------------------
@@ -1791,23 +1792,24 @@ fn double_ctrl_c_exits_130() {
     let mock_ralph = create_slow_mock_ralph(mock_dir.path());
     let ready_file = mock_dir.path().join("sgf_ready");
 
-    let child = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_READY_FILE", &ready_file)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn sgf");
+    let guard = ChildGuard::spawn(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("SGF_READY_FILE", &ready_file)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn sgf");
 
-    let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+    let pid = nix::unistd::Pid::from_raw(guard.id() as i32);
 
     wait_for_ready(&ready_file);
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send first SIGINT");
     std::thread::sleep(Duration::from_millis(200));
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send second SIGINT");
 
-    let output = child.wait_with_output().expect("wait for sgf");
+    let output = guard.wait_with_output().expect("wait for sgf");
 
     assert_eq!(
         output.status.code(),
@@ -1831,21 +1833,22 @@ fn single_ctrl_c_continues_after_timeout() {
     );
     let ready_file = mock_dir.path().join("sgf_ready");
 
-    let child = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_READY_FILE", &ready_file)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn sgf");
+    let guard = ChildGuard::spawn(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("SGF_READY_FILE", &ready_file)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn sgf");
 
-    let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+    let pid = nix::unistd::Pid::from_raw(guard.id() as i32);
 
     wait_for_ready(&ready_file);
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send single SIGINT");
 
-    let output = child.wait_with_output().expect("wait for sgf");
+    let output = guard.wait_with_output().expect("wait for sgf");
 
     assert_eq!(
         output.status.code(),
@@ -1865,21 +1868,22 @@ fn sigterm_exits_immediately() {
     let mock_ralph = create_slow_mock_ralph(mock_dir.path());
     let ready_file = mock_dir.path().join("sgf_ready");
 
-    let child = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_READY_FILE", &ready_file)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn sgf");
+    let guard = ChildGuard::spawn(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("SGF_READY_FILE", &ready_file)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn sgf");
 
-    let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+    let pid = nix::unistd::Pid::from_raw(guard.id() as i32);
 
     wait_for_ready(&ready_file);
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGTERM).expect("send SIGTERM");
 
-    let output = child.wait_with_output().expect("wait for sgf");
+    let output = guard.wait_with_output().expect("wait for sgf");
 
     assert_eq!(
         output.status.code(),
@@ -1899,23 +1903,24 @@ fn confirmation_message_on_first_ctrl_c() {
     let mock_ralph = create_slow_mock_ralph(mock_dir.path());
     let ready_file = mock_dir.path().join("sgf_ready");
 
-    let child = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_READY_FILE", &ready_file)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn sgf");
+    let guard = ChildGuard::spawn(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("SGF_READY_FILE", &ready_file)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn sgf");
 
-    let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+    let pid = nix::unistd::Pid::from_raw(guard.id() as i32);
 
     wait_for_ready(&ready_file);
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send first SIGINT");
     std::thread::sleep(Duration::from_millis(200));
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send second SIGINT");
 
-    let output = child.wait_with_output().expect("wait for sgf");
+    let output = guard.wait_with_output().expect("wait for sgf");
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     assert!(
@@ -1937,30 +1942,31 @@ fn double_ctrl_d_exits_130() {
 
     // Closing a piped stdin causes continuous EOF (read returns 0), which
     // simulates a rapid double Ctrl+D press.
-    let mut child = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_MONITOR_STDIN", "1")
-        .env("SGF_READY_FILE", &ready_file)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn sgf");
+    let mut guard = ChildGuard::spawn(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("SGF_MONITOR_STDIN", "1")
+            .env("SGF_READY_FILE", &ready_file)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn sgf");
 
-    let stdin = child.stdin.take().expect("open stdin");
-    let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+    let stdin = guard.child_mut().stdin.take().expect("open stdin");
+    let pid = nix::unistd::Pid::from_raw(guard.id() as i32);
 
     wait_for_ready(&ready_file);
     drop(stdin);
 
     std::thread::sleep(Duration::from_millis(1000));
-    let output = match child.try_wait() {
-        Ok(Some(_)) => child.wait_with_output().expect("wait for sgf"),
+    let output = match guard.try_wait() {
+        Ok(Some(_)) => guard.wait_with_output().expect("wait for sgf"),
         _ => {
             nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGTERM)
                 .expect("send cleanup SIGTERM");
-            child.wait_with_output().expect("wait for sgf")
+            guard.wait_with_output().expect("wait for sgf")
         }
     };
 
@@ -1994,19 +2000,20 @@ fn mixed_ctrl_c_then_ctrl_d_no_shutdown() {
     );
     let ready_file = mock_dir.path().join("sgf_ready");
 
-    let mut child = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_MONITOR_STDIN", "1")
-        .env("SGF_READY_FILE", &ready_file)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn sgf");
+    let mut guard = ChildGuard::spawn(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("SGF_MONITOR_STDIN", "1")
+            .env("SGF_READY_FILE", &ready_file)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn sgf");
 
-    let mut stdin = child.stdin.take().expect("open stdin");
-    let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+    let mut stdin = guard.child_mut().stdin.take().expect("open stdin");
+    let pid = nix::unistd::Pid::from_raw(guard.id() as i32);
 
     wait_for_ready(&ready_file);
 
@@ -2025,7 +2032,7 @@ fn mixed_ctrl_c_then_ctrl_d_no_shutdown() {
 
     // The process should still be alive — mixed input did not cause shutdown.
     assert!(
-        child.try_wait().expect("try_wait").is_none(),
+        guard.try_wait().expect("try_wait").is_none(),
         "process should still be running after Ctrl+C + non-EOF stdin"
     );
 
@@ -2033,7 +2040,7 @@ fn mixed_ctrl_c_then_ctrl_d_no_shutdown() {
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGTERM).expect("send cleanup SIGTERM");
     drop(stdin);
 
-    let output = child.wait_with_output().expect("wait for sgf");
+    let output = guard.wait_with_output().expect("wait for sgf");
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     assert!(
@@ -2077,16 +2084,17 @@ fn double_ctrl_c_kills_entire_process_tree() {
         ),
     );
 
-    let child = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_READY_FILE", &ready_file)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn sgf");
+    let guard = ChildGuard::spawn(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("SGF_READY_FILE", &ready_file)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn sgf");
 
-    let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+    let pid = nix::unistd::Pid::from_raw(guard.id() as i32);
 
     wait_for_ready(&ready_file);
 
@@ -2120,7 +2128,7 @@ fn double_ctrl_c_kills_entire_process_tree() {
     std::thread::sleep(Duration::from_millis(200));
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send second SIGINT");
 
-    let output = child.wait_with_output().expect("wait for sgf");
+    let output = guard.wait_with_output().expect("wait for sgf");
 
     assert_eq!(
         output.status.code(),
@@ -2140,6 +2148,99 @@ fn double_ctrl_c_kills_entire_process_tree() {
         "grandchild (pid {grandchild_pid}) should be dead after double Ctrl+C, \
          but kill(pid, 0) returned {alive} (errno: {})",
         std::io::Error::last_os_error()
+    );
+}
+
+#[test]
+fn panic_does_not_leak_child_tree() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_ralph_pid_file = mock_dir.path().join("mock_ralph.pid");
+    let ready_file = mock_dir.path().join("sgf_ready");
+
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph_pid.sh",
+        &format!(
+            concat!(
+                "#!/bin/bash\n",
+                "trap '' INT TERM\n",
+                "echo $$ > \"{}\"\n",
+                "for i in $(seq 1 500); do sleep 0.1; done\n",
+                "exit 2\n",
+            ),
+            mock_ralph_pid_file.display()
+        ),
+    );
+
+    let sgf_pid;
+    let mock_ralph_pid: i32;
+
+    {
+        let guard = ChildGuard::spawn(
+            sgf_cmd(tmp.path())
+                .args(["build", "auth", "-a"])
+                .env("SGF_RALPH_BINARY", &mock_ralph)
+                .env("SGF_READY_FILE", &ready_file)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped()),
+        )
+        .expect("spawn sgf");
+
+        sgf_pid = guard.id();
+
+        wait_for_ready(&ready_file);
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while !mock_ralph_pid_file.exists() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "mock ralph PID file was not created within 5s"
+            );
+            std::thread::sleep(Duration::from_millis(25));
+        }
+
+        mock_ralph_pid = fs::read_to_string(&mock_ralph_pid_file)
+            .expect("read mock ralph PID file")
+            .trim()
+            .parse()
+            .expect("parse mock ralph PID");
+
+        assert_eq!(
+            unsafe { libc::kill(mock_ralph_pid, 0) },
+            0,
+            "mock ralph (pid {mock_ralph_pid}) should be alive before panic"
+        );
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = guard;
+            panic!("intentional panic to test cleanup");
+        }));
+        assert!(result.is_err());
+    }
+
+    let wait_dead = |pid: u32| -> bool {
+        let start = std::time::Instant::now();
+        while start.elapsed() < Duration::from_secs(5) {
+            if unsafe { libc::kill(pid as i32, 0) } != 0 {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        false
+    };
+
+    assert!(
+        wait_dead(sgf_pid),
+        "sgf (pid {sgf_pid}) should be dead after guard dropped during panic"
+    );
+    assert!(
+        wait_dead(mock_ralph_pid as u32),
+        "mock ralph (pid {mock_ralph_pid}) should be dead after guard dropped during panic"
     );
 }
 
@@ -2243,22 +2344,23 @@ fn interactive_mode_stdin_eof_does_not_trigger_shutdown() {
 
     // -i overrides to interactive mode. monitor_stdin is false,
     // so closing stdin should NOT cause shutdown.
-    let mut child = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-i"])
-        .env("PATH", &mock_path_with_cl)
-        .env_remove("CLAUDECODE")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn sgf");
+    let mut guard = ChildGuard::spawn(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-i"])
+            .env("PATH", &mock_path_with_cl)
+            .env_remove("CLAUDECODE")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn sgf");
 
-    let stdin = child.stdin.take().expect("open stdin");
+    let stdin = guard.child_mut().stdin.take().expect("open stdin");
 
     std::thread::sleep(Duration::from_millis(500));
     drop(stdin); // Close stdin — should NOT trigger shutdown in interactive mode
 
-    let output = child.wait_with_output().expect("wait for sgf");
+    let output = guard.wait_with_output().expect("wait for sgf");
 
     assert_eq!(
         output.status.code(),
@@ -2280,30 +2382,31 @@ fn afk_monitor_stdin_eof_triggers_shutdown() {
     let ready_file = mock_dir.path().join("sgf_ready");
 
     // AFK mode with SGF_MONITOR_STDIN=1: closing piped stdin triggers EOF shutdown.
-    let mut child = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_MONITOR_STDIN", "1")
-        .env("SGF_READY_FILE", &ready_file)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn sgf");
+    let mut guard = ChildGuard::spawn(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("SGF_MONITOR_STDIN", "1")
+            .env("SGF_READY_FILE", &ready_file)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn sgf");
 
-    let stdin = child.stdin.take().expect("open stdin");
-    let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+    let stdin = guard.child_mut().stdin.take().expect("open stdin");
+    let pid = nix::unistd::Pid::from_raw(guard.id() as i32);
 
     wait_for_ready(&ready_file);
     drop(stdin); // EOF triggers double-Ctrl+D detection
 
     std::thread::sleep(Duration::from_millis(1000));
-    let output = match child.try_wait() {
-        Ok(Some(_)) => child.wait_with_output().expect("wait for sgf"),
+    let output = match guard.try_wait() {
+        Ok(Some(_)) => guard.wait_with_output().expect("wait for sgf"),
         _ => {
             nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGTERM)
                 .expect("send cleanup SIGTERM");
-            child.wait_with_output().expect("wait for sgf")
+            guard.wait_with_output().expect("wait for sgf")
         }
     };
 
@@ -3522,16 +3625,17 @@ fn metadata_survives_interrupted_session() {
     let mock_ralph = create_slow_mock_ralph(mock_dir.path());
     let ready_file = mock_dir.path().join("sgf_ready");
 
-    let child = sgf_cmd(tmp.path())
-        .args(["build", "auth", "-a"])
-        .env("SGF_RALPH_BINARY", &mock_ralph)
-        .env("SGF_READY_FILE", &ready_file)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn sgf");
+    let guard = ChildGuard::spawn(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("SGF_READY_FILE", &ready_file)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn sgf");
 
-    let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+    let pid = nix::unistd::Pid::from_raw(guard.id() as i32);
 
     wait_for_ready(&ready_file);
 
@@ -3540,7 +3644,7 @@ fn metadata_survives_interrupted_session() {
     std::thread::sleep(Duration::from_millis(200));
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send second SIGINT");
 
-    let output = child.wait_with_output().expect("wait for sgf");
+    let output = guard.wait_with_output().expect("wait for sgf");
     assert_eq!(output.status.code(), Some(130));
 
     // Metadata should exist with interrupted status
@@ -3609,24 +3713,25 @@ fn resume_multi_iteration_picks_selected_session() {
     let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
     // Pipe "2\n" to stdin to select iteration 2
-    let mut child = sgf_cmd(tmp.path())
-        .args(["resume", loop_id])
-        .env("PATH", &mock_path_with_cl)
-        .env_remove("CLAUDECODE")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn sgf");
+    let mut guard = ChildGuard::spawn(
+        sgf_cmd(tmp.path())
+            .args(["resume", loop_id])
+            .env("PATH", &mock_path_with_cl)
+            .env_remove("CLAUDECODE")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn sgf");
 
     {
         use std::io::Write;
-        let stdin = child.stdin.as_mut().expect("open stdin");
+        let stdin = guard.child_mut().stdin.as_mut().expect("open stdin");
         stdin.write_all(b"2\n").expect("write selection");
     }
 
     let _permit = SGF_PERMITS.acquire();
-    let output = child.wait_with_output().expect("wait for sgf");
+    let output = guard.wait_with_output().expect("wait for sgf");
 
     assert!(
         output.status.success(),
@@ -3714,24 +3819,25 @@ fn resume_flat_picker_across_multiple_loops() {
     let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
     // Select "1" — should be the newest session (spec loop, completed_at 13:02:30)
-    let mut child = sgf_cmd(tmp.path())
-        .arg("resume")
-        .env("PATH", &mock_path_with_cl)
-        .env_remove("CLAUDECODE")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn sgf");
+    let mut guard = ChildGuard::spawn(
+        sgf_cmd(tmp.path())
+            .arg("resume")
+            .env("PATH", &mock_path_with_cl)
+            .env_remove("CLAUDECODE")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn sgf");
 
     {
         use std::io::Write;
-        let stdin = child.stdin.as_mut().expect("open stdin");
+        let stdin = guard.child_mut().stdin.as_mut().expect("open stdin");
         stdin.write_all(b"1\n").expect("write selection");
     }
 
     let _permit = SGF_PERMITS.acquire();
-    let output = child.wait_with_output().expect("wait for sgf");
+    let output = guard.wait_with_output().expect("wait for sgf");
 
     assert!(
         output.status.success(),
@@ -4603,23 +4709,24 @@ fn cursus_multi_iter_resume_stalled_run() {
     // Resume prompts interactively for action (1=retry, 2=skip, 3=abort).
     // Pipe "2\n" (skip) via a child process to test the skip path.
     let _permit = SGF_PERMITS.acquire();
-    let mut child = sgf_cmd(tmp.path())
-        .args(["resume", &run_id])
-        .env("SGF_RALPH_BINARY", &mock_ralph_complete)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("failed to spawn sgf resume");
+    let mut guard = ChildGuard::spawn(
+        sgf_cmd(tmp.path())
+            .args(["resume", &run_id])
+            .env("SGF_RALPH_BINARY", &mock_ralph_complete)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("failed to spawn sgf resume");
 
     // Write "2" (skip) to stdin
     {
         use std::io::Write;
-        let stdin = child.stdin.as_mut().unwrap();
+        let stdin = guard.child_mut().stdin.as_mut().unwrap();
         stdin.write_all(b"2\n").unwrap();
     }
 
-    let resume_output = child
+    let resume_output = guard
         .wait_with_output()
         .expect("failed to wait for sgf resume");
     drop(_permit);
