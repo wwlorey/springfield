@@ -4728,3 +4728,118 @@ fn cursus_layered_resolution_local_overrides_global() {
     // Clean up global cursus to not interfere with other tests
     let _ = fs::remove_file(global_cursus.join("layered.toml"));
 }
+
+// ===========================================================================
+// Cursus: banner flag passthrough
+// ===========================================================================
+
+#[test]
+fn cursus_banner_true_passes_banner_flag_to_ralph() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    write_cursus_toml(
+        tmp.path(),
+        "banner-test",
+        concat!(
+            "description = \"Banner test\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+            "banner = true\n",
+        ),
+    );
+
+    let prompts_dir = tmp.path().join(".sgf/prompts");
+    fs::create_dir_all(&prompts_dir).unwrap();
+    fs::write(prompts_dir.join("build.md"), "Build prompt\n").unwrap();
+    git_add_commit(tmp.path(), "add prompt");
+
+    let mock_dir = TempDir::new().unwrap();
+    let args_file = mock_dir.path().join("ralph_args.txt");
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph.sh",
+        &format!(
+            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.ralph-complete\"\nexit 0\n",
+            args_file.display()
+        ),
+    );
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["banner-test", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph),
+    );
+
+    assert!(
+        output.status.success(),
+        "sgf banner-test should exit 0: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let args = fs::read_to_string(&args_file).unwrap();
+    assert!(
+        args.contains("--banner"),
+        "should pass --banner flag when banner = true, got: {args}"
+    );
+}
+
+#[test]
+fn cursus_banner_false_omits_banner_flag() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    write_cursus_toml(
+        tmp.path(),
+        "no-banner",
+        concat!(
+            "description = \"No banner test\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+        ),
+    );
+
+    let prompts_dir = tmp.path().join(".sgf/prompts");
+    fs::create_dir_all(&prompts_dir).unwrap();
+    fs::write(prompts_dir.join("build.md"), "Build prompt\n").unwrap();
+    git_add_commit(tmp.path(), "add prompt");
+
+    let mock_dir = TempDir::new().unwrap();
+    let args_file = mock_dir.path().join("ralph_args.txt");
+    let mock_ralph = create_mock_script(
+        mock_dir.path(),
+        "mock_ralph.sh",
+        &format!(
+            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.ralph-complete\"\nexit 0\n",
+            args_file.display()
+        ),
+    );
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["no-banner", "-a"])
+            .env("SGF_RALPH_BINARY", &mock_ralph),
+    );
+
+    assert!(
+        output.status.success(),
+        "sgf no-banner should exit 0: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let args = fs::read_to_string(&args_file).unwrap();
+    assert!(
+        !args.contains("--banner"),
+        "should not pass --banner flag when banner is not set, got: {args}"
+    );
+}
