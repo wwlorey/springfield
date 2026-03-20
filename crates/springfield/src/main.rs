@@ -192,6 +192,7 @@ fn run_cursus_dispatch(root: &Path, args: &DynamicArgs, resolved: cursus::Resolv
         no_push: args.no_push,
         ralph_binary: None,
         skip_preflight: false,
+        monitor_stdin_override: None,
     };
 
     match cursus::runner::run_cursus(root, &resolved.name, &def, &config) {

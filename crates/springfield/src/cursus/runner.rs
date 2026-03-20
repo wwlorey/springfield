@@ -25,6 +25,7 @@ pub struct CursusConfig {
     pub no_push: bool,
     pub ralph_binary: Option<String>,
     pub skip_preflight: bool,
+    pub monitor_stdin_override: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -362,7 +363,16 @@ fn run_cursus_loop(
     metadata: &mut RunMetadata,
     start_index: usize,
 ) -> io::Result<i32> {
-    let monitor_stdin = std::env::var("SGF_MONITOR_STDIN").is_ok();
+    let is_afk = config.mode_override.as_ref() == Some(&Mode::Afk)
+        || (config.mode_override.is_none()
+            && def.iters[start_index..].iter().any(|i| i.mode == Mode::Afk));
+    let monitor_stdin = config.monitor_stdin_override.unwrap_or_else(|| {
+        if is_afk {
+            std::env::var("SGF_MONITOR_STDIN").map_or(true, |v| v != "0")
+        } else {
+            false
+        }
+    });
     let controller = ShutdownController::new(ShutdownConfig {
         monitor_stdin,
         ..Default::default()
@@ -597,6 +607,7 @@ pub fn resume_cursus(root: &Path, run_id: &str) -> io::Result<i32> {
         no_push: false,
         ralph_binary: None,
         skip_preflight: true,
+        monitor_stdin_override: None,
     };
 
     match action {
@@ -1053,6 +1064,7 @@ mod tests {
             no_push: true,
             ralph_binary: Some(ralph),
             skip_preflight: true,
+            monitor_stdin_override: Some(false),
         };
 
         let exit_code = run_cursus(root, "build", &def, &config).unwrap();
@@ -1096,6 +1108,7 @@ mod tests {
             no_push: true,
             ralph_binary: Some(ralph),
             skip_preflight: true,
+            monitor_stdin_override: Some(false),
         };
 
         let exit_code = run_cursus(root, "build", &def, &config).unwrap();
@@ -1143,6 +1156,7 @@ mod tests {
             no_push: true,
             ralph_binary: Some(ralph),
             skip_preflight: true,
+            monitor_stdin_override: Some(false),
         };
 
         let exit_code = run_cursus(root, "spec", &def, &config).unwrap();
@@ -1208,6 +1222,7 @@ exit 0
             no_push: true,
             ralph_binary: Some(ralph),
             skip_preflight: true,
+            monitor_stdin_override: Some(false),
         };
 
         let exit_code = run_cursus(root, "spec", &def, &config).unwrap();
@@ -1290,6 +1305,7 @@ exit 0
             no_push: true,
             ralph_binary: Some(ralph),
             skip_preflight: true,
+            monitor_stdin_override: Some(false),
         };
 
         let exit_code = run_cursus(root, "pipeline", &def, &config).unwrap();
@@ -1336,6 +1352,7 @@ exit 0
             no_push: true,
             ralph_binary: Some(ralph),
             skip_preflight: true,
+            monitor_stdin_override: Some(false),
         };
 
         let exit_code = run_cursus(root, "build", &def, &config).unwrap();
@@ -1376,6 +1393,7 @@ exit 0
             no_push: true,
             ralph_binary: Some(ralph),
             skip_preflight: true,
+            monitor_stdin_override: Some(false),
         };
 
         let exit_code = run_cursus(root, "build", &def, &config).unwrap();
@@ -1424,6 +1442,7 @@ exit 0
             no_push: true,
             ralph_binary: Some(ralph),
             skip_preflight: true,
+            monitor_stdin_override: Some(false),
         };
 
         run_cursus(root, "build", &def, &config).unwrap();
@@ -1454,6 +1473,7 @@ exit 0
             no_push: true,
             ralph_binary: None,
             skip_preflight: true,
+            monitor_stdin_override: None,
         };
 
         let err = run_cursus(root, "empty", &def, &config).unwrap_err();
@@ -1503,6 +1523,7 @@ exit 0
             no_push: true,
             ralph_binary: Some(ralph),
             skip_preflight: true,
+            monitor_stdin_override: Some(false),
         };
 
         let exit_code = run_cursus(root, "spec", &def, &config).unwrap();
@@ -1674,6 +1695,7 @@ prompt = "build.md"
             no_push: true,
             ralph_binary: Some(ralph),
             skip_preflight: true,
+            monitor_stdin_override: Some(false),
         };
 
         let run_id = "spec-20260317T140000";
@@ -1738,6 +1760,7 @@ prompt = "build.md"
             no_push: true,
             ralph_binary: Some(ralph),
             skip_preflight: true,
+            monitor_stdin_override: Some(false),
         };
 
         let run_id = "spec-20260317T140000";

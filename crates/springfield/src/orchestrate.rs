@@ -1,4 +1,4 @@
-use std::io::{self, IsTerminal as _};
+use std::io;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -254,8 +254,11 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
         &session_id,
     );
 
-    let monitor_stdin =
-        is_afk && (std::env::var("SGF_MONITOR_STDIN").is_ok() || io::stdin().is_terminal());
+    let monitor_stdin = if is_afk {
+        std::env::var("SGF_MONITOR_STDIN").map_or(true, |v| v != "0")
+    } else {
+        false
+    };
     let controller = ShutdownController::new(ShutdownConfig {
         monitor_stdin,
         ..Default::default()
