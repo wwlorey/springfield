@@ -2344,3 +2344,131 @@ fn resume_on_iteration1_passes_resume_and_omits_prompt() {
         "should NOT pass prompt arg when --resume is used, got args:\n{args}"
     );
 }
+
+// --- Shutdown signal integration tests ---
+
+#[test]
+fn double_ctrl_c_exits_130() {
+    let dir = setup_test_dir();
+    let script_path = dir.path().join("mock_slow.sh");
+    fs::write(&script_path, "#!/bin/bash\ntrap '' INT\nsleep 10\n").expect("write mock");
+    fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755)).expect("chmod");
+
+    let child = ralph_cmd(&dir)
+        .args(["--command", script_path.to_str().unwrap(), "1", "prompt.md"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn ralph");
+
+    let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+
+    std::thread::sleep(Duration::from_millis(500));
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send first SIGINT");
+    std::thread::sleep(Duration::from_millis(200));
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send second SIGINT");
+
+    let output = child.wait_with_output().expect("wait for ralph");
+
+    assert_eq!(
+        output.status.code(),
+        Some(130),
+        "should exit 130 on double Ctrl+C"
+    );
+}
+
+#[test]
+fn single_ctrl_c_continues_after_timeout() {
+    let dir = setup_test_dir();
+    let mock = create_slow_mock_script(&dir, "afk-session.ndjson");
+
+    let child = ralph_cmd(&dir)
+        .args([
+            "--afk",
+            "--command",
+            mock.to_str().unwrap(),
+            "1",
+            "prompt.md",
+        ])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn ralph");
+
+    let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+
+    std::thread::sleep(Duration::from_millis(500));
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send single SIGINT");
+
+    // Wait longer than the 2-second shutdown timeout window
+    std::thread::sleep(Duration::from_secs(3));
+
+    // Process should still be running (not killed by single Ctrl+C)
+    // It will eventually exit on its own when iterations are exhausted
+    let output = child.wait_with_output().expect("wait for ralph");
+
+    assert_ne!(
+        output.status.code(),
+        Some(130),
+        "should NOT exit 130 after single Ctrl+C with timeout reset"
+    );
+}
+
+#[test]
+fn sigterm_exits_immediately() {
+    let dir = setup_test_dir();
+    let script_path = dir.path().join("mock_slow_sigterm.sh");
+    fs::write(&script_path, "#!/bin/bash\ntrap '' INT TERM\nsleep 10\n").expect("write mock");
+    fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755)).expect("chmod");
+
+    let child = ralph_cmd(&dir)
+        .args(["--command", script_path.to_str().unwrap(), "1", "prompt.md"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn ralph");
+
+    let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+
+    std::thread::sleep(Duration::from_millis(500));
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGTERM).expect("send SIGTERM");
+
+    let output = child.wait_with_output().expect("wait for ralph");
+
+    assert_eq!(
+        output.status.code(),
+        Some(130),
+        "should exit 130 immediately on SIGTERM"
+    );
+}
+
+#[test]
+fn confirmation_message_on_first_ctrl_c() {
+    let dir = setup_test_dir();
+    let script_path = dir.path().join("mock_slow_confirm.sh");
+    fs::write(&script_path, "#!/bin/bash\ntrap '' INT\nsleep 10\n").expect("write mock");
+    fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755)).expect("chmod");
+
+    let child = ralph_cmd(&dir)
+        .args(["--command", script_path.to_str().unwrap(), "1", "prompt.md"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn ralph");
+
+    let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+
+    std::thread::sleep(Duration::from_millis(500));
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send first SIGINT");
+    std::thread::sleep(Duration::from_millis(200));
+    // Send second to terminate so we can read output
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send second SIGINT");
+
+    let output = child.wait_with_output().expect("wait for ralph");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        stderr.contains("Press Ctrl-C again to exit"),
+        "should show confirmation message on first Ctrl+C, got stderr:\n{stderr}"
+    );
+}
