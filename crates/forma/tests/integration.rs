@@ -963,3 +963,554 @@ fn search_matches_section_body() {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0]["stem"], "searchable");
 }
+
+fn assert_spec_object(v: &Value) {
+    assert!(v["stem"].is_string(), "spec.stem should be string");
+    assert!(
+        v["src"].is_string() || v["src"].is_null(),
+        "spec.src should be string or null"
+    );
+    assert!(v["purpose"].is_string(), "spec.purpose should be string");
+    assert!(v["status"].is_string(), "spec.status should be string");
+    assert!(
+        v["created_at"].is_string(),
+        "spec.created_at should be string"
+    );
+    assert!(
+        v["updated_at"].is_string(),
+        "spec.updated_at should be string"
+    );
+}
+
+fn assert_section_object(v: &Value) {
+    assert!(v["name"].is_string(), "section.name should be string");
+    assert!(v["slug"].is_string(), "section.slug should be string");
+    assert!(v["kind"].is_string(), "section.kind should be string");
+    assert!(v["body"].is_string(), "section.body should be string");
+    assert!(
+        v["position"].is_number(),
+        "section.position should be number"
+    );
+}
+
+fn assert_event_object(v: &Value) {
+    assert!(v["id"].is_number(), "event.id should be number");
+    assert!(
+        v["spec_stem"].is_string(),
+        "event.spec_stem should be string"
+    );
+    assert!(
+        v["event_type"].is_string(),
+        "event.event_type should be string"
+    );
+    assert!(
+        v["actor"].is_string() || v["actor"].is_null(),
+        "event.actor should be string or null"
+    );
+    assert!(
+        v["detail"].is_string() || v["detail"].is_null(),
+        "event.detail should be string or null"
+    );
+    assert!(
+        v["created_at"].is_string(),
+        "event.created_at should be string"
+    );
+}
+
+#[test]
+fn json_shape_create_returns_spec_object() {
+    let d = TestDaemon::start();
+    let resp = d.post(
+        "/specs",
+        &json!({"stem": "jsc", "src": "crates/jsc/", "purpose": "Shape create"}),
+    );
+    assert_eq!(resp.status(), 201);
+    let spec: Value = resp.json().unwrap();
+    assert_spec_object(&spec);
+    assert_eq!(spec["stem"], "jsc");
+    assert_eq!(spec["status"], "draft");
+}
+
+#[test]
+fn json_shape_update_returns_spec_object() {
+    let d = TestDaemon::start();
+    d.post(
+        "/specs",
+        &json!({"stem": "jsu", "src": "crates/jsu/", "purpose": "Shape update"}),
+    );
+    let resp = d.patch("/specs/jsu", &json!({"status": "stable"}));
+    assert_eq!(resp.status(), 200);
+    let spec: Value = resp.json().unwrap();
+    assert_spec_object(&spec);
+    assert_eq!(spec["status"], "stable");
+}
+
+#[test]
+fn json_shape_show_returns_spec_detail() {
+    let d = TestDaemon::start();
+    d.post(
+        "/specs",
+        &json!({"stem": "jss", "src": "crates/jss/", "purpose": "Shape show"}),
+    );
+    d.post(
+        "/specs",
+        &json!({"stem": "jss-ref", "src": "crates/jss-ref/", "purpose": "Ref target"}),
+    );
+    d.post("/specs/jss/refs", &json!({"target": "jss-ref"}));
+
+    let resp = d.get("/specs/jss");
+    assert_eq!(resp.status(), 200);
+    let detail: Value = resp.json().unwrap();
+
+    assert_spec_object(&detail);
+    assert!(detail["sections"].is_array());
+    assert!(detail["refs"].is_array());
+
+    for section in detail["sections"].as_array().unwrap() {
+        assert_section_object(section);
+    }
+    for ref_spec in detail["refs"].as_array().unwrap() {
+        assert_spec_object(ref_spec);
+    }
+}
+
+#[test]
+fn json_shape_delete_response() {
+    let d = TestDaemon::start();
+    d.post(
+        "/specs",
+        &json!({"stem": "jsd", "src": "crates/jsd/", "purpose": "Shape delete"}),
+    );
+    let resp = d.delete("/specs/jsd?force=true");
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().unwrap();
+    assert_eq!(body["status"], "deleted");
+    assert!(body["stem"].is_string());
+    assert_eq!(body["stem"], "jsd");
+}
+
+#[test]
+fn json_shape_list_returns_spec_object_array() {
+    let d = TestDaemon::start();
+    d.post(
+        "/specs",
+        &json!({"stem": "jsl-a", "src": "crates/jsl-a/", "purpose": "List A"}),
+    );
+    d.post(
+        "/specs",
+        &json!({"stem": "jsl-b", "src": "crates/jsl-b/", "purpose": "List B"}),
+    );
+
+    let resp = d.get("/specs");
+    assert_eq!(resp.status(), 200);
+    let specs: Vec<Value> = resp.json().unwrap();
+    assert_eq!(specs.len(), 2);
+    for spec in &specs {
+        assert_spec_object(spec);
+    }
+}
+
+#[test]
+fn json_shape_search_returns_spec_object_array() {
+    let d = TestDaemon::start();
+    d.post(
+        "/specs",
+        &json!({"stem": "jssrch", "src": "crates/jssrch/", "purpose": "Shape search"}),
+    );
+
+    let resp = d.get("/specs/search?q=jssrch");
+    assert_eq!(resp.status(), 200);
+    let results: Vec<Value> = resp.json().unwrap();
+    assert_eq!(results.len(), 1);
+    assert_spec_object(&results[0]);
+}
+
+#[test]
+fn json_shape_count_ungrouped() {
+    let d = TestDaemon::start();
+    d.post(
+        "/specs",
+        &json!({"stem": "jscount", "src": "crates/jscount/", "purpose": "Count"}),
+    );
+
+    let resp = d.get("/specs/count");
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().unwrap();
+    assert!(body["total"].is_number(), "count.total should be number");
+    assert_eq!(body["total"], 1);
+}
+
+#[test]
+fn json_shape_count_grouped() {
+    let d = TestDaemon::start();
+    d.post(
+        "/specs",
+        &json!({"stem": "jscg-a", "src": "crates/jscg-a/", "purpose": "A"}),
+    );
+    d.post(
+        "/specs",
+        &json!({"stem": "jscg-b", "src": "crates/jscg-b/", "purpose": "B"}),
+    );
+    d.patch("/specs/jscg-b", &json!({"status": "stable"}));
+
+    let resp = d.get("/specs/count?by_status=true");
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().unwrap();
+    assert!(body["total"].is_number());
+    assert_eq!(body["total"], 2);
+    let groups = body["groups"].as_array().unwrap();
+    assert!(!groups.is_empty());
+    for group in groups {
+        assert!(group["status"].is_string());
+        assert!(group["count"].is_number());
+    }
+}
+
+#[test]
+fn json_shape_status_response() {
+    let d = TestDaemon::start();
+    d.post(
+        "/specs",
+        &json!({"stem": "jsstat", "src": "crates/jsstat/", "purpose": "Status"}),
+    );
+
+    let resp = d.get("/status");
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().unwrap();
+    assert!(body.is_object(), "status should be an object");
+    assert!(body["draft"].is_number(), "draft count should be number");
+    // stable/proven may be absent if no specs have those statuses
+    for key in body.as_object().unwrap().keys() {
+        assert!(
+            ["draft", "stable", "proven"].contains(&key.as_str()),
+            "unexpected status key: {key}"
+        );
+        assert!(body[key].is_number());
+    }
+}
+
+#[test]
+fn json_shape_history_returns_event_array() {
+    let d = TestDaemon::start();
+    d.post(
+        "/specs",
+        &json!({"stem": "jshist", "src": "crates/jshist/", "purpose": "History"}),
+    );
+    d.patch("/specs/jshist", &json!({"purpose": "Updated"}));
+
+    let resp = d.get("/specs/jshist/history");
+    assert_eq!(resp.status(), 200);
+    let events: Vec<Value> = resp.json().unwrap();
+    assert!(events.len() >= 2);
+    for ev in &events {
+        assert_event_object(ev);
+    }
+}
+
+#[test]
+fn json_shape_section_add_returns_section_object() {
+    let d = TestDaemon::start();
+    d.post(
+        "/specs",
+        &json!({"stem": "jssadd", "src": "crates/jssadd/", "purpose": "Sec add"}),
+    );
+
+    let resp = d.post(
+        "/specs/jssadd/sections",
+        &json!({"name": "Custom Sec", "body": "content"}),
+    );
+    assert_eq!(resp.status(), 201);
+    let section: Value = resp.json().unwrap();
+    assert_section_object(&section);
+    assert_eq!(section["slug"], "custom-sec");
+    assert_eq!(section["kind"], "custom");
+}
+
+#[test]
+fn json_shape_section_set_returns_section_object() {
+    let d = TestDaemon::start();
+    d.post(
+        "/specs",
+        &json!({"stem": "jssset", "src": "crates/jssset/", "purpose": "Sec set"}),
+    );
+
+    let resp = d.put(
+        "/specs/jssset/sections/overview",
+        &json!({"body": "New overview"}),
+    );
+    assert_eq!(resp.status(), 200);
+    let section: Value = resp.json().unwrap();
+    assert_section_object(&section);
+    assert_eq!(section["body"], "New overview");
+}
+
+#[test]
+fn json_shape_section_get_returns_section_object() {
+    let d = TestDaemon::start();
+    d.post(
+        "/specs",
+        &json!({"stem": "jssget", "src": "crates/jssget/", "purpose": "Sec get"}),
+    );
+
+    let resp = d.get("/specs/jssget/sections/overview");
+    assert_eq!(resp.status(), 200);
+    let section: Value = resp.json().unwrap();
+    assert_section_object(&section);
+    assert_eq!(section["slug"], "overview");
+    assert_eq!(section["kind"], "required");
+}
+
+#[test]
+fn json_shape_section_list_returns_section_array() {
+    let d = TestDaemon::start();
+    d.post(
+        "/specs",
+        &json!({"stem": "jsslist", "src": "crates/jsslist/", "purpose": "Sec list"}),
+    );
+
+    let resp = d.get("/specs/jsslist/sections");
+    assert_eq!(resp.status(), 200);
+    let sections: Vec<Value> = resp.json().unwrap();
+    assert_eq!(sections.len(), 5);
+    for section in &sections {
+        assert_section_object(section);
+    }
+}
+
+#[test]
+fn json_shape_section_remove_response() {
+    let d = TestDaemon::start();
+    d.post(
+        "/specs",
+        &json!({"stem": "jssrm", "src": "crates/jssrm/", "purpose": "Sec remove"}),
+    );
+    d.post(
+        "/specs/jssrm/sections",
+        &json!({"name": "Removable", "body": "bye"}),
+    );
+
+    let resp = d.delete("/specs/jssrm/sections/removable");
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().unwrap();
+    assert_eq!(body["status"], "removed");
+    assert!(body["spec"].is_string());
+    assert_eq!(body["spec"], "jssrm");
+    assert!(body["slug"].is_string());
+    assert_eq!(body["slug"], "removable");
+}
+
+#[test]
+fn json_shape_section_move_returns_section_object() {
+    let d = TestDaemon::start();
+    d.post(
+        "/specs",
+        &json!({"stem": "jssmv", "src": "crates/jssmv/", "purpose": "Sec move"}),
+    );
+    d.post(
+        "/specs/jssmv/sections",
+        &json!({"name": "Movable", "body": "moving"}),
+    );
+
+    let resp = d.patch(
+        "/specs/jssmv/sections/movable/move",
+        &json!({"after": "overview"}),
+    );
+    assert_eq!(resp.status(), 200);
+    let section: Value = resp.json().unwrap();
+    assert_section_object(&section);
+    assert_eq!(section["slug"], "movable");
+}
+
+#[test]
+fn json_shape_ref_add_response() {
+    let d = TestDaemon::start();
+    d.post(
+        "/specs",
+        &json!({"stem": "jsra-from", "src": "crates/jsra-from/", "purpose": "From"}),
+    );
+    d.post(
+        "/specs",
+        &json!({"stem": "jsra-to", "src": "crates/jsra-to/", "purpose": "To"}),
+    );
+
+    let resp = d.post("/specs/jsra-from/refs", &json!({"target": "jsra-to"}));
+    assert_eq!(resp.status(), 201);
+    let body: Value = resp.json().unwrap();
+    assert_eq!(body["status"], "added");
+    assert!(body["from"].is_string());
+    assert_eq!(body["from"], "jsra-from");
+    assert!(body["to"].is_string());
+    assert_eq!(body["to"], "jsra-to");
+}
+
+#[test]
+fn json_shape_ref_remove_response() {
+    let d = TestDaemon::start();
+    d.post(
+        "/specs",
+        &json!({"stem": "jsrr-from", "src": "crates/jsrr-from/", "purpose": "From"}),
+    );
+    d.post(
+        "/specs",
+        &json!({"stem": "jsrr-to", "src": "crates/jsrr-to/", "purpose": "To"}),
+    );
+    d.post("/specs/jsrr-from/refs", &json!({"target": "jsrr-to"}));
+
+    let resp = d.delete("/specs/jsrr-from/refs/jsrr-to");
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().unwrap();
+    assert_eq!(body["status"], "removed");
+    assert!(body["from"].is_string());
+    assert_eq!(body["from"], "jsrr-from");
+    assert!(body["to"].is_string());
+    assert_eq!(body["to"], "jsrr-to");
+}
+
+#[test]
+fn json_shape_ref_list_returns_spec_object_array() {
+    let d = TestDaemon::start();
+    d.post(
+        "/specs",
+        &json!({"stem": "jsrl-from", "src": "crates/jsrl-from/", "purpose": "From"}),
+    );
+    d.post(
+        "/specs",
+        &json!({"stem": "jsrl-to", "src": "crates/jsrl-to/", "purpose": "To"}),
+    );
+    d.post("/specs/jsrl-from/refs", &json!({"target": "jsrl-to"}));
+
+    let resp = d.get("/specs/jsrl-from/refs");
+    assert_eq!(resp.status(), 200);
+    let refs: Vec<Value> = resp.json().unwrap();
+    assert_eq!(refs.len(), 1);
+    assert!(refs[0]["stem"].is_string());
+    assert_eq!(refs[0]["stem"], "jsrl-to");
+}
+
+#[test]
+fn json_shape_ref_tree_nodes() {
+    let d = TestDaemon::start();
+    d.post(
+        "/specs",
+        &json!({"stem": "jsrt-a", "src": "crates/jsrt-a/", "purpose": "Root"}),
+    );
+    d.post(
+        "/specs",
+        &json!({"stem": "jsrt-b", "src": "crates/jsrt-b/", "purpose": "Child"}),
+    );
+    d.post("/specs/jsrt-a/refs", &json!({"target": "jsrt-b"}));
+
+    let resp = d.get("/specs/jsrt-a/refs/tree?direction=down");
+    assert_eq!(resp.status(), 200);
+    let nodes: Vec<Value> = resp.json().unwrap();
+    assert!(nodes.len() >= 2);
+    for node in &nodes {
+        assert!(node["stem"].is_string(), "tree node.stem should be string");
+        assert!(
+            node["purpose"].is_string(),
+            "tree node.purpose should be string"
+        );
+        assert!(
+            node["status"].is_string(),
+            "tree node.status should be string"
+        );
+        assert!(
+            node["depth"].is_number(),
+            "tree node.depth should be number"
+        );
+    }
+}
+
+#[test]
+fn json_shape_ref_cycles_response() {
+    let d = TestDaemon::start();
+
+    let resp = d.get("/refs/cycles");
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().unwrap();
+    assert!(body.is_array());
+}
+
+#[test]
+fn json_shape_check_response() {
+    let d = TestDaemon::start();
+    d.post(
+        "/specs",
+        &json!({"stem": "jschk", "src": "crates/jschk/", "purpose": "Check"}),
+    );
+
+    let resp = d.get("/check");
+    assert_eq!(resp.status(), 200);
+    let report: Value = resp.json().unwrap();
+    assert!(report["ok"].is_boolean());
+    assert!(report["errors"].is_array());
+    assert!(report["warnings"].is_array());
+    for err in report["errors"].as_array().unwrap() {
+        assert!(err["check"].is_string());
+        assert!(err["message"].is_string());
+    }
+    for warn in report["warnings"].as_array().unwrap() {
+        assert!(warn["check"].is_string());
+        assert!(warn["message"].is_string());
+    }
+}
+
+#[test]
+fn json_shape_doctor_response() {
+    let d = TestDaemon::start();
+
+    let resp = d.post("/doctor", &json!({}));
+    assert_eq!(resp.status(), 200);
+    let report: Value = resp.json().unwrap();
+    assert!(report["findings"].is_array());
+    assert!(report["fixes_applied"].is_array());
+    for finding in report["findings"].as_array().unwrap() {
+        assert!(finding["check"].is_string());
+    }
+}
+
+#[test]
+fn json_shape_export_response() {
+    let d = TestDaemon::start();
+    d.post(
+        "/specs",
+        &json!({"stem": "jsexp", "src": "crates/jsexp/", "purpose": "Export"}),
+    );
+
+    let resp = d.post("/export", &json!({}));
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().unwrap();
+    assert_eq!(body["status"], "ok");
+    assert!(body["specs"].is_number());
+    assert!(body["sections"].is_number());
+    assert!(body["refs"].is_number());
+}
+
+#[test]
+fn json_shape_import_response() {
+    let d = TestDaemon::start();
+    d.post(
+        "/specs",
+        &json!({"stem": "jsimp", "src": "crates/jsimp/", "purpose": "Import"}),
+    );
+    d.post("/export", &json!({}));
+
+    let resp = d.post("/import", &json!({}));
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().unwrap();
+    assert!(body["specs"].is_number());
+    assert!(body["sections"].is_number());
+    assert!(body["refs"].is_number());
+}
+
+#[test]
+fn json_shape_error_response() {
+    let d = TestDaemon::start();
+
+    let resp = d.get("/specs/nonexistent-shape-test");
+    assert_eq!(resp.status(), 404);
+    let body: Value = resp.json().unwrap();
+    assert!(body["error"].is_string());
+    assert!(body["code"].is_string());
+    assert_eq!(body["code"], "not_found");
+}
