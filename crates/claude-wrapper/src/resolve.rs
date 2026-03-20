@@ -103,22 +103,45 @@ mod tests {
     }
 
     #[test]
-    fn none_home_skips_global_lookups() {
-        let cwd_dir = TempDir::new().unwrap();
+    fn none_home_returns_only_local_files() {
+        let (cwd_dir, home_dir) = setup();
         let cwd = cwd_dir.path();
+        let home = home_dir.path();
 
         fs::create_dir_all(cwd.join(".sgf")).unwrap();
         fs::write(cwd.join(".sgf/MEMENTO.md"), "local").unwrap();
 
+        fs::create_dir_all(home.join(".sgf")).unwrap();
+        fs::write(home.join(".sgf/MEMENTO.md"), "global memento").unwrap();
+        fs::write(home.join(".sgf/BACKPRESSURE.md"), "global bp").unwrap();
+
         let result = resolve_context_files(cwd, None);
         assert_eq!(result.len(), 1);
         assert!(result[0].contains("MEMENTO.md"));
+        assert!(
+            result[0].starts_with(cwd.to_str().unwrap()),
+            "should resolve from local, not global"
+        );
+        assert!(
+            !result.iter().any(|f| f.contains("BACKPRESSURE.md")),
+            "global BACKPRESSURE.md should not be resolved when home is None"
+        );
     }
 
     #[test]
     fn none_home_with_no_local_files_returns_empty() {
+        let (_, home_dir) = setup();
+        let home = home_dir.path();
         let cwd_dir = TempDir::new().unwrap();
+
+        fs::create_dir_all(home.join(".sgf")).unwrap();
+        fs::write(home.join(".sgf/MEMENTO.md"), "global").unwrap();
+        fs::write(home.join(".sgf/BACKPRESSURE.md"), "global").unwrap();
+
         let result = resolve_context_files(cwd_dir.path(), None);
-        assert!(result.is_empty());
+        assert!(
+            result.is_empty(),
+            "should return empty when home is None and no local files exist, even if global files do"
+        );
     }
 }
