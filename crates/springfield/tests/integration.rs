@@ -113,8 +113,14 @@ fn mock_bin_path() -> &'static str {
 }
 
 fn run_sgf(cmd: &mut Command) -> std::process::Output {
-    let _permit = SGF_PERMITS.acquire();
-    cmd.output().expect("failed to run sgf")
+    let _permit = SGF_PERMITS
+        .acquire_timeout(Duration::from_secs(60))
+        .expect("semaphore timed out");
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    ChildGuard::spawn(cmd)
+        .expect("spawn sgf")
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("failed to run sgf")
 }
 
 fn sgf_cmd(dir: &Path) -> Command {
@@ -1320,11 +1326,16 @@ fn setup_bare_remote(local: &Path) -> TempDir {
 
 /// Read HEAD from a bare remote repo.
 fn bare_remote_head(bare: &Path) -> String {
-    let out = Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .current_dir(bare)
-        .output()
-        .unwrap();
+    let out = ChildGuard::spawn(
+        Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(bare)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn git")
+    .wait_with_output_timeout(Duration::from_secs(30))
+    .unwrap();
     String::from_utf8_lossy(&out.stdout).trim().to_string()
 }
 
@@ -1752,7 +1763,9 @@ fn double_ctrl_c_exits_130() {
     std::thread::sleep(Duration::from_millis(200));
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send second SIGINT");
 
-    let output = guard.wait_with_output().expect("wait for sgf");
+    let output = guard
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("wait for sgf");
 
     assert_eq!(
         output.status.code(),
@@ -1791,7 +1804,9 @@ fn single_ctrl_c_continues_after_timeout() {
     wait_for_ready(&ready_file);
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send single SIGINT");
 
-    let output = guard.wait_with_output().expect("wait for sgf");
+    let output = guard
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("wait for sgf");
 
     assert_eq!(
         output.status.code(),
@@ -1826,7 +1841,9 @@ fn sigterm_exits_immediately() {
     wait_for_ready(&ready_file);
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGTERM).expect("send SIGTERM");
 
-    let output = guard.wait_with_output().expect("wait for sgf");
+    let output = guard
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("wait for sgf");
 
     assert_eq!(
         output.status.code(),
@@ -1863,7 +1880,9 @@ fn confirmation_message_on_first_ctrl_c() {
     std::thread::sleep(Duration::from_millis(200));
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send second SIGINT");
 
-    let output = guard.wait_with_output().expect("wait for sgf");
+    let output = guard
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("wait for sgf");
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     assert!(
@@ -1905,11 +1924,15 @@ fn double_ctrl_d_exits_130() {
 
     std::thread::sleep(Duration::from_millis(1000));
     let output = match guard.try_wait() {
-        Ok(Some(_)) => guard.wait_with_output().expect("wait for sgf"),
+        Ok(Some(_)) => guard
+            .wait_with_output_timeout(Duration::from_secs(30))
+            .expect("wait for sgf"),
         _ => {
             nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGTERM)
                 .expect("send cleanup SIGTERM");
-            guard.wait_with_output().expect("wait for sgf")
+            guard
+                .wait_with_output_timeout(Duration::from_secs(30))
+                .expect("wait for sgf")
         }
     };
 
@@ -1983,7 +2006,9 @@ fn mixed_ctrl_c_then_ctrl_d_no_shutdown() {
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGTERM).expect("send cleanup SIGTERM");
     drop(stdin);
 
-    let output = guard.wait_with_output().expect("wait for sgf");
+    let output = guard
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("wait for sgf");
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     assert!(
@@ -2071,7 +2096,9 @@ fn double_ctrl_c_kills_entire_process_tree() {
     std::thread::sleep(Duration::from_millis(200));
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send second SIGINT");
 
-    let output = guard.wait_with_output().expect("wait for sgf");
+    let output = guard
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("wait for sgf");
 
     assert_eq!(
         output.status.code(),
@@ -2303,7 +2330,9 @@ fn interactive_mode_stdin_eof_does_not_trigger_shutdown() {
     std::thread::sleep(Duration::from_millis(500));
     drop(stdin); // Close stdin — should NOT trigger shutdown in interactive mode
 
-    let output = guard.wait_with_output().expect("wait for sgf");
+    let output = guard
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("wait for sgf");
 
     assert_eq!(
         output.status.code(),
@@ -2345,11 +2374,15 @@ fn afk_monitor_stdin_eof_triggers_shutdown() {
 
     std::thread::sleep(Duration::from_millis(1000));
     let output = match guard.try_wait() {
-        Ok(Some(_)) => guard.wait_with_output().expect("wait for sgf"),
+        Ok(Some(_)) => guard
+            .wait_with_output_timeout(Duration::from_secs(30))
+            .expect("wait for sgf"),
         _ => {
             nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGTERM)
                 .expect("send cleanup SIGTERM");
-            guard.wait_with_output().expect("wait for sgf")
+            guard
+                .wait_with_output_timeout(Duration::from_secs(30))
+                .expect("wait for sgf")
         }
     };
 
@@ -3587,7 +3620,9 @@ fn metadata_survives_interrupted_session() {
     std::thread::sleep(Duration::from_millis(200));
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send second SIGINT");
 
-    let output = guard.wait_with_output().expect("wait for sgf");
+    let output = guard
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("wait for sgf");
     assert_eq!(output.status.code(), Some(130));
 
     // Metadata should exist with interrupted status
@@ -3673,8 +3708,12 @@ fn resume_multi_iteration_picks_selected_session() {
         stdin.write_all(b"2\n").expect("write selection");
     }
 
-    let _permit = SGF_PERMITS.acquire();
-    let output = guard.wait_with_output().expect("wait for sgf");
+    let _permit = SGF_PERMITS
+        .acquire_timeout(Duration::from_secs(60))
+        .expect("semaphore timed out");
+    let output = guard
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("wait for sgf");
 
     assert!(
         output.status.success(),
@@ -3779,8 +3818,12 @@ fn resume_flat_picker_across_multiple_loops() {
         stdin.write_all(b"1\n").expect("write selection");
     }
 
-    let _permit = SGF_PERMITS.acquire();
-    let output = guard.wait_with_output().expect("wait for sgf");
+    let _permit = SGF_PERMITS
+        .acquire_timeout(Duration::from_secs(60))
+        .expect("semaphore timed out");
+    let output = guard
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("wait for sgf");
 
     assert!(
         output.status.success(),
@@ -4651,7 +4694,9 @@ fn cursus_multi_iter_resume_stalled_run() {
     // Resume sends "2\n" (skip) via stdin to skip the stalled iter
     // Resume prompts interactively for action (1=retry, 2=skip, 3=abort).
     // Pipe "2\n" (skip) via a child process to test the skip path.
-    let _permit = SGF_PERMITS.acquire();
+    let _permit = SGF_PERMITS
+        .acquire_timeout(Duration::from_secs(60))
+        .expect("semaphore timed out");
     let mut guard = ChildGuard::spawn(
         sgf_cmd(tmp.path())
             .args(["resume", &run_id])
@@ -4670,7 +4715,7 @@ fn cursus_multi_iter_resume_stalled_run() {
     }
 
     let resume_output = guard
-        .wait_with_output()
+        .wait_with_output_timeout(Duration::from_secs(30))
         .expect("failed to wait for sgf resume");
     drop(_permit);
     let _ = &resume_output;

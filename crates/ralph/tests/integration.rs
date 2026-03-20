@@ -1,8 +1,8 @@
-use shutdown::ProcessSemaphore;
+use shutdown::{ChildGuard, ProcessSemaphore};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::LazyLock;
 use std::time::Duration;
 use tempfile::TempDir;
@@ -11,8 +11,14 @@ static RALPH_PERMITS: LazyLock<ProcessSemaphore> =
     LazyLock::new(|| ProcessSemaphore::from_env("SGF_TEST_MAX_CONCURRENT", 8));
 
 fn run_ralph(cmd: &mut Command) -> std::process::Output {
-    let _permit = RALPH_PERMITS.acquire();
-    cmd.output().expect("failed to run ralph")
+    let _permit = RALPH_PERMITS
+        .acquire_timeout(Duration::from_secs(60))
+        .expect("semaphore timed out");
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    ChildGuard::spawn(cmd)
+        .expect("spawn ralph")
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("failed to run ralph")
 }
 
 fn fixtures_dir() -> PathBuf {
@@ -26,12 +32,19 @@ fn setup_test_dir() -> TempDir {
     fs::write(dir.path().join("prompt.md"), "Test prompt.\n").expect("write prompt.md");
     // Initialize a git repo with an initial commit so git_head() works
     let run = |args: &[&str]| {
-        let _permit = RALPH_PERMITS.acquire();
-        Command::new("git")
-            .args(args)
-            .current_dir(dir.path())
-            .output()
-            .expect("git command");
+        let _permit = RALPH_PERMITS
+            .acquire_timeout(Duration::from_secs(60))
+            .expect("semaphore timed out");
+        ChildGuard::spawn(
+            Command::new("git")
+                .args(args)
+                .current_dir(dir.path())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped()),
+        )
+        .expect("spawn git")
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("git command");
     };
     run(&["init"]);
     run(&[
@@ -467,12 +480,19 @@ fn default_prompt_missing() {
     let dir = TempDir::new().expect("create temp dir");
     // Initialize git but do NOT create prompt.md
     let run = |args: &[&str]| {
-        let _permit = RALPH_PERMITS.acquire();
-        Command::new("git")
-            .args(args)
-            .current_dir(dir.path())
-            .output()
-            .expect("git command");
+        let _permit = RALPH_PERMITS
+            .acquire_timeout(Duration::from_secs(60))
+            .expect("semaphore timed out");
+        ChildGuard::spawn(
+            Command::new("git")
+                .args(args)
+                .current_dir(dir.path())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped()),
+        )
+        .expect("spawn git")
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("git command");
     };
     run(&["init"]);
     run(&[
@@ -823,18 +843,19 @@ fn afk_double_ctrlc_aborts() {
     let dir = setup_test_dir();
     let mock = create_slow_mock_script(&dir, "afk-session.ndjson");
 
-    let child = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "5",
-            "prompt.md",
-        ])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("spawn ralph");
+    let child = ChildGuard::spawn(
+        ralph_cmd(&dir)
+            .args([
+                "--afk",
+                "--command",
+                mock.to_str().unwrap(),
+                "5",
+                "prompt.md",
+            ])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped()),
+    )
+    .expect("spawn ralph");
 
     let pid = nix::unistd::Pid::from_raw(child.id() as i32);
 
@@ -843,7 +864,9 @@ fn afk_double_ctrlc_aborts() {
     std::thread::sleep(Duration::from_millis(200));
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send second SIGINT");
 
-    let output = child.wait_with_output().expect("wait for ralph");
+    let output = child
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("wait for ralph");
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     assert_eq!(
@@ -865,12 +888,13 @@ fn interactive_double_sigint_exits_130() {
     fs::write(&script_path, "#!/bin/bash\ntrap '' INT\nsleep 5\n").expect("write mock");
     fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755)).expect("chmod");
 
-    let child = ralph_cmd(&dir)
-        .args(["--command", script_path.to_str().unwrap(), "1", "prompt.md"])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("spawn ralph");
+    let child = ChildGuard::spawn(
+        ralph_cmd(&dir)
+            .args(["--command", script_path.to_str().unwrap(), "1", "prompt.md"])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped()),
+    )
+    .expect("spawn ralph");
 
     let pid = nix::unistd::Pid::from_raw(child.id() as i32);
 
@@ -879,7 +903,9 @@ fn interactive_double_sigint_exits_130() {
     std::thread::sleep(Duration::from_millis(200));
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send second SIGINT");
 
-    let output = child.wait_with_output().expect("wait for ralph");
+    let output = child
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("wait for ralph");
 
     assert_eq!(
         output.status.code(),
@@ -893,25 +919,28 @@ fn afk_single_ctrlc_resets_after_timeout() {
     let dir = setup_test_dir();
     let mock = create_slow_mock_script(&dir, "afk-session.ndjson");
 
-    let child = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("spawn ralph");
+    let child = ChildGuard::spawn(
+        ralph_cmd(&dir)
+            .args([
+                "--afk",
+                "--command",
+                mock.to_str().unwrap(),
+                "1",
+                "prompt.md",
+            ])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped()),
+    )
+    .expect("spawn ralph");
 
     let pid = nix::unistd::Pid::from_raw(child.id() as i32);
 
     std::thread::sleep(Duration::from_millis(500));
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send single SIGINT");
 
-    let output = child.wait_with_output().expect("wait for ralph");
+    let output = child
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("wait for ralph");
 
     assert_eq!(
         output.status.code(),
@@ -1193,12 +1222,19 @@ fn auto_push_pushes_when_head_changes() {
 
     let bare_dir = TempDir::new().expect("create bare repo dir");
     let run_git = |args: &[&str], cwd: &std::path::Path| {
-        let _permit = RALPH_PERMITS.acquire();
-        Command::new("git")
-            .args(args)
-            .current_dir(cwd)
-            .output()
-            .expect("git command")
+        let _permit = RALPH_PERMITS
+            .acquire_timeout(Duration::from_secs(60))
+            .expect("semaphore timed out");
+        ChildGuard::spawn(
+            Command::new("git")
+                .args(args)
+                .current_dir(cwd)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped()),
+        )
+        .expect("spawn git")
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("git command")
     };
 
     run_git(&["init", "--bare"], bare_dir.path());
@@ -2222,12 +2258,13 @@ fn double_ctrl_c_exits_130() {
     fs::write(&script_path, "#!/bin/bash\ntrap '' INT\nsleep 10\n").expect("write mock");
     fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755)).expect("chmod");
 
-    let child = ralph_cmd(&dir)
-        .args(["--command", script_path.to_str().unwrap(), "1", "prompt.md"])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("spawn ralph");
+    let child = ChildGuard::spawn(
+        ralph_cmd(&dir)
+            .args(["--command", script_path.to_str().unwrap(), "1", "prompt.md"])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped()),
+    )
+    .expect("spawn ralph");
 
     let pid = nix::unistd::Pid::from_raw(child.id() as i32);
 
@@ -2236,7 +2273,9 @@ fn double_ctrl_c_exits_130() {
     std::thread::sleep(Duration::from_millis(200));
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send second SIGINT");
 
-    let output = child.wait_with_output().expect("wait for ralph");
+    let output = child
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("wait for ralph");
 
     assert_eq!(
         output.status.code(),
@@ -2250,18 +2289,19 @@ fn single_ctrl_c_continues_after_timeout() {
     let dir = setup_test_dir();
     let mock = create_slow_mock_script(&dir, "afk-session.ndjson");
 
-    let child = ralph_cmd(&dir)
-        .args([
-            "--afk",
-            "--command",
-            mock.to_str().unwrap(),
-            "1",
-            "prompt.md",
-        ])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("spawn ralph");
+    let child = ChildGuard::spawn(
+        ralph_cmd(&dir)
+            .args([
+                "--afk",
+                "--command",
+                mock.to_str().unwrap(),
+                "1",
+                "prompt.md",
+            ])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped()),
+    )
+    .expect("spawn ralph");
 
     let pid = nix::unistd::Pid::from_raw(child.id() as i32);
 
@@ -2273,7 +2313,9 @@ fn single_ctrl_c_continues_after_timeout() {
 
     // Process should still be running (not killed by single Ctrl+C)
     // It will eventually exit on its own when iterations are exhausted
-    let output = child.wait_with_output().expect("wait for ralph");
+    let output = child
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("wait for ralph");
 
     assert_ne!(
         output.status.code(),
@@ -2289,19 +2331,22 @@ fn sigterm_exits_immediately() {
     fs::write(&script_path, "#!/bin/bash\ntrap '' INT TERM\nsleep 10\n").expect("write mock");
     fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755)).expect("chmod");
 
-    let child = ralph_cmd(&dir)
-        .args(["--command", script_path.to_str().unwrap(), "1", "prompt.md"])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("spawn ralph");
+    let child = ChildGuard::spawn(
+        ralph_cmd(&dir)
+            .args(["--command", script_path.to_str().unwrap(), "1", "prompt.md"])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped()),
+    )
+    .expect("spawn ralph");
 
     let pid = nix::unistd::Pid::from_raw(child.id() as i32);
 
     std::thread::sleep(Duration::from_millis(500));
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGTERM).expect("send SIGTERM");
 
-    let output = child.wait_with_output().expect("wait for ralph");
+    let output = child
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("wait for ralph");
 
     assert_eq!(
         output.status.code(),
@@ -2436,14 +2481,13 @@ fn confirmation_message_on_first_ctrl_c() {
     fs::write(&script_path, "#!/bin/bash\ntrap '' INT\nsleep 10\n").expect("write mock");
     fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755)).expect("chmod");
 
-    let child = ralph_cmd(&dir)
-        .args(["--command", script_path.to_str().unwrap(), "1", "prompt.md"])
+    let mut cmd = ralph_cmd(&dir);
+    cmd.args(["--command", script_path.to_str().unwrap(), "1", "prompt.md"])
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("spawn ralph");
+        .stderr(std::process::Stdio::piped());
+    let guard = ChildGuard::spawn(&mut cmd).expect("spawn ralph");
 
-    let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+    let pid = nix::unistd::Pid::from_raw(guard.id() as i32);
 
     std::thread::sleep(Duration::from_millis(500));
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send first SIGINT");
@@ -2451,7 +2495,9 @@ fn confirmation_message_on_first_ctrl_c() {
     // Send second to terminate so we can read output
     nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send second SIGINT");
 
-    let output = child.wait_with_output().expect("wait for ralph");
+    let output = guard
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("wait for ralph");
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     assert!(

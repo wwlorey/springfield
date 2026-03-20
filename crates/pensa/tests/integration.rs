@@ -1,9 +1,9 @@
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::LazyLock;
 use std::time::Duration;
 
 use serde_json::Value;
-use shutdown::ProcessSemaphore;
+use shutdown::{ChildGuard, ProcessSemaphore};
 use tempfile::TempDir;
 
 static PN_PERMITS: LazyLock<ProcessSemaphore> =
@@ -14,8 +14,14 @@ fn pn_bin() -> String {
 }
 
 fn run_pn(cmd: &mut Command) -> std::process::Output {
-    let _permit = PN_PERMITS.acquire();
-    cmd.output().expect("failed to run pn")
+    let _permit = PN_PERMITS
+        .acquire_timeout(Duration::from_secs(60))
+        .expect("semaphore timed out");
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    ChildGuard::spawn(cmd)
+        .expect("spawn pn")
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("failed to run pn")
 }
 
 #[test]
