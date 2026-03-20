@@ -231,11 +231,13 @@ fn invoke_ralph(inv: &RalphInvocation<'_>, controller: &ShutdownController) -> i
     let (ctx_env_name, ctx_env_val) = context::context_env_var(inv.root, inv.run_id);
     cmd.env(&ctx_env_name, &ctx_env_val);
 
-    unsafe {
-        cmd.pre_exec(|| {
-            libc::setsid();
-            Ok(())
-        });
+    if std::env::var("SGF_TEST_NO_SETSID").is_err() {
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::setsid();
+                Ok(())
+            });
+        }
     }
 
     let mut child = cmd

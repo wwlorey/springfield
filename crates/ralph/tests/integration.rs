@@ -84,6 +84,7 @@ fn ralph_cmd(dir: &TempDir) -> Command {
     cmd.env("RALPH_AUTO_PUSH", "false");
     cmd.env("RUST_LOG", "warn");
     cmd.env("SGF_MANAGED", "1");
+    cmd.env("SGF_TEST_NO_SETSID", "1");
     cmd.stdin(std::process::Stdio::null());
     cmd
 }

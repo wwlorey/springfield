@@ -337,7 +337,7 @@ fn run_ralph(
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .env("SGF_MANAGED", "1");
-    if afk {
+    if afk && std::env::var("SGF_TEST_NO_SETSID").is_err() {
         unsafe {
             cmd.pre_exec(|| {
                 libc::setsid();
@@ -1407,5 +1407,52 @@ mod tests {
             "got: {}",
             err
         );
+    }
+
+    #[test]
+    fn setsid_skipped_when_env_var_set() {
+        unsafe { std::env::set_var("SGF_TEST_NO_SETSID", "1") };
+        let mut cmd = Command::new("sleep");
+        cmd.arg("10");
+        cmd.stdin(Stdio::null());
+        cmd.stdout(Stdio::null());
+        cmd.stderr(Stdio::null());
+        let mut child = cmd.spawn().unwrap();
+        let child_pid = child.id() as libc::pid_t;
+        let parent_pgid = unsafe { libc::getpgid(0) };
+        let child_pgid = unsafe { libc::getpgid(child_pid) };
+        assert_eq!(
+            child_pgid, parent_pgid,
+            "with SGF_TEST_NO_SETSID set, child should share parent's process group"
+        );
+        let _ = child.kill();
+        let _ = child.wait();
+        unsafe { std::env::remove_var("SGF_TEST_NO_SETSID") };
+    }
+
+    #[test]
+    fn setsid_applied_without_env_var() {
+        unsafe { std::env::remove_var("SGF_TEST_NO_SETSID") };
+        let mut cmd = Command::new("sleep");
+        cmd.arg("10");
+        cmd.stdin(Stdio::null());
+        cmd.stdout(Stdio::null());
+        cmd.stderr(Stdio::null());
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::setsid();
+                Ok(())
+            });
+        }
+        let mut child = cmd.spawn().unwrap();
+        let child_pid = child.id() as libc::pid_t;
+        let parent_pgid = unsafe { libc::getpgid(0) };
+        let child_pgid = unsafe { libc::getpgid(child_pid) };
+        assert_ne!(
+            child_pgid, parent_pgid,
+            "without SGF_TEST_NO_SETSID, child with setsid should be in its own session"
+        );
+        let _ = child.kill();
+        let _ = child.wait();
     }
 }

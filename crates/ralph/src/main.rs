@@ -534,8 +534,11 @@ fn run_afk(
     tee: &TeeWriter,
     iteration: u32,
 ) {
-    let setsid_hook = || unsafe {
-        libc::setsid();
+    let skip_setsid = std::env::var("SGF_TEST_NO_SETSID").is_ok();
+    let setsid_hook = move || unsafe {
+        if !skip_setsid {
+            libc::setsid();
+        }
         Ok(())
     };
 

@@ -164,6 +164,7 @@ fn sgf_cmd(dir: &Path) -> Command {
     cmd.env("HOME", fake_home());
     cmd.env("PATH", mock_bin_path());
     cmd.env("SGF_SKIP_PREFLIGHT", "1");
+    cmd.env("SGF_TEST_NO_SETSID", "1");
     cmd
 }
 
