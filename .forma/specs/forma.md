@@ -21,12 +21,15 @@ Forma lives at `crates/forma/` in the Springfield workspace. It produces one bin
 crates/forma/
 ├── src/
 │   ├── main.rs       # CLI entry, clap commands, HTTP client, daemon auto-start
+│   ├── lib.rs        # Library root, re-exports modules for integration test access
+│   ├── client.rs     # HTTP client for communicating with the forma daemon
 │   ├── db.rs         # SQLite schema, migrations, all database operations
 │   ├── daemon.rs     # Axum HTTP server, route handlers
 │   ├── types.rs      # Spec, Section, Ref, Event, Status, RequiredSection, slugify
 │   └── output.rs     # Human-readable formatting (non-JSON output)
 ├── tests/
-│   └── integration.rs
+│   ├── integration.rs  # CLI-level integration tests via std::process::Command
+│   └── cli_client.rs   # Client API integration tests against a test daemon
 └── Cargo.toml
 ```
 
