@@ -21,3 +21,7 @@
 {"id":"pn-22a6ba5e","issue_id":"pn-58c78771","path":"specs/shutdown.md","reason":"Stdin EOF Detection section states 'There is no environment variable'","created_at":"2026-03-21T20:53:43Z"}
 {"id":"pn-317f84c2","issue_id":"pn-d8c7e6ad","path":"specs/shutdown.md","reason":"Spec serves as source of truth for README content","created_at":"2026-03-21T20:53:43Z"}
 {"id":"pn-3dbfc31c","issue_id":"pn-0da88ee1","path":"specs/shutdown.md","reason":"Integration with sgf section describes terminal settings preservation requirement","created_at":"2026-03-21T20:53:55Z"}
+{"id":"pn-63a1b6de","issue_id":"pn-ca7f1e9f","path":".forma/specs/cursus.md","reason":"Spec defines .iter-complete, .iter-reject, .iter-revise sentinel names","created_at":"2026-03-21T20:59:28Z"}
+{"id":"pn-63d3f4a4","issue_id":"pn-6bf12e1a","path":".forma/specs/cursus.md","reason":"Spec defines .iter-complete sentinel name","created_at":"2026-03-21T20:59:36Z"}
+{"id":"pn-c4e4ba58","issue_id":"pn-c3b6ab90","path":".forma/specs/cursus.md","reason":"Spec defines [[iter]] syntax, .iter-* sentinel names, and no-fallback command resolution","created_at":"2026-03-21T21:00:03Z"}
+{"id":"pn-48a307f0","issue_id":"pn-81aa4590","path":".forma/specs/cursus.md","reason":"Architecture section file layout lists wrong global cursus TOML files","created_at":"2026-03-21T21:00:21Z"}

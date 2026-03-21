@@ -5,7 +5,7 @@ Pipeline orchestration — declarative TOML-defined multi-iter workflows with co
 | Field | Value |
 |-------|-------|
 | Src | `crates/springfield/` |
-| Status | stable |
+| Status | proven |
 
 ## Overview
 

@@ -107,3 +107,10 @@
 {"id":"pn-f501b29d","issue_id":"pn-58c78771","path":"crates/springfield/src/cursus/runner.rs","reason":"Lines ~395-401 check SGF_MONITOR_STDIN env var — remove this override","created_at":"2026-03-21T20:53:40Z"}
 {"id":"pn-8d9e6b29","issue_id":"pn-d8c7e6ad","path":"crates/shutdown/src/lib.rs","reason":"Main source file — README should document the public API defined here","created_at":"2026-03-21T20:53:41Z"}
 {"id":"pn-db56a13e","issue_id":"pn-0da88ee1","path":"crates/springfield/tests/integration.rs","reason":"Add terminal settings restoration test alongside existing signal integration tests","created_at":"2026-03-21T20:53:55Z"}
+{"id":"pn-0c740a16","issue_id":"pn-ca7f1e9f","path":"crates/springfield/src/cursus/runner.rs","reason":"Contains SENTINELS constant and detect_outcome/clean_sentinels functions using old .ralph-* names","created_at":"2026-03-21T20:59:27Z"}
+{"id":"pn-707454f0","issue_id":"pn-6bf12e1a","path":"crates/ralph/src/main.rs","reason":"Contains SENTINEL constant and find_sentinel() using .ralph-complete","created_at":"2026-03-21T20:59:36Z"}
+{"id":"pn-340d2870","issue_id":"pn-6bf12e1a","path":"crates/ralph/tests/integration.rs","reason":"Integration tests reference .ralph-complete in mock scripts","created_at":"2026-03-21T20:59:36Z"}
+{"id":"pn-58c20436","issue_id":"pn-930a5f5f","path":"crates/springfield/tests/integration.rs","reason":"Contains 18+ references to .ralph-complete in mock scripts and assertions that need updating to .iter-*","created_at":"2026-03-21T20:59:44Z"}
+{"id":"pn-64ada087","issue_id":"pn-1ed7b5ad","path":"crates/springfield/src/init.rs","reason":"Contains .ralph-complete and .ralph-ding in GITIGNORE_FULL and GITIGNORE_ENTRIES constants","created_at":"2026-03-21T20:59:51Z"}
+{"id":"pn-1fd5b2f1","issue_id":"pn-c3b6ab90","path":"README.md","reason":"Contains stale sentinel names, [[iters]] syntax, and legacy config.toml fallback references","created_at":"2026-03-21T21:00:03Z"}
+{"id":"pn-036d4ae9","issue_id":"pn-f0355d3f","path":"crates/ralph/README.md","reason":"Contains .ralph-complete and .ralph-ding references in exit codes and interactive mode documentation","created_at":"2026-03-21T21:00:11Z"}
