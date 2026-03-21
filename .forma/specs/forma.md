@@ -132,7 +132,7 @@ SQLite needs serialized write access. Multiple agents may update different specs
 
 ### Daemon (`fm daemon`)
 
-- Listens on a per-project derived port. Port derivation: SHA-256 of `"forma:" + canonical_project_path`, bytes 8-9 mapped to range [10000, 60000]. The `"forma:"` prefix ensures forma and pensa derive different ports for the same project.
+- Listens on a per-project derived port. Port derivation: SHA-256 of `"forma:" + canonical_project_path`, bytes 8-9 mapped to range [10000, 59999]. The `"forma:"` prefix ensures forma and pensa derive different ports for the same project.
 - Owns the database directly via `rusqlite`.
 - Sets pragmas on every connection: `busy_timeout=5000`, `foreign_keys=ON`.
 - All mutation is serialized through the daemon — no concurrent SQLite writers.
@@ -473,7 +473,7 @@ Spec object fields plus `sections` (array of section objects, ordered by positio
 
 ### Section object fields
 
-`name`, `slug`, `kind`, `body`, `position`.
+`id`, `name`, `slug`, `kind`, `body`, `position`, `spec_stem`, `created_at`, `updated_at`. The `id`, `spec_stem`, `created_at`, and `updated_at` fields are included when the section is returned as part of a spec detail object or from `section get`/`section add`/`section set`.
 
 ### Event object fields
 
@@ -593,6 +593,10 @@ One line per ref: `{"from_stem": "...", "to_stem": "..."}`. Sorted by `from_stem
 
 Sections are rendered in position order. The "Related Specifications" section is auto-generated from the refs data — it is not a stored section. If a spec has no refs, the "Related Specifications" section is omitted.
 
+### Stale file cleanup
+
+After writing all spec markdown files, `fm export` removes any `.md` files from `.forma/specs/` whose filename stem does not match an active spec in the database. This ensures deleted specs do not leave orphaned markdown behind.
+
 ### README generation
 
 `fm export` also generates `.forma/README.md`:
@@ -603,7 +607,6 @@ Sections are rendered in position order. The "Related Specifications" section is
 | Spec | Code | Status | Purpose |
 |------|------|--------|---------|
 | [auth](specs/auth.md) | `crates/auth/` | stable | Authentication and session management |
-| [ralph](specs/ralph.md) | `crates/ralph/` | proven | Iterative Claude Code runner |
 ```
 
 Sorted by stem. Links are relative to `.forma/`.
@@ -612,7 +615,7 @@ Sorted by stem. Links are relative to `.forma/`.
 
 When the daemon starts:
 
-1. Create `.forma/` directory if it doesn't exist.
+1. Create `.forma/` directory if it doesn't exist. (Note: `sgf init` also creates this directory during scaffolding. Both operations are idempotent.)
 2. Create `~/.local/share/forma/<project-hash>/` directory if it doesn't exist.
 3. Open (or create) `~/.local/share/forma/<project-hash>/db.sqlite`.
 4. Set pragmas: `busy_timeout=5000`, `foreign_keys=ON`.

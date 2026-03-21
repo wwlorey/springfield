@@ -96,16 +96,7 @@ pub fn auto_push_if_changed(head_before: &str, emit: impl Fn(&str)) {
 
 ### Caller Integration
 
-**ralph** (`crates/ralph/src/main.rs`):
+**springfield** (`crates/springfield/src/orchestrate.rs` and `crates/springfield/src/cursus/runner.rs`):
 ```rust
-if cli.auto_push {
-    if let Some(ref before) = head_before {
-        vcs_utils::auto_push_if_changed(before, |msg| tee.writeln(&style::dim(msg)));
-    }
-}
-```
-
-**springfield** (`crates/springfield/src/orchestrate.rs`):
-```rust
-vcs_utils::auto_push_if_changed(&head_before, |msg| eprintln\!("sgf: {msg}"));
+vcs_utils::auto_push_if_changed(&head_before, |msg| style::print_warning(msg));
 ```

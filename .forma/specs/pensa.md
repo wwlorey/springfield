@@ -23,7 +23,7 @@ SQLite needs serialized write access. The daemon keeps all reads and writes behi
 
 ### Daemon (`pn daemon`)
 
-- Listens on a per-project derived port (SHA-256 of the canonical project directory, bytes 8-9 mapped to range [10000, 60000]).
+- Listens on a per-project derived port (SHA-256 of the canonical project directory, bytes 8-9 mapped to range [10000, 59999]).
 - Owns `.pensa/db.sqlite` directly via `rusqlite`.
 - Sets pragmas on every connection: `busy_timeout=5000`, `foreign_keys=ON`.
 - All mutation is serialized through the daemon — no concurrent SQLite writers.
@@ -47,13 +47,18 @@ SQLite needs serialized write access. The daemon keeps all reads and writes behi
 
 ### `is_remote_host()` URL Parsing
 
-The `is_remote_host()` function determines whether a configured daemon address points to a remote host (preventing auto-start) or a local host (allowing auto-start). It parses URLs and hostnames with the following rules:
+The `is_remote_host()` function determines whether a configured daemon address points to a remote host (preventing auto-start) or a local host (allowing auto-start). The sources are checked in order — first match wins:
+
+1. **`PN_DAEMON_HOST`**: if set and non-empty, the value is compared against the local-host list. Local hosts (`localhost`, `127.0.0.1`, `::1`) allow auto-start; anything else is treated as remote.
+2. **`PN_DAEMON`**: if set (regardless of value — even if it points to localhost), the function returns `true` (remote). Setting `PN_DAEMON` always blocks auto-start because the caller has explicitly provided a daemon URL.
+3. **`.pensa/daemon.url`**: if the file exists and contains a non-empty URL, the hostname is extracted by stripping the `http://` or `https://` prefix and taking everything before the first `:`. The extracted hostname is compared against the local-host list.
+4. **None of the above set**: returns `false` (local, auto-start allowed).
 
 - **Local hosts**: `localhost`, `127.0.0.1`, `::1` — auto-start is allowed
 - **Remote hosts**: anything else (e.g., `10.0.0.5`, `my-server.local`) — auto-start is blocked, CLI exits with error if daemon is unreachable
 - **Empty/unset**: treated as local (auto-start allowed)
 
-URL parsing extracts the hostname from `http://host:port` format. This is used for `PN_DAEMON`, `PN_DAEMON_HOST`, and `.pensa/daemon.url` resolution.
+URL parsing (extracting hostname from `http://host:port` format) applies to `PN_DAEMON_HOST` and `.pensa/daemon.url`. `PN_DAEMON` is not parsed — its presence alone is sufficient to block auto-start.
 
 ### Test Isolation Pattern
 
@@ -65,6 +70,7 @@ Integration tests use `.forma/daemon.port` and `.pensa/daemon.port` files to iso
 4. The CLI reads this file for port discovery
 
 This pattern ensures tests never conflict with each other or with production daemons, even when running in parallel.
+
 
 
 ## Dependencies
@@ -101,7 +107,11 @@ Dev dependencies:
 {"error": "issue not found: pn-a1b2c3d4", "code": "not_found"}
 ```
 
-The `code` field is present only when there's a machine-readable error code. Known codes: `not_found`, `already_claimed`, `cycle_detected`, `invalid_status_transition`.
+The `code` field is present only when there's a machine-readable error code. Known codes: `not_found`, `spec_not_found`, `forma_unavailable`, `already_claimed`, `cycle_detected`, `invalid_status_transition`.
+
+### Port collision
+
+If the derived port is already in use (by another pensa daemon or an unrelated service), the daemon panics on startup with `"failed to bind"`. The CLI does not retry daemon start — it spawns the daemon once, waits up to 5 seconds for it to become ready, and if it never responds, the CLI continues and the subsequent HTTP request fails with a connection error (exit code 1).
 
 ### Exit codes
 
@@ -438,7 +448,7 @@ No envelope — direct data to stdout.
 {"error": "issue not found: pn-a1b2c3d4", "code": "not_found"}
 ```
 
-The `code` field is present only when there's a machine-readable error code. Known codes: `not_found`, `already_claimed`, `cycle_detected`, `invalid_status_transition`.
+The `code` field is present only when there's a machine-readable error code. Known codes: `not_found`, `spec_not_found`, `forma_unavailable`, `already_claimed`, `cycle_detected`, `invalid_status_transition`.
 
 ### Null arrays
 

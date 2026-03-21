@@ -200,9 +200,30 @@ Claude Code crashes and push failures are handled as warnings — they do not pr
 
 ## Testing
 
-Springfield is tested via integration tests that exercise the full CLI. Key scenarios: sgf init idempotence, command resolution with aliases, cursus TOML parsing, pre-launch recovery, daemon lifecycle, signal handling (double Ctrl+C/Ctrl+D), loop ID generation, console output formatting.
+Springfield is tested via integration tests that exercise the full CLI. All integration tests use a shared test harness (see [test-harness spec](test-harness.md)).
 
-All integration tests use a shared test harness (see `test-harness` spec) that provides:
+### Key test scenarios
+
+| Area | Scenario | Assertion |
+|------|----------|-----------|
+| Init | `sgf init` idempotence | Re-running creates no duplicates in .gitignore, settings.json, hooks |
+| Init | `sgf init --force` safety | Fails on uncommitted changes; prompts before overwrite |
+| Command resolution | Alias resolution | `sgf b` resolves to `build` cursus when `alias = "b"` |
+| Command resolution | Local overrides global | `./.sgf/cursus/build.toml` takes precedence over `~/.sgf/cursus/build.toml` |
+| Command resolution | Simple prompt mode | `sgf my-task.md` detected as file path, runs iteration loop |
+| Cursus | TOML parsing and validation | Duplicate iter names, missing transitions → exit 1 |
+| Cursus | Sentinel transitions | `.iter-complete`, `.iter-reject`, `.iter-revise` trigger correct next iter |
+| Cursus | Context passing | `produces` files written to run dir; `consumes` files injected into prompt |
+| Cursus | Stall recovery | Iter exhaustion → stalled state → `sgf resume` works |
+| Pre-launch | Recovery | Stale `.pid` files cleaned up; stale run metadata marked interrupted |
+| Pre-launch | Daemon lifecycle | Daemons start, become ready, survive across iterations |
+| Shutdown | Double Ctrl+C | Process group killed with escalation |
+| Shutdown | Double Ctrl+D | Same as double Ctrl+C |
+| Loop | Loop ID generation | Format: `<command>-<timestamp>`, unique per invocation |
+| Output | Console formatting | Banners, iteration headers, stall messages formatted correctly |
+
+### Test infrastructure
+
 - **Shared mock binaries** (`MOCK_BINS` / `mock_bin_path()`) — single set of mock `pn`/`fm` scripts reused by all tests
 - **Concurrency semaphore** (`SGF_PERMITS` / `run_sgf()`) — limits concurrent `sgf` subprocess invocations to prevent resource exhaustion
 - **Automatic preflight skip** — `sgf_cmd()` injects `SGF_SKIP_PREFLIGHT=1` and mock `PATH` by default
@@ -210,12 +231,12 @@ All integration tests use a shared test harness (see `test-harness` spec) that p
 ## CLI Commands
 
 ```
-sgf <command> [-a | -i] [-n N] [--no-push]   — run a cursus pipeline
-sgf <file>                                    — run a prompt file as a simple iteration loop
-sgf init [--force]                            — scaffold a new project
-sgf list                                      — show available commands with descriptions
-sgf logs <loop-id>                            — tail a running loop's output
-sgf resume [run-id]                           — resume a stalled/interrupted cursus run
+sgf <command> [-a | -i] [-n N] [--no-push] [--skip-preflight]   — run a cursus pipeline
+sgf <file>                                                       — run a prompt file as a simple iteration loop
+sgf init [--force]                                               — scaffold a new project
+sgf list                                                         — show available commands with descriptions
+sgf logs <loop-id>                                               — tail a running loop's output
+sgf resume [loop-id]                                             — resume a stalled/interrupted cursus run
 ```
 
 Where `<command>` resolves to a cursus TOML pipeline definition. Commands can also be invoked by alias (e.g., `sgf b` for `sgf build` if `alias = "b"` is configured in the cursus TOML).
@@ -278,10 +299,10 @@ Built-ins:
 ### Reserved Built-in: `resume`
 
 ```
-sgf resume [run-id]
+sgf resume [loop-id]
 ```
 
-Resume a stalled or interrupted cursus run. With `run-id`: loads `.sgf/run/{run-id}/meta.json` and continues from the stalled/interrupted iter. Without `run-id`: displays an interactive picker showing resumable runs (stalled and interrupted, newest first), the user selects one to resume. For stalled runs, offers options to retry, skip, or abort. See [cursus spec](cursus.md) Stall Recovery.
+Resume a stalled or interrupted cursus run. With `loop-id`: loads `.sgf/run/{loop-id}/meta.json` and continues from the stalled/interrupted iter. Without `loop-id`: displays an interactive picker showing resumable runs (stalled and interrupted, newest first), the user selects one to resume. For stalled runs, offers options to retry, skip, or abort. See [cursus spec](cursus.md) Stall Recovery.
 
 Falls back to legacy session-resume behavior for non-cursus sessions (see [session-resume spec](session-resume.md)).
 
@@ -293,6 +314,7 @@ Falls back to legacy session-resume behavior for non-cursus sessions (see [sessi
 | `-i` / `--interactive` | from cursus TOML | Interactive mode: overrides iter-level `mode` for all iters |
 | `--no-push` | `false` | Disable auto-push after commits (overrides `auto_push` on all iters) |
 | `-n` / `--iterations` | from cursus TOML | Number of iterations (overrides `iterations` on all iters) |
+| `--skip-preflight` | `false` | Disable all pre-launch checks including recovery and daemon startup |
 
 `-a` and `-i` are mutually exclusive — passing both is an error (exit 1 with a clear message). When neither is passed, the default comes from the cursus TOML iter definition (or `interactive` for simple prompt mode).
 
@@ -524,6 +546,7 @@ When `SGF_AGENT_COMMAND` is set (testing mode), the command override replaces `c
 ```
 cl \
   --verbose \
+  --dangerously-skip-permissions \
   [--session-id <uuid>]           # always (fresh UUID per invocation)
   [--append-system-prompt '<consumed context>']
   @<PROMPT_FILE>
@@ -550,10 +573,10 @@ Spawns via `ChildGuard::spawn()` (which calls `setpgid(0, 0)` in `pre_exec` for 
 
 | Mode | Execution | Description |
 |------|-----------|-------------|
-| `interactive` | `cl` directly | Full terminal passthrough; calls `cl --verbose [--session-id UUID] [--append-system-prompt ...] @{prompt_path}`, inheriting stdio |
+| `interactive` | `cl` directly | Full terminal passthrough; calls `cl --verbose --dangerously-skip-permissions [--session-id UUID] [--append-system-prompt ...] @{prompt_path}`, inheriting stdio |
 | `afk` | `cl` via iteration runner | Autonomous execution; `cl` invoked with `--dangerously-skip-permissions`, NDJSON stream formatting |
 
-**Interactive mode**: Calls `cl` directly. No PID file, no log tee. Generates a loop_id and writes session metadata to `.sgf/run/{loop_id}.json` for resume capability. `cl` handles context file injection (MEMENTO, BACKPRESSURE). When `auto_push` is true, auto-pushes after the session if HEAD changed. Passes `--session-id <uuid>` to `cl` for session tracking.
+**Interactive mode**: Calls `cl` directly with `--dangerously-skip-permissions`. No PID file, no log tee. Generates a loop_id and writes session metadata to `.sgf/run/{loop_id}.json` for resume capability. `cl` handles context file injection (MEMENTO, BACKPRESSURE). When `auto_push` is true, auto-pushes after the session if HEAD changed. Passes `--session-id <uuid>` to `cl` for session tracking.
 
 **AFK mode**: Calls `cl` directly via the iteration runner. PID file, log tee, and loop ID are managed by sgf. Session metadata (`.sgf/run/{loop_id}.json`) is written before spawn and updated on exit.
 
@@ -625,10 +648,6 @@ Iterations are clamped to a hard limit of 1000. If a higher value is provided (v
 ### Inter-Iteration Sleep
 
 A 2-second sleep between iterations allows git operations to settle and prevents rapid-fire agent invocations. The sleep is interruptible — polled in 100ms increments, checking the shutdown controller between polls.
-
----
-
-
 
 ## Loop ID Format
 
@@ -803,9 +822,11 @@ The iteration runner does not perform iteration-start cleanup. Recovery is `sgf`
 
 `sgf` writes `.sgf/run/<loop-id>.pid` on launch (containing its process ID) and removes it on clean exit. The `.sgf/run/` directory is gitignored.
 
+Cursus runs use a separate PID file layout: `.sgf/run/<run-id>/<run-id>.pid` (nested inside the run directory). Cursus has its own stale run detection via `meta.json` status — the flat PID scan described below applies only to non-cursus sessions.
+
 ### Pre-launch Cleanup
 
-Before invoking `cl`, `sgf` scans all PID files in `.sgf/run/`:
+Before invoking `cl`, `sgf` scans PID files at `.sgf/run/*.pid` (non-cursus sessions only):
 
 - **Any PID alive** (verified via `kill -0`) → another loop is running. Skip cleanup and launch normally — the dirty tree or in-progress claims may belong to that loop.
 - **All PIDs stale** (process dead) → no loops are running. Remove stale PID files, then recover:
@@ -838,8 +859,8 @@ After pre-launch checks, automated stages invoke `cl` via the iteration runner; 
 
 Each daemon uses its own port derivation to avoid collisions:
 
-- **Pensa**: `SHA256(canonical_project_path)`, bytes [8,9] mapped to range [10000, 60000]
-- **Forma**: `SHA256("forma:" + canonical_project_path)`, bytes [8,9] mapped to range [10000, 60000]
+- **Pensa**: `SHA256(canonical_project_path)`, bytes [8,9] mapped to range [10000, 59999]
+- **Forma**: `SHA256("forma:" + canonical_project_path)`, bytes [8,9] mapped to range [10000, 59999]
 
 The `"forma:"` prefix ensures forma and pensa derive different ports for the same project. Springfield's `pensa_port()` and `forma_port()` in `recovery.rs` must match the derivation logic in each daemon's own crate.
 

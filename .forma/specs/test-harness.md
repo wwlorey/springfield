@@ -96,7 +96,7 @@ The updated `sgf_cmd` automatically injects `mock_bin_path()`, `SGF_SKIP_PREFLIG
 
 ### 6. `SGF_TEST_NO_SETSID` Convention
 
-When `SGF_TEST_NO_SETSID=1` is set, `ChildGuard::spawn()` skips the `setpgid(0, 0)` call in `pre_exec`. This keeps test children in the test runner's process group, making them killable when the test runner exits or times out. Without this, children in their own process group would be orphaned if the test runner is killed.
+When `SGF_TEST_NO_SETSID=1` is set, springfield's iteration runner and cursus runner skip the `setsid()` call in their `pre_exec` callbacks. `ChildGuard::spawn()` still calls `setpgid(0, 0)` unconditionally — the env var only controls the additional `setsid()` that springfield adds. Without `setsid()`, test children remain in the test runner's process group, making them killable when the test runner exits or times out.
 
 ### 7. `SGF_AGENT_COMMAND` for Mock Agents
 
@@ -149,9 +149,9 @@ The `SGF_TEST_MAX_CONCURRENT` env var override uses `ProcessSemaphore::from_env(
 
 | Scenario | Behavior |
 |----------|----------|
-| Semaphore permit timeout | None — `Condvar::wait` blocks indefinitely. Tests have Rust's built-in `#[should_panic]` timeout if needed. In practice, permits are held for <5s per test. |
-| `SGF_TEST_MAX_CONCURRENT` set to invalid value | Falls back to default (8). Parsed via `.ok().and_then(\|v\| v.parse().ok()).unwrap_or(8)`. |
-| `SGF_TEST_MAX_CONCURRENT=0` | Deadlock — all tests block forever. This is a misconfiguration, not a runtime error. Documented as "must be >= 1". |
+| Semaphore permit timeout | `acquire_timeout(Duration::from_secs(60))` panics with "timed out waiting for sgf permit". 60-second deadline prevents indefinite hangs in CI. |
+| `SGF_TEST_MAX_CONCURRENT` set to invalid value | Falls back to default (8). Parsed via `.ok().and_then(|v| v.parse().ok()).unwrap_or(8)`. |
+| `SGF_TEST_MAX_CONCURRENT=0` | `ProcessSemaphore::from_env()` panics with a clear message — max must be >= 1 (see [shutdown spec](shutdown.md) Process Lifecycle). |
 | Mock script creation fails (disk full) | `LazyLock` panics on first access, poisoning the `Once` — all tests that reference `MOCK_BINS` will panic with a clear error. |
 | `run_sgf` child process spawn fails | Returns `Output` via `.expect()` — test panics with "failed to run sgf". Same behavior as today. |
 

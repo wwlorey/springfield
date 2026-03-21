@@ -29,11 +29,23 @@ Changes are within the `springfield` crate:
 
 ### Session Metadata File
 
+Non-cursus sessions (simple loops, `sgf <file>`):
+
 ```
 .sgf/run/{loop_id}.json
 ```
 
 Co-located with existing `.sgf/run/{loop_id}.pid` files. Gitignored (`.sgf/run/` is already in `.gitignore`).
+
+Cursus sessions use a different layout: `.sgf/run/{run_id}/meta.json` (see [cursus spec](cursus.md) Run State section). The session-resume spec owns the non-cursus metadata format and the `sgf resume` entry point. The cursus spec owns the cursus-specific metadata format and resume logic.
+
+### Resume Dispatch (owned by session-resume)
+
+`sgf resume` is the unified entry point. The dispatch logic lives in session-resume:
+
+1. If the argument matches a `.sgf/run/<id>/meta.json` with a `cursus` field, delegate to cursus resume logic.
+2. Otherwise, treat it as a non-cursus session resume (flat `.sgf/run/{loop_id}.json`).
+3. Without an argument, scan both layouts and present a unified interactive picker (newest first).
 
 ### Data Flow
 
@@ -139,6 +151,7 @@ sgf resume spec-20260316T120000   # direct resume
     { "iteration": 2, "session_id": "f9e8d7c6-b5a4-3210-fedc-ba9876543210", "completed_at": "2026-03-16T12:05:30Z" }
   ],
   "stage": "spec",
+  "spec": "auth",
   "mode": "interactive",
   "prompt": ".sgf/prompts/spec.md",
   "iterations_total": 2,
@@ -155,6 +168,7 @@ sgf resume spec-20260316T120000   # direct resume
 | `loop_id` | string | The loop identifier (same as filename stem) |
 | `iterations` | array | List of iteration records, each with `iteration` (1-based index), `session_id` (UUID), and `completed_at` (ISO 8601 timestamp) |
 | `stage` | string | Prompt stage name (e.g., `spec`, `build`, `verify`) |
+| `spec` | string (optional) | Forma spec stem associated with this session, if any |
 | `mode` | string | `"interactive"` or `"afk"` |
 | `prompt` | string | Resolved prompt file path |
 | `iterations_total` | u32 | Total iterations configured |
@@ -179,8 +193,9 @@ The number of completed iterations is derived from `iterations.len()`. There is 
 2. **After each iteration**: Append iteration record (with `session_id` and `completed_at`) to the `iterations` array, update `updated_at`
 3. **On exit**: Update `status` based on exit code, update `updated_at`
 
-For AFK mode, The iteration runner reports status directly to sgf.
+All writes use atomic rename (write to `.tmp`, then rename into place). Atomic rename prevents corruption from crashes. Concurrent writes from multiple sgf processes targeting the same loop_id are not expected — each loop_id is unique per run.
 
+For AFK mode, The iteration runner reports status directly to sgf.
 
 ## sgf resume Command
 
@@ -248,9 +263,10 @@ cl --verbose --session-id <fresh-uuid> [existing flags...] @prompt.md
 When resuming:
 
 ```
-cl --verbose --resume <session_id> --dangerously-skip-permissions @prompt.md
+cl --verbose --resume <session_id>
 ```
 
+The `--resume` flag restores the full session context from Claude Code's session store, so no prompt file or additional flags are needed.
 
 ## Springfield Changes
 
@@ -301,6 +317,7 @@ pub struct SessionMetadata {
     pub stage: String,
     pub mode: String,
     pub prompt: String,
+    pub spec: Option<String>,
     pub iterations_total: u32,
     pub status: String,
     pub created_at: String,

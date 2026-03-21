@@ -47,7 +47,9 @@ No async runtime. No clap (no flag parsing — all args are passthrough).
 |----------|----------|
 | Context file missing (both tiers) | Warning to stderr, skip the file |
 | `claude-wrapper-secret` not in PATH | Error to stderr, exit 1 |
+| `claude-wrapper-secret` exists but is not executable | Error to stderr, exit 1 (OS returns permission denied on exec) |
 | Home directory unresolvable | Warning to stderr, skip global lookups |
+| `exec()` syscall fails (any reason) | Error to stderr, exit 1 |
 
 ## Testing
 
@@ -114,7 +116,7 @@ claude-wrapper-secret \
 
 If no context files resolve, the `--append-system-prompt` argument is omitted entirely.
 
-If the caller (e.g. ralph) also passes `--append-system-prompt`, both flags are forwarded. The downstream binary receives multiple `--append-system-prompt` arguments — `cl` does not merge them.
+If the caller (e.g. sgf) also passes `--append-system-prompt`, both flags are forwarded. The downstream binary receives multiple `--append-system-prompt` arguments — `cl` does not merge them.
 
 ## Downstream Binary
 

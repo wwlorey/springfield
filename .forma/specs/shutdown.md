@@ -81,9 +81,11 @@ pub struct ProcessSemaphore {
 }
 
 impl ProcessSemaphore {
+    /// Panics if `max` is 0 — at least one permit must be available.
     pub fn new(max: usize) -> Self;
 
     /// Create from an environment variable, falling back to `default`.
+    /// Panics if the resolved value is 0.
     pub fn from_env(var: &str, default: usize) -> Self;
 
     pub fn max(&self) -> usize;
@@ -99,6 +101,8 @@ impl ProcessSemaphore {
 ```
 
 **Test usage**: Tests that spawn child processes (`.output()`, `.spawn()`) create a `LazyLock<ProcessSemaphore>` and call `.acquire()` before each spawn. The guard is held until the child exits. The default max is 8 (overridable via `SGF_TEST_MAX_CONCURRENT`). Timeout for acquire is 60 seconds.
+
+**Constraint**: `max` must be >= 1. `ProcessSemaphore::new()` and `from_env()` panic if `max` is 0, since no permits could ever be issued and all callers would block indefinitely.
 
 ## Dependencies
 
@@ -118,7 +122,14 @@ Dev dependencies:
 
 ## Error Handling
 
-Errors are handled via `io::Result` on `ShutdownController::new()`. The library is infallible once created — `poll()` never fails.
+| Scenario | Behavior |
+|----------|----------|
+| `ShutdownController::new()` fails (thread spawn or signal registration) | Returns `io::Error`. Caller should exit gracefully. |
+| Stdin monitor thread encounters read error | Breaks out of read loop. `poll()` continues to work (signals still detected). |
+| `signal_hook::register()` fails | Propagated as `io::Error` from `ShutdownController::new()`. |
+| `kill_process_group` receives PID of already-dead process | `kill(-pid, SIGTERM)` returns `ESRCH` → returns `false`. No panic. |
+| `wait_with_output_timeout` exceeds deadline | Returns `TimedOut` variant. Caller decides whether to escalate. |
+| `poll()` after shutdown already detected | Returns `Shutdown` immediately (idempotent). |
 
 ## Testing
 
@@ -138,9 +149,8 @@ All signal-based tests use `#[serial]` to avoid interference between concurrent 
 | `kill_pg_escalates_to_sigkill` | Spawn a child that traps SIGTERM (ignores it), call `kill_process_group` with short timeout, verify child is killed |
 | `kill_pg_already_dead` | Spawn a child, wait for it to exit, call `kill_process_group`, verify returns `false` |
 | `kill_pg_kills_descendants` | Spawn a child with `ChildGuard::spawn()` that itself spawns a grandchild, call `kill_process_group`, verify both are dead |
-| `child_guard_kills_on_drop` | Spawn a long-running child via `ChildGuard::spawn()`, drop the guard, verify child is dead |
-| `process_semaphore_limits_concurrency` | Create semaphore with max=2, acquire 3 permits on threads, verify third blocks until first releases |
-| `sigid_cleanup_on_drop` | Create and drop a controller, verify signal handlers are unregistered |
+| `drop_kills_running_process` | Spawn a long-running child via `ChildGuard::spawn()`, drop the guard, verify child is dead |
+| `acquire_blocks_at_max` | Create semaphore with max=2, acquire 3 permits on threads, verify third blocks until first releases |
 
 Stdin EOF tests require a PTY or pipe to simulate Ctrl+D, which is complex for unit tests. Stdin EOF behavior is covered by integration tests at the sgf level.
 
@@ -154,6 +164,7 @@ Signal-based integration tests in `crates/springfield/tests/`. Tests set `SGF_TE
 | `single_ctrl_c_continues_after_timeout` | Send one SIGINT, wait 3 seconds, verify process continues |
 | `sigterm_exits_immediately` | Send SIGTERM, verify immediate exit with code 130 |
 | `confirmation_message_on_first_ctrl_c` | Send one SIGINT, verify stderr contains "Press Ctrl-C again to exit" |
+| `double_ctrl_d_exits_130` | Open a PTY, send two EOFs to sgf's stdin, verify exit code 130. Uses `open_pty()` helper; skipped when PTY allocation fails (headless CI) |
 
 ## API
 
@@ -232,7 +243,7 @@ pub enum ShutdownStatus {
 
 ## Stdin EOF Detection
 
-A background thread reads stdin using blocking `read()`. In a Unix terminal, Ctrl+D causes `read()` to return 0 bytes (EOF) when the input buffer is empty. Each EOF event increments the `eof_count` atomic counter.
+A background thread monitors stdin using `libc::poll()` with a timeout followed by `read()`. The thread calls `poll()` to wait for input readiness (or timeout), then calls `read()` only when data is available. In a Unix terminal, Ctrl+D causes `read()` to return 0 bytes (EOF) when the input buffer is empty. Each EOF event increments the `eof_count` atomic counter.
 
 After an EOF, the thread continues reading — Ctrl+D in a terminal does not permanently close stdin. The next `read()` call blocks until the user provides more input or another EOF.
 
@@ -244,11 +255,11 @@ After an EOF, the thread continues reading — Ctrl+D in a terminal does not per
 
 ### When to Enable/Disable Stdin Monitoring
 
-The `monitor_stdin` decision is based on mode and `is_terminal()`:
+The `monitor_stdin` decision is based on execution mode:
 
 | Context | `monitor_stdin` | Rationale |
 |---------|-----------------|-----------|
-| AFK mode (stdin is `/dev/null`) | `true` | Stdin is free — sgf owns it for shutdown detection. `is_terminal()` returns false but monitor is enabled because sgf explicitly controls stdin. |
+| AFK mode | `true` | The child's stdin is `/dev/null` (see [Integration with sgf](#integration-with-sgf)). sgf's own stdin remains the terminal — the user can press Ctrl+D to signal shutdown. |
 | Interactive/non-AFK mode | `false` | Stdin belongs to the child process (user interacts with Claude). Only Ctrl+C works for shutdown. |
 | Stdin is piped (not a terminal) | `false` | No user to press Ctrl+D. |
 
@@ -280,7 +291,16 @@ sgf saves terminal settings (`tcgetattr` on stdin fd) before spawning the agent 
 
 ## Process Group Kill with Escalation
 
-The `kill_process_group` function provides graceful-then-forceful termination of a process group. sgf spawns children with `setsid()`, making each child a session leader where PID=PGID. Killing a single PID leaves descendants (agent tool subprocesses, build commands, etc.) orphaned and running. This function kills the entire process group.
+The `kill_process_group` function provides graceful-then-forceful termination of a process group. `ChildGuard::spawn()` places children in their own process group via `setpgid(0, 0)`. Springfield's iteration runner and cursus runner optionally add `setsid()` on top (for AFK mode), making the child a session leader — this is controlled by the `SGF_TEST_NO_SETSID` env var (see test-harness spec). Killing a single PID leaves descendants (agent tool subprocesses, build commands, etc.) orphaned and running. This function kills the entire process group.
+
+### Process isolation layers
+
+| Layer | Syscall | Who calls it | Effect |
+|-------|---------|--------------|--------|
+| 1 | `setpgid(0, 0)` | `ChildGuard::spawn()` (always) | Child gets its own process group (PGID = PID) |
+| 2 | `setsid()` | Springfield iter/cursus runner (AFK mode only) | Child becomes session leader; new session + process group |
+
+Layer 1 is sufficient for `kill_process_group` to work. Layer 2 adds session isolation so the child doesn't receive signals from the controlling terminal. When `setsid()` is used, PID = PGID = SID; when only `setpgid` is used, PID = PGID.
 
 ### API
 
@@ -306,7 +326,7 @@ pub fn kill_process_group(pid: u32, timeout: Duration) -> bool;
 | 3b | Timeout expires (process still alive) | `kill(-pid, SIGKILL)`, return `true` |
 | 4 | Process already dead at step 1 | `kill(-pid, SIGTERM)` returns `ESRCH` → return `false` |
 
-The `pid` parameter is the group leader's PID (which equals the PGID due to `setsid()`). The negative PID in `kill()` targets all processes in that process group.
+The `pid` parameter is the group leader's PID (which equals the PGID due to `setpgid(0, 0)`). The negative PID in `kill()` targets all processes in that process group.
 
 ### Default Timeout
 

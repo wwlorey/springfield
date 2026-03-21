@@ -104,8 +104,9 @@ Workspace crate dependencies (linked at compile time via springfield):
 | Cursus TOML not found (neither local nor global) | Exit 1: `unknown command: <name>` |
 | Cursus TOML parse error | Exit 1: `failed to parse cursus definition: <path>: <error>` |
 | Validation failure (duplicate iter names, missing transition targets, etc.) | Exit 1: descriptive error at parse time |
+| `consumes` value has no matching `produces` in any iter | Warning at parse time (not an error — the producing iter may not have run yet on first pass) |
 | Prompt file not found for an iter | Exit 1: `prompt not found: <path>` (checked at cursus load time, before execution starts) |
-| Iter exhausts iterations (`.iter-exhausted`) | Pipeline enters stalled state. Run metadata updated. User notified with status and options |
+| Iter exhausts iterations (no sentinel found) | Pipeline enters stalled state. Run metadata updated. User notified with status and options |
 | Sentinel file `.iter-reject` with no `on_reject` transition defined | Exit 1: `iter '<name>' signaled reject but no on_reject transition is defined` |
 | Sentinel file `.iter-revise` with no `on_revise` transition defined | Exit 1: `iter '<name>' signaled revise but no on_revise transition is defined` |
 | Run directory creation failure | Exit 1: `failed to create run directory: <error>` |
@@ -113,7 +114,6 @@ Workspace crate dependencies (linked at compile time via springfield):
 | `produces` file not written by agent | `tracing::warn\!` — continue to next iter. The consuming iter will run without that context. Not fatal because the agent may have communicated through other means (spec updates, pn comments) |
 | Stale run directory from previous crashed run | Detected at startup. Previous run status updated to `interrupted` if still marked `running` |
 | SIGINT/SIGTERM during iter execution | Delegated to sgf/cl signal handling. Pipeline status updated to `interrupted` on exit |
-
 
 ## Testing
 
@@ -370,15 +370,17 @@ When an iter defines `consumes = ["discuss-summary", "draft-presentation"]`, the
    ```
 3. Injects the concatenated content via `--append-system-prompt` to `cl`
 
-The header includes both the iter name and the key name so the consuming agent knows the provenance of each context block.
+The header includes both the iter name and the key name so the consuming agent knows the provenance of each context block. The iter name in the header reflects whichever iter last wrote the file — when `revise` overwrites a key originally produced by `draft`, the header shows `revise`, not `draft`.
 
 ### Produces Overwriting
 
 When multiple iters produce the same key (e.g., both `draft` and `revise` produce `draft-presentation`), the later iter's file overwrites the earlier one. This is intentional: the revise iter produces an updated presentation that supersedes the draft's version. Subsequent consumers always get the latest version.
 
+To track which iter last wrote each key, the cursus runner maintains a mapping of key → iter name in `meta.json`. This mapping is updated whenever an iter successfully writes its `produces` file.
+
 ### Environment Variable
 
-The run context directory path is also set as an environment variable `SGF_RUN_CONTEXT=.sgf/run/<run-id>/context/` so agents can reference it programmatically in prompts.
+The run context directory path is set as an environment variable `SGF_RUN_CONTEXT=.sgf/run/<run-id>/context/` so agents can reference it programmatically in prompts. This is a relative path from the repo root.
 
 ## Run State
 
@@ -489,12 +491,14 @@ For each iter in the cursus (starting from the first, or from the resume point):
    - Update `meta.json` with `current_iter` and `status: "running"`
    - Clean stale sentinel files (`.iter-complete`, `.iter-reject`, `.iter-revise`)
    - Resolve `consumes` files and build system prompt injection content
-   - Set environment: `SGF_RUN_CONTEXT`
+   - Set environment: `SGF_RUN_CONTEXT` (relative path from repo root)
 
 2. **Invoke iter**:
    - **AFK mode**: Invoke `cl` via sgf's iteration runner with the iter's prompt, iterations, banner flag, and consumed context via `--append-system-prompt`. Uses `--dangerously-skip-permissions`, `--print`, `--output-format stream-json`.
-   - **Interactive mode**: Invoke `cl` directly with the iter's prompt and consumed context via `--append-system-prompt`
-   - Session ID management: fresh UUID per `cl` invocation
+   - **Interactive mode**: Invoke `cl` directly with the iter's prompt, `--dangerously-skip-permissions`, and consumed context via `--append-system-prompt`
+   - The iteration runner handles agent invocation, NDJSON output formatting, terminal settings save/restore (tcgetattr/tcsetattr), stdout teeing to log files, and notification watching. See the [springfield spec](springfield.md) for full details.
+   - A `ShutdownController` is created per-iter with `monitor_stdin` set based on the iter's effective mode: `true` for AFK iters (sgf owns stdin), `false` for interactive iters (stdin belongs to the agent). See the [shutdown spec's "Stdin EOF Detection" section](shutdown.md#stdin-eof-detection) for the rationale and behavior.
+   - Session ID management: fresh UUID per `cl` invocation. See [session-resume spec](session-resume.md) for the full session metadata schema and `sgf resume` command.
 
 3. **Post-iter evaluation**:
    - Check sentinel files in priority order (see Sentinel Protocol)
@@ -518,13 +522,15 @@ CLI flags `-a` and `-i` override the `mode` field for ALL iters in the cursus. T
 
 ## Command Resolution Changes
 
-Cursus defines how `sgf <command>` resolves what to run. The resolution order:
+Cursus defines how `sgf <command>` resolves what to run. The cursus-specific resolution steps are:
 
 1. Check if `<command>` matches a reserved built-in (`init`, `list`, `logs`, `resume`). If so, run the built-in.
 2. Check if `./.sgf/cursus/<command>.toml` exists (local override). If so, parse and run the cursus.
 3. Check if `~/.sgf/cursus/<command>.toml` exists (global default). If so, parse and run the cursus.
 4. Check if `<command>` matches an alias in any resolved cursus TOML. If so, resolve to the aliased cursus and run it.
 5. Error: `unknown command: <command>`.
+
+**Note**: The full resolution order is owned by the [springfield spec](springfield.md) and includes an additional step (file-path detection for simple prompt mode) between steps 1 and 2 above. This section describes only the cursus-specific resolution logic.
 
 ### What This Means
 
