@@ -114,3 +114,9 @@
 {"id":"pn-64ada087","issue_id":"pn-1ed7b5ad","path":"crates/springfield/src/init.rs","reason":"Contains .ralph-complete and .ralph-ding in GITIGNORE_FULL and GITIGNORE_ENTRIES constants","created_at":"2026-03-21T20:59:51Z"}
 {"id":"pn-1fd5b2f1","issue_id":"pn-c3b6ab90","path":"README.md","reason":"Contains stale sentinel names, [[iters]] syntax, and legacy config.toml fallback references","created_at":"2026-03-21T21:00:03Z"}
 {"id":"pn-036d4ae9","issue_id":"pn-f0355d3f","path":"crates/ralph/README.md","reason":"Contains .ralph-complete and .ralph-ding references in exit codes and interactive mode documentation","created_at":"2026-03-21T21:00:11Z"}
+{"id":"pn-d7689dc4","issue_id":"pn-c51286cb","path":"crates/pensa/src/db.rs","reason":"ready_issues() query at ~line 711 needs reopened-bug bypass logic","created_at":"2026-03-21T21:04:30Z"}
+{"id":"pn-9578034f","issue_id":"pn-c51286cb","path":"crates/pensa/src/types.rs","reason":"May need schema change (e.g. is_reopened field) on Issue struct","created_at":"2026-03-21T21:04:31Z"}
+{"id":"pn-1aac8724","issue_id":"pn-817a63d0","path":"crates/pensa/src/main.rs","reason":"DaemonSubcommand::Status handler needs to print project directory","created_at":"2026-03-21T21:04:32Z"}
+{"id":"pn-bae5a324","issue_id":"pn-b7f75c05","path":"crates/pensa/src/db.rs","reason":"doctor() drift check needs extension for deps, comments, src_refs, doc_refs JSONL files","created_at":"2026-03-21T21:04:33Z"}
+{"id":"pn-f4ace40d","issue_id":"pn-da47a310","path":"crates/pensa/tests/integration.rs","reason":"Add refs_cascade_on_delete test alongside existing ref tests","created_at":"2026-03-21T21:04:34Z"}
+{"id":"pn-21e8a458","issue_id":"pn-33996415","path":"crates/pensa/tests/integration.rs","reason":"Add export_import_round_trip test with full data verification","created_at":"2026-03-21T21:04:35Z"}
