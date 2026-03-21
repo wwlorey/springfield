@@ -17,3 +17,7 @@
 {"id":"pn-96c2e209","issue_id":"pn-6a0e8f44","path":"crates/forma/README.md","reason":"New file to create","created_at":"2026-03-19T17:18:38Z"}
 {"id":"pn-b290b226","issue_id":"pn-2902ec56","path":"crates/ralph/README.md","reason":"Update README to remove --max-iterations refs, fix --spec description, add --banner/--log-file/--session-id/--resume docs, update examples","created_at":"2026-03-19T17:27:55Z"}
 {"id":"pn-733baaaa","issue_id":"pn-874f51c2","path":"README.md","reason":"Add sgf list to Usage section with example output","created_at":"2026-03-19T17:38:04Z"}
+{"id":"pn-30feccb3","issue_id":"pn-fee823c5","path":"specs/shutdown.md","reason":"Integration with sgf section specifies tcgetattr/tcsetattr requirement","created_at":"2026-03-21T20:53:43Z"}
+{"id":"pn-22a6ba5e","issue_id":"pn-58c78771","path":"specs/shutdown.md","reason":"Stdin EOF Detection section states 'There is no environment variable'","created_at":"2026-03-21T20:53:43Z"}
+{"id":"pn-317f84c2","issue_id":"pn-d8c7e6ad","path":"specs/shutdown.md","reason":"Spec serves as source of truth for README content","created_at":"2026-03-21T20:53:43Z"}
+{"id":"pn-3dbfc31c","issue_id":"pn-0da88ee1","path":"specs/shutdown.md","reason":"Integration with sgf section describes terminal settings preservation requirement","created_at":"2026-03-21T20:53:55Z"}
