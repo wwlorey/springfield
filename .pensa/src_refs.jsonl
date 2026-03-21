@@ -124,3 +124,30 @@
 {"id":"pn-28d68add","issue_id":"pn-44431e13","path":"crates/springfield/src/orchestrate.rs","reason":"Callers that construct SessionMetadata — set cursus field to None","created_at":"2026-03-21T21:08:31Z"}
 {"id":"pn-c688cbe9","issue_id":"pn-a9fd760f","path":"crates/springfield/src/orchestrate.rs","reason":"run_resume_session function — add --dangerously-skip-permissions to cl args","created_at":"2026-03-21T21:08:32Z"}
 {"id":"pn-2fbc9d49","issue_id":"pn-67f13490","path":"crates/springfield/src/orchestrate.rs","reason":"Interactive picker logic and existing tests — add coverage for sorting, truncation, display format","created_at":"2026-03-21T21:08:33Z"}
+{"id":"pn-e0fc1813","issue_id":"pn-605016bf","path":"crates/ralph/src/format.rs","reason":"Source: NDJSON parsing module to move","created_at":"2026-03-21T21:15:42Z"}
+{"id":"pn-a2b372e8","issue_id":"pn-605016bf","path":"crates/ralph/src/style.rs","reason":"Source: ANSI style helpers to move","created_at":"2026-03-21T21:15:42Z"}
+{"id":"pn-e2158b30","issue_id":"pn-605016bf","path":"crates/ralph/src/banner.rs","reason":"Source: Banner renderer to move","created_at":"2026-03-21T21:15:42Z"}
+{"id":"pn-71f459ee","issue_id":"pn-605016bf","path":"crates/springfield/src/iter_runner/","reason":"Target: new iter_runner module directory","created_at":"2026-03-21T21:15:42Z"}
+{"id":"pn-ae73060e","issue_id":"pn-605016bf","path":"crates/springfield/src/lib.rs","reason":"Add iter_runner module declaration","created_at":"2026-03-21T21:15:42Z"}
+{"id":"pn-b4541524","issue_id":"pn-dfef6d78","path":"crates/ralph/src/main.rs","reason":"Source: iteration loop logic to extract (TeeWriter, run loop, sentinel detection, terminal mgmt)","created_at":"2026-03-21T21:15:56Z"}
+{"id":"pn-47a9b555","issue_id":"pn-dfef6d78","path":"crates/springfield/src/iter_runner/mod.rs","reason":"Target: library function exposing iteration runner","created_at":"2026-03-21T21:15:56Z"}
+{"id":"pn-2e07acd8","issue_id":"pn-dfef6d78","path":"crates/springfield/Cargo.toml","reason":"Add libc and uuid dependencies from ralph","created_at":"2026-03-21T21:15:56Z"}
+{"id":"pn-c798f214","issue_id":"pn-cfde5477","path":"crates/springfield/src/iter_runner/mod.rs","reason":"Sentinel constants to rename","created_at":"2026-03-21T21:16:07Z"}
+{"id":"pn-bf2088b6","issue_id":"pn-cfde5477","path":"crates/springfield/src/cursus/runner.rs","reason":"detect_outcome() references sentinel names","created_at":"2026-03-21T21:16:07Z"}
+{"id":"pn-5f174dc6","issue_id":"pn-cfde5477","path":"crates/springfield/src/init.rs","reason":"Gitignore entries use .ralph-* pattern","created_at":"2026-03-21T21:16:07Z"}
+{"id":"pn-0112b86e","issue_id":"pn-cfde5477","path":".sgf/prompts/","reason":"Prompt files may reference sentinel names","created_at":"2026-03-21T21:16:07Z"}
+{"id":"pn-a3c33efc","issue_id":"pn-7a4939ee","path":"crates/springfield/src/cursus/runner.rs","reason":"Replace invoke_ralph() subprocess spawn with direct iter_runner call","created_at":"2026-03-21T21:16:19Z"}
+{"id":"pn-24d7caba","issue_id":"pn-7a4939ee","path":"crates/springfield/src/iter_runner/mod.rs","reason":"Public API to call from cursus runner","created_at":"2026-03-21T21:16:19Z"}
+{"id":"pn-4532f816","issue_id":"pn-8737896c","path":"crates/springfield/src/main.rs","reason":"Add file path check in command resolution (between built-in and cursus lookup)","created_at":"2026-03-21T21:16:30Z"}
+{"id":"pn-96820144","issue_id":"pn-8737896c","path":"crates/springfield/src/iter_runner/mod.rs","reason":"Call iter_runner directly for simple prompt mode","created_at":"2026-03-21T21:16:30Z"}
+{"id":"pn-3d5b0b16","issue_id":"pn-69cdd94b","path":"crates/springfield/Cargo.toml","reason":"Add tracing-subscriber dependency","created_at":"2026-03-21T21:16:41Z"}
+{"id":"pn-3960f2c6","issue_id":"pn-69cdd94b","path":"crates/springfield/src/main.rs","reason":"Initialize tracing subscriber with env-filter","created_at":"2026-03-21T21:16:41Z"}
+{"id":"pn-f328d233","issue_id":"pn-6008c883","path":"crates/ralph/tests/integration.rs","reason":"Source: 60+ integration tests to migrate","created_at":"2026-03-21T21:16:58Z"}
+{"id":"pn-c5654b58","issue_id":"pn-6008c883","path":"crates/ralph/tests/fixtures/","reason":"Source: test fixtures (NDJSON samples, prompt.md)","created_at":"2026-03-21T21:16:58Z"}
+{"id":"pn-103c8fc6","issue_id":"pn-6008c883","path":"crates/springfield/tests/","reason":"Target: migrated tests","created_at":"2026-03-21T21:16:58Z"}
+{"id":"pn-423879a8","issue_id":"pn-90113b14","path":"crates/ralph/","reason":"Entire crate to delete","created_at":"2026-03-21T21:17:08Z"}
+{"id":"pn-4c5834b4","issue_id":"pn-90113b14","path":"Cargo.toml","reason":"Workspace member list may need update","created_at":"2026-03-21T21:17:08Z"}
+{"id":"pn-33f02a2e","issue_id":"pn-90113b14","path":"justfile","reason":"Remove cargo install --path crates/ralph if present","created_at":"2026-03-21T21:17:08Z"}
+{"id":"pn-804d9022","issue_id":"pn-7e835a3f","path":"crates/springfield/README.md","reason":"Update for absorbed architecture","created_at":"2026-03-21T21:17:18Z"}
+{"id":"pn-ed89c7c1","issue_id":"pn-18875018","path":"crates/springfield/tests/integration.rs","reason":"Add simple prompt mode test cases","created_at":"2026-03-21T21:17:29Z"}
+{"id":"pn-6f812c03","issue_id":"pn-3e79277c","path":"crates/springfield/tests/integration.rs","reason":"Add sentinel and NDJSON formatting test cases","created_at":"2026-03-21T21:17:41Z"}

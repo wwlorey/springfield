@@ -29,3 +29,5 @@
 {"id":"pn-dd1c0c9a","issue_id":"pn-44431e13","path":".forma/specs/session-resume.md","reason":"Spec defines cursus field requirement in Session Metadata Schema section","created_at":"2026-03-21T21:08:36Z"}
 {"id":"pn-55f8a6d4","issue_id":"pn-a9fd760f","path":".forma/specs/session-resume.md","reason":"Spec defines resume cl invocation flags in sgf resume Command section","created_at":"2026-03-21T21:08:36Z"}
 {"id":"pn-ef199ac2","issue_id":"pn-67f13490","path":".forma/specs/session-resume.md","reason":"Spec defines picker behavior in sgf resume Command section","created_at":"2026-03-21T21:08:37Z"}
+{"id":"pn-9fa84b32","issue_id":"pn-605016bf","path":"specs/springfield.md","reason":"Architecture section defines iter_runner module layout","created_at":"2026-03-21T21:15:42Z"}
+{"id":"pn-e45d66f5","issue_id":"pn-7e835a3f","path":"crates/ralph/README.md","reason":"Reference: ralph docs to incorporate","created_at":"2026-03-21T21:17:18Z"}
