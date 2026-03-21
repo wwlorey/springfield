@@ -178,7 +178,7 @@ Dev dependencies:
 | `portpicker` (0.1) | Random port selection for test daemons |
 | `nix` (0.29, signal) | Signal delivery in tests |
 
-Note: `cl` (claude-wrapper) is invoked as a child process binary via `std::process::Command`, not linked as a crate dependency.
+Note: `cl` (claude-wrapper), `pn` (pensa), and `fm` (forma) are all invoked as child process binaries via `std::process::Command`, not linked as crate dependencies.
 
 ## Error Handling
 

@@ -185,7 +185,7 @@ The number of completed iterations is derived from `iterations.len()`. There is 
 | Status | When set |
 |--------|----------|
 | `running` | Written before spawning `cl` |
-| `completed` | `.iter-complete` sentinel detected (exit 0) |
+| `completed` | Agent exited with code 0 (sgf detected `.iter-complete` sentinel) |
 | `interrupted` | SIGINT/SIGTERM (exit 130) |
 | `exhausted` | Max iterations reached (exit 2) |
 

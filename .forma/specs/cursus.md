@@ -376,7 +376,7 @@ The header includes both the iter name and the key name so the consuming agent k
 
 When multiple iters produce the same key (e.g., both `draft` and `revise` produce `draft-presentation`), the later iter's file overwrites the earlier one. This is intentional: the revise iter produces an updated presentation that supersedes the draft's version. Subsequent consumers always get the latest version.
 
-To track which iter last wrote each key, the cursus runner maintains a mapping of key → iter name in `meta.json`. This mapping is updated whenever an iter successfully writes its `produces` file.
+To track which iter last wrote each key, the cursus runner maintains a mapping of key → iter name in `meta.json` (`context_producers` field). After post-iter evaluation, if the iter defines a `produces` key and the file exists at `.sgf/run/<run-id>/context/<key>.md`, the mapping is updated. If the file does not exist, the mapping is left unchanged and a warning is emitted.
 
 ### Environment Variable
 
@@ -472,7 +472,7 @@ When the user runs `sgf resume <run-id>`:
 1. Load `meta.json` from the run directory
 2. Present the stalled state: which iter stalled, how many iterations were used, what context was accumulated
 3. Offer options:
-   - **Retry**: Re-run the stalled iter (with same or increased iterations)
+   - **Retry**: Re-run the stalled iter with the same iteration count
    - **Skip**: Advance to the next iter (if the user deems the iter's work sufficient)
    - **Abort**: Mark the run as interrupted and exit
 4. Continue the pipeline from the chosen point
@@ -482,7 +482,6 @@ When the user runs `sgf resume <run-id>`:
 `sgf resume` supports both cursus run resumes and legacy session resumes:
 - If the argument matches a `.sgf/run/<id>/meta.json` with cursus metadata, it's a cursus resume
 - Otherwise, fall back to the session-resume behavior (see [session-resume spec](session-resume.md))
-
 
 ## Iter Execution
 
@@ -526,15 +525,7 @@ CLI flags `-a` and `-i` override the `mode` field for ALL iters in the cursus. T
 
 ## Command Resolution Changes
 
-Cursus defines how `sgf <command>` resolves what to run. The cursus-specific resolution steps are:
-
-1. Check if `<command>` matches a reserved built-in (`init`, `list`, `logs`, `resume`). If so, run the built-in.
-2. Check if `./.sgf/cursus/<command>.toml` exists (local override). If so, parse and run the cursus.
-3. Check if `~/.sgf/cursus/<command>.toml` exists (global default). If so, parse and run the cursus.
-4. Check if `<command>` matches an alias in any resolved cursus TOML. If so, resolve to the aliased cursus and run it.
-5. Error: `unknown command: <command>`.
-
-**Note**: The full resolution order is owned by the [springfield spec](springfield.md) and includes an additional step (file-path detection for simple prompt mode) between steps 1 and 2 above. This section describes only the cursus-specific resolution logic.
+The full command resolution order is owned by the [springfield spec](springfield.md) CLI Commands section. Cursus participates in steps 3-5 of that sequence (local cursus TOML → global cursus TOML → alias matching).
 
 ### What This Means
 
@@ -642,4 +633,6 @@ Additional mechanisms needed for daemon mode:
 
 - [claude-wrapper](claude-wrapper.md) — Agent wrapper — layered .sgf/ context injection, cl binary
 - [session-resume](session-resume.md) — Session resume — persist Claude session IDs and loop config to enable resuming interrupted sessions via sgf resume
+- [shutdown](shutdown.md) — Shared graceful shutdown — double-press Ctrl+C/Ctrl+D detection with confirmation prompts
 - [springfield](springfield.md) — CLI entry point — scaffolding, prompt delivery, iteration runner, loop orchestration, recovery, and daemon lifecycle
+- [vcs-utils](vcs-utils.md) — Shared VCS utilities — git HEAD detection, auto-push

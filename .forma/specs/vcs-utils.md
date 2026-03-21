@@ -16,7 +16,7 @@ Shared VCS utilities — git HEAD detection, auto-push
 ## Architecture
 
 ```
-vcs-utils/
+crates/vcs-utils/
 ├── src/
 │   └── lib.rs      # git_head, auto_push_if_changed
 ├── tests/

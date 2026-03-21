@@ -1,6 +1,8 @@
 {"from_stem":"cursus","to_stem":"claude-wrapper"}
 {"from_stem":"cursus","to_stem":"session-resume"}
+{"from_stem":"cursus","to_stem":"shutdown"}
 {"from_stem":"cursus","to_stem":"springfield"}
+{"from_stem":"cursus","to_stem":"vcs-utils"}
 {"from_stem":"pensa","to_stem":"forma"}
 {"from_stem":"session-resume","to_stem":"springfield"}
 {"from_stem":"springfield","to_stem":"claude-wrapper"}
@@ -8,5 +10,6 @@
 {"from_stem":"springfield","to_stem":"pensa"}
 {"from_stem":"springfield","to_stem":"shutdown"}
 {"from_stem":"springfield","to_stem":"vcs-utils"}
+{"from_stem":"test-harness","to_stem":"claude-wrapper"}
 {"from_stem":"test-harness","to_stem":"shutdown"}
 {"from_stem":"test-harness","to_stem":"springfield"}

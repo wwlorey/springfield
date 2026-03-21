@@ -198,5 +198,6 @@ Similarly, `grep -c '\.output()\\.unwrap()' crates/springfield/tests/integration
 
 ## Related Specifications
 
+- [claude-wrapper](claude-wrapper.md) — Agent wrapper — layered .sgf/ context injection, cl binary
 - [shutdown](shutdown.md) — Shared graceful shutdown — double-press Ctrl+C/Ctrl+D detection with confirmation prompts
 - [springfield](springfield.md) — CLI entry point — scaffolding, prompt delivery, iteration runner, loop orchestration, recovery, and daemon lifecycle

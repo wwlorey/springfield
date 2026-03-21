@@ -303,7 +303,7 @@ pn show <id>
 
 **`pn release <id>`** is an alias for `pn update <id> --unclaim`.
 
-**`pn close`** with `--force` allows closing regardless of current status. Without `--force`, closing a `closed` issue is an error. When closing an issue that has a `fixes` field, the linked bug is automatically closed with reason `"fixed by <task-id>"`.
+**`pn close`** with `--force` allows closing regardless of current status. Without `--force`, closing a `closed` issue is an error. When closing an issue that has a `fixes` field, the linked bug is automatically closed with reason `"fixed by <task-id>"`. The auto-close is idempotent — if the bug is already closed (e.g., another fix task's close triggered auto-close first), the auto-close silently succeeds.
 
 **`pn delete`** requires `--force` if the issue has dependents or comments. Deletes the issue and all associated deps, comments, and events.
 
