@@ -145,16 +145,16 @@ sgf resume spec-20260316T120000   # direct resume
 
 ```json
 {
-  "loop_id": "spec-20260316T120000",
+  "loop_id": "build-20260316T120000",
   "iterations": [
     { "iteration": 1, "session_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890", "completed_at": "2026-03-16T12:02:30Z" },
     { "iteration": 2, "session_id": "f9e8d7c6-b5a4-3210-fedc-ba9876543210", "completed_at": "2026-03-16T12:05:30Z" }
   ],
-  "stage": "spec",
+  "stage": "build",
   "spec": "auth",
-  "cursus": "spec",
-  "mode": "interactive",
-  "prompt": ".sgf/prompts/spec.md",
+  "cursus": null,
+  "mode": "afk",
+  "prompt": ".sgf/prompts/build.md",
   "iterations_total": 2,
   "status": "completed",
   "created_at": "2026-03-16T12:00:00Z",
@@ -170,7 +170,7 @@ sgf resume spec-20260316T120000   # direct resume
 | `iterations` | array | List of iteration records, each with `iteration` (1-based index), `session_id` (UUID), and `completed_at` (ISO 8601 timestamp) |
 | `stage` | string | Prompt stage name (e.g., `spec`, `build`, `verify`) |
 | `spec` | string (optional) | Forma spec stem associated with this session, if any |
-| `cursus` | string (optional) | Cursus name if this session was launched via a cursus pipeline. Used by `sgf resume` dispatch to distinguish cursus runs (delegate to cursus resume) from non-cursus sessions (flat picker). `null` for simple prompt mode (`sgf <file>`) |
+| `cursus` | string (optional) | Cursus name if this session was launched via a cursus pipeline. Used by `sgf resume` dispatch to distinguish cursus runs (delegate to cursus resume) from non-cursus sessions (flat picker). `null` for simple prompt mode (`sgf <file>`) and for non-cursus single-iter commands |
 | `mode` | string | `"interactive"` or `"afk"` |
 | `prompt` | string | Resolved prompt file path |
 | `iterations_total` | u32 | Total iterations configured |

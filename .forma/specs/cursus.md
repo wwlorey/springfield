@@ -420,6 +420,9 @@ Each cursus execution creates a run, tracked by metadata in `.sgf/run/`.
       "outcome": "complete"
     }
   ],
+  "context_producers": {
+    "discuss-summary": "discuss"
+  },
   "mode_override": null,
   "created_at": "2026-03-17T14:00:00Z",
   "updated_at": "2026-03-17T14:10:00Z"
@@ -434,6 +437,7 @@ Each cursus execution creates a run, tracked by metadata in `.sgf/run/`.
 | `current_iter` | string | Name of the iter currently executing (or stalled at) |
 | `current_iter_index` | u32 | Position in the iters array (for ordered resumption) |
 | `iters_completed` | array | Record of each completed iter with session ID, timestamp, and outcome |
+| `context_producers` | object | Mapping of produces key → iter name that last wrote it. Updated whenever an iter successfully writes its `produces` file |
 | `mode_override` | string or null | CLI mode override (`-a` or `-i`) that applies to all iters |
 | `created_at` | string | RFC3339 timestamp |
 | `updated_at` | string | RFC3339 timestamp (updated after each iter) |

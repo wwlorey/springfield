@@ -150,7 +150,7 @@ Key scenarios:
 Dual-layer storage:
 
 - **`~/.local/share/pensa/<project-hash>/db.sqlite`** — the working database, stored outside the workspace to keep binary files out of git. Lives on the host, owned by the pensa daemon. Rebuilt from JSONL on clone. The `<project-hash>` is a 16-hex-char hash of the canonical project directory path.
-- **`.pensa/*.jsonl`** — the git-committed exports. Separate files per entity: `issues.jsonl`, `deps.jsonl`, `comments.jsonl`. Events are not exported (derivable from issue history, avoids monotonic file growth). Human-readable, diffs cleanly. JSONL files are never read at runtime — they capture a snapshot at commit time via `pn export` and are only used to rebuild SQLite on clone or post-merge via `pn import`.
+- **`.pensa/*.jsonl`** — the git-committed exports. Separate files per entity: `issues.jsonl`, `deps.jsonl`, `comments.jsonl`, `src_refs.jsonl`, `doc_refs.jsonl`. Events are not exported (derivable from issue history, avoids monotonic file growth). Human-readable, diffs cleanly. JSONL files are never read at runtime — they capture a snapshot at commit time via `pn export` and are only used to rebuild SQLite on clone or post-merge via `pn import`.
 
 Transient files (gitignored):
 
@@ -321,13 +321,14 @@ pn history <id>
 
 **`pn ready`** returns open, unblocked issues sorted by priority then creation time. Returns `[]` when nothing matches.
 
-Bugs are included, but only **unplanned** bugs — those with zero non-closed `fixes` children. A bug is "planned" when at least one open or in-progress issue has `fixes` pointing to it. Once all fix tasks for a bug are closed, the bug auto-closes (see `fixes` auto-close below). If the bug is reopened, it reappears in `pn ready` because it has no open fix children.
+Bugs are included, but only **unplanned** bugs — those with zero non-closed `fixes` children. A bug is "planned" when at least one open or in-progress issue has `fixes` pointing to it. Once all fix tasks for a bug are closed, the bug auto-closes (see `fixes` auto-close below). If the bug is reopened, it reappears in `pn ready` regardless of its fix children's status — reopening is an explicit human override that signals the bug needs fresh attention. The "planned" exclusion does not apply to reopened bugs.
 
 The filter logic:
 - Tasks, tests, chores: always eligible (subject to open/unblocked filters)
 - Bugs with no fix tasks: eligible (unplanned — needs planning)
 - Bugs with all fix tasks closed: ineligible (bug was auto-closed, so not open)
 - Bugs with any open/in-progress fix task: excluded (already planned, work underway)
+- Reopened bugs: always eligible (explicit human override — reopen means "this needs work regardless of existing fix tasks")
 
 **`pn list`** default sort is by priority (ascending) then created_at (ascending). The `--sort` flag accepts: `priority`, `created_at`, `updated_at`, `status`, `title`.
 
@@ -414,7 +415,7 @@ pn where
 
 Since the daemon owns the database, `pn export` and `pn import` are daemon commands — the CLI sends the request, the daemon performs the I/O.
 
-**`pn export`** — the daemon dumps SQLite → JSONL files in `.pensa/`. The CLI then runs `git add .pensa/*.jsonl` to stage them. Issues, deps, and comments each get their own file.
+**`pn export`** — the daemon dumps SQLite → JSONL files in `.pensa/`. The CLI then runs `git add .pensa/*.jsonl` to stage them. Issues, deps, comments, src_refs, and doc_refs each get their own file.
 
 **`pn import`** — rebuilds SQLite from the committed JSONL files. Drops and recreates tables, then inserts from JSONL. Used after clone or post-merge.
 
@@ -559,11 +560,10 @@ When the daemon starts:
 
 1. Create `.pensa/` directory if it doesn't exist.
 2. Create `~/.local/share/pensa/<project-hash>/` directory if it doesn't exist.
-3. If `.pensa/db.sqlite` exists but `~/.local/share/pensa/<project-hash>/db.sqlite` does not, migrate (move) the old DB to the new location.
-4. Open (or create) `~/.local/share/pensa/<project-hash>/db.sqlite`.
-5. Set pragmas: `busy_timeout=5000`, `foreign_keys=ON`.
-6. Run migrations — create tables if they don't exist.
-7. If JSONL files exist but the database is empty, automatically import from JSONL (handles fresh clone scenario).
+3. Open (or create) `~/.local/share/pensa/<project-hash>/db.sqlite`.
+4. Set pragmas: `busy_timeout=5000`, `foreign_keys=ON`.
+5. Run migrations — create tables if they don't exist.
+6. If JSONL files exist but the database is empty, automatically import from JSONL (handles fresh clone scenario).
 
 ## Forma Integration
 
@@ -579,7 +579,7 @@ Pensa validates `--spec` values against the forma daemon at write time. This pre
 
 ### Discovery
 
-Pensa discovers the forma daemon using forma's port derivation: SHA-256 of `"forma:" + canonical_project_path`, bytes 8-9 mapped to range [10000, 60000]. The project path is already known to the pensa daemon via `--project-dir`. No additional configuration is needed.
+Pensa discovers the forma daemon using forma's port derivation: SHA-256 of `"forma:" + canonical_project_path`, bytes 8-9 mapped to range [10000, 59999]. The project path is already known to the pensa daemon via `--project-dir`. No additional configuration is needed.
 
 ### No-spec operations
 
