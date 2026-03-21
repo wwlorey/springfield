@@ -47,10 +47,11 @@ After `sgf init` and ongoing development, a project contains:
 
 ```
 .pensa/
-├── db.sqlite                  (gitignored — daemon-owned working database)
 ├── issues.jsonl               (committed — git-portable export)
 ├── deps.jsonl                 (committed)
-└── comments.jsonl             (committed)
+├── comments.jsonl             (committed)
+├── src_refs.jsonl             (committed)
+└── doc_refs.jsonl             (committed)
 .sgf/
 ├── MEMENTO.md                 (fm/pn workflow reference — authored per-project)
 ├── BACKPRESSURE.md            (build/test/lint/format reference — authored per-project)
@@ -150,6 +151,7 @@ Key components:
 **`.sgf/run/{loop_id}.json`** — Session metadata file. Contains `session_id` (UUID), loop config (`mode`, `prompt`, `iterations_completed`, `iterations_total`), and `status` (`running`, `completed`, `interrupted`, `exhausted`). Written before spawning cl and updated on exit. Enables `sgf resume` to restart previous sessions. See [session-resume spec](session-resume.md) for the full schema.
 
 **`.sgf/` and `.claude/` protection** — Both `.sgf/` and `.claude/` are protected from agent modification via Claude deny settings. `sgf init` scaffolds these rules. `.sgf/` protection prevents agents from modifying local overrides and reference files. `.claude/` protection prevents agents from weakening sandbox configuration or deny rules.
+
 
 ## Dependencies
 
@@ -485,8 +487,7 @@ If `.pre-commit-config.yaml` already exists, `sgf init` appends the pensa and fo
 **/.forma/daemon.url
 .sgf/logs/
 .sgf/run/
-.iter-complete
-.iter-ding
+.iter-*
 
 # Rust
 /target
@@ -525,6 +526,7 @@ Safety checks:
 - Lists files to be overwritten and requires `y` confirmation before proceeding.
 
 Config merges (`.gitignore`, `.claude/settings.json`, `.pre-commit-config.yaml`) are unaffected by `--force` — they always use additive merge logic.
+
 
 
 
@@ -666,6 +668,67 @@ Iterations are clamped to a hard limit of 1000. If a higher value is provided (v
 ### Inter-Iteration Sleep
 
 A 2-second sleep between iterations allows git operations to settle and prevents rapid-fire agent invocations. The sleep is interruptible — polled in 100ms increments, checking the shutdown controller between polls.
+
+## NDJSON Stream Format
+
+The iteration runner parses Claude Code's NDJSON output (`cl --output-format stream-json`) line by line. Each line is a JSON object with a `type` field that determines the event kind. The parser is forward-compatible — unknown event types and malformed lines are skipped silently.
+
+Lines not starting with `{` are skipped without logging (expected verbose debug output from `cl`). Lines starting with `{` that fail to parse are logged at debug level and skipped.
+
+### Event Types
+
+| `type` | Structure | Parsed as |
+|--------|-----------|-----------|
+| `assistant` | `{"type":"assistant","message":{"content":[...]}}` | Text output or tool call summaries |
+| `user` | `{"type":"user","message":{"content":[...]}}` | Tool results |
+| `result` | `{"type":"result","result":"...","session_id":"...","usage":{...}}` | Final result text or usage stats |
+| `system` | `{"type":"system"}` | Skipped |
+| Unknown | Any other `type` value | Skipped |
+
+### Content Blocks (`assistant` events)
+
+The `message.content` array contains blocks with a `type` field:
+
+| Block `type` | Fields | Display |
+|--------------|--------|---------|
+| `text` | `text: string` | Text output (multiple text blocks joined with newline) |
+| `tool_use` | `name: string`, `input: object` | Tool name + summarized input (see below) |
+
+If an assistant message contains both text and tool_use blocks, only the tool calls are displayed (tool calls take precedence).
+
+### Tool Call Summaries
+
+Each tool call is formatted with the tool name and a one-line summary extracted from the input:
+
+| Tool | Summary shows |
+|------|---------------|
+| `Read` | `file_path [offset:limit]` |
+| `Edit`, `Write` | `file_path` |
+| `Bash` | `command` (truncated to 100 chars) |
+| `Glob` | `pattern` |
+| `Grep` | `pattern` |
+| `TodoWrite` | `N items` |
+| Other | First string value from the input object (truncated to 80 chars) |
+
+### Content Blocks (`user` events)
+
+The `message.content` array contains blocks with a `type` field:
+
+| Block `type` | Fields | Display |
+|--------------|--------|---------|
+| `tool_result` | `content: string \| array \| null`, `is_error: bool` | Tool output lines (truncated to 15 lines, with count of truncated lines) |
+
+Tool result `content` can be a plain string, an array of `{"type":"text","text":"..."}` objects, or null/absent.
+
+### Result Events
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `result` | string | Final result text from the session |
+| `session_id` | string (optional) | Claude Code session identifier |
+| `usage` | object (optional) | Token usage: `{"input_tokens": N, "output_tokens": N}` |
+
+When both `input_tokens` and `output_tokens` are present, the event is displayed as usage stats. Otherwise, the `result` text is displayed.
 
 ## Loop ID Format
 

@@ -24,7 +24,7 @@ SQLite needs serialized write access. The daemon keeps all reads and writes behi
 ### Daemon (`pn daemon`)
 
 - Listens on a per-project derived port (SHA-256 of the canonical project directory, bytes 8-9 mapped to range [10000, 59999]).
-- Owns `.pensa/db.sqlite` directly via `rusqlite`.
+- Owns the SQLite database (at `~/.local/share/pensa/<project-hash>/db.sqlite`) directly via `rusqlite`.
 - Sets pragmas on every connection: `busy_timeout=5000`, `foreign_keys=ON`.
 - All mutation is serialized through the daemon — no concurrent SQLite writers.
 - Runs in the foreground (daemonization is the caller's responsibility — `sgf` backgrounds it).
@@ -70,6 +70,7 @@ Integration tests use `.forma/daemon.port` and `.pensa/daemon.port` files to iso
 4. The CLI reads this file for port discovery
 
 This pattern ensures tests never conflict with each other or with production daemons, even when running in parallel.
+
 
 
 
@@ -420,13 +421,14 @@ Since the daemon owns the database, `pn export` and `pn import` are daemon comma
 **`pn import`** — rebuilds SQLite from the committed JSONL files. Drops and recreates tables, then inserts from JSONL. Used after clone or post-merge.
 
 **`pn doctor [--fix]`** — health checks:
-- Stale claims (in_progress issues with no recent activity)
+- In-progress claims (all issues with status `in_progress`)
 - Orphaned dependencies (deps referencing non-existent issues)
 - JSONL/SQLite sync drift
 
-With `--fix`: releases all in_progress claims (set status → open, clear assignee) and repairs integrity issues (remove orphaned deps).
+With `--fix`: releases all in_progress claims unconditionally (set status → open, clear assignee) and repairs integrity issues (remove orphaned deps). This is safe when called by sgf's pre-launch recovery (which only runs when all PIDs are stale), but will release legitimate claims if run manually while agents are active.
 
 **`pn where`** — prints both the JSONL directory (`.pensa/`) and the DB directory (`~/.local/share/pensa/<hash>/`). Useful for scripts and debugging.
+
 
 ## JSON Output
 
@@ -453,7 +455,7 @@ The `code` field is present only when there's a machine-readable error code. Kno
 
 ### Null arrays
 
-Always `[]`, never `null`.
+Array fields (`deps`, `comments`, `src_refs`, `doc_refs`) are always present as `[]` when empty — never `null`, never omitted. Scalar optional fields (`description`, `spec`, `fixes`, `assignee`, `closed_at`, `close_reason`) are omitted when absent.
 
 ### Per-command output shapes (stdout)
 
@@ -483,6 +485,7 @@ Always `[]`, never `null`.
 ### Issue object fields
 
 Mirror the schema: `id`, `title`, `description`, `issue_type`, `status`, `priority`, `spec`, `fixes`, `assignee`, `created_at`, `updated_at`, `closed_at`, `close_reason`. Absent optional fields are omitted (not `null`).
+
 
 ## Human-Readable Output
 
