@@ -3538,6 +3538,10 @@ fn resume_with_loop_id_passes_resume_flag_to_cl() {
         "cl should receive the session_id, got: {cl_args}"
     );
     assert!(
+        cl_args.contains("--dangerously-skip-permissions"),
+        "cl should receive --dangerously-skip-permissions flag, got: {cl_args}"
+    );
+    assert!(
         cl_args.contains("--verbose"),
         "cl should receive --verbose flag, got: {cl_args}"
     );

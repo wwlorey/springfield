@@ -412,7 +412,12 @@ fn run_resume_session(root: &Path, meta: &SessionMetadata, session_id: &str) -> 
     })?;
 
     let mut child = Command::new("cl")
-        .args(["--verbose", "--resume", session_id])
+        .args([
+            "--resume",
+            session_id,
+            "--verbose",
+            "--dangerously-skip-permissions",
+        ])
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
