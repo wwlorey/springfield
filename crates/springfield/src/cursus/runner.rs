@@ -18,7 +18,7 @@ use crate::style;
 
 const SENTINEL_MAX_DEPTH: usize = 2;
 
-const SENTINELS: &[&str] = &[".ralph-complete", ".ralph-reject", ".ralph-revise"];
+const SENTINELS: &[&str] = &[".iter-complete", ".iter-reject", ".iter-revise"];
 
 pub struct CursusConfig {
     pub spec: Option<String>,
@@ -80,13 +80,13 @@ pub fn detect_outcome(
     effective_mode: &Mode,
     exit_code: i32,
 ) -> IterOutcome {
-    if find_sentinel(root, ".ralph-complete", SENTINEL_MAX_DEPTH).is_some() {
+    if find_sentinel(root, ".iter-complete", SENTINEL_MAX_DEPTH).is_some() {
         return IterOutcome::Complete;
     }
-    if find_sentinel(root, ".ralph-reject", SENTINEL_MAX_DEPTH).is_some() {
+    if find_sentinel(root, ".iter-reject", SENTINEL_MAX_DEPTH).is_some() {
         return IterOutcome::Reject;
     }
-    if find_sentinel(root, ".ralph-revise", SENTINEL_MAX_DEPTH).is_some() {
+    if find_sentinel(root, ".iter-revise", SENTINEL_MAX_DEPTH).is_some() {
         return IterOutcome::Revise;
     }
     if *effective_mode == Mode::Interactive && iter.iterations <= 1 {
@@ -691,7 +691,7 @@ mod tests {
     #[test]
     fn detect_complete_sentinel() {
         let tmp = TempDir::new().unwrap();
-        fs::write(tmp.path().join(".ralph-complete"), "").unwrap();
+        fs::write(tmp.path().join(".iter-complete"), "").unwrap();
         let iter = make_iter("build", Mode::Afk, 10, None, None, None);
         assert_eq!(
             detect_outcome(tmp.path(), &iter, &iter.mode, 2),
@@ -702,7 +702,7 @@ mod tests {
     #[test]
     fn detect_reject_sentinel() {
         let tmp = TempDir::new().unwrap();
-        fs::write(tmp.path().join(".ralph-reject"), "").unwrap();
+        fs::write(tmp.path().join(".iter-reject"), "").unwrap();
         let iter = make_iter("review", Mode::Interactive, 1, None, Some("draft"), None);
         assert_eq!(
             detect_outcome(tmp.path(), &iter, &iter.mode, 2),
@@ -713,7 +713,7 @@ mod tests {
     #[test]
     fn detect_revise_sentinel() {
         let tmp = TempDir::new().unwrap();
-        fs::write(tmp.path().join(".ralph-revise"), "").unwrap();
+        fs::write(tmp.path().join(".iter-revise"), "").unwrap();
         let iter = make_iter("review", Mode::Interactive, 1, None, None, Some("revise"));
         assert_eq!(
             detect_outcome(tmp.path(), &iter, &iter.mode, 2),
@@ -724,9 +724,9 @@ mod tests {
     #[test]
     fn complete_wins_over_reject_and_revise() {
         let tmp = TempDir::new().unwrap();
-        fs::write(tmp.path().join(".ralph-complete"), "").unwrap();
-        fs::write(tmp.path().join(".ralph-reject"), "").unwrap();
-        fs::write(tmp.path().join(".ralph-revise"), "").unwrap();
+        fs::write(tmp.path().join(".iter-complete"), "").unwrap();
+        fs::write(tmp.path().join(".iter-reject"), "").unwrap();
+        fs::write(tmp.path().join(".iter-revise"), "").unwrap();
         let iter = make_iter("review", Mode::Afk, 10, None, Some("draft"), Some("fix"));
         assert_eq!(
             detect_outcome(tmp.path(), &iter, &iter.mode, 2),
@@ -737,8 +737,8 @@ mod tests {
     #[test]
     fn reject_wins_over_revise() {
         let tmp = TempDir::new().unwrap();
-        fs::write(tmp.path().join(".ralph-reject"), "").unwrap();
-        fs::write(tmp.path().join(".ralph-revise"), "").unwrap();
+        fs::write(tmp.path().join(".iter-reject"), "").unwrap();
+        fs::write(tmp.path().join(".iter-revise"), "").unwrap();
         let iter = make_iter("review", Mode::Afk, 10, None, Some("draft"), Some("fix"));
         assert_eq!(
             detect_outcome(tmp.path(), &iter, &iter.mode, 2),
@@ -781,7 +781,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let nested = tmp.path().join("sub");
         fs::create_dir(&nested).unwrap();
-        fs::write(nested.join(".ralph-complete"), "").unwrap();
+        fs::write(nested.join(".iter-complete"), "").unwrap();
         let iter = make_iter("build", Mode::Afk, 10, None, None, None);
         assert_eq!(
             detect_outcome(tmp.path(), &iter, &iter.mode, 2),
@@ -794,7 +794,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let deep = tmp.path().join("a").join("b").join("c");
         fs::create_dir_all(&deep).unwrap();
-        fs::write(deep.join(".ralph-complete"), "").unwrap();
+        fs::write(deep.join(".iter-complete"), "").unwrap();
         let iter = make_iter("build", Mode::Interactive, 5, None, None, None);
         assert_eq!(
             detect_outcome(tmp.path(), &iter, &iter.mode, 2),
@@ -805,19 +805,19 @@ mod tests {
     #[test]
     fn clean_sentinels_removes_all() {
         let tmp = TempDir::new().unwrap();
-        fs::write(tmp.path().join(".ralph-complete"), "").unwrap();
-        fs::write(tmp.path().join(".ralph-reject"), "").unwrap();
-        fs::write(tmp.path().join(".ralph-revise"), "").unwrap();
+        fs::write(tmp.path().join(".iter-complete"), "").unwrap();
+        fs::write(tmp.path().join(".iter-reject"), "").unwrap();
+        fs::write(tmp.path().join(".iter-revise"), "").unwrap();
         let nested = tmp.path().join("sub");
         fs::create_dir(&nested).unwrap();
-        fs::write(nested.join(".ralph-complete"), "").unwrap();
+        fs::write(nested.join(".iter-complete"), "").unwrap();
 
         clean_sentinels(tmp.path());
 
-        assert!(!tmp.path().join(".ralph-complete").exists());
-        assert!(!tmp.path().join(".ralph-reject").exists());
-        assert!(!tmp.path().join(".ralph-revise").exists());
-        assert!(!nested.join(".ralph-complete").exists());
+        assert!(!tmp.path().join(".iter-complete").exists());
+        assert!(!tmp.path().join(".iter-reject").exists());
+        assert!(!tmp.path().join(".iter-revise").exists());
+        assert!(!nested.join(".iter-complete").exists());
     }
 
     #[test]
@@ -923,7 +923,7 @@ mod tests {
     #[test]
     fn back_edge_transition() {
         let tmp = TempDir::new().unwrap();
-        fs::write(tmp.path().join(".ralph-reject"), "").unwrap();
+        fs::write(tmp.path().join(".iter-reject"), "").unwrap();
 
         let iters = vec![
             make_iter("draft", Mode::Afk, 10, None, None, None),
@@ -1050,7 +1050,7 @@ mod tests {
             root,
             "mock_ralph.sh",
             &format!(
-                "#!/bin/sh\ntouch \"{}/.ralph-complete\"\nexit 0\n",
+                "#!/bin/sh\ntouch \"{}/.iter-complete\"\nexit 0\n",
                 root.display()
             ),
         );
@@ -1133,12 +1133,12 @@ mod tests {
         let root = tmp.path();
         setup_cursus_project(root, &["draft.md", "review.md", "approve.md"]);
 
-        // Mock that creates .ralph-complete for all iters
+        // Mock that creates .iter-complete for all iters
         let ralph = mock_script(
             root,
             "mock_ralph.sh",
             &format!(
-                "#!/bin/sh\ntouch \"{}/.ralph-complete\"\nexit 0\n",
+                "#!/bin/sh\ntouch \"{}/.iter-complete\"\nexit 0\n",
                 root.display()
             ),
         );
@@ -1185,8 +1185,8 @@ mod tests {
         let root = tmp.path();
         setup_cursus_project(root, &["draft.md", "review.md"]);
 
-        // First call creates .ralph-complete, second creates .ralph-reject,
-        // third (back to draft) creates .ralph-complete, fourth creates .ralph-complete
+        // First call creates .iter-complete, second creates .iter-reject,
+        // third (back to draft) creates .iter-complete, fourth creates .iter-complete
         let counter_file = root.join("call_count");
         fs::write(&counter_file, "0").unwrap();
 
@@ -1199,9 +1199,9 @@ COUNT=$(cat "{counter}")
 COUNT=$((COUNT + 1))
 echo $COUNT > "{counter}"
 if [ $COUNT -eq 2 ]; then
-    touch "{root}/.ralph-reject"
+    touch "{root}/.iter-reject"
 else
-    touch "{root}/.ralph-complete"
+    touch "{root}/.iter-complete"
 fi
 exit 0
 "#,
@@ -1268,7 +1268,7 @@ echo "$@" >> "{root}/ralph_calls.txt"
 if [ -n "$SGF_RUN_CONTEXT" ]; then
     echo "Generated output summary." > "$SGF_RUN_CONTEXT/output-summary.md"
 fi
-touch "{root}/.ralph-complete"
+touch "{root}/.iter-complete"
 exit 0
 "#,
                 root = root.display()
@@ -1336,7 +1336,7 @@ exit 0
             root,
             "mock_ralph.sh",
             &format!(
-                "#!/bin/sh\necho \"$@\" > \"{}/ralph_args.txt\"\ntouch \"{}/.ralph-complete\"\nexit 0\n",
+                "#!/bin/sh\necho \"$@\" > \"{}/ralph_args.txt\"\ntouch \"{}/.iter-complete\"\nexit 0\n",
                 root.display(),
                 root.display()
             ),
@@ -1378,7 +1378,7 @@ exit 0
             root,
             "mock_ralph.sh",
             &format!(
-                "#!/bin/sh\necho \"$@\" > \"{}/ralph_args.txt\"\ntouch \"{}/.ralph-complete\"\nexit 0\n",
+                "#!/bin/sh\necho \"$@\" > \"{}/ralph_args.txt\"\ntouch \"{}/.iter-complete\"\nexit 0\n",
                 root.display(),
                 root.display()
             ),
@@ -1428,7 +1428,7 @@ exit 0
             root,
             "mock_ralph.sh",
             &format!(
-                "#!/bin/sh\ntouch \"{}/.ralph-complete\"\nexit 0\n",
+                "#!/bin/sh\ntouch \"{}/.iter-complete\"\nexit 0\n",
                 root.display()
             ),
         );
@@ -1496,7 +1496,7 @@ exit 0
             root,
             "mock_ralph.sh",
             &format!(
-                "#!/bin/sh\ntouch \"{}/.ralph-complete\"\nexit 0\n",
+                "#!/bin/sh\ntouch \"{}/.iter-complete\"\nexit 0\n",
                 root.display()
             ),
         );
@@ -1677,7 +1677,7 @@ prompt = "build.md"
             root,
             "mock_ralph.sh",
             &format!(
-                "#!/bin/sh\ntouch \"{}/.ralph-complete\"\nexit 0\n",
+                "#!/bin/sh\ntouch \"{}/.iter-complete\"\nexit 0\n",
                 root.display()
             ),
         );
@@ -1742,7 +1742,7 @@ prompt = "build.md"
             root,
             "mock_ralph.sh",
             &format!(
-                "#!/bin/sh\ntouch \"{}/.ralph-complete\"\nexit 0\n",
+                "#!/bin/sh\ntouch \"{}/.iter-complete\"\nexit 0\n",
                 root.display()
             ),
         );

@@ -642,7 +642,7 @@ fn build_invokes_ralph_with_correct_flags() {
         mock_dir.path(),
         "mock_ralph.sh",
         &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.ralph-complete\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
             args_file.display()
         ),
     );
@@ -689,7 +689,7 @@ fn build_creates_and_cleans_pid_file() {
             concat!(
                 "#!/bin/sh\n",
                 "find \"${{PWD}}/.sgf/run\" -name '*.pid' > \"{}\" 2>&1\n",
-                "touch \"${{PWD}}/.ralph-complete\"\n",
+                "touch \"${{PWD}}/.iter-complete\"\n",
                 "exit 0\n",
             ),
             state_file.display()
@@ -744,7 +744,7 @@ fn afk_passes_log_file_to_ralph() {
     let mock_ralph = create_mock_script(
         mock_dir.path(),
         "mock_ralph.sh",
-        "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\ntouch \"${PWD}/.ralph-complete\"\nexit 0\n",
+        "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
     );
 
     let output = run_sgf(
@@ -884,7 +884,7 @@ fn recovery_cleans_stale_state() {
     let mock_ralph = create_mock_script(
         mock_dir.path(),
         "mock_ralph.sh",
-        "#!/bin/sh\ntouch \"${PWD}/.ralph-complete\"\nexit 0\n",
+        "#!/bin/sh\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
     );
 
     let output = run_sgf(
@@ -953,7 +953,7 @@ fn recovery_skips_when_live_pid() {
     let mock_ralph = create_mock_script(
         mock_dir.path(),
         "mock_ralph.sh",
-        "#!/bin/sh\ntouch \"${PWD}/.ralph-complete\"\nexit 0\n",
+        "#!/bin/sh\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
     );
 
     let output = run_sgf(
@@ -1061,7 +1061,7 @@ fn end_to_end_build_passes_raw_path_and_spec() {
         mock_dir.path(),
         "mock_ralph.sh",
         &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\necho \"SGF_SPEC=$SGF_SPEC\" > \"{}\"\ntouch \"${{PWD}}/.ralph-complete\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"{}\"\necho \"SGF_SPEC=$SGF_SPEC\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
             args_file.display(),
             env_file.display()
         ),
@@ -1151,7 +1151,7 @@ fn build_without_spec_omits_spec_flag_and_env() {
         mock_dir.path(),
         "mock_ralph.sh",
         &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\necho \"SGF_SPEC=${{SGF_SPEC:-}}\" > \"{}\"\ntouch \"${{PWD}}/.ralph-complete\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"{}\"\necho \"SGF_SPEC=${{SGF_SPEC:-}}\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
             args_file.display(),
             env_file.display()
         ),
@@ -1212,7 +1212,7 @@ fn build_with_spec_does_not_pass_spec_to_ralph() {
         mock_dir.path(),
         "mock_ralph.sh",
         &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.ralph-complete\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
             args_file.display(),
         ),
     );
@@ -1276,7 +1276,7 @@ fn build_valid_spec_proceeds() {
     let mock_ralph = create_mock_script(
         mock_dir.path(),
         "mock_ralph.sh",
-        "#!/bin/sh\ntouch \"${PWD}/.ralph-complete\"\nexit 0\n",
+        "#!/bin/sh\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
     );
 
     let output = run_sgf(
@@ -1785,7 +1785,7 @@ fn single_ctrl_c_continues_after_timeout() {
     let mock_ralph = create_mock_script(
         mock_dir.path(),
         "mock_ralph_quick.sh",
-        "#!/bin/bash\ntrap '' INT\nsleep 3\ntouch \"${PWD}/.ralph-complete\"\nexit 0\n",
+        "#!/bin/bash\ntrap '' INT\nsleep 3\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
     );
     let ready_file = mock_dir.path().join("sgf_ready");
 
@@ -2240,7 +2240,7 @@ fn afk_mode_child_gets_new_session() {
                 "MY_PID=$$\n",
                 "MY_PGID=$(python3 -c \"import os; print(os.getpgid($MY_PID))\")\n",
                 "echo \"pid=$MY_PID pgid=$MY_PGID\" > \"{}\"\n",
-                "touch \"${{PWD}}/.ralph-complete\"\n",
+                "touch \"${{PWD}}/.iter-complete\"\n",
                 "exit 0\n",
             ),
             sid_file.display()
@@ -2420,7 +2420,7 @@ fn config_afk_mode_invokes_ralph_with_afk_flag() {
         mock_dir.path(),
         "mock_ralph.sh",
         &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.ralph-complete\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
             args_file.display()
         ),
     );
@@ -2530,7 +2530,7 @@ fn alias_resolves_to_prompt() {
         mock_dir.path(),
         "mock_ralph.sh",
         &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.ralph-complete\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
             args_file.display()
         ),
     );
@@ -2568,7 +2568,7 @@ fn no_color_badge_falls_back_to_plain_prefix() {
     let mock_ralph = create_mock_script(
         mock_dir.path(),
         "mock_ralph.sh",
-        "#!/bin/sh\ntouch \"${PWD}/.ralph-complete\"\nexit 0\n",
+        "#!/bin/sh\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
     );
 
     let mock_cl_dir = TempDir::new().unwrap();
@@ -2617,7 +2617,7 @@ fn colored_output_contains_bold_badge() {
     let mock_ralph = create_mock_script(
         mock_dir.path(),
         "mock_ralph.sh",
-        "#!/bin/sh\ntouch \"${PWD}/.ralph-complete\"\nexit 0\n",
+        "#!/bin/sh\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
     );
 
     let mock_cl_dir = TempDir::new().unwrap();
@@ -2662,7 +2662,7 @@ fn exit_0_uses_success_styling() {
     let mock_ralph = create_mock_script(
         mock_dir.path(),
         "mock_ralph.sh",
-        "#!/bin/sh\ntouch \"${PWD}/.ralph-complete\"\nexit 0\n",
+        "#!/bin/sh\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
     );
 
     let mock_cl_dir = TempDir::new().unwrap();
@@ -2697,7 +2697,7 @@ fn exit_0_uses_success_styling() {
 #[test]
 fn exit_1_uses_error_styling() {
     // In the cursus runner, ralph exiting with code 1 without touching
-    // .ralph-complete is treated as "exhausted" (stalled), exit code 2.
+    // .iter-complete is treated as "exhausted" (stalled), exit code 2.
     // This test verifies stall styling for a ralph error scenario.
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
@@ -2791,7 +2791,7 @@ fn no_color_exit_messages_use_plain_prefix() {
     let mock_ralph_0 = create_mock_script(
         mock_dir.path(),
         "mock_ralph_0.sh",
-        "#!/bin/sh\ntouch \"${PWD}/.ralph-complete\"\nexit 0\n",
+        "#!/bin/sh\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
     );
 
     let output = run_sgf(
@@ -2892,7 +2892,7 @@ fn install_runs_afk_with_one_iteration_via_mock_ralph() {
         mock_dir.path(),
         "mock_ralph.sh",
         &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.ralph-complete\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
             args_file.display()
         ),
     );
@@ -2946,7 +2946,7 @@ fn alias_i_resolves_to_install() {
         mock_dir.path(),
         "mock_ralph.sh",
         &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.ralph-complete\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
             args_file.display()
         ),
     );
@@ -3056,7 +3056,7 @@ fn build_dash_a_overrides_mode_to_afk() {
         mock_dir.path(),
         "mock_ralph.sh",
         &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.ralph-complete\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
             args_file.display()
         ),
     );
@@ -3125,7 +3125,7 @@ fn build_dash_n_overrides_iterations() {
         mock_dir.path(),
         "mock_ralph.sh",
         &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.ralph-complete\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
             args_file.display()
         ),
     );
@@ -3253,7 +3253,7 @@ fn e2e_sgf_ralph_cl_context_files_in_append_system_prompt() {
                 "#!/bin/sh\n",
                 "printf '%s\\n' \"$@\" > \"{captured}\"\n",
                 "echo '{{\"type\":\"result\",\"result\":\"done\"}}'\n",
-                "touch \"$PWD/.ralph-complete\"\n",
+                "touch \"$PWD/.iter-complete\"\n",
             ),
             captured = captured_args.display(),
         ),
@@ -3351,7 +3351,7 @@ fn afk_session_writes_metadata_with_session_id() {
         mock_dir.path(),
         "mock_ralph.sh",
         &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.ralph-complete\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
             args_file.display()
         ),
     );
@@ -3891,7 +3891,7 @@ fn cursus_single_iter_dispatches_and_completes() {
     fs::write(prompts_dir.join("build.md"), "Build prompt content\n").unwrap();
     git_add_commit(tmp.path(), "add cursus and prompt");
 
-    // Mock ralph that logs args and touches .ralph-complete sentinel
+    // Mock ralph that logs args and touches .iter-complete sentinel
     let mock_dir = TempDir::new().unwrap();
     let args_file = mock_dir.path().join("ralph_args.txt");
     let mock_ralph = create_mock_script(
@@ -3901,7 +3901,7 @@ fn cursus_single_iter_dispatches_and_completes() {
             concat!(
                 "#!/bin/sh\n",
                 "echo \"$@\" > \"{args}\"\n",
-                "touch \"${{PWD}}/.ralph-complete\"\n",
+                "touch \"${{PWD}}/.iter-complete\"\n",
                 "exit 0\n",
             ),
             args = args_file.display()
@@ -3935,8 +3935,8 @@ fn cursus_single_iter_dispatches_and_completes() {
 
     // Sentinel should be cleaned up after completion
     assert!(
-        !tmp.path().join(".ralph-complete").exists(),
-        ".ralph-complete sentinel should be cleaned up"
+        !tmp.path().join(".iter-complete").exists(),
+        ".iter-complete sentinel should be cleaned up"
     );
 
     // Run metadata should exist and show completed status
@@ -4014,7 +4014,7 @@ fn cursus_single_iter_alias_dispatch() {
         mock_dir.path(),
         "mock_ralph.sh",
         &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.ralph-complete\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
             args_file.display()
         ),
     );
@@ -4254,7 +4254,7 @@ fn cursus_multi_iter_happy_path() {
                 "  mkdir -p \"$SGF_RUN_CONTEXT\"\n",
                 "  echo 'Draft presentation content' > \"$SGF_RUN_CONTEXT/draft-presentation.md\"\n",
                 "fi\n",
-                "touch \"${{PWD}}/.ralph-complete\"\n",
+                "touch \"${{PWD}}/.iter-complete\"\n",
                 "exit 0\n",
             ),
             log = invocation_log.display()
@@ -4310,21 +4310,21 @@ fn cursus_multi_iter_reject_transition() {
                 "mkdir -p \"$SGF_RUN_CONTEXT\" 2>/dev/null\n",
                 "if echo \"$PROMPT\" | grep -q 'discuss.md'; then\n",
                 "  echo 'summary' > \"$SGF_RUN_CONTEXT/discuss-summary.md\"\n",
-                "  touch \"${{PWD}}/.ralph-complete\"\n",
+                "  touch \"${{PWD}}/.iter-complete\"\n",
                 "elif echo \"$PROMPT\" | grep -q 'draft.md'; then\n",
                 "  echo 'draft' > \"$SGF_RUN_CONTEXT/draft-presentation.md\"\n",
-                "  touch \"${{PWD}}/.ralph-complete\"\n",
+                "  touch \"${{PWD}}/.iter-complete\"\n",
                 "elif echo \"$PROMPT\" | grep -q 'review.md'; then\n",
                 "  COUNT=$(cat \"{count}\")\n",
                 "  COUNT=$((COUNT + 1))\n",
                 "  echo $COUNT > \"{count}\"\n",
                 "  if [ $COUNT -eq 1 ]; then\n",
-                "    touch \"${{PWD}}/.ralph-reject\"\n",
+                "    touch \"${{PWD}}/.iter-reject\"\n",
                 "  else\n",
-                "    touch \"${{PWD}}/.ralph-complete\"\n",
+                "    touch \"${{PWD}}/.iter-complete\"\n",
                 "  fi\n",
                 "elif echo \"$PROMPT\" | grep -q 'approve.md'; then\n",
-                "  touch \"${{PWD}}/.ralph-complete\"\n",
+                "  touch \"${{PWD}}/.iter-complete\"\n",
                 "fi\n",
                 "exit 0\n",
             ),
@@ -4393,24 +4393,24 @@ fn cursus_multi_iter_revise_transition() {
                 "mkdir -p \"$SGF_RUN_CONTEXT\" 2>/dev/null\n",
                 "if echo \"$PROMPT\" | grep -q 'discuss.md'; then\n",
                 "  echo 'summary' > \"$SGF_RUN_CONTEXT/discuss-summary.md\"\n",
-                "  touch \"${{PWD}}/.ralph-complete\"\n",
+                "  touch \"${{PWD}}/.iter-complete\"\n",
                 "elif echo \"$PROMPT\" | grep -q 'draft.md'; then\n",
                 "  echo 'draft' > \"$SGF_RUN_CONTEXT/draft-presentation.md\"\n",
-                "  touch \"${{PWD}}/.ralph-complete\"\n",
+                "  touch \"${{PWD}}/.iter-complete\"\n",
                 "elif echo \"$PROMPT\" | grep -q 'review.md'; then\n",
                 "  COUNT=$(cat \"{count}\")\n",
                 "  COUNT=$((COUNT + 1))\n",
                 "  echo $COUNT > \"{count}\"\n",
                 "  if [ $COUNT -eq 1 ]; then\n",
-                "    touch \"${{PWD}}/.ralph-revise\"\n",
+                "    touch \"${{PWD}}/.iter-revise\"\n",
                 "  else\n",
-                "    touch \"${{PWD}}/.ralph-complete\"\n",
+                "    touch \"${{PWD}}/.iter-complete\"\n",
                 "  fi\n",
                 "elif echo \"$PROMPT\" | grep -q 'revise.md'; then\n",
                 "  echo 'revised draft' > \"$SGF_RUN_CONTEXT/draft-presentation.md\"\n",
-                "  touch \"${{PWD}}/.ralph-complete\"\n",
+                "  touch \"${{PWD}}/.iter-complete\"\n",
                 "elif echo \"$PROMPT\" | grep -q 'approve.md'; then\n",
-                "  touch \"${{PWD}}/.ralph-complete\"\n",
+                "  touch \"${{PWD}}/.iter-complete\"\n",
                 "fi\n",
                 "exit 0\n",
             ),
@@ -4482,15 +4482,15 @@ fn cursus_multi_iter_context_passing() {
                 "mkdir -p \"$SGF_RUN_CONTEXT\" 2>/dev/null\n",
                 "if echo \"$PROMPT\" | grep -q 'discuss.md'; then\n",
                 "  echo 'Key insight from discussion' > \"$SGF_RUN_CONTEXT/discuss-summary.md\"\n",
-                "  touch \"${{PWD}}/.ralph-complete\"\n",
+                "  touch \"${{PWD}}/.iter-complete\"\n",
                 "elif echo \"$PROMPT\" | grep -q 'draft.md'; then\n",
                 "  echo \"$@\" > \"{draft_args}\"\n",
                 "  echo 'Draft content' > \"$SGF_RUN_CONTEXT/draft-presentation.md\"\n",
-                "  touch \"${{PWD}}/.ralph-complete\"\n",
+                "  touch \"${{PWD}}/.iter-complete\"\n",
                 "elif echo \"$PROMPT\" | grep -q 'review.md'; then\n",
-                "  touch \"${{PWD}}/.ralph-complete\"\n",
+                "  touch \"${{PWD}}/.iter-complete\"\n",
                 "elif echo \"$PROMPT\" | grep -q 'approve.md'; then\n",
-                "  touch \"${{PWD}}/.ralph-complete\"\n",
+                "  touch \"${{PWD}}/.iter-complete\"\n",
                 "fi\n",
                 "exit 0\n",
             ),
@@ -4579,7 +4579,7 @@ fn cursus_multi_iter_stall_recovery() {
             "#!/bin/sh\n",
             "PROMPT=\"${@: -1}\"\n",
             "if echo \"$PROMPT\" | grep -q 'discuss.md'; then\n",
-            "  touch \"${PWD}/.ralph-complete\"\n",
+            "  touch \"${PWD}/.iter-complete\"\n",
             "  exit 0\n",
             "fi\n",
             "# draft does NOT touch any sentinel -> exhaustion (exit 2)\n",
@@ -4671,7 +4671,7 @@ fn cursus_multi_iter_resume_stalled_run() {
             "#!/bin/sh\n",
             "PROMPT=\"${@: -1}\"\n",
             "if echo \"$PROMPT\" | grep -q 'discuss.md'; then\n",
-            "  touch \"${PWD}/.ralph-complete\"\n",
+            "  touch \"${PWD}/.iter-complete\"\n",
             "  exit 0\n",
             "fi\n",
             "exit 2\n",
@@ -4692,7 +4692,7 @@ fn cursus_multi_iter_resume_stalled_run() {
     let mock_ralph_complete = create_mock_script(
         mock_dir.path(),
         "mock_ralph_complete.sh",
-        "#!/bin/sh\ntouch \"${PWD}/.ralph-complete\"\nexit 0\n",
+        "#!/bin/sh\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
     );
 
     // Resume sends "2\n" (skip) via stdin to skip the stalled iter
@@ -4799,7 +4799,7 @@ fn cursus_layered_resolution_local_overrides_global() {
         mock_dir.path(),
         "mock_ralph.sh",
         &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.ralph-complete\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
             args_file.display()
         ),
     );
@@ -4867,7 +4867,7 @@ fn cursus_banner_true_passes_banner_flag_to_ralph() {
         mock_dir.path(),
         "mock_ralph.sh",
         &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.ralph-complete\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
             args_file.display()
         ),
     );
@@ -4922,7 +4922,7 @@ fn cursus_banner_false_omits_banner_flag() {
         mock_dir.path(),
         "mock_ralph.sh",
         &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.ralph-complete\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
             args_file.display()
         ),
     );
@@ -5170,7 +5170,7 @@ fn cursus_afk_then_interactive_stdin_not_stolen() {
             "#!/bin/sh\n",
             "mkdir -p \"$SGF_RUN_CONTEXT\"\n",
             "echo 'gathered' > \"$SGF_RUN_CONTEXT/gather-output.md\"\n",
-            "touch \"${PWD}/.ralph-complete\"\n",
+            "touch \"${PWD}/.iter-complete\"\n",
             "exit 0\n",
         ),
     );
