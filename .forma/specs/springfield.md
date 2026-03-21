@@ -5,7 +5,7 @@ CLI entry point — scaffolding, prompt delivery, iteration runner, loop orchest
 | Field | Value |
 |-------|-------|
 | Src | `crates/springfield/` |
-| Status | draft |
+| Status | stable |
 
 ## Overview
 
@@ -490,18 +490,18 @@ Config merges (`.gitignore`, `.claude/settings.json`, `.pre-commit-config.yaml`)
 
 ## Prompt Delivery
 
-sgf does not assemble, transform, or preprocess prompt files. Prompts in `.sgf/prompts/` are final — passed directly to ralph or `cl`.
+sgf does not assemble, transform, or preprocess prompt files. Prompts in `.sgf/prompts/` are final — passed directly to `cl`.
 
 ### What sgf Does
 
 1. **Resolve prompt** — find `.sgf/prompts/<stage>.md` via layered lookup (local `./.sgf/prompts/` → global `~/.sgf/prompts/`). Fail with a clear error if not found in either location.
-2. **Pass the raw path** — give ralph or `cl` the resolved prompt path directly (no intermediate files).
+2. **Pass the raw path** — give `cl` the resolved prompt path directly (no intermediate files).
 
 ### System Prompt Injection
 
 **Context files (MEMENTO, BACKPRESSURE):** `cl` handles injection for all modes — both interactive and automated. `cl` resolves each context file via layered `.sgf/` lookup, builds `--append-system-prompt "study @<file>;..."`, and forwards to the downstream binary. See [claude-wrapper spec](claude-wrapper.md).
 
-**sgf does not inject context study args** (MEMENTO, BACKPRESSURE — those belong to `cl`). Sgf only passes the prompt path and cursus context (consumed summary files) to ralph or `cl`.
+**sgf does not inject context study args** (MEMENTO, BACKPRESSURE — those belong to `cl`). Sgf only passes the prompt path and cursus context (consumed summary files) to `cl`.
 
 ### Prompt Files
 
@@ -509,7 +509,7 @@ Prompts are plain markdown files with no variable substitution.
 
 ---
 
-## sgf-to-ralph Contract
+## Agent Invocation
 
 ### Agent Invocation
 
@@ -628,6 +628,8 @@ A 2-second sleep between iterations allows git operations to settle and prevents
 
 ---
 
+
+
 ## Loop ID Format
 
 `sgf` generates loop IDs with the pattern: `<stage>[-<spec>]-<YYYYMMDDTHHmmss>`
@@ -637,13 +639,13 @@ Examples:
 - `verify-20260226T150000` (verify loop, no spec filter)
 - `issues-plan-20260226T160000` (issues plan loop)
 
-Ralph includes the loop ID in log output. `sgf logs` uses the loop ID to locate log files.
+sgf includes the loop ID in log output. `sgf logs` uses the loop ID to locate log files.
 
 ---
 
 ## Logging
 
-`sgf` tees ralph's stdout to both the terminal and `.sgf/logs/<loop-id>.log`. Ralph owns formatting — in AFK mode it emits human-readable one-liners (tool calls, text blocks); in interactive mode it passes through the terminal. `sgf` does not parse ralph's output.
+`sgf` tees the agent's stdout to both the terminal and `.sgf/logs/<loop-id>.log`. The iteration runner owns formatting — in AFK mode it parses the NDJSON stream and emits human-readable one-liners (tool calls, text blocks); in interactive mode it passes through the terminal. `sgf` does not parse the agent's output in interactive mode.
 
 The `.sgf/logs/` directory is gitignored.
 
@@ -655,7 +657,7 @@ The `.sgf/logs/` directory is gitignored.
 
 ## Console Output
 
-sgf uses a rounded-box badge for all status output to stderr. Every message is wrapped in a 3-line box drawn with Unicode box-drawing characters (`╭╮╰╯│─`), echoing ralph's rounded-box aesthetic. The `sgf` label appears on the middle line in bold. The box borders are dim. Message text sits to the right of the box on the middle line — its color conveys semantic state.
+sgf uses a rounded-box badge for all status output to stderr. Every message is wrapped in a 3-line box drawn with Unicode box-drawing characters (`╭╮╰╯│─`). The `sgf` label appears on the middle line in bold. The box borders are dim. Message text sits to the right of the box on the middle line — its color conveys semantic state.
 
 ### Visual Format
 
@@ -663,7 +665,7 @@ Each message gets its own 3-line box. The box is always 7 characters wide (`╭�
 
 ```
 ╭─────╮
-│ sgf │ launching ralph [build-20260312T143000]
+│ sgf │ launching iteration runner [build-20260312T143000]
 ╰─────╯ iterations: 10 · mode: afk
 ╭─────╮
 │ sgf │ recovering from stale state...
@@ -687,7 +689,7 @@ Each message gets its own 3-line box. The box is always 7 characters wide (`╭�
 │ sgf │ loop complete [build-20260312T143000]
 ╰─────╯
 ╭─────╮
-│ sgf │ ralph exited with error [build-20260312T143000]
+│ sgf │ agent exited with error [build-20260312T143000]
 ╰─────╯
 ╭─────╮
 │ sgf │ iterations exhausted [build-20260312T143000]
@@ -701,7 +703,7 @@ Each message gets its own 3-line box. The box is always 7 characters wide (`╭�
 | Action | White | In-progress operations: launching, recovering, pushing, starting daemon |
 | Success | Green | Completed operations: recovery complete, daemon ready, pn export ok, loop complete, pushed |
 | Warning | Yellow | Non-fatal issues: pn export skipped, pn doctor failed, iterations exhausted |
-| Error | Red | Fatal failures: ralph exited with error, pn export failed |
+| Error | Red | Fatal failures: agent exited with error, pn export failed |
 | Detail | Dim (gray) | Supplementary info: iterations, mode (below box, no badge) |
 
 The box borders (`╭─────╮`, `│`, `╰─────╯`) are always **dim**. The `sgf` text inside the box is always **bold** (`\x1b[1m sgf \x1b[0m`) — normal text color regardless of message state.
@@ -721,7 +723,7 @@ The box is stateless — each semantic output call (`print_action`, `print_succe
 Detail lines appear on the bottom line of the box, to the right of `╰─────╯`, aligned with the message text on the middle line (8 characters: 7-char box width + 1-space gap). They are rendered in dim gray.
 
 Detail lines appear for:
-- **Ralph launch**: `iterations: <n> · mode: <afk|interactive>`
+- **Iteration runner launch**: `iterations: <n> · mode: <afk|interactive>`
 - **Interactive launch**: `mode: interactive`
 
 ### NO_COLOR Support
@@ -729,17 +731,17 @@ Detail lines appear for:
 When the `NO_COLOR` environment variable is set, all ANSI codes and box-drawing characters are suppressed. The badge falls back to plain `sgf:` prefix. Detail lines are indented with plain spaces. Message text has no color formatting.
 
 ```
-sgf: launching ralph [build-20260312T143000]
+sgf: launching iteration runner [build-20260312T143000]
      iterations: 30
 sgf: recovery complete
-sgf: ralph exited with error [build-20260312T143000]
+sgf: agent exited with error [build-20260312T143000]
 ```
 
 ### style.rs Module
 
-`crates/springfield/src/style.rs` provides styling primitives and semantic output functions. Mirrors ralph's `style.rs` structure for ANSI primitives but adds sgf-specific badge box and message functions.
+`crates/springfield/src/style.rs` provides styling primitives and semantic output functions. Provides ANSI primitives and sgf-specific badge box and message functions.
 
-**ANSI Primitives** (same interface as ralph):
+**ANSI Primitives**:
 - `bold(s)`, `dim(s)`, `green(s)`, `yellow(s)`, `red(s)`, `white(s)`
 - `no_color()` — checks `NO_COLOR` environment variable
 - `strip_ansi(s)` — removes ANSI escape sequences
@@ -762,7 +764,7 @@ The `vcs_utils::auto_push_if_changed()` callback emits raw messages (e.g., `"New
 
 ### Message Catalog
 
-Every `eprintln\!("sgf: ...")` and `println\!(...)` call in the springfield crate is replaced with a styled output call.
+Every `eprintln\\!("sgf: ...")` and `println\\!(...)` call in the springfield crate is replaced with a styled output call.
 
 | Message | Style | Source |
 |---------|-------|--------|
@@ -778,12 +780,12 @@ Every `eprintln\!("sgf: ...")` and `println\!(...)` call in the springfield crat
 | pn export failed: {err} | error | orchestrate.rs |
 | pn export skipped (pn not found: {e}) | warning | orchestrate.rs |
 | launching interactive session | action | orchestrate.rs |
-| launching ralph [{loop_id}] | action | orchestrate.rs |
+| launching iteration runner [{loop_id}] | action | orchestrate.rs |
 | loop complete [{loop_id}] | success | orchestrate.rs |
-| ralph exited with error [{loop_id}] | error | orchestrate.rs |
+| agent exited with error [{loop_id}] | error | orchestrate.rs |
 | iterations exhausted [{loop_id}] | warning | orchestrate.rs |
 | interrupted [{loop_id}] | warning | orchestrate.rs |
-| ralph exited with unexpected code [{loop_id}] | error | orchestrate.rs |
+| agent exited with unexpected code [{loop_id}] | error | orchestrate.rs |
 | New commits detected, pushing... | action | orchestrate.rs (auto-push callback) |
 | push failed (non-fatal): {err} | warning | orchestrate.rs (auto-push callback) |
 | .sgf/MEMENTO.md not found — agents won't have fm/pn workflow reference | warning | init.rs |
@@ -795,7 +797,7 @@ Every `eprintln\!("sgf: ...")` and `println\!(...)` call in the springfield crat
 
 ## Recovery
 
-Ralph does not perform iteration-start cleanup. Recovery is `sgf`'s responsibility, executed before launching ralph.
+The iteration runner does not perform iteration-start cleanup. Recovery is `sgf`'s responsibility, executed before invoking `cl`.
 
 ### PID Files
 
@@ -803,7 +805,7 @@ Ralph does not perform iteration-start cleanup. Recovery is `sgf`'s responsibili
 
 ### Pre-launch Cleanup
 
-Before launching ralph, `sgf` scans all PID files in `.sgf/run/`:
+Before invoking `cl`, `sgf` scans all PID files in `.sgf/run/`:
 
 - **Any PID alive** (verified via `kill -0`) → another loop is running. Skip cleanup and launch normally — the dirty tree or in-progress claims may belong to that loop.
 - **All PIDs stale** (process dead) → no loops are running. Remove stale PID files, then recover:
@@ -824,7 +826,7 @@ Before launching any loop, `sgf` runs pre-launch checks. The checks vary by stag
 1. **Recovery** — clean up stale state from crashed iterations (see Recovery)
 2. **Daemons** — start the pensa and forma daemons if not already running
 
-After pre-launch checks, automated stages launch ralph; interactive stages call `cl` directly with `--verbose @{prompt_path}`, inheriting stdio.
+After pre-launch checks, automated stages invoke `cl` via the iteration runner; interactive stages call `cl` directly with `--verbose @{prompt_path}`, inheriting stdio.
 
 **`SGF_SKIP_PREFLIGHT`** (env var) — When set, skips daemon startup while still running recovery. This allows two-tier control: the `--skip-preflight` CLI flag disables all pre-launch checks (including recovery), while `SGF_SKIP_PREFLIGHT` disables only the infrastructure checks (daemon). Used by integration tests to exercise recovery logic without requiring a running pensa daemon.
 

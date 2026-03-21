@@ -5,7 +5,7 @@ Pipeline orchestration — declarative TOML-defined multi-iter workflows with co
 | Field | Value |
 |-------|-------|
 | Src | `crates/springfield/` |
-| Status | draft |
+| Status | stable |
 
 ## Overview
 
@@ -140,7 +140,7 @@ Workspace crate dependencies (linked at compile time via springfield):
 - `produces` file path is correctly constructed under run directory
 - `consumes` files are correctly resolved and injected via `--append-system-prompt`
 - Missing `produces` file emits warning but continues
-- `banner` flag is passed to ralph when true, omitted when false
+- `banner` flag is passed to the iteration runner when true, omitted when false
 - Iter with both `next` and `transitions` correctly uses transitions on reject/revise and `next` on complete
 
 #### `cursus/state.rs`
@@ -173,7 +173,6 @@ Binary-level tests using `cargo test -p springfield`. Each test:
 | Resume stalled | Load stalled run, resume | Pipeline continues from stalled iter |
 | Layered resolution | Local cursus overrides global | Local TOML takes precedence |
 | Banner flag | iter with `banner = true` | Iteration runner displays banner |
-
 
 ## TOML Format
 
@@ -369,7 +368,7 @@ When an iter defines `consumes = ["discuss-summary", "draft-presentation"]`, the
 
    <file contents>
    ```
-3. Injects the concatenated content via `--append-system-prompt` (for ralph) or `--append-system-prompt` (for `cl`)
+3. Injects the concatenated content via `--append-system-prompt` to `cl`
 
 The header includes both the iter name and the key name so the consuming agent knows the provenance of each context block.
 

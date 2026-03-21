@@ -5,7 +5,7 @@ Shared graceful shutdown — double-press Ctrl+C/Ctrl+D detection with confirmat
 | Field | Value |
 |-------|-------|
 | Src | `crates/shutdown/` |
-| Status | draft |
+| Status | stable |
 
 ## Overview
 
@@ -280,7 +280,7 @@ sgf saves terminal settings (`tcgetattr` on stdin fd) before spawning the agent 
 
 ## Process Group Kill with Escalation
 
-The `kill_process_group` function provides graceful-then-forceful termination of a process group. Both `sgf` and `ralph` spawn children with `setsid()`, making each child a session leader where PID=PGID. Killing a single PID leaves descendants (agent tool subprocesses, build commands, etc.) orphaned and running. This function kills the entire process group.
+The `kill_process_group` function provides graceful-then-forceful termination of a process group. sgf spawns children with `setsid()`, making each child a session leader where PID=PGID. Killing a single PID leaves descendants (agent tool subprocesses, build commands, etc.) orphaned and running. This function kills the entire process group.
 
 ### API
 
@@ -310,7 +310,7 @@ The `pid` parameter is the group leader's PID (which equals the PGID due to `set
 
 ### Default Timeout
 
-`sgf` and `ralph` both use a 200ms timeout. After a double-press confirmation, the user has already signaled clear intent to exit — there is no meaningful cleanup for an AI agent subprocess, so a short grace window (enough for buffer flushes) is sufficient before escalating to SIGKILL.
+sgf uses a 200ms timeout. After a double-press confirmation, the user has already signaled clear intent to exit — there is no meaningful cleanup for an AI agent subprocess, so a short grace window (enough for buffer flushes) is sufficient before escalating to SIGKILL.
 
 ### Usage by sgf
 
@@ -323,17 +323,3 @@ fn kill_child(child: &std::process::Child) {
 ```
 
 This replaces the previous single-PID SIGTERM: `kill(pid, SIGTERM)`.
-
-### Usage by ralph
-
-ralph calls `kill_process_group` in both `run_afk` and `run_interactive` when the shutdown controller triggers:
-
-```rust
-if controller.poll() == ShutdownStatus::Shutdown {
-    shutdown::kill_process_group(child.id(), Duration::from_millis(200));
-    let _ = child.wait();
-    return;
-}
-```
-
-This replaces the previous `child.kill()` (which sent SIGKILL to a single PID).

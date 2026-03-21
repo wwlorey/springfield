@@ -5,7 +5,7 @@ Session resume — persist Claude session IDs and loop config to enable resuming
 | Field | Value |
 |-------|-------|
 | Src | `crates/springfield/` |
-| Status | draft |
+| Status | stable |
 
 ## Overview
 
@@ -168,7 +168,7 @@ The number of completed iterations is derived from `iterations.len()`. There is 
 
 | Status | When set |
 |--------|----------|
-| `running` | Written before spawning cl/ralph |
+| `running` | Written before spawning `cl` |
 | `completed` | `.iter-complete` sentinel detected (exit 0) |
 | `interrupted` | SIGINT/SIGTERM (exit 130) |
 | `exhausted` | Max iterations reached (exit 2) |
@@ -229,7 +229,7 @@ Each line: `{index}. {loop_id}  iter {iteration}  {mode}  {status}  {relative_ti
 
 Regardless of the original session's mode (AFK or interactive), `sgf resume` always launches in interactive mode. The user is resuming to interact with the session directly. The session metadata is updated to reflect the new interaction.
 
-## Ralph Changes
+## Session Handling
 
 ### Session ID Per Invocation
 
@@ -250,6 +250,7 @@ When resuming:
 ```
 cl --verbose --resume <session_id> --dangerously-skip-permissions @prompt.md
 ```
+
 
 ## Springfield Changes
 
