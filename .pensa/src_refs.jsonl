@@ -120,3 +120,7 @@
 {"id":"pn-bae5a324","issue_id":"pn-b7f75c05","path":"crates/pensa/src/db.rs","reason":"doctor() drift check needs extension for deps, comments, src_refs, doc_refs JSONL files","created_at":"2026-03-21T21:04:33Z"}
 {"id":"pn-f4ace40d","issue_id":"pn-da47a310","path":"crates/pensa/tests/integration.rs","reason":"Add refs_cascade_on_delete test alongside existing ref tests","created_at":"2026-03-21T21:04:34Z"}
 {"id":"pn-21e8a458","issue_id":"pn-33996415","path":"crates/pensa/tests/integration.rs","reason":"Add export_import_round_trip test with full data verification","created_at":"2026-03-21T21:04:35Z"}
+{"id":"pn-3f1593ba","issue_id":"pn-44431e13","path":"crates/springfield/src/loop_mgmt.rs","reason":"SessionMetadata struct definition — add cursus: Option<String> field","created_at":"2026-03-21T21:08:30Z"}
+{"id":"pn-28d68add","issue_id":"pn-44431e13","path":"crates/springfield/src/orchestrate.rs","reason":"Callers that construct SessionMetadata — set cursus field to None","created_at":"2026-03-21T21:08:31Z"}
+{"id":"pn-c688cbe9","issue_id":"pn-a9fd760f","path":"crates/springfield/src/orchestrate.rs","reason":"run_resume_session function — add --dangerously-skip-permissions to cl args","created_at":"2026-03-21T21:08:32Z"}
+{"id":"pn-2fbc9d49","issue_id":"pn-67f13490","path":"crates/springfield/src/orchestrate.rs","reason":"Interactive picker logic and existing tests — add coverage for sorting, truncation, display format","created_at":"2026-03-21T21:08:33Z"}
