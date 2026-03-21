@@ -151,3 +151,12 @@
 {"id":"pn-804d9022","issue_id":"pn-7e835a3f","path":"crates/springfield/README.md","reason":"Update for absorbed architecture","created_at":"2026-03-21T21:17:18Z"}
 {"id":"pn-ed89c7c1","issue_id":"pn-18875018","path":"crates/springfield/tests/integration.rs","reason":"Add simple prompt mode test cases","created_at":"2026-03-21T21:17:29Z"}
 {"id":"pn-6f812c03","issue_id":"pn-3e79277c","path":"crates/springfield/tests/integration.rs","reason":"Add sentinel and NDJSON formatting test cases","created_at":"2026-03-21T21:17:41Z"}
+{"id":"pn-b23cdd8e","issue_id":"pn-1e8d35ea","path":"crates/springfield/src/orchestrate.rs","reason":"Contains resolve_ralph_binary() and SGF_RALPH_BINARY env var read — rename to resolve_agent_command() and SGF_AGENT_COMMAND","created_at":"2026-03-21T21:22:46Z"}
+{"id":"pn-008a019a","issue_id":"pn-1e8d35ea","path":"crates/springfield/src/cursus/runner.rs","reason":"Contains duplicate resolve_ralph_binary() and SGF_RALPH_BINARY — rename to match","created_at":"2026-03-21T21:22:46Z"}
+{"id":"pn-9f475bfb","issue_id":"pn-7033dbf0","path":"crates/springfield/tests/integration.rs","reason":"~50 uses of SGF_RALPH_BINARY and mock_ralph variables to rename to SGF_AGENT_COMMAND and mock_agent","created_at":"2026-03-21T21:22:53Z"}
+{"id":"pn-bab017ef","issue_id":"pn-cccca3eb","path":"crates/springfield/tests/integration.rs","reason":"Add open_pty() helper function for terminal-based integration tests","created_at":"2026-03-21T21:23:02Z"}
+{"id":"pn-7eb715a1","issue_id":"pn-cccca3eb","path":"crates/ralph/tests/integration.rs","reason":"Reference implementation of open_pty() at line 1860","created_at":"2026-03-21T21:23:02Z"}
+{"id":"pn-03f5f803","issue_id":"pn-02ba5bb0","path":"crates/springfield/tests/integration.rs","reason":"Rename mock_ralph, create_mock_script ralph references to agent-generic names","created_at":"2026-03-21T21:23:12Z"}
+{"id":"pn-50d9fdfa","issue_id":"pn-02ba5bb0","path":"crates/springfield/src/orchestrate.rs","reason":"Rename build_ralph_args, ralph-related function/struct names","created_at":"2026-03-21T21:23:12Z"}
+{"id":"pn-f45a2121","issue_id":"pn-02ba5bb0","path":"crates/springfield/src/cursus/runner.rs","reason":"Rename RalphInvocation, invoke_ralph, and related names","created_at":"2026-03-21T21:23:12Z"}
+{"id":"pn-da475499","issue_id":"pn-e030b1cf","path":"crates/springfield/tests/integration.rs","reason":"Add test exercising SGF_AGENT_COMMAND override in iteration runner","created_at":"2026-03-21T21:23:19Z"}
