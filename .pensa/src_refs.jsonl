@@ -160,3 +160,11 @@
 {"id":"pn-50d9fdfa","issue_id":"pn-02ba5bb0","path":"crates/springfield/src/orchestrate.rs","reason":"Rename build_ralph_args, ralph-related function/struct names","created_at":"2026-03-21T21:23:12Z"}
 {"id":"pn-f45a2121","issue_id":"pn-02ba5bb0","path":"crates/springfield/src/cursus/runner.rs","reason":"Rename RalphInvocation, invoke_ralph, and related names","created_at":"2026-03-21T21:23:12Z"}
 {"id":"pn-da475499","issue_id":"pn-e030b1cf","path":"crates/springfield/tests/integration.rs","reason":"Add test exercising SGF_AGENT_COMMAND override in iteration runner","created_at":"2026-03-21T21:23:19Z"}
+{"id":"pn-1a951b66","issue_id":"pn-81fe2e84","path":"crates/springfield/src/cursus/state.rs","reason":"RunMetadata struct — add context_producers field","created_at":"2026-03-21T21:29:42Z"}
+{"id":"pn-11d29be3","issue_id":"pn-81fe2e84","path":"crates/springfield/src/cursus/runner.rs","reason":"Post-iter evaluation — update context_producers when check_produces succeeds","created_at":"2026-03-21T21:29:42Z"}
+{"id":"pn-dc34d832","issue_id":"pn-88380413","path":"crates/springfield/src/cursus/context.rs","reason":"context_env_var() — change from absolute to relative path","created_at":"2026-03-21T21:29:42Z"}
+{"id":"pn-cbca8d44","issue_id":"pn-c6784783","path":"crates/springfield/src/cursus/context.rs","reason":"resolve_consumes() — use runtime context_producers instead of static TOML map","created_at":"2026-03-21T21:29:42Z"}
+{"id":"pn-167bc989","issue_id":"pn-9e694b8a","path":"crates/springfield/src/cursus/runner.rs","reason":"print_stall_banner() — update to box-drawing format","created_at":"2026-03-21T21:29:42Z"}
+{"id":"pn-5fb7e405","issue_id":"pn-5b73086c","path":"crates/springfield/src/cursus/runner.rs","reason":"prompt_resume_action() — add accumulated context display","created_at":"2026-03-21T21:29:42Z"}
+{"id":"pn-5a365e8c","issue_id":"pn-3ba52ef7","path":"crates/springfield/tests/integration.rs","reason":"sgf_cmd() helper — add env_remove for daemon vars","created_at":"2026-03-21T21:29:42Z"}
+{"id":"pn-f0b59128","issue_id":"pn-29e30308","path":"crates/shutdown/src/lib.rs","reason":"ProcessSemaphore::new() — add max=0 panic validation","created_at":"2026-03-21T21:29:42Z"}
