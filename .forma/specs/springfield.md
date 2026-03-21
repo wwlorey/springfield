@@ -21,6 +21,24 @@ CLI entry point for Springfield. All developer interaction goes through this bin
 - **Recovery**: Pre-launch cleanup of dirty state from crashed iterations
 - **Daemon lifecycle**: Start the pensa and forma daemons before launching loops
 
+## Implementation Order
+
+The springfield spec is large. For implementers, the recommended reading and implementation order:
+
+1. **Architecture** — understand the project structure, module layout, and file purposes
+2. **CLI Commands** — the public interface; defines what the binary does
+3. **sgf init** — scaffolding (no runtime dependencies, good starting point)
+4. **Pre-launch Lifecycle** → **Recovery** — daemon startup and dirty-state cleanup
+5. **Agent Invocation** — how `cl` is called in both modes (core runtime loop)
+6. **Prompt Delivery** — how prompts are resolved and passed to `cl`
+7. **Console Output** — the `style.rs` badge box system (needed by all output)
+8. **Logging** — log tee and `sgf logs`
+9. **Workflow Stages** — the build/verify/test/spec stage behaviors
+10. **Session metadata** — see [session-resume spec](session-resume.md) for the resume system
+11. **Cursus integration** — see [cursus spec](cursus.md) for pipeline orchestration
+
+Sections like Defaults, Key Design Principles, and Future Work are reference material — read as needed.
+
 ## Architecture
 
 ## Per-Repo Project Structure
@@ -862,7 +880,7 @@ Each daemon uses its own port derivation to avoid collisions:
 - **Pensa**: `SHA256(canonical_project_path)`, bytes [8,9] mapped to range [10000, 59999]
 - **Forma**: `SHA256("forma:" + canonical_project_path)`, bytes [8,9] mapped to range [10000, 59999]
 
-The `"forma:"` prefix ensures forma and pensa derive different ports for the same project. Springfield's `pensa_port()` and `forma_port()` in `recovery.rs` must match the derivation logic in each daemon's own crate.
+The `"forma:"` prefix ensures forma and pensa derive different ports for the same project. The authoritative port derivation functions are `project_port()` in each daemon's `db.rs` (`pensa/src/db.rs` and `forma/src/db.rs`). Springfield's `pensa_port()` and `forma_port()` in `recovery.rs` replicate this logic and must stay in sync — a mismatch causes silent daemon startup failures where sgf starts a daemon on a different port than the CLI expects.
 
 #### Pensa daemon
 

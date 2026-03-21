@@ -152,6 +152,7 @@ sgf resume spec-20260316T120000   # direct resume
   ],
   "stage": "spec",
   "spec": "auth",
+  "cursus": "spec",
   "mode": "interactive",
   "prompt": ".sgf/prompts/spec.md",
   "iterations_total": 2,
@@ -169,6 +170,7 @@ sgf resume spec-20260316T120000   # direct resume
 | `iterations` | array | List of iteration records, each with `iteration` (1-based index), `session_id` (UUID), and `completed_at` (ISO 8601 timestamp) |
 | `stage` | string | Prompt stage name (e.g., `spec`, `build`, `verify`) |
 | `spec` | string (optional) | Forma spec stem associated with this session, if any |
+| `cursus` | string (optional) | Cursus name if this session was launched via a cursus pipeline. Used by `sgf resume` dispatch to distinguish cursus runs (delegate to cursus resume) from non-cursus sessions (flat picker). `null` for simple prompt mode (`sgf <file>`) |
 | `mode` | string | `"interactive"` or `"afk"` |
 | `prompt` | string | Resolved prompt file path |
 | `iterations_total` | u32 | Total iterations configured |
@@ -244,6 +246,10 @@ Each line: `{index}. {loop_id}  iter {iteration}  {mode}  {status}  {relative_ti
 
 Regardless of the original session's mode (AFK or interactive), `sgf resume` always launches in interactive mode. The user is resuming to interact with the session directly. The session metadata is updated to reflect the new interaction.
 
+### Metadata File Lifecycle
+
+Session metadata files in `.sgf/run/` are never pruned automatically. The directory is gitignored, so files accumulate only on the local machine. The picker's 20-entry display cap prevents UX degradation. Manual cleanup via `rm .sgf/run/*.json` is safe at any time — metadata files are not required for normal operation, only for resume.
+
 ## Session Handling
 
 ### Session ID Per Invocation
@@ -318,6 +324,7 @@ pub struct SessionMetadata {
     pub mode: String,
     pub prompt: String,
     pub spec: Option<String>,
+    pub cursus: Option<String>,
     pub iterations_total: u32,
     pub status: String,
     pub created_at: String,

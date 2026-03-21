@@ -137,7 +137,3 @@ Binary name `cl` is set via `[[bin]]` in `Cargo.toml`:
 name = "cl"
 path = "src/main.rs"
 ```
-
-## Related Specifications
-
-- [forma](forma.md) — Specification management — forma daemon and fm CLI
