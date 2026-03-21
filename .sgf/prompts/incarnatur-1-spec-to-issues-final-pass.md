@@ -8,4 +8,4 @@ Update, remove, and add (see Issue Create Workflow) `pn` issues to ensure that t
 
 When you are confident that you are finished:
 1. Commit your changes.
-2. Touch `.ralph-complete`.
+2. Touch `.iter-complete`.

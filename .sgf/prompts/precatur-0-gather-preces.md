@@ -10,4 +10,4 @@ For every `pn` bug that is NOT in `precatum-est.json`:
 
 Commit your changes.
 
-Touch `.ralph-complete` and end.
+Touch `.iter-complete` and end.

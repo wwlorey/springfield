@@ -3,7 +3,7 @@
 **/.pensa/daemon.port
 **/.pensa/daemon.project
 **/.pensa/daemon.url
-.ralph-*
+.iter-*
 
 # Springfield
 .sgf/logs/

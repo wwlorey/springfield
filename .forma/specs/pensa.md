@@ -5,7 +5,7 @@ Agent persistent memory — SQLite-backed issue/task tracker with pn CLI
 | Field | Value |
 |-------|-------|
 | Src | `crates/pensa/` |
-| Status | proven |
+| Status | draft |
 
 ## Overview
 
@@ -43,6 +43,29 @@ SQLite needs serialized write access. The daemon keeps all reads and writes behi
 - **Daemon HTTP server**: `axum` (tokio-based, good routing ergonomics for the ~20 endpoints).
 - **CLI HTTP client**: `reqwest` (blocking mode — the CLI doesn't need async).
 - **SQLite**: `rusqlite` with bundled SQLite (the `bundled` feature — avoids system SQLite version issues across host and sandbox environments).
+
+
+### `is_remote_host()` URL Parsing
+
+The `is_remote_host()` function determines whether a configured daemon address points to a remote host (preventing auto-start) or a local host (allowing auto-start). It parses URLs and hostnames with the following rules:
+
+- **Local hosts**: `localhost`, `127.0.0.1`, `::1` — auto-start is allowed
+- **Remote hosts**: anything else (e.g., `10.0.0.5`, `my-server.local`) — auto-start is blocked, CLI exits with error if daemon is unreachable
+- **Empty/unset**: treated as local (auto-start allowed)
+
+URL parsing extracts the hostname from `http://host:port` format. This is used for `PN_DAEMON`, `PN_DAEMON_HOST`, and `.pensa/daemon.url` resolution.
+
+### Test Isolation Pattern
+
+Integration tests use `.forma/daemon.port` and `.pensa/daemon.port` files to isolate test daemons from each other and from the developer's running daemons. Each test:
+
+1. Creates a `tempfile::TempDir`
+2. Starts a daemon on a random port (`portpicker`)
+3. The daemon writes its port to `.pensa/daemon.port` (or `.forma/daemon.port`)
+4. The CLI reads this file for port discovery
+
+This pattern ensures tests never conflict with each other or with production daemons, even when running in parallel.
+
 
 ## Dependencies
 

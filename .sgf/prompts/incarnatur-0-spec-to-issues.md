@@ -2,7 +2,7 @@
 
 1. Choose ONE `fm` spec which is marked `stable`.
   a. IF there are NO MORE SPECS marked `stable`:
-    i. Touch `.ralph-complete` and end.
+    i. Touch `.iter-complete` and end.
   b. ELSE continue to the next step.
 2. Follow the Issue Create Workflow to create implementation items for that spec.
   a. **Your role is to create `pn` issues which will fully, completely bring the codebase into alignment with the spec you've chosen.**

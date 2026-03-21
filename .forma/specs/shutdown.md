@@ -5,7 +5,7 @@ Shared graceful shutdown — double-press Ctrl+C/Ctrl+D detection with confirmat
 | Field | Value |
 |-------|-------|
 | Src | `crates/shutdown/` |
-| Status | proven |
+| Status | draft |
 
 ## Overview
 
@@ -25,6 +25,80 @@ crates/shutdown/
 │   └── lib.rs    # ShutdownController, signal registration, stdin monitor
 ├── Cargo.toml
 ```
+
+## Process Lifecycle
+
+`shutdown` exports two shared utilities used across all crates that spawn child processes:
+
+### ChildGuard
+
+RAII wrapper around `std::process::Child` that enforces "no leaked processes." Rust's `Child` has no `Drop` implementation — a dropped `Child` leaves the process running. `ChildGuard` fills this gap.
+
+```rust
+pub struct ChildGuard {
+    child: Option<Child>,
+    pid: u32,
+}
+
+impl ChildGuard {
+    /// Spawn a command in its own process group (via `setpgid(0, 0)` in `pre_exec`).
+    /// The process group is used by `kill_process_group` for clean teardown.
+    pub fn spawn(cmd: &mut Command) -> io::Result<Self>;
+
+    /// Wrap an already-spawned child.
+    pub fn new(child: Child) -> Self;
+
+    pub fn id(&self) -> u32;
+    pub fn child_mut(&mut self) -> &mut Child;
+    pub fn try_wait(&mut self) -> io::Result<Option<ExitStatus>>;
+
+    /// Consume the guard, wait for the child, and return its output.
+    pub fn wait_with_output(self) -> io::Result<Output>;
+
+    /// Like `wait_with_output` but with a timeout. Returns `TimedOut` error
+    /// if the child doesn't exit within the deadline.
+    pub fn wait_with_output_timeout(self, timeout: Duration) -> io::Result<Output>;
+}
+
+impl Drop for ChildGuard {
+    /// On drop: kill_process_group(pid, 200ms), then child.kill() as fallback,
+    /// then child.wait() to reap.
+    fn drop(&mut self);
+}
+```
+
+**Convention**: Every `.spawn()` call in the workspace must go through `ChildGuard::spawn()` or be immediately wrapped in `ChildGuard::new()`. Fire-and-forget spawns are prohibited.
+
+### ProcessSemaphore
+
+Concurrency limiter for subprocess invocations. Prevents fork exhaustion when many tests or tasks spawn child processes simultaneously.
+
+```rust
+pub struct ProcessSemaphore {
+    mutex: Mutex<usize>,
+    condvar: Condvar,
+    max: usize,
+}
+
+impl ProcessSemaphore {
+    pub fn new(max: usize) -> Self;
+
+    /// Create from an environment variable, falling back to `default`.
+    pub fn from_env(var: &str, default: usize) -> Self;
+
+    pub fn max(&self) -> usize;
+
+    /// Block until a permit is available. Returns a guard that releases
+    /// the permit on drop.
+    pub fn acquire(&self) -> ProcessSemaphoreGuard<'_>;
+
+    /// Like `acquire` but with a timeout. Returns `None` if the deadline
+    /// expires before a permit becomes available.
+    pub fn acquire_timeout(&self, timeout: Duration) -> Option<ProcessSemaphoreGuard<'_>>;
+}
+```
+
+**Test usage**: Tests that spawn child processes (`.output()`, `.spawn()`) create a `LazyLock<ProcessSemaphore>` and call `.acquire()` before each spawn. The guard is held until the child exits. The default max is 8 (overridable via `SGF_TEST_MAX_CONCURRENT`). Timeout for acquire is 60 seconds.
 
 ## Dependencies
 
@@ -50,6 +124,8 @@ Errors are handled via `io::Result` on `ShutdownController::new()`. The library 
 
 ### Unit Tests (`lib.rs`)
 
+All signal-based tests use `#[serial]` to avoid interference between concurrent test runs.
+
 | Test | Description |
 |------|-------------|
 | `sigterm_immediate_shutdown` | Register handler, raise SIGTERM, verify `poll()` returns `Shutdown` |
@@ -58,20 +134,23 @@ Errors are handled via `io::Result` on `ShutdownController::new()`. The library 
 | `sigint_resets_after_timeout` | Raise one SIGINT, sleep past timeout, verify `poll()` returns `Running` |
 | `default_config` | Verify `ShutdownConfig::default()` has 2-second timeout and `monitor_stdin: true` |
 | `poll_returns_running_initially` | Create controller, verify `poll()` returns `Running` |
-| `kill_pg_sends_sigterm_to_group` | Spawn a child with `setsid()`, call `kill_process_group`, verify child exits (not SIGKILL — check exit signal) |
+| `kill_pg_sends_sigterm_to_group` | Spawn a child with `ChildGuard::spawn()`, call `kill_process_group`, verify child exits (not SIGKILL — check exit signal) |
 | `kill_pg_escalates_to_sigkill` | Spawn a child that traps SIGTERM (ignores it), call `kill_process_group` with short timeout, verify child is killed |
 | `kill_pg_already_dead` | Spawn a child, wait for it to exit, call `kill_process_group`, verify returns `false` |
-| `kill_pg_kills_descendants` | Spawn a child with `setsid()` that itself spawns a grandchild, call `kill_process_group`, verify both are dead |
+| `kill_pg_kills_descendants` | Spawn a child with `ChildGuard::spawn()` that itself spawns a grandchild, call `kill_process_group`, verify both are dead |
+| `child_guard_kills_on_drop` | Spawn a long-running child via `ChildGuard::spawn()`, drop the guard, verify child is dead |
+| `process_semaphore_limits_concurrency` | Create semaphore with max=2, acquire 3 permits on threads, verify third blocks until first releases |
+| `sigid_cleanup_on_drop` | Create and drop a controller, verify signal handlers are unregistered |
 
-Stdin EOF tests require a PTY or pipe to simulate Ctrl+D, which is complex for unit tests. Stdin EOF behavior is covered by integration tests at the sgf/ralph level.
+Stdin EOF tests require a PTY or pipe to simulate Ctrl+D, which is complex for unit tests. Stdin EOF behavior is covered by integration tests at the sgf level.
 
-### Integration Tests (at sgf and ralph level)
+### Integration Tests (at sgf level)
 
-Signal-based integration tests in `crates/springfield/tests/` and `crates/ralph/tests/`:
+Signal-based integration tests in `crates/springfield/tests/`. Tests set `SGF_TEST_NO_SETSID=1` on spawned commands so children stay in the test's process group (killable by the test runner).
 
 | Test | Description |
 |------|-------------|
-| `double_ctrl_c_exits_130` | Send two SIGINTs to sgf/ralph, verify exit code 130 |
+| `double_ctrl_c_exits_130` | Send two SIGINTs to sgf, verify exit code 130 |
 | `single_ctrl_c_continues_after_timeout` | Send one SIGINT, wait 3 seconds, verify process continues |
 | `sigterm_exits_immediately` | Send SIGTERM, verify immediate exit with code 130 |
 | `confirmation_message_on_first_ctrl_c` | Send one SIGINT, verify stderr contains "Press Ctrl-C again to exit" |
@@ -85,8 +164,8 @@ pub struct ShutdownConfig {
     /// Timeout window for second press (default: 2 seconds)
     pub timeout: Duration,
     /// Whether to monitor stdin for Ctrl+D (EOF) events.
-    /// Enable for the top-level process only. Disable when running
-    /// under a parent that already monitors stdin.
+    /// Enable when `is_terminal()` returns true and the process owns stdin.
+    /// Disable when stdin is not a terminal or when a child process owns stdin.
     pub monitor_stdin: bool,
 }
 
@@ -104,6 +183,9 @@ impl ShutdownController {
     /// Registers SIGINT and SIGTERM handlers immediately.
     /// If `config.monitor_stdin` is true, spawns a background thread
     /// to read stdin for EOF events.
+    ///
+    /// Signal handler SigIds are stored and unregistered on Drop,
+    /// preventing handler accumulation across controller lifetimes.
     pub fn new(config: ShutdownConfig) -> io::Result<Self>;
 
     /// Poll the controller's state. Returns the current shutdown status.
@@ -117,6 +199,12 @@ impl ShutdownController {
     /// Side effects on timeout expiry:
     /// - Resets the press state, allowing a fresh double-press sequence
     pub fn poll(&self) -> ShutdownStatus;
+}
+
+/// SigIds from signal_hook are unregistered on Drop, cleaning up
+/// the global signal handler table.
+impl Drop for ShutdownController {
+    fn drop(&mut self);
 }
 
 pub enum ShutdownStatus {
@@ -140,6 +228,8 @@ pub enum ShutdownStatus {
 
 **SIGTERM bypasses double-press**: SIGTERM sets an `AtomicBool` flag. `poll()` checks this flag first and returns `ShutdownStatus::Shutdown` immediately. SIGTERM is the "hard stop" signal used by process managers and parent processes.
 
+**SigId cleanup on Drop**: The controller stores the `SigId` handles returned by `signal_hook::register()`. On `Drop`, it calls `signal_hook::unregister()` for each, preventing handler accumulation when controllers are created and destroyed across test runs or within long-lived processes.
+
 ## Stdin EOF Detection
 
 A background thread reads stdin using blocking `read()`. In a Unix terminal, Ctrl+D causes `read()` to return 0 bytes (EOF) when the input buffer is empty. Each EOF event increments the `eof_count` atomic counter.
@@ -152,59 +242,41 @@ After an EOF, the thread continues reading — Ctrl+D in a terminal does not per
 - The thread runs for the lifetime of the controller
 - On `Drop`, the controller signals the thread to stop (via `AtomicBool`). The thread may remain blocked on `read()` — this is acceptable since the process is exiting.
 
-### When to Disable Stdin Monitoring
+### When to Enable/Disable Stdin Monitoring
 
-Set `monitor_stdin: false` when:
-- The process is managed by a parent that already monitors stdin (e.g., ralph under sgf)
-- Stdin is not a terminal (piped input)
+The `monitor_stdin` decision is based on mode and `is_terminal()`:
 
-When ralph is launched by sgf, sgf sets `SGF_MANAGED=1` in ralph's environment. Ralph checks this to decide whether to enable stdin monitoring.
+| Context | `monitor_stdin` | Rationale |
+|---------|-----------------|-----------|
+| AFK mode (stdin is `/dev/null`) | `true` | Stdin is free — sgf owns it for shutdown detection. `is_terminal()` returns false but monitor is enabled because sgf explicitly controls stdin. |
+| Interactive/non-AFK mode | `false` | Stdin belongs to the child process (user interacts with Claude). Only Ctrl+C works for shutdown. |
+| Stdin is piped (not a terminal) | `false` | No user to press Ctrl+D. |
+
+The caller determines the value based on execution mode. There is no environment variable — the process itself knows whether it owns stdin.
 
 ## Integration with sgf
 
-sgf creates a `ShutdownController` before spawning ralph or `cl`. The controller configuration varies by mode — AFK mode owns stdin and terminal signals; non-AFK and interactive modes let the child own them.
+sgf creates a `ShutdownController` before invoking `cl` (the agent). The controller configuration varies by mode — AFK mode owns stdin and terminal signals; non-AFK and interactive modes let the child own them.
 
 ### AFK Loops
 
-`setsid()` isolates ralph in its own session. sgf creates the controller with `monitor_stdin: true` (stdin is free — no user interaction). The 50ms polling loop calls `controller.poll()`. Both double Ctrl+C and double Ctrl+D trigger shutdown. On `Shutdown`, sgf kills ralph's process group via `kill_process_group(pid, 200ms)` — SIGTERM to the group, escalating to SIGKILL after timeout (see [Process Group Kill with Escalation](#process-group-kill-with-escalation)).
+`ChildGuard::spawn()` isolates the agent child in its own process group (via `setpgid(0, 0)` in `pre_exec`). sgf creates the controller with `monitor_stdin: true` (stdin is free — no user interaction). The 50ms polling loop calls `controller.poll()`. Both double Ctrl+C and double Ctrl+D trigger shutdown. On `Shutdown`, the `ChildGuard` is dropped, which calls `kill_process_group(pid, 200ms)` — SIGTERM to the group, escalating to SIGKILL after timeout (see [Process Group Kill with Escalation](#process-group-kill-with-escalation)).
 
-**Stdin isolation**: sgf passes `Stdio::null()` for stdin when spawning ralph in AFK mode. This prevents the agent from inheriting the terminal fd and modifying terminal settings (e.g., disabling ISIG via `tcsetattr`). Without this, the agent can put the terminal in raw mode, causing Ctrl+C to emit byte `0x03` instead of generating SIGINT and Ctrl+D to emit byte `0x04` instead of triggering EOF. With `Stdio::null()`, the terminal fd stays under sgf's exclusive control and ISIG remains enabled.
+**Stdin isolation**: sgf passes `Stdio::null()` for stdin when spawning the agent in AFK mode. This prevents the agent from inheriting the terminal fd and modifying terminal settings (e.g., disabling ISIG via `tcsetattr`). Without this, the agent can put the terminal in raw mode, causing Ctrl+C to emit byte `0x03` instead of generating SIGINT and Ctrl+D to emit byte `0x04` instead of triggering EOF. With `Stdio::null()`, the terminal fd stays under sgf's exclusive control and ISIG remains enabled.
 
-### Non-AFK Loops (Interactive Ralph)
+### Non-AFK Loops (Interactive Iterations)
 
-No `setsid()` — ralph stays in sgf's process group so it (and the agent) receive terminal signals naturally. sgf creates the controller with `monitor_stdin: false` — stdin belongs to the child for user interaction with Claude. Only double Ctrl+C works for shutdown (Ctrl+D goes to Claude as normal input). Both sgf and the child receive SIGINT; sgf's handler prints "Press Ctrl-C again to exit" while Claude handles the signal with its own logic.
+No `setsid()` — the agent stays in sgf's process group so it (and the agent) receive terminal signals naturally. sgf creates the controller with `monitor_stdin: false` — stdin belongs to the child for user interaction with Claude. Only double Ctrl+C works for shutdown (Ctrl+D goes to Claude as normal input). Both sgf and the child receive SIGINT; sgf's handler prints "Press Ctrl-C again to exit" while Claude handles the signal with its own logic.
 
 ### Interactive Stages (`spec`, `issues log`)
 
 `monitor_stdin: false`, no `setsid()`. Same rationale as non-AFK loops — the user types directly into Claude.
 
-### Environment Variable
+### Terminal Settings Preservation
 
-sgf sets `SGF_MANAGED=1` in ralph's environment when spawning it. This tells ralph to disable its own stdin monitoring and rely on sgf for Ctrl+D detection. Ralph still registers its own SIGINT/SIGTERM handlers for graceful cleanup.
+The agent (Claude Code) may modify terminal settings via inherited file descriptors (e.g., calling `tcsetattr()` on the stderr fd to enable raw mode). This can disable `ISIG`, causing Ctrl+C to send byte `0x03` instead of generating SIGINT.
 
-## Integration with ralph
-
-ralph creates a `ShutdownController` whose `monitor_stdin` depends on whether it's running under sgf:
-
-```rust
-let config = ShutdownConfig {
-    monitor_stdin: std::env::var("SGF_MANAGED").is_err(),
-    ..Default::default()
-};
-let controller = ShutdownController::new(config)?;
-```
-
-### AFK Mode
-
-The `run_afk()` polling loop calls `controller.poll()` instead of manually checking `sigint_count`. On `Shutdown`, ralph kills the agent's process group via `kill_process_group` and exits 130.
-
-### Interactive Mode
-
-Same as AFK — ralph polls the controller between iterations and during the agent run. On `Shutdown`, ralph exits 130.
-
-### SIGTERM from sgf
-
-When sgf sends SIGTERM, the controller's SIGTERM handler sets the flag, and `poll()` returns `Shutdown` immediately. Ralph kills the agent's process group via `kill_process_group` and exits 130.
+sgf saves terminal settings (`tcgetattr` on stdin fd) before spawning the agent and restores them (`tcsetattr`) after the agent exits. This ensures the terminal is always in a known-good state for signal handling between iterations and after the agent run. If stdin is not a terminal (e.g., piped input), `tcgetattr` fails and no save/restore occurs — this is expected and harmless.
 
 ## Process Group Kill with Escalation
 
@@ -265,7 +337,3 @@ if controller.poll() == ShutdownStatus::Shutdown {
 ```
 
 This replaces the previous `child.kill()` (which sent SIGKILL to a single PID).
-
-## Related Specifications
-
-- [ralph](ralph.md) — Iterative Claude Code runner — invokes cl (claude-wrapper) with NDJSON formatting, completion detection, and git auto-push

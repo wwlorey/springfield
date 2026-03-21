@@ -1,7 +1,7 @@
 Follow the `pn` Issue Claim Workflow to choose **ONE** best next issue to implement.
 
 IF there are no more issues:
-- touch `.ralph-complete` and end.
+- touch `.iter-complete` and end.
 
 ELSE IF the claimed item is a **bug** (`issue_type == "bug"`):
 - Follow the Bug Fix Workflow.

@@ -5,7 +5,7 @@ Session resume — persist Claude session IDs and loop config to enable resuming
 | Field | Value |
 |-------|-------|
 | Src | `crates/springfield/` |
-| Status | proven |
+| Status | draft |
 
 ## Overview
 
@@ -13,24 +13,19 @@ Session tracking and resume mechanism for sgf. Persists Claude Code session IDs 
 
 The feature adds:
 - **Session metadata persistence**: JSON sidecar files in `.sgf/run/{loop_id}.json` storing all iteration session IDs, loop config, and status
-- **Pre-assigned session IDs**: Generate a UUID before each iteration and pass it via `--session-id <uuid>`, ensuring we always know the session ID without parsing output. Each iteration gets its own fresh session ID.
+- **Pre-assigned session IDs**: Generate a fresh UUID before each `cl` invocation and pass it via `--session-id <uuid>`, ensuring we always know the session ID without parsing output.
 - **`sgf resume` command**: For cursus runs, resumes from the stalled/interrupted iter (see [cursus spec](cursus.md) Stall Recovery). For non-cursus sessions, picks from a flat list of all iterations across all loops, then resumes the selected session.
-- **Ralph `--session-id` flag**: Every iteration passes `--session-id <uuid>` and includes the prompt. Iteration 1 uses the sgf-provided UUID; iterations 2+ generate a fresh UUID.
 - **Both modes**: Works for interactive and AFK sessions
 
 ## Architecture
 
-Changes span two crates:
+Changes are within the `springfield` crate:
 
 ### springfield (crates/springfield/)
 
-- `loop_mgmt.rs`: New functions for session metadata read/write/list
-- `orchestrate.rs`: Generate session UUID, write metadata after `cl` / ralph exits, new `sgf resume` command handler
+- `loop_mgmt.rs`: Functions for session metadata read/write/list
+- `orchestrate.rs`: Generate session UUID, write metadata after `cl` exits, `sgf resume` command handler
 - `main.rs`: Parse `sgf resume [loop_id]` as a reserved built-in command
-
-### ralph (crates/ralph/)
-
-- `main.rs`: New `--session-id <uuid>` CLI flag, passed through to `cl` as `--session-id <uuid>`. Every iteration gets its own session ID and includes the prompt. Iteration 1 uses the CLI-provided or sgf-generated UUID; iterations 2+ generate a fresh UUID.
 
 ### Session Metadata File
 
@@ -43,39 +38,29 @@ Co-located with existing `.sgf/run/{loop_id}.pid` files. Gitignored (`.sgf/run/`
 ### Data Flow
 
 ```
-sgf                                    ralph                        cl (claude-wrapper)
- │                                      │                            │
- ├─ generate session UUID ──────────────┤                            │
- ├─ write metadata (status: running) ───┤                            │
- ├─ pass --session-id <uuid> ───────────┤                            │
- │                                      │                            │
- │  [iteration 1]                       │                            │
- │                                      ├─ pass --session-id <uuid> ─┤
- │                                      │  (uses sgf-provided uuid)  │
- │                                      │  (includes prompt)         │
- │                                      │                            │
- │  [iterations 2+]                     │                            │
- │                                      ├─ generate fresh UUID ──────┤
- │                                      ├─ pass --session-id <uuid> ─┤
- │                                      │  (includes prompt)         │
- │                                      │                            │
- │  [after each iteration]             │                            │
- │                                      ├─ report session_id to sgf ─┤
- │                                      │                            │
- ├─ append iteration to metadata ───────┤                            │
- │                                      │                            │
- │  [session ends]                      │                            │
- │                                      │                            │
- ├─ update metadata (status: final) ────┤                            │
- │                                      │                            │
- ├─ [later] sgf resume ────────────────►│                            │
- ├─ read metadata, show flat list ──────┤                            │
- │  of all iterations                   │                            │
- ├─ user picks one ─────────────────────┤                            │
- ├─ pass --resume <session_id> ─────────┼─ pass --resume <id> ──────►│
+sgf                                    cl (claude-wrapper)
+ │                                      │
+ ├─ generate fresh session UUID ────────┤
+ ├─ write metadata (status: running) ───┤
+ ├─ pass --session-id <uuid> ───────────┤
+ │                                      │
+ │  [each cl invocation]                │
+ │                                      │
+ │  [after each invocation]             │
+ ├─ append iteration to metadata ───────┤
+ │                                      │
+ │  [session ends]                      │
+ │                                      │
+ ├─ update metadata (status: final) ────┤
+ │                                      │
+ ├─ [later] sgf resume ────────────────►│
+ ├─ read metadata, show flat list ──────┤
+ │  of all iterations                   │
+ ├─ user picks one ─────────────────────┤
+ ├─ pass --resume <session_id> ─────────┤
 ```
 
-For interactive mode (no ralph), sgf calls `cl` directly with `--session-id <uuid>`, then writes metadata on exit.
+For interactive mode, sgf calls `cl` directly with `--session-id <uuid>`, then writes metadata on exit.
 
 ## Dependencies
 
@@ -111,7 +96,7 @@ No new external dependencies beyond `uuid`. The `serde` and `serde_json` crates 
 | List sessions returns empty vec when no JSON files | No panic, empty result |
 | Read metadata for nonexistent loop_id | Returns None |
 
-### Unit Tests (ralph — main.rs)
+### Unit Tests (springfield — orchestrate.rs)
 
 | Test | Asserts |
 |------|---------|
@@ -122,9 +107,9 @@ No new external dependencies beyond `uuid`. The `serde` and `serde_json` crates 
 
 | Test | Asserts |
 |------|---------|
-| AFK session writes metadata with session_id | Run sgf with mock ralph, check `.sgf/run/{loop_id}.json` exists and contains `session_id` |
-| Interactive session writes metadata with session_id | Run sgf with mock cl, check metadata file |
-| `sgf resume <loop_id>` passes `--resume` to cl | Mock cl receives `--resume <session_id>` in args |
+| AFK session writes metadata with session_id | Run sgf with mock agent, check `.sgf/run/{loop_id}.json` exists and contains `session_id` |
+| Interactive session writes metadata with session_id | Run sgf with mock agent, check metadata file |
+| `sgf resume <loop_id>` passes `--resume` to cl | Mock agent receives `--resume <session_id>` in args |
 | `sgf resume` with no sessions exits 1 | Exit code 1, stderr contains error |
 | `sgf resume <bad_id>` exits 1 | Exit code 1, stderr contains error |
 | Metadata survives interrupted session (Ctrl+C) | Send SIGINT, metadata file still has `session_id` and status `interrupted` |
@@ -140,6 +125,7 @@ cat .sgf/run/spec-*.json
 sgf resume   # should show picker
 sgf resume spec-20260316T120000   # direct resume
 ```
+
 
 ## Session Metadata Schema
 
@@ -183,7 +169,7 @@ The number of completed iterations is derived from `iterations.len()`. There is 
 | Status | When set |
 |--------|----------|
 | `running` | Written before spawning cl/ralph |
-| `completed` | `.ralph-complete` sentinel detected (exit 0) |
+| `completed` | `.iter-complete` sentinel detected (exit 0) |
 | `interrupted` | SIGINT/SIGTERM (exit 130) |
 | `exhausted` | Max iterations reached (exit 2) |
 
@@ -193,7 +179,8 @@ The number of completed iterations is derived from `iterations.len()`. There is 
 2. **After each iteration**: Append iteration record (with `session_id` and `completed_at`) to the `iterations` array, update `updated_at`
 3. **On exit**: Update `status` based on exit code, update `updated_at`
 
-For AFK mode, ralph reports iterations completed via its exit. Sgf maps exit codes to status values.
+For AFK mode, The iteration runner reports status directly to sgf.
+
 
 ## sgf resume Command
 
@@ -244,60 +231,41 @@ Regardless of the original session's mode (AFK or interactive), `sgf resume` alw
 
 ## Ralph Changes
 
-### New CLI Flags
+### Session ID Per Invocation
 
-| Flag | Type | Description |
-|------|------|-------------|
-| `--session-id <uuid>` | String | Pre-assigned Claude session ID for iteration 1. Passed through to `cl` as `--session-id <uuid>`. |
-| `--resume <session_id>` | String | Resume a previous Claude session (used only by `sgf resume`, not across iterations). Passed through to `cl` as `--resume <session_id>`. Mutually exclusive with `--session-id`. |
+Every `cl` invocation receives a fresh `--session-id <uuid>` generated by sgf. There is no session continuity across iterations — each iteration is a completely fresh agent invocation.
 
-### Iteration-Aware Session Handling
+### Resume
 
-Both `run_interactive` and `run_afk` accept an `iteration` parameter (the 1-based loop counter `i`):
+`--resume` is only used by `sgf resume` to let users revisit a previous session externally. It is not used across iterations within a loop.
 
-- **Iteration 1**: Pass `--session-id <uuid>` to `cl` using the CLI-provided or sgf-generated UUID. Include the prompt argument.
-- **Iterations 2+**: Generate a fresh UUID (`Uuid::new_v4()`), pass `--session-id <uuid>` to `cl`. Include the prompt argument.
-
-Every iteration is a completely fresh agent invocation. There is no `--resume` across iterations within a loop. `--resume` is only used by `sgf resume` to let users revisit a previous session externally.
-
-### cl Invocation (Iteration 1)
-
-```
-cl --verbose --session-id <uuid> [existing flags...] @prompt.md
-```
-
-### cl Invocation (Iterations 2+)
+### cl Invocation
 
 ```
 cl --verbose --session-id <fresh-uuid> [existing flags...] @prompt.md
 ```
 
-Note: Every iteration passes `--session-id` with a UUID and includes the prompt. Iterations 2+ use a ralph-generated fresh UUID.
+When resuming:
 
-### Session ID in sgf-to-ralph Contract
-
-| Flag | Type | Source | Description |
-|------|------|--------|-------------|
-| `--session-id` | string (UUID) | sgf-generated (iteration 1) | Pre-assigned session ID for the first iteration |
-| `--resume` | string (UUID) | sgf (from metadata, `sgf resume` only) | Session ID to resume from a previous run |
+```
+cl --verbose --resume <session_id> --dangerously-skip-permissions @prompt.md
+```
 
 ## Springfield Changes
 
 ### orchestrate.rs
 
-**New session flow (both modes)**:
+**Session flow (both modes)**:
 
-1. Generate `session_id = Uuid::new_v4().to_string()` for iteration 1
+1. Generate `session_id = Uuid::new_v4().to_string()` for each `cl` invocation
 2. Write initial metadata: `write_session_metadata(root, &metadata)` with `status: "running"`, empty `iterations` array
-3. Pass `--session-id <uuid>` to ralph (AFK) or `cl` (interactive)
-4. After each iteration, append an iteration record to the `iterations` array with the iteration's `session_id` and `completed_at`
+3. Pass `--session-id <uuid>` to `cl`
+4. After each invocation, append an iteration record to the `iterations` array with the invocation's `session_id` and `completed_at`
 5. On exit, update metadata based on exit code:
    - Exit 0 → `status: "completed"`
    - Exit 2 → `status: "exhausted"`
    - Exit 130 → `status: "interrupted"`
    - Other → `status: "interrupted"`
-
-For AFK mode, ralph generates fresh UUIDs for iterations 2+ and reports each iteration's session_id back. Sgf appends each to the metadata.
 
 **Interactive mode** currently calls `cl` directly without a loop_id. This changes:
 - Generate a loop_id for interactive sessions too (reusing `loop_mgmt::generate_loop_id`)
@@ -306,7 +274,7 @@ For AFK mode, ralph generates fresh UUIDs for iterations 2+ and reports each ite
 
 ### main.rs
 
-Add `resume` to the reserved built-in commands list (alongside `init`, `list`, `logs`).
+`resume` is a reserved built-in command (alongside `init`, `list`, `logs`).
 
 ```rust
 "resume" => {
@@ -316,8 +284,6 @@ Add `resume` to the reserved built-in commands list (alongside `init`, `list`, `
 ```
 
 ### loop_mgmt.rs
-
-New functions:
 
 ```rust
 #[derive(Serialize, Deserialize)]
@@ -350,5 +316,4 @@ pub fn list_session_metadata(root: &Path) -> io::Result<Vec<SessionMetadata>>;
 
 ## Related Specifications
 
-- [ralph](ralph.md) — Iterative Claude Code runner — invokes cl (claude-wrapper) with NDJSON formatting, completion detection, and git auto-push
-- [springfield](springfield.md) — CLI entry point — scaffolding, prompt delivery, loop orchestration, recovery, and daemon lifecycle
+- [springfield](springfield.md) — CLI entry point — scaffolding, prompt delivery, iteration runner, loop orchestration, recovery, and daemon lifecycle

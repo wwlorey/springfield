@@ -6,5 +6,5 @@ Output to the screen a "COMPLETE" message which says which specs have been marke
 
 When finished:
 - Commit your changes.
-- Touch `.ralph-complete`.
+- Touch `.iter-complete`.
 

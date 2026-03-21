@@ -5,13 +5,13 @@ Pipeline orchestration — declarative TOML-defined multi-iter workflows with co
 | Field | Value |
 |-------|-------|
 | Src | `crates/springfield/` |
-| Status | proven |
+| Status | draft |
 
 ## Overview
 
 Cursus is the pipeline orchestration subsystem of sgf. It provides declarative TOML pipeline definitions for all commands.
 
-A **cursus** (Latin: "a running, course, path") is a named pipeline comprising one or more **iters** (Latin: "journey, passage") — discrete execution stages that run sequentially. Each iter invokes a prompt via ralph (AFK) or `cl` (interactive), with sentinel files controlling transitions between iters.
+A **cursus** (Latin: "a running, course, path") is a named pipeline comprising one or more **iters** (Latin: "journey, passage") — discrete execution stages that run sequentially. Each iter invokes a prompt via sgf's iteration runner (AFK) or `cl` (interactive), with sentinel files controlling transitions between iters.
 
 Cursus provides:
 - **Declarative pipeline definitions**: TOML files in `.sgf/cursus/` define the iter sequence, execution modes, iteration counts, and transition rules
@@ -69,15 +69,7 @@ Cursus is a module within the `springfield` crate. Pipeline definitions live in 
 
 ## Code Location
 
-Cursus is implemented in the `springfield` crate. Key modules:
-
-- `cursus/mod.rs` — public API, TOML parsing, validation
-- `cursus/toml.rs` — serde types for the TOML format
-- `cursus/runner.rs` — iter execution, sentinel detection, transition logic
-- `cursus/state.rs` — run state persistence, stall recovery
-- `cursus/context.rs` — produces/consumes file management, prompt injection
-
-The existing `orchestrate.rs` and `loop_mgmt.rs` are refactored into the cursus module. Ralph remains unchanged — cursus invokes it the same way the current orchestration does.
+Cursus is implemented in the `springfield` crate at `crates/springfield/src/cursus/`.
 
 ## Dependencies
 
@@ -96,15 +88,14 @@ Binary invocations (child processes, not crate-level dependencies):
 
 | Binary | Source | Purpose |
 |--------|--------|---------|
-| `ralph` | crates/ralph/ | Iter execution in AFK mode |
-| `cl` | crates/claude-wrapper/ | Iter execution in interactive mode |
+| `cl` | crates/claude-wrapper/ | Agent invocation in both AFK and interactive modes |
 
 Workspace crate dependencies (linked at compile time via springfield):
 
 | Crate | Purpose |
 |-------|---------|
 | `vcs-utils` (workspace) | Git operations (auto-push) |
-| `shutdown` (workspace) | Graceful shutdown handling |
+| `shutdown` (workspace) | Graceful shutdown handling, ChildGuard |
 
 ## Error Handling
 
@@ -114,14 +105,15 @@ Workspace crate dependencies (linked at compile time via springfield):
 | Cursus TOML parse error | Exit 1: `failed to parse cursus definition: <path>: <error>` |
 | Validation failure (duplicate iter names, missing transition targets, etc.) | Exit 1: descriptive error at parse time |
 | Prompt file not found for an iter | Exit 1: `prompt not found: <path>` (checked at cursus load time, before execution starts) |
-| Iter exhausts iterations (`.ralph-exhausted`) | Pipeline enters stalled state. Run metadata updated. User notified with status and options |
-| Sentinel file `.ralph-reject` with no `on_reject` transition defined | Exit 1: `iter '<name>' signaled reject but no on_reject transition is defined` |
-| Sentinel file `.ralph-revise` with no `on_revise` transition defined | Exit 1: `iter '<name>' signaled revise but no on_revise transition is defined` |
+| Iter exhausts iterations (`.iter-exhausted`) | Pipeline enters stalled state. Run metadata updated. User notified with status and options |
+| Sentinel file `.iter-reject` with no `on_reject` transition defined | Exit 1: `iter '<name>' signaled reject but no on_reject transition is defined` |
+| Sentinel file `.iter-revise` with no `on_revise` transition defined | Exit 1: `iter '<name>' signaled revise but no on_revise transition is defined` |
 | Run directory creation failure | Exit 1: `failed to create run directory: <error>` |
 | Run metadata read/write failure | `tracing::error\!`, continue if possible (non-fatal for execution, fatal for resume) |
 | `produces` file not written by agent | `tracing::warn\!` — continue to next iter. The consuming iter will run without that context. Not fatal because the agent may have communicated through other means (spec updates, pn comments) |
 | Stale run directory from previous crashed run | Detected at startup. Previous run status updated to `interrupted` if still marked `running` |
-| SIGINT/SIGTERM during iter execution | Delegated to ralph/cl signal handling. Pipeline status updated to `interrupted` on exit |
+| SIGINT/SIGTERM during iter execution | Delegated to sgf/cl signal handling. Pipeline status updated to `interrupted` on exit |
+
 
 ## Testing
 
@@ -139,9 +131,9 @@ Workspace crate dependencies (linked at compile time via springfield):
 - Alias validation: reject duplicate aliases, reject aliases that shadow cursus names
 
 #### `cursus/runner.rs`
-- Sentinel `.ralph-complete` advances to next iter
-- Sentinel `.ralph-reject` follows `on_reject` transition
-- Sentinel `.ralph-revise` follows `on_revise` transition
+- Sentinel `.iter-complete` advances to next iter
+- Sentinel `.iter-reject` follows `on_reject` transition
+- Sentinel `.iter-revise` follows `on_revise` transition
 - Missing sentinel with iterations exhausted enters stalled state
 - Transition to a previous iter (back-edge) works correctly
 - Final iter completion marks pipeline as completed
@@ -167,20 +159,21 @@ Workspace crate dependencies (linked at compile time via springfield):
 
 Binary-level tests using `cargo test -p springfield`. Each test:
 1. Creates a `tempfile::TempDir` with a cursus TOML and prompt files
-2. Uses `RALPH_COMMAND` to mock agent execution
+2. Uses `SGF_AGENT_COMMAND` to mock agent execution
 3. Verifies iter sequencing, sentinel transitions, and context file flow
 
 | Test | Scenario | Asserts |
 |------|----------|---------|
 | Single-iter cursus | `build.toml` equivalent | Runs single iter, exits normally |
 | Multi-iter happy path | discuss → draft → review → approve | All iters run in sequence, exit 0 |
-| Reject transition | review signals `.ralph-reject` | Pipeline jumps back to draft iter |
-| Revise transition | review signals `.ralph-revise` | Pipeline jumps to revise, then back to review |
+| Reject transition | review signals `.iter-reject` | Pipeline jumps back to draft iter |
+| Revise transition | review signals `.iter-revise` | Pipeline jumps to revise, then back to review |
 | Context passing | discuss produces summary, draft consumes it | Summary content appears in draft's system prompt |
 | Stall recovery | draft exhausts iterations | Pipeline enters stalled state, metadata persisted |
 | Resume stalled | Load stalled run, resume | Pipeline continues from stalled iter |
 | Layered resolution | Local cursus overrides global | Local TOML takes precedence |
-| Banner flag | iter with `banner = true` | Ralph receives `--banner` flag |
+| Banner flag | iter with `banner = true` | Iteration runner displays banner |
+
 
 ## TOML Format
 
@@ -260,11 +253,11 @@ consumes = ["draft-presentation"]
 | `name` | string | required | Unique identifier for this iter within the cursus |
 | `prompt` | string | required | Prompt file name, resolved via layered `.sgf/prompts/` lookup |
 | `mode` | `"interactive"` or `"afk"` | `"interactive"` | Execution mode |
-| `iterations` | u32 | `1` | Max ralph iterations for this iter (only meaningful for `afk` mode) |
+| `iterations` | u32 | `1` | Max iterations for this iter (only meaningful for `afk` mode) |
 | `produces` | string | — | Key name for the summary file this iter writes. Stored at `.sgf/run/<run-id>/context/<key>.md` |
 | `consumes` | array of strings | `[]` | Keys of summary files from previous iters, injected into this iter's system prompt |
 | `auto_push` | bool | cursus-level default | Override auto-push for this specific iter |
-| `banner` | bool | `false` | Whether ralph displays the ASCII art startup banner. Default off |
+| `banner` | bool | `false` | Whether the iteration runner displays the ASCII art startup banner. Default off |
 | `next` | string | — | Override: after completion, go to this iter instead of the next in the list |
 | `transitions` | table | — | Named transition overrides triggered by sentinel files |
 
@@ -278,12 +271,12 @@ on_revise = "revise"
 
 | Field | Sentinel File | Description |
 |-------|---------------|-------------|
-| `on_reject` | `.ralph-reject` | Jump to named iter on rejection |
-| `on_revise` | `.ralph-revise` | Jump to named iter for minor revision |
+| `on_reject` | `.iter-reject` | Jump to named iter on rejection |
+| `on_revise` | `.iter-revise` | Jump to named iter for minor revision |
 
 Transition targets must reference an iter name defined in the same cursus. This is validated at parse time.
 
-An iter can define both `next` and `transitions`. They do not conflict — transitions take precedence when their sentinel is present; `next` only applies on successful completion (`.ralph-complete`).
+An iter can define both `next` and `transitions`. They do not conflict — transitions take precedence when their sentinel is present; `next` only applies on successful completion (`.iter-complete`).
 
 ### Single-Iter Cursus
 
@@ -313,36 +306,37 @@ Enforced at parse time (before any iter executes):
 5. Aliases must not shadow cursus file names
 6. Prompt files must exist (resolved via layered lookup)
 
+
+
 ## Sentinel Protocol
 
-Cursus extends ralph's existing sentinel file mechanism with additional well-known sentinels for transition control.
+Cursus uses well-known sentinel files for transition control. Sentinels are named `.iter-*` — named after what the signal is about (the iter), not any specific tool.
 
 ### Sentinel Files
 
 | File | Meaning | Cursus Behavior |
-|------|---------|-----------------|
-| `.ralph-complete` | Iter succeeded | Advance to next iter (or `next` override). If this is the final iter, pipeline completes |
-| `.ralph-reject` | Iter rejected by reviewer | Follow `on_reject` transition. Error if no `on_reject` defined |
-| `.ralph-revise` | Minor revision requested | Follow `on_revise` transition. Error if no `on_revise` defined |
-| `.ralph-exhausted` | Iter used all iterations without completing | Pipeline enters stalled state |
+|------|---------|-----------------| 
+| `.iter-complete` | Iter succeeded | Advance to next iter (or `next` override). If this is the final iter, pipeline completes |
+| `.iter-reject` | Iter rejected by reviewer | Follow `on_reject` transition. Error if no `on_reject` defined |
+| `.iter-revise` | Minor revision requested | Follow `on_revise` transition. Error if no `on_revise` defined |
 
 ### Detection
 
-After each ralph/cl invocation returns, cursus checks for sentinel files in priority order:
+After each `cl` invocation returns, sgf checks for sentinel files in priority order:
 
-1. `.ralph-complete` — highest priority. If found alongside other sentinels, complete wins.
-2. `.ralph-reject` — checked second.
-3. `.ralph-revise` — checked third.
-4. None found, iterations exhausted — treated as `.ralph-exhausted`.
-5. None found, iterations remaining (interactive single-iteration iter) — treated as `.ralph-complete` (interactive iters are assumed to complete in one invocation).
+1. `.iter-complete` — highest priority. If found alongside other sentinels, complete wins.
+2. `.iter-reject` — checked second.
+3. `.iter-revise` — checked third.
+4. None found, iterations exhausted — treated as exhausted (pipeline enters stalled state).
+5. None found, iterations remaining (interactive single-iteration iter) — treated as `.iter-complete` (interactive iters are assumed to complete in one invocation).
 
-All detected sentinel files are deleted after processing, following ralph's existing cleanup pattern (recursive search, depth <= 2).
+All detected sentinel files are deleted after processing. Sentinel search is recursive (depth <= 2) following the existing cleanup pattern.
 
 ### Interactive Iter Completion
 
 Interactive iters (`mode = "interactive"`) with `iterations = 1` (the default) have special completion semantics: when the `cl` session ends without any sentinel file, the iter is treated as successfully completed. This is because interactive sessions end when the user is done — the absence of a rejection sentinel means implicit approval.
 
-For interactive iters to signal rejection or revision, the agent must explicitly create `.ralph-reject` or `.ralph-revise` before the session ends. The prompt for review iters should instruct the agent to do this based on user feedback.
+For interactive iters to signal rejection or revision, the agent must explicitly create `.iter-reject` or `.iter-revise` before the session ends. The prompt for review iters should instruct the agent to do this based on user feedback.
 
 ## Context Passing
 
@@ -448,7 +442,7 @@ Each cursus execution creates a run, tracked by metadata in `.sgf/run/`.
 | Status | Meaning |
 |--------|---------|
 | `running` | Pipeline is actively executing an iter |
-| `completed` | All iters finished successfully (final iter produced `.ralph-complete`) |
+| `completed` | All iters finished successfully (final iter produced `.iter-complete`) |
 | `stalled` | An iter exhausted its iterations without completing |
 | `interrupted` | Pipeline was interrupted by signal (SIGINT/SIGTERM) |
 
@@ -484,6 +478,7 @@ When the user runs `sgf resume <run-id>`:
 - If the argument matches a `.sgf/run/<id>/meta.json` with cursus metadata, it's a cursus resume
 - Otherwise, fall back to the session-resume behavior (see [session-resume spec](session-resume.md))
 
+
 ## Iter Execution
 
 ### Execution Flow
@@ -493,24 +488,24 @@ For each iter in the cursus (starting from the first, or from the resume point):
 1. **Pre-iter setup**:
    - Create/verify run context directory
    - Update `meta.json` with `current_iter` and `status: "running"`
-   - Clean stale sentinel files (`.ralph-complete`, `.ralph-reject`, `.ralph-revise`)
+   - Clean stale sentinel files (`.iter-complete`, `.iter-reject`, `.iter-revise`)
    - Resolve `consumes` files and build system prompt injection content
    - Set environment: `SGF_RUN_CONTEXT`
 
 2. **Invoke iter**:
-   - **AFK mode**: Invoke ralph with the iter's prompt, iterations, banner flag, and consumed context via `--append-system-prompt`
+   - **AFK mode**: Invoke `cl` via sgf's iteration runner with the iter's prompt, iterations, banner flag, and consumed context via `--append-system-prompt`. Uses `--dangerously-skip-permissions`, `--print`, `--output-format stream-json`.
    - **Interactive mode**: Invoke `cl` directly with the iter's prompt and consumed context via `--append-system-prompt`
-   - Session ID management: fresh UUID per iter invocation (passed to ralph/cl)
+   - Session ID management: fresh UUID per `cl` invocation
 
 3. **Post-iter evaluation**:
    - Check sentinel files in priority order (see Sentinel Protocol)
    - Record iter completion in `meta.json` (`iters_completed` array)
    - Check for `produces` file existence (warn if missing)
    - Determine next iter:
-     a. `.ralph-complete` → advance to `next` override or next in list
-     b. `.ralph-reject` → jump to `on_reject` target
-     c. `.ralph-revise` → jump to `on_revise` target
-     d. `.ralph-exhausted` → enter stalled state
+     a. `.iter-complete` → advance to `next` override or next in list
+     b. `.iter-reject` → jump to `on_reject` target
+     c. `.iter-revise` → jump to `on_revise` target
+     d. Exhausted (no sentinel, iterations used up) → enter stalled state
      e. Interactive with no sentinel → treat as complete (advance)
 
 4. **Termination**:
@@ -558,7 +553,7 @@ Iters are an ordered list (the happy path is readable top-to-bottom) with option
 
 ### Why Sentinel Files Over Exit Codes
 
-Exit codes are limited (one integer) and consumed by ralph's existing protocol (0=complete, 2=exhausted). Sentinel files allow multiple distinct signals, are already the established pattern in ralph, and are visible/debuggable on disk.
+Exit codes are limited (one integer) and consumed by sgf's existing protocol (0=complete, 2=exhausted). Sentinel files allow multiple distinct signals, are the established pattern, and are visible/debuggable on disk.
 
 ### Why Context Passing Via Prompt Injection
 
@@ -575,6 +570,7 @@ All commands resolve to cursus definitions — a single-iter cursus is functiona
 ### Why `[[iter]]` Not `[[iters]]`
 
 TOML array tables use `[[iter]]` (singular) to match the naming convention of defining one iter per table entry. Each `[[iter]]` block defines a single iter; TOML's array-of-tables syntax naturally pluralizes by repetition.
+
 
 ## Future Evolution
 
@@ -636,6 +632,5 @@ Additional mechanisms needed for daemon mode:
 ## Related Specifications
 
 - [claude-wrapper](claude-wrapper.md) — Agent wrapper — layered .sgf/ context injection, cl binary
-- [ralph](ralph.md) — Iterative Claude Code runner — invokes cl (claude-wrapper) with NDJSON formatting, completion detection, and git auto-push
 - [session-resume](session-resume.md) — Session resume — persist Claude session IDs and loop config to enable resuming interrupted sessions via sgf resume
-- [springfield](springfield.md) — CLI entry point — scaffolding, prompt delivery, loop orchestration, recovery, and daemon lifecycle
+- [springfield](springfield.md) — CLI entry point — scaffolding, prompt delivery, iteration runner, loop orchestration, recovery, and daemon lifecycle

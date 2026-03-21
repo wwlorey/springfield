@@ -1,20 +1,22 @@
 # test-harness Specification
 
-Integration test harness — shared fixtures, concurrency control, and mock infrastructure for springfield CLI tests
+Cross-crate integration test harness — concurrency control, process lifecycle guards, mock infrastructure, and environment isolation
 
 | Field | Value |
 |-------|-------|
 | Src | `crates/springfield/tests/` |
-| Status | proven |
+| Status | draft |
 
 ## Overview
 
-Springfield integration tests spawn `sgf` as a subprocess, which in turn forks mock `ralph`/`cl`, `pn`, and `fm` processes. When the full test suite runs in parallel (~100+ tests), each test independently spawns these subprocesses, causing process table exhaustion and OS-level resource failures (`WouldBlock` / "Resource temporarily unavailable" on `fork()`).
+Springfield integration tests span multiple crates — springfield, pensa, and claude-wrapper all spawn subprocesses that need concurrency control, environment isolation, and mock infrastructure. When the full test suite runs in parallel (~100+ tests), each test independently spawns subprocesses, causing process table exhaustion and OS-level resource failures (`WouldBlock` / "Resource temporarily unavailable" on `fork()`).
 
 This spec defines a shared test harness that:
 1. **Eliminates redundant mock setup** — a single `LazyLock` creates the shared mock `pn`/`fm` scripts once, reused by all tests.
-2. **Caps concurrent `sgf` invocations** — a global concurrency semaphore limits how many tests can spawn `sgf` simultaneously (default: 8).
+2. **Caps concurrent subprocess invocations** — `shutdown::ProcessSemaphore` limits how many tests can spawn `sgf` simultaneously (default: 8, overridable via `SGF_TEST_MAX_CONCURRENT`).
 3. **Enforces `SGF_SKIP_PREFLIGHT=1` on all tests** — prevents `sgf` from spawning real daemon processes during tests.
+4. **Uses `shutdown::ChildGuard`** — wraps all spawned test processes to prevent leaked children.
+5. **Environment isolation** — `.env_remove()` strips environment variables that could leak between tests or affect daemon discovery.
 
 The result is a test suite that runs reliably on any machine regardless of thread count, without changing what the tests are actually testing.
 
@@ -40,60 +42,39 @@ Replaces per-test `setup_mock_pn()` calls. The `TempDir` lives for the process l
 ### 2. Concurrency Semaphore (`SGF_PERMITS`)
 
 ```rust
-static SGF_PERMITS: LazyLock<SgfSemaphore> = LazyLock::new(|| {
-    let max = std::env::var("SGF_TEST_MAX_CONCURRENT")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(8);
-    SgfSemaphore::new(max)
+static SGF_PERMITS: LazyLock<shutdown::ProcessSemaphore> = LazyLock::new(|| {
+    shutdown::ProcessSemaphore::from_env("SGF_TEST_MAX_CONCURRENT", 8)
 });
 ```
 
-`SgfSemaphore` wraps a `std::sync::Mutex<usize>` + `Condvar`. Each test acquires a permit before spawning `sgf` and releases it when the child process exits. The max concurrency defaults to 8 and is overridable via `SGF_TEST_MAX_CONCURRENT` env var.
+Uses `shutdown::ProcessSemaphore` (see [shutdown spec](shutdown.md) Process Lifecycle). Each test acquires a permit before spawning `sgf` and releases it when the child process exits. The max concurrency defaults to 8 and is overridable via `SGF_TEST_MAX_CONCURRENT` env var. Acquire timeout is 60 seconds.
+
+### 3. ChildGuard Usage
+
+All test subprocess spawns use `shutdown::ChildGuard` (see [shutdown spec](shutdown.md) Process Lifecycle):
 
 ```rust
-struct SgfSemaphore {
-    mutex: Mutex<usize>,
-    condvar: Condvar,
-    max: usize,
-}
-
-impl SgfSemaphore {
-    fn new(max: usize) -> Self { ... }
-
-    fn acquire(&self) -> SemaphoreGuard<'_> {
-        let mut count = self.mutex.lock().unwrap();
-        while *count >= self.max {
-            count = self.condvar.wait(count).unwrap();
-        }
-        *count += 1;
-        SemaphoreGuard { sem: self }
-    }
-}
-
-struct SemaphoreGuard<'a> { sem: &'a SgfSemaphore }
-
-impl Drop for SemaphoreGuard<'_> {
-    fn drop(&mut self) {
-        let mut count = self.sem.mutex.lock().unwrap();
-        *count -= 1;
-        self.sem.condvar.notify_one();
-    }
-}
+let guard = shutdown::ChildGuard::spawn(&mut cmd)?;
+let output = guard.wait_with_output_timeout(Duration::from_secs(30))?;
 ```
 
-### 3. Guarded `sgf` Runner (`run_sgf`)
+This ensures test children are killed on drop (no leaked processes) and provides timeout support (30-second default for test child waits).
+
+### 4. Guarded `sgf` Runner (`run_sgf`)
 
 ```rust
 fn run_sgf(cmd: &mut Command) -> std::process::Output {
-    let _permit = SGF_PERMITS.acquire();
-    cmd.output().expect("failed to run sgf")
+    let _permit = SGF_PERMITS.acquire_timeout(Duration::from_secs(60))
+        .expect("timed out waiting for sgf permit");
+    let guard = shutdown::ChildGuard::spawn(cmd).expect("failed to spawn sgf");
+    guard.wait_with_output_timeout(Duration::from_secs(30))
+        .expect("sgf did not exit within 30s")
 }
 ```
 
-All tests call `run_sgf(&mut cmd)` instead of `cmd.output().unwrap()`. This is the single enforcement point for concurrency control.
+All tests call `run_sgf(&mut cmd)` instead of `cmd.output().unwrap()`. This is the single enforcement point for concurrency control, process cleanup, and timeouts.
 
-### 4. Enhanced `sgf_cmd` Helper
+### 5. Enhanced `sgf_cmd` Helper
 
 ```rust
 fn sgf_cmd(dir: &Path) -> Command {
@@ -102,33 +83,67 @@ fn sgf_cmd(dir: &Path) -> Command {
     cmd.env("HOME", fake_home());
     cmd.env("PATH", mock_bin_path());
     cmd.env("SGF_SKIP_PREFLIGHT", "1");
+    cmd.env("SGF_TEST_NO_SETSID", "1");
+    cmd.env_remove("PN_DAEMON");
+    cmd.env_remove("PN_DAEMON_HOST");
+    cmd.env_remove("FM_DAEMON");
+    cmd.env_remove("FM_DAEMON_HOST");
     cmd
 }
 ```
 
-The updated `sgf_cmd` automatically injects `mock_bin_path()` and `SGF_SKIP_PREFLIGHT=1`. Tests that need custom PATH or preflight behavior override explicitly.
+The updated `sgf_cmd` automatically injects `mock_bin_path()`, `SGF_SKIP_PREFLIGHT=1`, `SGF_TEST_NO_SETSID=1`, and strips daemon-related env vars. Tests that need custom behavior override explicitly.
+
+### 6. `SGF_TEST_NO_SETSID` Convention
+
+When `SGF_TEST_NO_SETSID=1` is set, `ChildGuard::spawn()` skips the `setpgid(0, 0)` call in `pre_exec`. This keeps test children in the test runner's process group, making them killable when the test runner exits or times out. Without this, children in their own process group would be orphaned if the test runner is killed.
+
+### 7. `SGF_AGENT_COMMAND` for Mock Agents
+
+Tests that exercise the iteration runner use `SGF_AGENT_COMMAND` (replaces the former `RALPH_COMMAND`) to point to a mock script that emits fixture NDJSON:
+
+```rust
+cmd.env("SGF_AGENT_COMMAND", mock_agent_path);
+```
+
+### 8. `open_pty()` Helper
+
+```rust
+fn open_pty() -> Option<(OwnedFd, OwnedFd)> {
+    // Returns None on CI or when PTY allocation fails
+    // Used for tests that need terminal behavior (Ctrl+D, raw mode)
+}
+```
+
+Returns `Option` to gracefully degrade on headless CI environments.
 
 ## File Layout
 
-All harness code lives in `crates/springfield/tests/integration.rs` (the existing file). No new files are created — the helpers section at the top of the file is extended.
+The harness code lives in test files across crates:
+- `crates/springfield/tests/integration.rs` — sgf integration tests
+- `crates/pensa/tests/integration.rs` — pensa integration tests
+- `crates/claude-wrapper/tests/integration.rs` — claude-wrapper integration tests
+
+Common patterns (ProcessSemaphore, ChildGuard, env isolation) are shared via the `shutdown` crate. Mock setup is per-crate (each crate has its own mock needs).
 
 ## E2E Verification
 
-The harness itself is verified by running the full integration test suite with default parallelism (`cargo test -p springfield --test integration`). Success criteria: all tests pass with no `WouldBlock` or resource exhaustion errors, regardless of the `--test-threads` value.
+The harness itself is verified by running the full integration test suite with default parallelism (`cargo test --workspace`). Success criteria: all tests pass with no `WouldBlock` or resource exhaustion errors, regardless of the `--test-threads` value.
 
 A dedicated integration test (`harness_semaphore_limits_concurrency`) verifies that the semaphore correctly limits concurrent `sgf` invocations by spawning N+1 tests against a semaphore of size N and asserting that at most N run simultaneously.
 
 ## Dependencies
 
-No new crate dependencies. All components use `std` primitives:
+No new crate dependencies beyond what is already in the workspace. All components use `shutdown` crate utilities and `std` primitives:
 
-| Component | stdlib module |
-|-----------|--------------|
-| `SgfSemaphore` | `std::sync::{Mutex, Condvar}` |
+| Component | Source |
+|-----------|--------|
+| `ProcessSemaphore` | `shutdown` crate (workspace) |
+| `ChildGuard` | `shutdown` crate (workspace) |
 | `LazyLock` | `std::sync::LazyLock` (already used for `FAKE_HOME`) |
 | `TempDir` | `tempfile::TempDir` (already a dev-dependency) |
 
-The `SGF_TEST_MAX_CONCURRENT` env var override uses `std::env::var`.
+The `SGF_TEST_MAX_CONCURRENT` env var override uses `ProcessSemaphore::from_env()`.
 
 ## Error Handling
 
@@ -147,7 +162,7 @@ The `SGF_TEST_MAX_CONCURRENT` env var override uses `std::env::var`.
 The harness is verified by running the full integration test suite at default parallelism:
 
 ```bash
-cargo test -p springfield --test integration
+cargo test --workspace
 ```
 
 Success criteria:
@@ -158,7 +173,7 @@ Success criteria:
 ### Stress test
 
 ```bash
-SGF_TEST_MAX_CONCURRENT=2 cargo test -p springfield --test integration --test-threads=32
+SGF_TEST_MAX_CONCURRENT=2 cargo test --workspace --test-threads=32
 ```
 
 This forces high parallelism with low concurrency — the harshest test of the semaphore. All tests should still pass, just slower.
@@ -171,8 +186,17 @@ A test `harness_semaphore_limits_concurrency` spawns multiple threads that each 
 
 After migration, `grep -c 'setup_mock_pn()' crates/springfield/tests/integration.rs` should return `1` (only the definition, or `0` if removed entirely). All tests should use `mock_bin_path()` instead.
 
-Similarly, `grep -c '\.output()\.unwrap()' crates/springfield/tests/integration.rs` should match only non-sgf commands (git, etc.) — all `sgf` invocations should go through `run_sgf()`.
+Similarly, `grep -c '\.output()\\.unwrap()' crates/springfield/tests/integration.rs` should match only non-sgf commands (git, etc.) — all `sgf` invocations should go through `run_sgf()`.
+
+### Timeout conventions
+
+| Timeout | Value | Usage |
+|---------|-------|-------|
+| Semaphore acquire | 60 seconds | Max wait for a permit before panicking |
+| Child process wait | 30 seconds | Max wait for a spawned process to exit |
+| Inter-iteration sleep (in tests) | Shortened via env var | Tests should not wait 2 seconds between iterations |
 
 ## Related Specifications
 
-- [springfield](springfield.md) — CLI entry point — scaffolding, prompt delivery, loop orchestration, recovery, and daemon lifecycle
+- [shutdown](shutdown.md) — Shared graceful shutdown — double-press Ctrl+C/Ctrl+D detection with confirmation prompts
+- [springfield](springfield.md) — CLI entry point — scaffolding, prompt delivery, iteration runner, loop orchestration, recovery, and daemon lifecycle

@@ -139,4 +139,3 @@ path = "src/main.rs"
 ## Related Specifications
 
 - [forma](forma.md) — Specification management — forma daemon and fm CLI
-- [ralph](ralph.md) — Iterative Claude Code runner — invokes cl (claude-wrapper) with NDJSON formatting, completion detection, and git auto-push

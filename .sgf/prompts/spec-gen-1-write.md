@@ -33,4 +33,4 @@ IMPORTANT:
 - You MUST use `fm` to READ **AND** UPDATE any specs. Do NOT read/update the markdown. Don't touch the spec markdown.
 - WHEN FINISHED:
   * Commit your changes.
-  * Touch `.ralph-complete`.
+  * Touch `.iter-complete`.

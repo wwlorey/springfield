@@ -1,21 +1,23 @@
 # springfield Specification
 
-CLI entry point — scaffolding, prompt delivery, loop orchestration, recovery, and daemon lifecycle
+CLI entry point — scaffolding, prompt delivery, iteration runner, loop orchestration, recovery, and daemon lifecycle
 
 | Field | Value |
 |-------|-------|
 | Src | `crates/springfield/` |
-| Status | proven |
+| Status | draft |
 
 ## Overview
 
-CLI entry point for Springfield. All developer interaction goes through this binary. It handles project scaffolding, cursus pipeline orchestration, recovery, and daemon lifecycle. Delegates iteration execution to ralph and persistent memory to pensa.
+CLI entry point for Springfield. All developer interaction goes through this binary. It handles project scaffolding, cursus pipeline orchestration, direct agent invocation (iteration loops), recovery, and daemon lifecycle. Delegates persistent memory to pensa.
 
 `sgf` provides:
 - **Project scaffolding**: `sgf init` creates the project structure (`.sgf/`, `.pensa/`, `.forma/`, Claude deny settings, git hooks)
 - **Unified command dispatch**: `sgf <command>` resolves to a cursus TOML pipeline definition (local `./.sgf/cursus/` → global `~/.sgf/cursus/`)
 - **Cursus orchestration**: Parse cursus TOML definitions, execute multi-iter pipelines with sentinel-based transitions, context passing, and stall recovery (see [cursus spec](cursus.md))
-- **Loop orchestration**: Launch ralph with the correct flags, manage PID files, tee logs
+- **Simple prompt mode**: `sgf <file>` runs a prompt file as a simple iteration loop (no cursus TOML needed)
+- **Iteration runner**: Direct `cl` invocation with NDJSON formatting, completion detection, terminal settings preservation, and git auto-push — absorbed from the former `ralph` crate
+- **Loop orchestration**: Launch iteration loops with the correct flags, manage PID files, tee logs
 - **Recovery**: Pre-launch cleanup of dirty state from crashed iterations
 - **Daemon lifecycle**: Start the pensa and forma daemons before launching loops
 
@@ -47,10 +49,9 @@ AGENTS.md                      (hand-authored operational guidance)
 CLAUDE.md                      (`ln -s` to AGENTS.md)
 test-report.md                 (generated — overwritten each test run, committed)
 verification-report.md         (generated — overwritten each verify run, committed)
-specs/
-├── README.md                  (agent-maintained spec index — loom-style tables)
-└── *.md                       (prose specification files)
 ```
+
+Specs are managed by forma and read via `fm show <stem> --json`. The `.forma/specs/*.md` files are generated read-only artifacts for humans.
 
 ### Global Home Structure
 
@@ -82,7 +83,6 @@ All crates are installed via `just install`, which also syncs the global `~/.sgf
 ```just
 install:
     cargo install --path crates/pensa
-    cargo install --path crates/ralph
     cargo install --path crates/springfield
     cargo install --path crates/claude-wrapper
     rsync -av --delete --exclude='logs/' --exclude='run/' .sgf/ ~/.sgf/
@@ -90,11 +90,36 @@ install:
 
 The rsync copies prompts, cursus definitions, MEMENTO.md, and BACKPRESSURE.md to `~/.sgf/`. The `--delete` flag removes files from `~/.sgf/` that no longer exist in the repo. Runtime directories (`logs/`, `run/`) are excluded.
 
+### Iteration Runner Module
+
+The iteration runner is built into sgf (absorbed from the former `ralph` crate). It provides direct `cl` invocation with:
+
+```
+crates/springfield/
+├── src/
+│   ├── iter_runner/
+│   │   ├── mod.rs       # Iteration loop, agent invocation, completion detection
+│   │   ├── format.rs    # NDJSON parsing, tool call/result formatting (pure, no ANSI)
+│   │   ├── style.rs     # ANSI escape code helpers (bold, dim, green, yellow, red), NO_COLOR support
+│   │   └── banner.rs    # Box-drawing banner renderer (render_box)
+│   ├── ...
+```
+
+Key components:
+- **`format.rs`** — Pure function `format_line()` that parses NDJSON and returns structured `FormattedOutput`
+- **`style.rs`** — ANSI styling with `NO_COLOR` support (reconciled from both former style modules)
+- **`banner.rs`** — Box-drawing banner renderer for iteration/completion/stall banners
+- **`TeeWriter`** — Writes styled output to stdout and stripped output to log file
+- **Stdout reader thread** — Reads agent stdout via `mpsc` channel with 100ms poll for interrupt checking
+- **Notification watcher** — Monitors `.iter-ding` sentinel for interactive notification sounds
+- **Terminal settings save/restore** — `tcgetattr`/`tcsetattr` around agent invocations
+- **`cl`-in-PATH check** — Verifies `cl` is available before starting the loop
+
 ### File Purposes
 
 **`~/.sgf/BACKPRESSURE.md`** — Universal build, test, lint, and format commands. Developer-editable. Override per-project by placing a `BACKPRESSURE.md` in `./.sgf/`. Injected into every Claude session by `cl` (see claude-wrapper spec).
 
-**`~/.sgf/MEMENTO.md`** — Universal agent instructions (fm/pn workflows, conventions, sandbox rules). Override per-project by placing a `MEMENTO.md` in `./.sgf/`. Injected into every Claude session by `cl`.
+**`~/.sgf/MEMENTO.md`** — Universal agent instructions (fm/pn workflows, conventions). Override per-project by placing a `MEMENTO.md` in `./.sgf/`. Injected into every Claude session by `cl`.
 
 **`AGENTS.md`** — Hand-authored operational guidance. Contains code style preferences, runtime notes, and special instructions. Created as an empty file by `sgf init`.
 
@@ -104,27 +129,26 @@ The rsync copies prompts, cursus definitions, MEMENTO.md, and BACKPRESSURE.md to
 
 **`~/.sgf/prompts/`** — Default prompts for all projects. Synced from the springfield repo via `just install`. To override a prompt for a specific project, create `./.sgf/prompts/<name>.md` — that file takes precedence for that project only.
 
-**`.sgf/run/{loop_id}.json`** — Session metadata file. Contains `session_id` (UUID), loop config (`mode`, `prompt`, `iterations_completed`, `iterations_total`), and `status` (`running`, `completed`, `interrupted`, `exhausted`). Written before spawning cl/ralph and updated on exit. Enables `sgf resume` to restart previous sessions. See [session-resume spec](session-resume.md) for the full schema.
+**`.sgf/run/{loop_id}.json`** — Session metadata file. Contains `session_id` (UUID), loop config (`mode`, `prompt`, `iterations_completed`, `iterations_total`), and `status` (`running`, `completed`, `interrupted`, `exhausted`). Written before spawning cl and updated on exit. Enables `sgf resume` to restart previous sessions. See [session-resume spec](session-resume.md) for the full schema.
 
 **`.sgf/` and `.claude/` protection** — Both `.sgf/` and `.claude/` are protected from agent modification via Claude deny settings. `sgf init` scaffolds these rules. `.sgf/` protection prevents agents from modifying local overrides and reference files. `.claude/` protection prevents agents from weakening sandbox configuration or deny rules.
-
-**`specs/`** — Prose specification files (one per topic of concern). Authored during the spec phase, consumed during builds. Indexed in `specs/README.md`.
 
 ## Dependencies
 
 | Crate | Purpose |
 |-------|---------|
 | `clap` (4, derive + env) | CLI argument parsing |
-| `serde` (1, derive) | Serialization for run state |
-| `serde_json` (1) | JSON handling for run metadata |
+| `serde` (1, derive) | Serialization for run state and NDJSON parsing |
+| `serde_json` (1) | JSON handling for run metadata and NDJSON stream |
 | `chrono` (0.4) | Timestamps for run metadata and loop IDs |
 | `toml` (0.8) | Cursus TOML pipeline definition parsing |
 | `sha2` (0.10) | SHA-256 for daemon port derivation |
 | `uuid` (1, v4) | UUIDv4 session ID generation |
-| `shutdown` (workspace) | Shared graceful shutdown handling (see [shutdown spec](shutdown.md)) |
+| `shutdown` (workspace) | Shared graceful shutdown handling, ChildGuard, ProcessSemaphore (see [shutdown spec](shutdown.md)) |
 | `vcs-utils` (workspace) | Git operations — auto-push (see [vcs-utils spec](vcs-utils.md)) |
-| `libc` (0.2) | `setsid()` for child process isolation |
+| `libc` (0.2) | Terminal settings save/restore (`tcgetattr`/`tcsetattr`) |
 | `tracing` (0.1) | Structured logging |
+| `tracing-subscriber` (0.3, fmt + env-filter) | Log output formatting, `RUST_LOG` env filter |
 
 Dev dependencies:
 
@@ -136,18 +160,33 @@ Dev dependencies:
 | `portpicker` (0.1) | Random port selection for test daemons |
 | `nix` (0.29, signal) | Signal delivery in tests |
 
-Note: `ralph` and `cl` (claude-wrapper) are invoked as child process binaries via `std::process::Command`, not linked as crate dependencies.
+Note: `cl` (claude-wrapper) is invoked as a child process binary via `std::process::Command`, not linked as a crate dependency.
 
 ## Error Handling
 
 ### Exit Codes
 
 | Code | Meaning | sgf response |
-|------|---------|--------------|
-| `0` | Sentinel found (`.ralph-complete`) — loop completed | Log success, clean up |
+|------|---------|----|
+| `0` | Sentinel found (`.iter-complete`) — loop completed | Log success, clean up |
 | `1` | Error (bad args, missing prompt, etc.) | Log error, alert developer |
 | `2` | Iterations exhausted — may have remaining work | Developer decides: re-launch or stop |
 | `130` | Interrupted (SIGINT/SIGTERM) | Log interruption, clean up |
+
+### Iteration Runner Errors
+
+| Scenario | Behavior |
+|----------|----------|
+| `cl` not found in PATH (no `SGF_AGENT_COMMAND`) | `tracing::error\!` + exit 1 (before loop starts) |
+| Prompt file missing | `tracing::error\!` + exit 1 |
+| Agent/command spawn failure | `tracing::warn\!`, continue to next iteration |
+| NDJSON parse error (line starts with `{`) | Skip line, log at debug level |
+| Non-JSON line (no `{` prefix) | Skip line silently (expected verbose debug output) |
+| stdout read error | `tracing::warn\!`, continue reading |
+| Git `rev-parse` failure | Return `None`, skip push check |
+| Git push failure | `tracing::warn\!`, continue |
+| SIGINT/Ctrl+D received (all modes) | First press: print confirmation to stderr, start 2s timeout. Second press of same key: kill child process group, exit 130. Timeout: reset counter, continue. |
+| SIGTERM received | Kill child process group, exit 130 (immediate, single signal) |
 
 ### Recovery Failure Modes
 
@@ -157,7 +196,7 @@ Note: `ralph` and `cl` (claude-wrapper) are invoked as child process binaries vi
 
 ### Claude Code Crashes and Push Failures
 
-Claude Code crashes and push failures are handled within ralph as warnings — they do not produce distinct exit codes. Ralph logs the failure and continues to the next iteration without cleanup. The next iteration's agent inherits whatever state exists and proceeds via forward correction. Stale claims and dirty working trees accumulate within a ralph run and are cleared by sgf's pre-launch recovery before the next run.
+Claude Code crashes and push failures are handled as warnings — they do not produce distinct exit codes. The iteration runner logs the failure and continues to the next iteration without cleanup. The next iteration's agent inherits whatever state exists and proceeds via forward correction. Stale claims and dirty working trees accumulate within a run and are cleared by sgf's pre-launch recovery before the next run.
 
 ## Testing
 
@@ -172,6 +211,7 @@ All integration tests use a shared test harness (see `test-harness` spec) that p
 
 ```
 sgf <command> [-a | -i] [-n N] [--no-push]   — run a cursus pipeline
+sgf <file>                                    — run a prompt file as a simple iteration loop
 sgf init [--force]                            — scaffold a new project
 sgf list                                      — show available commands with descriptions
 sgf logs <loop-id>                            — tail a running loop's output
@@ -183,10 +223,28 @@ Where `<command>` resolves to a cursus TOML pipeline definition. Commands can al
 ### Command Resolution
 
 1. Check if `<command>` matches a reserved built-in (`init`, `list`, `logs`, `resume`). If so, run the built-in.
-2. Check if `./.sgf/cursus/<command>.toml` exists (local override). If so, parse and run the cursus.
-3. Check if `~/.sgf/cursus/<command>.toml` exists (global default). If so, parse and run the cursus.
-4. Check if `<command>` matches an alias in any resolved cursus TOML. If so, resolve to the aliased cursus and run it.
-5. Error: `unknown command: <command>`.
+2. Check if the argument resolves to an existing file path. If so, run it as a simple iteration loop (see [Simple Prompt Mode](#simple-prompt-mode)).
+3. Check if `./.sgf/cursus/<command>.toml` exists (local override). If so, parse and run the cursus.
+4. Check if `~/.sgf/cursus/<command>.toml` exists (global default). If so, parse and run the cursus.
+5. Check if `<command>` matches an alias in any resolved cursus TOML. If so, resolve to the aliased cursus and run it.
+6. Error: `unknown command: <command>`.
+
+### Simple Prompt Mode (`sgf <file>`)
+
+When the argument resolves to an existing file path, sgf runs it as a simple iteration loop — no cursus TOML needed. This replaces the former standalone `ralph` usage.
+
+```bash
+sgf my-task.md                     # Interactive, 1 iteration
+sgf my-task.md -a -n 10            # AFK mode, 10 iterations
+sgf .sgf/prompts/build.md -a       # AFK mode, 1 iteration
+```
+
+Behavior:
+- Runs the iteration runner directly with the file as the prompt
+- Checks `.iter-complete` after each iteration (same as cursus mode)
+- Supports `-a`/`-i`, `-n`, `--no-push` flags
+- No context injection via `consumes` — keep simple mode simple. `cl` still injects MEMENTO/BACKPRESSURE independently.
+- Exit codes: 0 (`.iter-complete` found), 2 (iterations exhausted), 130 (interrupted)
 
 ### Reserved Built-in: `list`
 
@@ -236,7 +294,7 @@ Falls back to legacy session-resume behavior for non-cursus sessions (see [sessi
 | `--no-push` | `false` | Disable auto-push after commits (overrides `auto_push` on all iters) |
 | `-n` / `--iterations` | from cursus TOML | Number of iterations (overrides `iterations` on all iters) |
 
-`-a` and `-i` are mutually exclusive — passing both is an error (exit 1 with a clear message). When neither is passed, the default comes from the cursus TOML iter definition.
+`-a` and `-i` are mutually exclusive — passing both is an error (exit 1 with a clear message). When neither is passed, the default comes from the cursus TOML iter definition (or `interactive` for simple prompt mode).
 
 ### Examples
 
@@ -251,6 +309,7 @@ sgf doc                        # interactive doc triage
 sgf list                       # show available commands
 sgf resume                     # interactive picker for stalled/interrupted runs
 sgf resume spec-20260317T140000  # resume specific cursus run
+sgf my-task.md -a -n 5         # simple prompt mode
 ```
 
 ## sgf init
@@ -325,7 +384,7 @@ Claude Code's native sandbox provides OS-level filesystem and network isolation 
 | `sandbox.network.allowedDomains` | `["localhost", "github.com", "*.githubusercontent.com", "crates.io", "*.crates.io"]` | `localhost` for pensa daemon access; GitHub for git operations; crates.io for cargo |
 | `sandbox.network.allowLocalBinding` | `true` | Allows test servers (e.g., `cargo test`) to bind localhost ports |
 
-**Automated stages (ralph):** The sandbox configuration in `.claude/settings.json` applies to automated agents. Combined with `--dangerously-skip-permissions`, automated agents operate freely within sandbox bounds but cannot break out.
+**Automated stages:** The sandbox configuration in `.claude/settings.json` applies to automated agents. Combined with `--dangerously-skip-permissions`, automated agents operate freely within sandbox bounds but cannot break out.
 
 **Interactive stages:** Use project settings as-is. The sandbox is active; `allowUnsandboxedCommands` is left to the developer's global settings.
 
@@ -386,8 +445,8 @@ If `.pre-commit-config.yaml` already exists, `sgf init` appends the pensa and fo
 **/.forma/daemon.url
 .sgf/logs/
 .sgf/run/
-.ralph-complete
-.ralph-ding
+.iter-complete
+.iter-ding
 
 # Rust
 /target
@@ -428,6 +487,7 @@ Safety checks:
 Config merges (`.gitignore`, `.claude/settings.json`, `.pre-commit-config.yaml`) are unaffected by `--force` — they always use additive merge logic.
 
 
+
 ## Prompt Delivery
 
 sgf does not assemble, transform, or preprocess prompt files. Prompts in `.sgf/prompts/` are final — passed directly to ralph or `cl`.
@@ -451,43 +511,55 @@ Prompts are plain markdown files with no variable substitution.
 
 ## sgf-to-ralph Contract
 
-### Invocation
+### Agent Invocation
+
+sgf invokes `cl` (claude-wrapper) directly for all modes. It never calls `claude` or `claude-wrapper-secret`. Context file injection (MEMENTO.md, BACKPRESSURE.md) is handled by `cl` — sgf does not manage these files.
+
+When `SGF_AGENT_COMMAND` is set (testing mode), the command override replaces `cl` — used for integration tests with mock scripts.
+
+### cl Flags by Mode
+
+**Interactive mode** (default):
 
 ```
-sgf → ralph [-a] [--loop-id ID] [--auto-push BOOL] [--banner] [--session-id UUID] ITERATIONS PROMPT
+cl \
+  --verbose \
+  [--session-id <uuid>]           # always (fresh UUID per invocation)
+  [--append-system-prompt '<consumed context>']
+  @<PROMPT_FILE>
 ```
 
-`sgf` translates its own flags and hardcoded defaults into ralph CLI flags. Ralph does not read config files — all configuration arrives via flags and environment variables.
+Spawns with full terminal passthrough (stdin/stdout/stderr inherited). No `setsid()` — the agent stays in sgf's process group for natural signal delivery.
 
-### CLI Flags Passed to Ralph
+**AFK mode** (`-a`):
 
-| Flag | Type | Source | Description |
-|------|------|--------|-------------|
-| `-a` / `--afk` | bool | sgf command (e.g., `sgf build -a`) | AFK mode |
-| `--loop-id` | string | sgf-generated | Unique loop identifier |
-| `--auto-push` | bool | `true` unless `--no-push` passed to sgf | Auto-push after commits |
-| `--banner` | bool | from cursus TOML iter `banner` field | Display ASCII art startup banner |
-| `--session-id` | string (UUID) | sgf-generated | Pre-assigned session ID for new sessions. sgf generates a UUID before each launch and passes it to ralph. |
-| `--resume` | string (UUID) | sgf (from session metadata) | Session ID to resume. Used by `sgf resume` — reads the session ID from `.sgf/run/{loop_id}.json` and passes it to ralph. Mutually exclusive with `--session-id`. |
-| `ITERATIONS` | u32 | `-n` / `--iterations` or from cursus TOML | Number of iterations |
-| `PROMPT` | path | resolved prompt file path | Raw prompt file (resolved via layered lookup) |
+```
+cl \
+  --verbose \
+  --print \
+  --output-format stream-json \
+  --dangerously-skip-permissions \
+  [--session-id <uuid>]           # always (fresh UUID per invocation)
+  [--append-system-prompt '<consumed context>']
+  @<PROMPT_FILE>
+```
+
+Spawns via `ChildGuard::spawn()` (which calls `setpgid(0, 0)` in `pre_exec` for process group isolation) with piped stdout, `Stdio::null()` for stdin, and inherited stderr. Stdout is read line-by-line via `BufRead`, parsed as NDJSON, and formatted with ANSI-styled output.
 
 ### Execution Model
-
-Execution mode is determined by the resolved `mode` (from CLI flags or cursus TOML iter defaults):
 
 | Mode | Execution | Description |
 |------|-----------|-------------|
 | `interactive` | `cl` directly | Full terminal passthrough; calls `cl --verbose [--session-id UUID] [--append-system-prompt ...] @{prompt_path}`, inheriting stdio |
-| `afk` | ralph | Autonomous execution; ralph invokes `cl` with `--dangerously-skip-permissions`, NDJSON stream formatting |
+| `afk` | `cl` via iteration runner | Autonomous execution; `cl` invoked with `--dangerously-skip-permissions`, NDJSON stream formatting |
 
 **Interactive mode**: Calls `cl` directly. No PID file, no log tee. Generates a loop_id and writes session metadata to `.sgf/run/{loop_id}.json` for resume capability. `cl` handles context file injection (MEMENTO, BACKPRESSURE). When `auto_push` is true, auto-pushes after the session if HEAD changed. Passes `--session-id <uuid>` to `cl` for session tracking.
 
-**AFK mode**: Goes through ralph, which invokes `cl` directly on the host. `cl` handles context file injection. PID file, log tee, and loop ID are managed by sgf. Session metadata (`.sgf/run/{loop_id}.json`) is written before spawn and updated on exit.
+**AFK mode**: Calls `cl` directly via the iteration runner. PID file, log tee, and loop ID are managed by sgf. Session metadata (`.sgf/run/{loop_id}.json`) is written before spawn and updated on exit.
 
 #### Session Metadata
 
-For both modes, sgf generates a session UUID before spawning and writes session metadata to `.sgf/run/{loop_id}.json`. The metadata includes the session ID, loop config, and status. On exit, the status is updated based on exit code (`completed`, `interrupted`, `exhausted`). See [session-resume spec](session-resume.md) for the full schema.
+For both modes, sgf generates a fresh session UUID before each `cl` invocation and writes session metadata to `.sgf/run/{loop_id}.json`. The metadata includes the session ID, loop config, and status. On exit, the status is updated based on exit code (`completed`, `interrupted`, `exhausted`). See [session-resume spec](session-resume.md) for the full schema.
 
 #### Auto-push for interactive commands
 
@@ -497,28 +569,62 @@ Interactive commands with `auto_push = true` auto-push after the Claude session 
 
 | Code | Meaning | sgf response |
 |------|---------|-----|
-| `0` | Sentinel found (`.ralph-complete`) — loop completed | Log success, clean up |
+| `0` | Sentinel found (`.iter-complete`) — loop completed | Log success, clean up |
 | `1` | Error (bad args, missing prompt, etc.) | Log error, alert developer |
 | `2` | Iterations exhausted — may have remaining work | Developer decides: re-launch or stop |
 | `130` | Interrupted (SIGINT/SIGTERM) | Log interruption, clean up |
 
 Interrupt handling uses the shared `shutdown` crate's `ShutdownController` (see [shutdown spec](shutdown.md)). The controller configuration depends on the mode:
 
-**AFK mode** (`sgf build -a`, `sgf verify -a`, etc.): sgf spawns ralph in its own session (`setsid()` via `pre_exec`) with `Stdio::null()` for stdin. Stdin isolation prevents the agent from inheriting the terminal fd and modifying terminal settings (e.g., disabling ISIG via `tcsetattr`), which would cause Ctrl+C/Ctrl+D to emit raw bytes instead of generating signals/EOF. The controller is created with `monitor_stdin: true` — stdin is free since no user interaction occurs. Both double Ctrl+C (SIGINT) and double Ctrl+D (stdin EOF) trigger shutdown. First press prints "Press Ctrl-C again to exit" (or "Press Ctrl-D again to exit") to stderr. Second press of the same key within 2 seconds: sgf kills ralph's process group via `shutdown::kill_process_group(pid, 200ms)` (SIGTERM to group, wait up to 200ms, escalate to SIGKILL), waits for exit, returns code 130. Timeout resets the counter. SIGTERM always triggers immediate shutdown (single signal).
+**AFK mode** (`sgf build -a`, `sgf verify -a`, etc.): sgf spawns `cl` via `ChildGuard::spawn()` with `Stdio::null()` for stdin. Stdin isolation prevents the agent from inheriting the terminal fd and modifying terminal settings (e.g., disabling ISIG via `tcsetattr`), which would cause Ctrl+C/Ctrl+D to emit raw bytes instead of generating signals/EOF. The controller is created with `monitor_stdin: true` — stdin is free since no user interaction occurs. Both double Ctrl+C (SIGINT) and double Ctrl+D (stdin EOF) trigger shutdown. First press prints "Press Ctrl-C again to exit" (or "Press Ctrl-D again to exit") to stderr. Second press of the same key within 2 seconds: the `ChildGuard` is dropped, killing the process group via `kill_process_group(pid, 200ms)`, exit code 130. Timeout resets the counter. SIGTERM always triggers immediate shutdown (single signal).
 
-**Non-AFK mode** (`sgf build`, `sgf verify`, etc.): sgf spawns ralph **without** `setsid()` — ralph and the agent stay in sgf's process group, receiving terminal signals naturally and retaining full terminal access. The controller is created with `monitor_stdin: false` — stdin belongs to the child for user interaction with Claude. Only double Ctrl+C works for shutdown; Ctrl+D goes to Claude as normal input. Both sgf and the child receive SIGINT on Ctrl+C; sgf's handler prints the confirmation prompt while Claude handles the signal with its own logic.
+**Non-AFK mode** (`sgf build`, `sgf verify`, etc.): sgf spawns `cl` **without** `setsid()` — `cl` and the agent stay in sgf's process group, receiving terminal signals naturally and retaining full terminal access. The controller is created with `monitor_stdin: false` — stdin belongs to the child for user interaction with Claude. Only double Ctrl+C works for shutdown; Ctrl+D goes to Claude as normal input. Both sgf and the child receive SIGINT on Ctrl+C; sgf's handler prints the confirmation prompt while Claude handles the signal with its own logic.
 
 **Interactive stages** (`sgf spec`, `sgf issues log`): Same as non-AFK — no `setsid()`, `monitor_stdin: false`. The user types directly into Claude.
 
-sgf sets `SGF_MANAGED=1` in ralph's environment so ralph disables its own stdin monitoring and relies on sgf for Ctrl+D detection (AFK) or passes stdin through (non-AFK). Ralph still handles SIGTERM from sgf for graceful cleanup.
-
 Signal handlers are registered just before spawning the child — during pre-launch checks, daemon startup, and other phases before handler registration, default signal behavior applies (single SIGINT exits).
 
-Claude Code crashes and push failures are handled within ralph as warnings — they do not produce distinct exit codes. Ralph logs the failure and continues to the next iteration without cleanup. The next iteration's agent inherits whatever state exists and proceeds via forward correction. Stale claims and dirty working trees accumulate within a ralph run and are cleared by sgf's pre-launch recovery before the next run.
+Claude Code crashes and push failures are handled as warnings — they do not produce distinct exit codes. The iteration runner logs the failure and continues to the next iteration without cleanup. The next iteration's agent inherits whatever state exists and proceeds via forward correction. Stale claims and dirty working trees accumulate within a run and are cleared by sgf's pre-launch recovery before the next run.
 
 ### Completion Sentinel
 
-The agent creates a `.ralph-complete` file when `pn ready` returns no tasks. Ralph checks for this file after each iteration. If found, ralph deletes it, performs a final auto-push (if enabled), and exits with code `0`.
+The agent creates an `.iter-complete` file when the task is complete (e.g., `pn ready` returns no tasks). sgf checks for this file after each iteration. If found, sgf deletes it, performs a final auto-push (if enabled), and exits with code `0`.
+
+### Iteration Loop
+
+Before the loop:
+- Verify `cl` is in PATH (unless `SGF_AGENT_COMMAND` is set)
+- Search for and delete any stale `.iter-complete` sentinel file (from a previous crashed/killed run), searching recursively up to depth 2
+- Delete stale `.iter-ding` sentinel file if present
+- Save terminal settings (`tcgetattr`)
+
+For each iteration `i` in `1..=iterations`:
+
+1. Remove any stale `.iter-complete` sentinel
+2. Print iteration banner (includes loop ID if provided)
+3. Record `vcs_utils::git_head()` as `head_before`
+4. Execute agent via `cl` (or `SGF_AGENT_COMMAND` override):
+   - **Session ID handling**: Each invocation receives a fresh `--session-id <uuid>`.
+   - **Resume handling**: If `--resume` is provided from the CLI, it only applies on the first invocation.
+   - Interactive: start notification watcher thread, `.status()` with inherited stdio, stop watcher thread
+   - AFK: `ChildGuard::spawn()` with piped stdout, read lines via reader thread + channel through `format_line()`
+5. Restore terminal settings (`tcsetattr`)
+6. If interrupted: log warning, exit 130
+7. Search for `.iter-complete` recursively (depth <= 2): if found, delete it, print completion banner, auto-push, exit 0
+8. Print "Iteration N complete, continuing..."
+9. Sleep 2 seconds (interruptible, polled in 100ms increments)
+10. If interrupted: log warning, exit 130
+11. If `auto_push`: call `vcs_utils::auto_push_if_changed()`
+
+After loop: search for and delete sentinel files (depth <= 2), print max iterations banner, exit 2.
+
+### Iteration Clamping
+
+Iterations are clamped to a hard limit of 1000. If a higher value is provided (via `-n` or cursus TOML), sgf logs a warning and clamps to 1000.
+
+### Inter-Iteration Sleep
+
+A 2-second sleep between iterations allows git operations to settle and prevents rapid-fire agent invocations. The sleep is interruptible — polled in 100ms increments, checking the shutdown controller between polls.
 
 ---
 
@@ -762,7 +868,7 @@ Both daemons are started in parallel. Both must be ready before proceeding with 
 Build, Test, and Issues Plan stages share a common iteration pattern. Each iteration:
 
 1. **Orient** — context files (MEMENTO, BACKPRESSURE) are injected by `cl` via `study` instructions. Agents fetch spec content via prompt instructions (e.g., `fm show <stem> --json`).
-2. **Query** — find work items via pensa (stage-specific query). If none, write `.ralph-complete` and exit.
+2. **Query** — find work items via pensa (stage-specific query). If none, write `.iter-complete` and exit.
 3. **Choose & Claim** — pick a task from the results, then `pn update <id> --claim`. If the claim fails (`already_claimed`), re-query and pick another.
 4. **Work** — stage-specific implementation
 5. **Log issues** — if problems are discovered: `pn create "description" -t bug`
@@ -793,13 +899,13 @@ The fix tasks appear in subsequent `pn ready` calls and are implemented as norma
 
 ### 1. Spec (`sgf spec`)
 
-Opens an interactive Claude Code session with the spec prompt. Calls `cl` directly (no ralph). The developer provides an outline of what to build, the agent interviews them to fill in gaps, and then generates deliverables:
+Multi-iter cursus pipeline. The developer provides an outline of what to build, the agent interviews them to fill in gaps, and then generates deliverables:
 
 1. Create or update specs via `fm` (Spec Create and/or Spec Update Workflow from MEMENTO)
 2. Create implementation plan items via `pn create -t task --spec <stem>`, with dependencies and priorities
 3. Commit and push
 
-The interview and generation happen in a single session. The agent asks clarifying questions as needed, but the goal is always to produce specs and a plan. The prompt instructs the agent to design specs so the result can be end-to-end tested from the command line.
+The interview and generation happen across cursus iters (discuss → draft → review → approve). The prompts instruct the agent to design specs so the result can be end-to-end tested from the command line.
 
 Tasks linked to a spec *are* the implementation plan. Query with `pn list -t task --spec <stem>`.
 
@@ -812,7 +918,7 @@ Tasks linked to a spec *are* the implementation plan. Query with `pn list -t tas
 
 ### 2. Build (`sgf build`)
 
-Follows the standard loop iteration. Runs via ralph using `.sgf/prompts/build.md`. The prompt instructs the agent to fetch relevant specs via `fm show` as needed.
+Follows the standard loop iteration. Uses `.sgf/prompts/build.md`. The prompt instructs the agent to fetch relevant specs via `fm show` as needed.
 
 The build stage adds **backpressure** — after implementing the task, the agent runs build, test, and lint commands per `BACKPRESSURE.md`.
 
@@ -820,7 +926,7 @@ Run interactively first for a few supervised rounds, then switch to AFK mode (`-
 
 ### 3. Verify (`sgf verify`)
 
-Runs via ralph using `.sgf/prompts/verify.md`. Each iteration handles one spec:
+Uses `.sgf/prompts/verify.md`. Each iteration handles one spec:
 
 1. List all specs via `fm list --json`
 2. Pick one unverified spec and investigate it against the codebase (read via `fm show <stem> --json`)
@@ -829,11 +935,11 @@ Runs via ralph using `.sgf/prompts/verify.md`. Each iteration handles one spec:
 5. Log any gaps as pensa bugs: `pn create "..." -t bug`
 6. Commit
 
-When all specs have been verified, write `.ralph-complete`.
+When all specs have been verified, write `.iter-complete`.
 
 ### 4. Test Plan (`sgf test-plan`)
 
-Runs via ralph using `.sgf/prompts/test-plan.md`. The agent:
+Uses `.sgf/prompts/test-plan.md`. The agent:
 
 1. Studies specs and codebase
 2. Generates a testing plan
@@ -843,13 +949,13 @@ Runs via ralph using `.sgf/prompts/test-plan.md`. The agent:
 
 ### 5. Test (`sgf test`)
 
-Follows the standard loop iteration. Runs via ralph using `.sgf/prompts/test.md`. The prompt instructs the agent to fetch relevant specs via `fm show` as needed.
+Follows the standard loop iteration. Uses `.sgf/prompts/test.md`. The prompt instructs the agent to fetch relevant specs via `fm show` as needed.
 
 After all test items are closed, a final iteration generates `test-report.md` — a summary of all test results, pass/fail status, and any bugs logged.
 
 ### 6. Issues Log (`sgf issues-log`)
 
-Calls `cl` directly (no ralph) using `.sgf/prompts/issues-log.md`. Each session handles one bug:
+Calls `cl` directly using `.sgf/prompts/issues-log.md`. Each session handles one bug:
 
 1. The developer describes a bug they've observed
 2. The agent interviews them to capture details — steps to reproduce, expected vs actual behavior, relevant context
@@ -859,7 +965,7 @@ One bug per session. The developer runs `sgf issues-log` again for additional bu
 
 ### 7. Doc (`sgf doc`)
 
-Calls `cl` directly (no ralph) using `.sgf/prompts/doc.md`. Runs `pn doctor --json` and triages the results:
+Calls `cl` directly using `.sgf/prompts/doc.md`. Runs `pn doctor --json` and triages the results:
 
 1. Run `pn doctor --json`
 2. For each reported issue, investigate whether it has been completed or is still valid
@@ -930,15 +1036,16 @@ Per-command defaults are defined in cursus TOML files (see [cursus spec](cursus.
 
 **Editable prompts**: Prompts are plain markdown files. Global defaults live in `~/.sgf/prompts/` (synced from the springfield repo). Override per-project by creating `./.sgf/prompts/<name>.md`. New commands are defined by creating a cursus TOML in `.sgf/cursus/` and a corresponding prompt file — no code changes required.
 
-**Layered context injection**: `cl` (claude-wrapper) resolves context files (MEMENTO.md, BACKPRESSURE.md) via layered `.sgf/` lookup (local `./.sgf/` → global `~/.sgf/`) and injects them as `study` instructions into every Claude session. This applies uniformly to both interactive and automated stages. sgf does not inject context — it resolves prompt paths, then delegates to `cl` or ralph.
+**Layered context injection**: `cl` (claude-wrapper) resolves context files (MEMENTO.md, BACKPRESSURE.md) via layered `.sgf/` lookup (local `./.sgf/` → global `~/.sgf/`) and injects them as `study` instructions into every Claude session. This applies uniformly to both interactive and automated stages. sgf does not inject context — it resolves prompt paths, then delegates to `cl`.
 
 **Protected scaffolding**: `.sgf/` and `.claude/` are protected from agent writes via Claude deny settings. The developer is the authority on prompts, settings, and project configuration.
 
 **Layered projects**: Springfield uses two-tier `.sgf/` resolution — project-local `./.sgf/` overrides global `~/.sgf/` on a file-by-file basis. Projects only need local overrides for project-specific customizations; everything else falls through to the global defaults.
 
-**Direct execution with native sandbox**: All stages invoke `cl` on the host — no Docker sandboxes, no Mutagen sync. Claude Code's native sandbox (Seatbelt on macOS, bubblewrap on Linux) provides OS-level filesystem and network isolation, enabled by default via `.claude/settings.json`. Automated stages go through ralph with `--dangerously-skip-permissions` — agents operate freely within sandbox bounds but cannot escape. Interactive stages use the sandbox with developer-controlled settings.
+**Direct execution with native sandbox**: All stages invoke `cl` on the host — no Docker sandboxes, no Mutagen sync. Claude Code's native sandbox (Seatbelt on macOS, bubblewrap on Linux) provides OS-level filesystem and network isolation, enabled by default via `.claude/settings.json`. Automated stages use `--dangerously-skip-permissions` — agents operate freely within sandbox bounds but cannot escape. Interactive stages use the sandbox with developer-controlled settings.
 
 ---
+
 
 ## Future Work
 
@@ -952,6 +1059,5 @@ Per-command defaults are defined in cursus TOML files (see [cursus spec](cursus.
 - [claude-wrapper](claude-wrapper.md) — Agent wrapper — layered .sgf/ context injection, cl binary
 - [forma](forma.md) — Specification management — forma daemon and fm CLI
 - [pensa](pensa.md) — Agent persistent memory — SQLite-backed issue/task tracker with pn CLI
-- [ralph](ralph.md) — Iterative Claude Code runner — invokes cl (claude-wrapper) with NDJSON formatting, completion detection, and git auto-push
 - [shutdown](shutdown.md) — Shared graceful shutdown — double-press Ctrl+C/Ctrl+D detection with confirmation prompts
 - [vcs-utils](vcs-utils.md) — Shared VCS utilities — git HEAD detection, auto-push
