@@ -202,9 +202,10 @@ fn run_iter(inv: &IterInvocation<'_>, controller: &ShutdownController) -> io::Re
     let log_path = loop_mgmt::create_log_file(inv.root, inv.run_id)?;
 
     let (ctx_env_name, ctx_env_val) = context::context_env_var(inv.run_id);
+    let abs_ctx_val = inv.root.join(&ctx_env_val).to_string_lossy().to_string();
     let mut env_vars = vec![
         ("SGF_MANAGED".to_string(), "1".to_string()),
-        (ctx_env_name, ctx_env_val),
+        (ctx_env_name, abs_ctx_val),
     ];
     if std::env::var("SGF_TEST_NO_SETSID").is_ok() {
         env_vars.push(("SGF_TEST_NO_SETSID".to_string(), "1".to_string()));
@@ -1184,13 +1185,14 @@ exit 0
         let root = tmp.path();
         setup_cursus_project(root, &["generate.md", "verify.md"]);
 
-        // Mock that captures args and writes a produces file
+        // Mock that captures args (NUL-delimited) and writes a produces file
         let ralph = mock_script(
             root,
             "mock_agent.sh",
             &format!(
                 r#"#!/bin/sh
-echo "$@" >> "{root}/ralph_calls.txt"
+printf '%s\0' "$@" >> "{root}/ralph_args.bin"
+printf '\n---CALL---\n' >> "{root}/ralph_args.bin"
 # Write produces file if SGF_RUN_CONTEXT is set
 if [ -n "$SGF_RUN_CONTEXT" ]; then
     echo "Generated output summary." > "$SGF_RUN_CONTEXT/output-summary.md"
@@ -1240,15 +1242,31 @@ exit 0
         let exit_code = run_cursus(root, "pipeline", &def, &config).unwrap();
         assert_eq!(exit_code, 0);
 
-        // Verify context file was used: verify iter should have received --prompt-file
-        let calls = fs::read_to_string(root.join("ralph_calls.txt")).unwrap();
-        let lines: Vec<&str> = calls.lines().collect();
-        assert_eq!(lines.len(), 2);
-        // Second call (verify) should have --prompt-file pointing to consumed context
+        // Verify context was injected: verify iter should have received --append-system-prompt
+        let raw = fs::read_to_string(root.join("ralph_args.bin")).unwrap();
+        let calls: Vec<&str> = raw.split("---CALL---").collect();
+        // Should have 2 calls (+ trailing empty from final separator)
+        let calls: Vec<&str> = calls
+            .iter()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .collect();
+        assert_eq!(
+            calls.len(),
+            2,
+            "expected 2 agent calls, got {}",
+            calls.len()
+        );
+        // Second call (verify) should have --append-system-prompt with consumed context content
         assert!(
-            lines[1].contains("--prompt-file"),
-            "verify iter should receive --prompt-file, got: {}",
-            lines[1]
+            calls[1].contains("--append-system-prompt"),
+            "verify iter should receive --append-system-prompt, got: {}",
+            calls[1]
+        );
+        assert!(
+            calls[1].contains("Generated output summary."),
+            "verify iter should receive consumed context content, got: {}",
+            calls[1]
         );
     }
 
