@@ -1,0 +1,5 @@
+{"type":"assistant","message":{"content":[{"type":"text","text":"Let me read the large file."}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/tmp/large-output.txt"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","content":"line 1 of output\nline 2 of output\nline 3 of output\nline 4 of output\nline 5 of output\nline 6 of output\nline 7 of output\nline 8 of output\nline 9 of output\nline 10 of output\nline 11 of output\nline 12 of output\nline 13 of output\nline 14 of output\nline 15 of output\nline 16 of output\nline 17 of output\nline 18 of output\nline 19 of output\nline 20 of output\nline 21 of output\nline 22 of output\nline 23 of output\nline 24 of output\nline 25 of output","is_error":false}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"The file has been read. Task complete."}]}}
+{"type":"result","result":"Done reading the file.","session_id":"sess-long","usage":{"input_tokens":8500,"output_tokens":420}}

@@ -6825,3 +6825,144 @@ fn agent_command_env_overrides_default_binary_cursus_mode() {
         "marker should contain expected content, got: {content}"
     );
 }
+
+// ---- Usage stats display from result events ----
+
+#[test]
+fn iter_afk_displays_usage_stats_from_result_event() {
+    let tmp = setup_test_dir();
+    let prompt = setup_simple_prompt_test(tmp.path());
+    let mock = create_fixture_mock_with_sentinel(tmp.path(), "long-tool-result.ndjson");
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args([prompt, "-a"])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .env("NO_COLOR", "1")
+            .stdin(Stdio::null()),
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        output.status.success(),
+        "should exit 0 on completion, got: {:?}\nstdout:\n{stdout}",
+        output.status.code()
+    );
+    assert!(
+        stdout.contains("Input: 8500 tokens"),
+        "should display input token count from usage stats, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Output: 420 tokens"),
+        "should display output token count from usage stats, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn iter_afk_usage_stats_with_color_uses_dim_ansi() {
+    let tmp = setup_test_dir();
+    let prompt = setup_simple_prompt_test(tmp.path());
+    let mock = create_fixture_mock_with_sentinel(tmp.path(), "long-tool-result.ndjson");
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args([prompt, "-a"])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .env_remove("NO_COLOR")
+            .stdin(Stdio::null()),
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        output.status.success(),
+        "should exit 0 on completion, got: {:?}\nstdout:\n{stdout}",
+        output.status.code()
+    );
+    assert!(
+        stdout.contains("\x1b[2m"),
+        "usage stats should use dim ANSI code, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Input: 8500 tokens"),
+        "should display input token count, got:\n{stdout}"
+    );
+}
+
+// ---- Tool result truncation ----
+
+#[test]
+fn iter_afk_long_tool_result_does_not_leak_to_stdout() {
+    let tmp = setup_test_dir();
+    let prompt = setup_simple_prompt_test(tmp.path());
+    let mock = create_fixture_mock_with_sentinel(tmp.path(), "long-tool-result.ndjson");
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args([prompt, "-a"])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .env("NO_COLOR", "1")
+            .stdin(Stdio::null()),
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        output.status.success(),
+        "should exit 0 on completion, got: {:?}\nstdout:\n{stdout}",
+        output.status.code()
+    );
+
+    for i in 1..=25 {
+        assert!(
+            !stdout.contains(&format!("line {i} of output")),
+            "tool result line {i} should NOT appear in AFK stdout, got:\n{stdout}"
+        );
+    }
+
+    assert!(
+        stdout.contains("Let me read the large file."),
+        "agent text should still appear, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("The file has been read. Task complete."),
+        "agent text should still appear, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn iter_afk_result_without_usage_displays_result_text() {
+    let tmp = setup_test_dir();
+    let prompt = setup_simple_prompt_test(tmp.path());
+
+    let fixture_path = fixtures_dir().join("complete.ndjson");
+    let mock = create_mock_script(
+        tmp.path(),
+        "mock_agent.sh",
+        &format!(
+            "#!/bin/bash\ncat {}\ntouch .iter-complete\n",
+            fixture_path.display()
+        ),
+    );
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args([prompt, "-a"])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .env("NO_COLOR", "1")
+            .stdin(Stdio::null()),
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        output.status.success(),
+        "should exit 0 on completion, got: {:?}\nstdout:\n{stdout}",
+        output.status.code()
+    );
+    assert!(
+        !stdout.contains("Input:") && !stdout.contains("tokens"),
+        "result without usage should NOT display token stats, got:\n{stdout}"
+    );
+}
