@@ -1,6 +1,6 @@
 # springfield
 
-CLI entry point for [Springfield](../../README.md). All developer interaction goes through this binary. It handles project scaffolding, prompt delivery, loop orchestration, recovery, and daemon lifecycle. Delegates iteration execution to [ralph](../ralph/) and persistent memory to [pensa](../pensa/).
+CLI entry point for [Springfield](../../README.md). All developer interaction goes through this binary. It handles project scaffolding, prompt delivery, loop orchestration, recovery, and daemon lifecycle. Includes a built-in iteration runner (`iter_runner/`) and persistent memory via [pensa](../pensa/).
 
 ## Commands
 
@@ -55,19 +55,34 @@ crates/springfield/
 │   ├── prompt.rs        — template validation, path resolution
 │   ├── loop_mgmt.rs     — loop ID generation, PID files, log teeing
 │   ├── recovery.rs      — pre-launch cleanup of crashed iterations
-│   ├── orchestrate.rs   — ralph process lifecycle, flag translation, signal handling
+│   ├── orchestrate.rs   — agent process lifecycle, flag translation, signal handling
 │   ├── style.rs         — terminal output styling (errors, warnings)
+│   ├── iter_runner/     — built-in iteration runner (simple prompt mode)
+│   │   ├── mod.rs       — core loop: spawn agent, check sentinels, iteration control
+│   │   ├── banner.rs    — iteration banner rendering
+│   │   ├── format.rs    — NDJSON stream formatting for AFK mode
+│   │   └── style.rs     — iteration-specific terminal styling
+│   └── cursus/          — declarative pipeline orchestration
+│       ├── mod.rs       — pipeline entry point
+│       ├── runner.rs    — stage execution and transitions
+│       ├── state.rs     — pipeline state persistence
+│       ├── context.rs   — context passing between stages
+│       └── toml.rs      — TOML pipeline definition parsing
 ├── templates/           — embedded prompt templates and backpressure doc
 └── tests/               — integration tests
 ```
+
+### Iteration Runner
+
+The iteration runner (`iter_runner/`) executes simple prompt-driven loops directly within the `sgf` process. It spawns the configured agent command (defaults to `cl`, the claude-wrapper binary), monitors for sentinel files (`.iter-complete` to signal completion, `.iter-ding` for notifications), and manages iteration counting, auto-push, and AFK-mode output formatting.
 
 ### Key Flows
 
 **Scaffolding** (`sgf init`): Creates `.sgf/`, `.pensa/`, `specs/`, prompt templates, `memento.md`, `CLAUDE.md`, `specs/README.md`. Merges `.gitignore` entries, `.claude/settings.json` deny rules and native sandbox configuration, and `.pre-commit-config.yaml` hooks idempotently.
 
-**Prompt delivery**: Validates that `.sgf/prompts/<command>.md` exists (directly or via alias), and for spec-dependent commands, that `specs/<spec>.md` exists. Passes the raw template path directly to ralph or `cl` — no assembly or preprocessing.
+**Prompt delivery**: Validates that `.sgf/prompts/<command>.md` exists (directly or via alias), and for spec-dependent commands, that `specs/<spec>.md` exists. Passes the raw template path directly to the agent command (`cl`).
 
-**Loop orchestration** (`sgf <command>`): Loads config.toml, merges CLI flags with per-command defaults, runs pre-launch recovery, starts the pensa daemon, validates the prompt, generates a loop ID, writes a PID file, launches ralph with translated flags, tees output in AFK mode, handles exit codes, cleans up PID file.
+**Loop orchestration** (`sgf <command>`): Loads config.toml, merges CLI flags with per-command defaults, runs pre-launch recovery, starts the pensa daemon, validates the prompt, generates a loop ID, writes a PID file, launches the iteration runner with translated flags, tees output in AFK mode, handles exit codes, cleans up PID file.
 
 **Recovery**: Scans `.sgf/run/` for stale PID files. If all PIDs are dead, runs `git checkout -- .`, `git clean -fd`, and `pn doctor --fix` to reset dirty state from crashed iterations.
 
@@ -93,6 +108,6 @@ sgf logs build-auth-20260228T100000
 ## Relationship to Other Crates
 
 - **[pensa](../pensa/)** — Agent persistent memory. `sgf` starts the pensa daemon before loops and uses `pn` for recovery (`pn doctor --fix`).
-- **[ralph](../ralph/)** — Loop runner. `sgf` invokes ralph as a subprocess, passing raw prompt paths, flags, and loop configuration. Ralph invokes `cl` (claude-wrapper) which handles layered context injection.
+- **[claude-wrapper](../claude-wrapper/)** — Agent wrapper. The iteration runner invokes `cl` (claude-wrapper) as the default agent command, which handles layered `.sgf/` context injection.
 
 See the [full specification](../../specs/springfield.md) for detailed behavior.
