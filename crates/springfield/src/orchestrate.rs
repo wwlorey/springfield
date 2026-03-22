@@ -30,7 +30,7 @@ fn resolve_agent_command(config: &LoopConfig) -> String {
     if let Some(ref bin) = config.agent_command {
         return bin.clone();
     }
-    std::env::var("SGF_AGENT_COMMAND").unwrap_or_else(|_| "ralph".to_string())
+    std::env::var("SGF_AGENT_COMMAND").unwrap_or_else(|_| "cl".to_string())
 }
 
 fn export_pensa() {

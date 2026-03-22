@@ -664,15 +664,21 @@ fn build_invokes_agent_with_correct_flags() {
     );
 
     let args = fs::read_to_string(&args_file).unwrap();
-    assert!(args.contains("-a"), "missing --afk flag");
-    assert!(args.contains("--loop-id"), "missing --loop-id");
     assert!(
-        args.contains("--auto-push true"),
-        "missing --auto-push true"
+        args.contains("--print"),
+        "should pass --print in afk mode, got: {args}"
     );
     assert!(
-        !args.contains("--max-iterations"),
-        "should not pass --max-iterations"
+        args.contains("--output-format stream-json"),
+        "should pass --output-format stream-json in afk mode, got: {args}"
+    );
+    assert!(
+        args.contains("--dangerously-skip-permissions"),
+        "should pass --dangerously-skip-permissions, got: {args}"
+    );
+    assert!(
+        args.contains("--session-id"),
+        "should pass --session-id, got: {args}"
     );
 }
 
@@ -759,13 +765,16 @@ fn afk_passes_log_file_to_agent() {
     assert!(output.status.success());
 
     let args_content = fs::read_to_string(mock_dir.path().join("agent_args.txt")).unwrap();
+    // iter_runner manages log files internally; verify AFK mode markers instead
     assert!(
-        args_content.contains("--log-file"),
-        "should pass --log-file to agent, got: {args_content}"
+        args_content.contains("--print"),
+        "should pass --print in afk mode, got: {args_content}"
     );
+    // Verify a log file was actually created in .sgf/logs/
+    let logs_dir = tmp.path().join(".sgf/logs");
     assert!(
-        args_content.contains(".sgf/logs/"),
-        "log-file path should be in .sgf/logs/, got: {args_content}"
+        logs_dir.exists(),
+        ".sgf/logs/ directory should exist after AFK run"
     );
 }
 
@@ -1900,6 +1909,22 @@ fn double_ctrl_c_kills_entire_process_tree() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
     setup_default_cursus(tmp.path());
+    // Use iterations=1 to avoid iter_runner looping many times before kill
+    write_cursus_toml(
+        tmp.path(),
+        "build",
+        concat!(
+            "description = \"Build\"\n",
+            "alias = \"b\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+        ),
+    );
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
@@ -1930,6 +1955,7 @@ fn double_ctrl_c_kills_entire_process_tree() {
             .args(["build", "auth", "-a"])
             .env("SGF_AGENT_COMMAND", &mock_agent)
             .env("SGF_READY_FILE", &ready_file)
+            .env_remove("SGF_TEST_NO_SETSID")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped()),
     )
@@ -2123,7 +2149,8 @@ fn afk_mode_child_gets_new_session() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_agent),
+            .env("SGF_AGENT_COMMAND", &mock_agent)
+            .env_remove("SGF_TEST_NO_SETSID"),
     );
     assert!(
         output.status.success(),
@@ -2263,10 +2290,10 @@ fn config_afk_mode_invokes_agent_with_afk_flag() {
     );
 
     let args = fs::read_to_string(&args_file).unwrap();
-    let argv: Vec<&str> = args.split_whitespace().collect();
+    // iter_runner uses --print for AFK mode instead of passing -a to agent
     assert!(
-        argv.contains(&"-a"),
-        "AFK mode from config should pass -a flag to agent, got: {args}"
+        args.contains("--print"),
+        "AFK mode from config should invoke agent with --print (afk marker), got: {args}"
     );
 }
 
@@ -2523,6 +2550,22 @@ fn exit_1_uses_error_styling() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
     setup_default_cursus(tmp.path());
+    // Override build cursus with iterations=1 to avoid timeout from iter_runner loop
+    write_cursus_toml(
+        tmp.path(),
+        "build",
+        concat!(
+            "description = \"Build\"\n",
+            "alias = \"b\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+        ),
+    );
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
@@ -2548,11 +2591,11 @@ fn exit_1_uses_error_styling() {
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     assert!(
-        stderr.contains("cursus STALLED"),
+        stderr.contains("Cursus STALLED"),
         "agent exit 1 without sentinel should stall, got stderr: {stderr}"
     );
     assert!(
-        stderr.contains("\x1b[1;33m"),
+        stderr.contains("\x1b[33m"),
         "stalled should use yellow (warning) styling, got stderr: {stderr}"
     );
 }
@@ -2562,6 +2605,22 @@ fn exit_2_uses_warning_styling() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
     setup_default_cursus(tmp.path());
+    // Override build cursus with iterations=1 to avoid timeout from iter_runner loop
+    write_cursus_toml(
+        tmp.path(),
+        "build",
+        concat!(
+            "description = \"Build\"\n",
+            "alias = \"b\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+        ),
+    );
 
     let mock_dir = TempDir::new().unwrap();
     let mock_agent = create_mock_script(mock_dir.path(), "mock_agent.sh", "#!/bin/sh\nexit 2\n");
@@ -2586,12 +2645,12 @@ fn exit_2_uses_warning_styling() {
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     assert!(
-        stderr.contains("iterations exhausted"),
-        "exit 2 should print 'iterations exhausted' message, got stderr: {stderr}"
+        stderr.contains("Iterations exhausted"),
+        "exit 2 should print 'Iterations exhausted' in stall banner, got stderr: {stderr}"
     );
     assert!(
-        stderr.contains("\x1b[1;33m"),
-        "exit 2 should use yellow (warning) styling, got stderr: {stderr}"
+        stderr.contains("\x1b[33m"),
+        "stalled should use yellow (warning) styling, got stderr: {stderr}"
     );
 }
 
@@ -2600,6 +2659,22 @@ fn no_color_exit_messages_use_plain_prefix() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
     setup_default_cursus(tmp.path());
+    // Override build cursus with iterations=1 to avoid timeout from iter_runner loop
+    write_cursus_toml(
+        tmp.path(),
+        "build",
+        concat!(
+            "description = \"Build\"\n",
+            "alias = \"b\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+        ),
+    );
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_cl_dir = TempDir::new().unwrap();
@@ -2655,7 +2730,7 @@ fn no_color_exit_messages_use_plain_prefix() {
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     assert!(
-        stderr.contains("sgf: cursus STALLED"),
+        stderr.contains("Cursus STALLED"),
         "NO_COLOR exit 1 without sentinel should stall, got stderr: {stderr}"
     );
 
@@ -2677,8 +2752,8 @@ fn no_color_exit_messages_use_plain_prefix() {
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     assert!(
-        stderr.contains("iterations exhausted"),
-        "NO_COLOR exit 2 should show 'iterations exhausted' message, got stderr: {stderr}"
+        stderr.contains("Iterations exhausted"),
+        "NO_COLOR exit 2 should show 'Iterations exhausted' in stall banner, got stderr: {stderr}"
     );
 }
 
@@ -2731,13 +2806,14 @@ fn install_runs_afk_with_one_iteration_via_mock_agent() {
     );
 
     let args = fs::read_to_string(&args_file).unwrap();
-    assert!(args.contains("-a"), "install should run in AFK mode");
+    assert!(
+        args.contains("--print"),
+        "install should run in AFK mode (--print marker), got: {args}"
+    );
     assert!(
         args.contains(".sgf/prompts/install.md"),
         "should pass install prompt path, got: {args}"
     );
-    // iterations = 1 means "1" appears as positional arg before the prompt path
-    assert!(args.contains(" 1 "), "should pass 1 iteration, got: {args}");
 }
 
 #[test]
@@ -2894,9 +2970,12 @@ fn build_dash_a_overrides_mode_to_afk() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    // -a should invoke agent (AFK mode), not cl
+    // -a should invoke agent in AFK mode (with --print marker)
     let args = fs::read_to_string(&args_file).unwrap();
-    assert!(args.contains("-a"), "should pass -a to agent");
+    assert!(
+        args.contains("--print"),
+        "should invoke agent with --print (afk marker), got: {args}"
+    );
     assert!(
         args.contains(".sgf/prompts/build.md"),
         "should pass build prompt path, got: {args}"
@@ -2963,15 +3042,16 @@ fn build_dash_n_overrides_iterations() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let args = fs::read_to_string(&args_file).unwrap();
-    // iterations=5 should override config's 30
+    // Iterations are now managed internally by iter_runner, not passed as agent args.
+    // Verify -n override via the iteration banner in stdout.
+    let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        args.contains(" 5 "),
-        "should pass 5 iterations (not 30), got: {args}"
+        stdout.contains("of 5"),
+        "should show 'of 5' in iteration banner (not 'of 30'), got stdout: {stdout}"
     );
     assert!(
-        !args.contains(" 30 "),
-        "should NOT pass default 30 iterations, got: {args}"
+        !stdout.contains("of 30"),
+        "should NOT show 'of 30' in iteration banner, got stdout: {stdout}"
     );
 }
 
@@ -3050,12 +3130,6 @@ fn e2e_sgf_agent_cl_context_files_in_append_system_prompt() {
     git_add_commit(tmp.path(), "add context files");
 
     let bin_dir = target_bin_dir();
-    let agent_bin = bin_dir.join("ralph");
-    assert!(
-        agent_bin.exists(),
-        "ralph binary not found at {}; run `cargo build --workspace` first",
-        agent_bin.display()
-    );
     assert!(
         bin_dir.join("cl").exists(),
         "cl binary not found at {}; run `cargo build --workspace` first",
@@ -3090,10 +3164,10 @@ fn e2e_sgf_agent_cl_context_files_in_append_system_prompt() {
         std::env::var("PATH").unwrap_or_default(),
     );
 
+    // iter_runner spawns cl directly (no separate agent binary); cl adds context
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_AGENT_COMMAND", &agent_bin)
             .env("PATH", &path)
             .env("HOME", tmp.path().to_str().unwrap()),
     );
@@ -3741,13 +3815,23 @@ fn cursus_single_iter_dispatches_and_completes() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    // Verify agent was invoked with expected flags
+    // Verify agent was invoked with expected flags (iter_runner passes these to cl)
     let args = fs::read_to_string(&args_file).unwrap();
-    assert!(args.contains("-a"), "should pass -a (afk) flag");
-    assert!(args.contains("--loop-id"), "should pass --loop-id");
     assert!(
-        args.contains("--auto-push false"),
-        "should pass --auto-push false, got: {args}"
+        args.contains("--print"),
+        "should pass --print in afk mode, got: {args}"
+    );
+    assert!(
+        args.contains("--output-format stream-json"),
+        "should pass --output-format stream-json in afk mode, got: {args}"
+    );
+    assert!(
+        args.contains("--dangerously-skip-permissions"),
+        "should pass --dangerously-skip-permissions, got: {args}"
+    );
+    assert!(
+        args.contains("--session-id"),
+        "should pass --session-id, got: {args}"
     );
     assert!(
         args.contains(".sgf/prompts/build.md"),
@@ -4331,12 +4415,12 @@ fn cursus_multi_iter_context_passing() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    // Verify that draft received context from discuss via --prompt-file
-    // The consumed content is written to a _consumed.md file and passed via --prompt-file
+    // Verify that draft received context from discuss via --append-system-prompt
+    // The consumed content is written to a _consumed file and injected via --append-system-prompt
     let draft_args = fs::read_to_string(&draft_args_file).unwrap();
     assert!(
-        draft_args.contains("--prompt-file"),
-        "draft should receive consumed context via --prompt-file, got: {draft_args}"
+        draft_args.contains("--append-system-prompt"),
+        "draft should receive consumed context via --append-system-prompt, got: {draft_args}"
     );
 
     // Verify the context file was written and contains the consumed content
@@ -4705,10 +4789,12 @@ fn cursus_banner_true_passes_banner_flag_to_agent() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let args = fs::read_to_string(&args_file).unwrap();
+    // Banner is now rendered directly by iter_runner, not passed as agent flag.
+    // Verify banner output appears in stdout.
+    let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        args.contains("--banner"),
-        "should pass --banner flag when banner = true, got: {args}"
+        stdout.contains("Loop Starting"),
+        "banner = true should render startup banner in stdout, got: {stdout}"
     );
 }
 
@@ -4984,33 +5070,29 @@ fn cursus_afk_then_interactive_stdin_not_stolen() {
     let mock_dir = TempDir::new().unwrap();
     let stdin_capture = mock_dir.path().join("stdin_capture.txt");
 
+    // Unified mock cl that handles both AFK mode (--print flag) and interactive mode.
+    // In AFK mode: creates context and sentinel.
+    // In interactive mode: reads stdin and captures it.
     let mock_agent = create_mock_script(
         mock_dir.path(),
         "mock_agent.sh",
-        concat!(
-            "#!/bin/sh\n",
-            "mkdir -p \"$SGF_RUN_CONTEXT\"\n",
-            "echo 'gathered' > \"$SGF_RUN_CONTEXT/gather-output.md\"\n",
-            "touch \"${PWD}/.iter-complete\"\n",
-            "exit 0\n",
-        ),
-    );
-
-    let mock_cl_dir = TempDir::new().unwrap();
-    create_mock_script(
-        mock_cl_dir.path(),
-        "cl",
         &format!(
             concat!(
                 "#!/bin/bash\n",
-                "read -t 5 LINE\n",
-                "echo \"$LINE\" > \"{capture}\"\n",
-                "exit 0\n",
+                "if echo \"$@\" | grep -q -- '--print'; then\n",
+                "  mkdir -p \"$SGF_RUN_CONTEXT\" 2>/dev/null\n",
+                "  echo 'gathered' > \"$SGF_RUN_CONTEXT/gather-output.md\"\n",
+                "  touch \"${{PWD}}/.iter-complete\"\n",
+                "  exit 0\n",
+                "else\n",
+                "  read -t 5 LINE\n",
+                "  echo \"$LINE\" > \"{capture}\"\n",
+                "  exit 0\n",
+                "fi\n",
             ),
             capture = stdin_capture.display()
         ),
     );
-    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
 
     write_cursus_toml(
         tmp.path(),
@@ -5038,7 +5120,6 @@ fn cursus_afk_then_interactive_stdin_not_stolen() {
         sgf_cmd(tmp.path())
             .args(["mixed", "auth"])
             .env("SGF_AGENT_COMMAND", &mock_agent)
-            .env("PATH", &mock_path_with_cl)
             .env_remove("CLAUDECODE")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
