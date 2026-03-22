@@ -350,14 +350,9 @@ fn run_cursus_loop(
             .unwrap_or_else(|| iter.mode.clone());
 
         let is_afk = effective_mode == Mode::Afk;
-        let monitor_stdin = config.monitor_stdin_override.unwrap_or_else(|| {
-            if is_afk {
-                std::env::var("SGF_MONITOR_STDIN")
-                    .map_or_else(|_| std::io::stdin().is_terminal(), |v| v != "0")
-            } else {
-                false
-            }
-        });
+        let monitor_stdin = config
+            .monitor_stdin_override
+            .unwrap_or_else(|| is_afk && std::io::stdin().is_terminal());
         let controller = ShutdownController::new(ShutdownConfig {
             monitor_stdin,
             ..Default::default()

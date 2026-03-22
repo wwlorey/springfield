@@ -259,12 +259,7 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
         &session_id,
     );
 
-    let monitor_stdin = if is_afk {
-        std::env::var("SGF_MONITOR_STDIN")
-            .map_or_else(|_| std::io::stdin().is_terminal(), |v| v != "0")
-    } else {
-        false
-    };
+    let monitor_stdin = is_afk && std::io::stdin().is_terminal();
     let controller = ShutdownController::new(ShutdownConfig {
         monitor_stdin,
         ..Default::default()
