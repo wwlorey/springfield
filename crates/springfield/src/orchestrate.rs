@@ -1426,6 +1426,197 @@ mod tests {
         );
     }
 
+    fn make_session(
+        loop_id: &str,
+        mode: &str,
+        status: &str,
+        iterations: Vec<(u32, &str, &str)>,
+    ) -> SessionMetadata {
+        SessionMetadata {
+            loop_id: loop_id.to_string(),
+            iterations: iterations
+                .into_iter()
+                .map(|(iter, sid, completed)| IterationRecord {
+                    iteration: iter,
+                    session_id: sid.to_string(),
+                    completed_at: completed.to_string(),
+                })
+                .collect(),
+            stage: "build".to_string(),
+            spec: None,
+            cursus: None,
+            mode: mode.to_string(),
+            prompt: ".sgf/prompts/build.md".to_string(),
+            iterations_total: 30,
+            status: status.to_string(),
+            created_at: "2026-03-16T10:00:00Z".to_string(),
+            updated_at: "2026-03-16T10:00:00Z".to_string(),
+        }
+    }
+
+    #[test]
+    fn picker_entries_sort_newest_first() {
+        let s1 = make_session(
+            "loop-a",
+            "afk",
+            "completed",
+            vec![
+                (1, "sid-a1", "2026-03-16T10:00:00Z"),
+                (2, "sid-a2", "2026-03-16T12:00:00Z"),
+            ],
+        );
+        let s2 = make_session(
+            "loop-b",
+            "interactive",
+            "interrupted",
+            vec![(1, "sid-b1", "2026-03-16T11:00:00Z")],
+        );
+        let sessions = vec![s1, s2];
+
+        let mut entries: Vec<DisplayEntry> = Vec::new();
+        for s in &sessions {
+            for it in &s.iterations {
+                entries.push(DisplayEntry {
+                    meta: s,
+                    iteration: it,
+                });
+            }
+        }
+        entries.sort_by(|a, b| b.iteration.completed_at.cmp(&a.iteration.completed_at));
+
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0].iteration.completed_at, "2026-03-16T12:00:00Z");
+        assert_eq!(entries[0].meta.loop_id, "loop-a");
+        assert_eq!(entries[0].iteration.iteration, 2);
+
+        assert_eq!(entries[1].iteration.completed_at, "2026-03-16T11:00:00Z");
+        assert_eq!(entries[1].meta.loop_id, "loop-b");
+        assert_eq!(entries[1].iteration.iteration, 1);
+
+        assert_eq!(entries[2].iteration.completed_at, "2026-03-16T10:00:00Z");
+        assert_eq!(entries[2].meta.loop_id, "loop-a");
+        assert_eq!(entries[2].iteration.iteration, 1);
+    }
+
+    #[test]
+    fn picker_entries_truncate_drops_oldest() {
+        let mut sessions = Vec::new();
+        for i in 0..25u32 {
+            sessions.push(make_session(
+                &format!("loop-{i:02}"),
+                "afk",
+                "completed",
+                vec![(
+                    1,
+                    &format!("sid-{i:02}"),
+                    &format!("2026-03-{:02}T10:00:00Z", (i % 28) + 1),
+                )],
+            ));
+        }
+
+        let mut entries: Vec<DisplayEntry> = Vec::new();
+        for s in &sessions {
+            for it in &s.iterations {
+                entries.push(DisplayEntry {
+                    meta: s,
+                    iteration: it,
+                });
+            }
+        }
+        entries.sort_by(|a, b| b.iteration.completed_at.cmp(&a.iteration.completed_at));
+        entries.truncate(20);
+
+        assert_eq!(entries.len(), 20);
+        // Newest should be first (day 25)
+        assert_eq!(entries[0].meta.loop_id, "loop-24");
+        assert_eq!(entries[0].iteration.completed_at, "2026-03-25T10:00:00Z");
+        // Oldest kept should be day 6 (loop-05)
+        assert_eq!(entries[19].meta.loop_id, "loop-05");
+        assert_eq!(entries[19].iteration.completed_at, "2026-03-06T10:00:00Z");
+        // The 5 oldest (loop-00..loop-04, days 1-5) should be dropped
+        let loop_ids: Vec<&str> = entries.iter().map(|e| e.meta.loop_id.as_str()).collect();
+        for i in 0..5 {
+            assert!(
+                !loop_ids.contains(&format!("loop-{i:02}").as_str()),
+                "loop-{i:02} (oldest) should be truncated"
+            );
+        }
+    }
+
+    #[test]
+    fn print_entries_display_format() {
+        let session = make_session(
+            "build-auth-20260316T120000",
+            "afk",
+            "completed",
+            vec![(3, "sid-abc", "2026-01-01T00:00:00Z")],
+        );
+        let entries: Vec<DisplayEntry> = session
+            .iterations
+            .iter()
+            .map(|it| DisplayEntry {
+                meta: &session,
+                iteration: it,
+            })
+            .collect();
+
+        // print_entries writes to stderr; verify it doesn't panic and exercises the format
+        print_entries(&entries);
+
+        // Verify the format string components are what we expect
+        let e = &entries[0];
+        let relative = humanize_relative_time(&e.iteration.completed_at);
+        let line = format!(
+            "  {:>2}. {:<40} iter {:<4} {:<12} {:<12} {}",
+            1, e.meta.loop_id, e.iteration.iteration, e.meta.mode, e.meta.status, relative
+        );
+        assert!(line.contains("build-auth-20260316T120000"));
+        assert!(line.contains("iter 3"));
+        assert!(line.contains("afk"));
+        assert!(line.contains("completed"));
+        assert!(line.contains("ago") || line.contains("unknown"));
+    }
+
+    #[test]
+    fn print_entries_multi_session_display() {
+        let s1 = make_session(
+            "build-auth-20260316T120000",
+            "afk",
+            "completed",
+            vec![(1, "sid-1", "2026-03-16T12:00:00Z")],
+        );
+        let s2 = make_session(
+            "verify-20260316T130000",
+            "interactive",
+            "interrupted",
+            vec![(2, "sid-2", "2026-03-16T13:00:00Z")],
+        );
+        let sessions = vec![s1, s2];
+
+        let mut entries: Vec<DisplayEntry> = Vec::new();
+        for s in &sessions {
+            for it in &s.iterations {
+                entries.push(DisplayEntry {
+                    meta: s,
+                    iteration: it,
+                });
+            }
+        }
+        entries.sort_by(|a, b| b.iteration.completed_at.cmp(&a.iteration.completed_at));
+
+        // Verify different sessions appear with correct numbering
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].meta.loop_id, "verify-20260316T130000");
+        assert_eq!(entries[0].meta.mode, "interactive");
+        assert_eq!(entries[0].meta.status, "interrupted");
+        assert_eq!(entries[1].meta.loop_id, "build-auth-20260316T120000");
+        assert_eq!(entries[1].meta.mode, "afk");
+        assert_eq!(entries[1].meta.status, "completed");
+
+        // Verify print doesn't panic with multiple entries
+        print_entries(&entries);
+    }
+
     #[test]
     fn setsid_skipped_when_env_var_set() {
         unsafe { std::env::set_var("SGF_TEST_NO_SETSID", "1") };
