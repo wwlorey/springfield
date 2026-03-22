@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::io::IsTerminal;
@@ -270,6 +271,15 @@ pub enum ResumeAction {
     Abort,
 }
 
+fn format_context_line(context_producers: &HashMap<String, String>) -> Option<String> {
+    if context_producers.is_empty() {
+        return None;
+    }
+    let mut keys: Vec<&str> = context_producers.keys().map(|s| s.as_str()).collect();
+    keys.sort();
+    Some(format!("  context: {}", keys.join(", ")))
+}
+
 fn prompt_resume_action(meta: &RunMetadata) -> io::Result<ResumeAction> {
     eprintln!();
     style::print_warning_detail(
@@ -281,6 +291,9 @@ fn prompt_resume_action(meta: &RunMetadata) -> io::Result<ResumeAction> {
             meta.current_iter_index as usize + meta.iters_completed.len() + 1
         ),
     );
+    if let Some(line) = format_context_line(&meta.context_producers) {
+        eprintln!("{line}");
+    }
     eprintln!();
     eprintln!("  1. Retry  — re-run the stalled iter");
     eprintln!("  2. Skip   — advance to the next iter");
@@ -1789,6 +1802,34 @@ prompt = "build.md"
         assert!(
             widths.windows(2).all(|w| w[0] == w[1]),
             "widths not aligned: {widths:?}\n{stripped}"
+        );
+    }
+
+    #[test]
+    fn format_context_line_empty() {
+        let producers = HashMap::new();
+        assert_eq!(format_context_line(&producers), None);
+    }
+
+    #[test]
+    fn format_context_line_single_key() {
+        let mut producers = HashMap::new();
+        producers.insert("spec-output".to_string(), "spec-gen".to_string());
+        assert_eq!(
+            format_context_line(&producers),
+            Some("  context: spec-output".to_string())
+        );
+    }
+
+    #[test]
+    fn format_context_line_multiple_keys_sorted() {
+        let mut producers = HashMap::new();
+        producers.insert("test-plan".to_string(), "test".to_string());
+        producers.insert("build-log".to_string(), "build".to_string());
+        producers.insert("spec-output".to_string(), "spec-gen".to_string());
+        assert_eq!(
+            format_context_line(&producers),
+            Some("  context: build-log, spec-output, test-plan".to_string())
         );
     }
 }
