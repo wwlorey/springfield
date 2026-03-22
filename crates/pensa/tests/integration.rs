@@ -2597,3 +2597,244 @@ fn refs_cascade_on_force_delete() {
         "doc-refs endpoint should 404 for deleted issue"
     );
 }
+
+#[test]
+fn export_import_round_trip_full_data_verification() {
+    let d = PensaOnlyDaemon::start();
+
+    // --- Create two issues ---
+    let resp = d
+        .client
+        .post(d.url("/issues"))
+        .json(&serde_json::json!({
+            "title": "Parent task",
+            "issue_type": "task",
+            "priority": "p1",
+            "description": "The parent task description",
+            "actor": "rt-tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    let parent: Value = resp.json().unwrap();
+    let parent_id = parent["id"].as_str().unwrap().to_string();
+
+    let resp = d
+        .client
+        .post(d.url("/issues"))
+        .json(&serde_json::json!({
+            "title": "Child bug",
+            "issue_type": "bug",
+            "priority": "p0",
+            "description": "A critical bug",
+            "actor": "rt-tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    let child: Value = resp.json().unwrap();
+    let child_id = child["id"].as_str().unwrap().to_string();
+
+    // --- Add dependency: child depends on parent ---
+    let resp = d
+        .client
+        .post(d.url("/deps"))
+        .json(&serde_json::json!({
+            "issue_id": child_id,
+            "depends_on_id": parent_id
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    // --- Add comments ---
+    let resp = d
+        .client
+        .post(d.url(&format!("/issues/{parent_id}/comments")))
+        .json(&serde_json::json!({
+            "text": "Parent comment alpha",
+            "actor": "rt-tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    let parent_comment: Value = resp.json().unwrap();
+    let parent_comment_id = parent_comment["id"].as_str().unwrap().to_string();
+
+    let resp = d
+        .client
+        .post(d.url(&format!("/issues/{child_id}/comments")))
+        .json(&serde_json::json!({
+            "text": "Child comment beta",
+            "actor": "rt-tester"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    let child_comment: Value = resp.json().unwrap();
+    let child_comment_id = child_comment["id"].as_str().unwrap().to_string();
+
+    // --- Add src-refs ---
+    let resp = d
+        .client
+        .post(d.url(&format!("/issues/{parent_id}/src-refs")))
+        .json(&serde_json::json!({
+            "path": "crates/pensa/src/db.rs",
+            "reason": "Database layer for parent"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    let parent_src_ref: Value = resp.json().unwrap();
+    let parent_src_ref_id = parent_src_ref["id"].as_str().unwrap().to_string();
+
+    // --- Add doc-refs ---
+    let resp = d
+        .client
+        .post(d.url(&format!("/issues/{child_id}/doc-refs")))
+        .json(&serde_json::json!({
+            "path": "specs/pensa.md",
+            "reason": "Spec for child bug"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    let child_doc_ref: Value = resp.json().unwrap();
+    let child_doc_ref_id = child_doc_ref["id"].as_str().unwrap().to_string();
+
+    // --- Export ---
+    let resp = d.client.post(d.url("/export")).send().unwrap();
+    assert_eq!(resp.status(), 200);
+    let export: Value = resp.json().unwrap();
+    assert_eq!(export["status"], "ok");
+    assert_eq!(export["issues"], 2);
+    assert_eq!(export["deps"], 1);
+    assert_eq!(export["comments"], 2);
+    assert_eq!(export["src_refs"], 1);
+    assert_eq!(export["doc_refs"], 1);
+
+    // Verify JSONL files exist
+    let pensa_dir = d.dir().join(".pensa");
+    assert!(pensa_dir.join("issues.jsonl").exists());
+    assert!(pensa_dir.join("deps.jsonl").exists());
+    assert!(pensa_dir.join("comments.jsonl").exists());
+    assert!(pensa_dir.join("src_refs.jsonl").exists());
+    assert!(pensa_dir.join("doc_refs.jsonl").exists());
+
+    // --- Import (clears DB, re-inserts from JSONL) ---
+    let resp = d.client.post(d.url("/import")).send().unwrap();
+    assert_eq!(resp.status(), 200);
+    let import: Value = resp.json().unwrap();
+    assert_eq!(import["status"], "ok");
+    assert_eq!(import["issues"], 2);
+    assert_eq!(import["deps"], 1);
+    assert_eq!(import["comments"], 2);
+    assert_eq!(import["src_refs"], 1);
+    assert_eq!(import["doc_refs"], 1);
+
+    // --- Verify parent issue intact ---
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{parent_id}")))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let parent_after: Value = resp.json().unwrap();
+    assert_eq!(parent_after["id"], parent_id.as_str());
+    assert_eq!(parent_after["title"], "Parent task");
+    assert_eq!(parent_after["issue_type"], "task");
+    assert_eq!(parent_after["priority"], "p1");
+    assert_eq!(parent_after["description"], "The parent task description");
+    assert_eq!(parent_after["status"], "open");
+
+    // --- Verify child issue intact ---
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{child_id}")))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let child_after: Value = resp.json().unwrap();
+    assert_eq!(child_after["id"], child_id.as_str());
+    assert_eq!(child_after["title"], "Child bug");
+    assert_eq!(child_after["issue_type"], "bug");
+    assert_eq!(child_after["priority"], "p0");
+    assert_eq!(child_after["description"], "A critical bug");
+
+    // --- Verify dependency graph intact ---
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{child_id}/deps")))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let deps: Vec<Value> = resp.json().unwrap();
+    assert_eq!(deps.len(), 1, "child should have 1 dependency after import");
+    assert_eq!(deps[0]["id"], parent_id.as_str());
+
+    // --- Verify comments intact ---
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{parent_id}/comments")))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let comments: Vec<Value> = resp.json().unwrap();
+    assert_eq!(
+        comments.len(),
+        1,
+        "parent should have 1 comment after import"
+    );
+    assert_eq!(comments[0]["id"], parent_comment_id.as_str());
+    assert_eq!(comments[0]["text"], "Parent comment alpha");
+    assert_eq!(comments[0]["actor"], "rt-tester");
+
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{child_id}/comments")))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let comments: Vec<Value> = resp.json().unwrap();
+    assert_eq!(
+        comments.len(),
+        1,
+        "child should have 1 comment after import"
+    );
+    assert_eq!(comments[0]["id"], child_comment_id.as_str());
+    assert_eq!(comments[0]["text"], "Child comment beta");
+
+    // --- Verify src-refs intact ---
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{parent_id}/src-refs")))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let src_refs: Vec<Value> = resp.json().unwrap();
+    assert_eq!(
+        src_refs.len(),
+        1,
+        "parent should have 1 src-ref after import"
+    );
+    assert_eq!(src_refs[0]["id"], parent_src_ref_id.as_str());
+    assert_eq!(src_refs[0]["path"], "crates/pensa/src/db.rs");
+    assert_eq!(src_refs[0]["reason"], "Database layer for parent");
+
+    // --- Verify doc-refs intact ---
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{child_id}/doc-refs")))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let doc_refs: Vec<Value> = resp.json().unwrap();
+    assert_eq!(
+        doc_refs.len(),
+        1,
+        "child should have 1 doc-ref after import"
+    );
+    assert_eq!(doc_refs[0]["id"], child_doc_ref_id.as_str());
+    assert_eq!(doc_refs[0]["path"], "specs/pensa.md");
+    assert_eq!(doc_refs[0]["reason"], "Spec for child bug");
+}
