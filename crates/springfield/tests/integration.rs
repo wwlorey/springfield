@@ -5460,3 +5460,1277 @@ fn simple_prompt_mode_nonexistent_file_falls_through_to_cursus() {
         "should report unknown command, got: {stderr}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Migrated from crates/ralph/tests/integration.rs
+// These tests exercise the iter_runner module through sgf simple prompt mode.
+// ---------------------------------------------------------------------------
+
+fn fixtures_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+}
+
+fn create_fixture_mock(dir: &Path, fixture_name: &str) -> PathBuf {
+    let fixture_path = fixtures_dir().join(fixture_name);
+    create_mock_script(
+        dir,
+        "mock_agent.sh",
+        &format!("#!/bin/bash\ncat {}\n", fixture_path.display()),
+    )
+}
+
+fn create_fixture_mock_with_sentinel(dir: &Path, fixture_name: &str) -> PathBuf {
+    let fixture_path = fixtures_dir().join(fixture_name);
+    create_mock_script(
+        dir,
+        "mock_agent.sh",
+        &format!(
+            "#!/bin/bash\ncat {}\ntouch .iter-complete\n",
+            fixture_path.display()
+        ),
+    )
+}
+
+fn create_fixture_mock_with_nested_sentinel(
+    dir: &Path,
+    fixture_name: &str,
+    subdir: &str,
+) -> PathBuf {
+    let fixture_path = fixtures_dir().join(fixture_name);
+    let nested_dir = dir.join(subdir);
+    fs::create_dir_all(&nested_dir).expect("create nested dir");
+    let sentinel_path = nested_dir.join(".iter-complete");
+    create_mock_script(
+        dir,
+        "mock_agent.sh",
+        &format!(
+            "#!/bin/bash\ncat {}\ntouch {}\n",
+            fixture_path.display(),
+            sentinel_path.display()
+        ),
+    )
+}
+
+fn create_fixture_arg_capturing_mock(dir: &Path, fixture_name: &str) -> PathBuf {
+    let fixture_path = fixtures_dir().join(fixture_name);
+    let args_file = dir.join("captured-args.txt");
+    create_mock_script(
+        dir,
+        "mock_agent.sh",
+        &format!(
+            "#!/bin/bash\nprintf '%s\\n' \"$@\" > {}\ncat {}\ntouch .iter-complete\n",
+            args_file.display(),
+            fixture_path.display()
+        ),
+    )
+}
+
+fn create_fixture_slow_mock(dir: &Path, fixture_name: &str) -> PathBuf {
+    let fixture_path = fixtures_dir().join(fixture_name);
+    create_mock_script(
+        dir,
+        "mock_agent.sh",
+        &format!(
+            "#!/bin/bash\ntrap '' INT\nfor i in $(seq 1 50); do cat {}; sleep 0.1; done\n",
+            fixture_path.display()
+        ),
+    )
+}
+
+fn create_fixture_multi_iter_arg_capturing_mock(dir: &Path, fixture_name: &str) -> PathBuf {
+    let fixture_path = fixtures_dir().join(fixture_name);
+    let args_dir = dir.join("captured-args");
+    fs::create_dir_all(&args_dir).expect("create captured-args dir");
+    create_mock_script(
+        dir,
+        "mock_agent.sh",
+        &format!(
+            r#"#!/bin/bash
+COUNTER_FILE="{counter}"
+if [ ! -f "$COUNTER_FILE" ]; then
+    echo 1 > "$COUNTER_FILE"
+    N=1
+else
+    N=$(cat "$COUNTER_FILE")
+    N=$((N + 1))
+    echo $N > "$COUNTER_FILE"
+fi
+printf '%s\n' "$@" > "{args_dir}/invocation-$N.txt"
+cat {fixture}
+"#,
+            counter = dir.join("invocation-counter.txt").display(),
+            args_dir = args_dir.display(),
+            fixture = fixture_path.display(),
+        ),
+    )
+}
+
+/// Helper: build sgf command for simple prompt mode with a mock agent.
+/// Sets up the prompt file and returns (mock_path, prompt_filename).
+fn setup_simple_prompt_test(dir: &Path) -> &'static str {
+    fs::write(dir.join("prompt.md"), "Test prompt.\n").expect("write prompt.md");
+    "prompt.md"
+}
+
+// ---- NDJSON output formatting ----
+
+#[test]
+fn iter_afk_formats_text_blocks() {
+    let tmp = setup_test_dir();
+    let prompt = setup_simple_prompt_test(tmp.path());
+    let mock = create_fixture_mock(tmp.path(), "afk-session.ndjson");
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args([prompt, "-a"])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .stdin(Stdio::null()),
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        stdout.contains(
+            "I'll start by studying the required files to understand the context and plan."
+        ),
+        "should contain first text block, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Now I can see the cleanup plan."),
+        "should contain second text block, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Done. Updated `specs/tokenizer-embedding.md`"),
+        "should contain final text block, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn iter_afk_formats_tool_calls_as_one_liners() {
+    let tmp = setup_test_dir();
+    let prompt = setup_simple_prompt_test(tmp.path());
+    let mock = create_fixture_mock(tmp.path(), "afk-session.ndjson");
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args([prompt, "-a"])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .env("NO_COLOR", "1")
+            .stdin(Stdio::null()),
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        stdout.contains("─ Read  /Users/william/Repos/buddy-ralph/specs/README.md"),
+        "should contain Read tool call, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains(
+            "─ Read  /Users/william/Repos/buddy-ralph/crates/buddy-llm/src/inference.rs 1:80"
+        ),
+        "should contain Read with offset:limit, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("─ Edit  /Users/william/Repos/buddy-ralph/specs/tokenizer-embedding.md"),
+        "should contain Edit tool call, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("─ TodoWrite  3 items"),
+        "should contain TodoWrite with count, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("─ Bash  git diff specs/tokenizer-embedding.md plans/cleanup/buddy-llm.md"),
+        "should contain Bash tool call, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("─ Grep  GgufModelBuilder"),
+        "should contain Grep tool call, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("─ Glob  specs/**/*.md"),
+        "should contain Glob tool call, got:\n{stdout}"
+    );
+
+    assert!(
+        !stdout.contains("\"old_string\""),
+        "should not contain raw Edit old_string key"
+    );
+    assert!(
+        !stdout.contains("\"new_string\""),
+        "should not contain raw Edit new_string key"
+    );
+    assert!(
+        !stdout.contains("\"replace_all\""),
+        "should not contain raw Edit replace_all key"
+    );
+    assert!(
+        !stdout.contains("GgufModelBuilder::new"),
+        "should not contain content from Edit old_string value"
+    );
+    assert!(
+        !stdout.contains("file_path:"),
+        "should not contain old jq-style 'file_path:' formatting"
+    );
+}
+
+#[test]
+fn iter_bash_command_truncation() {
+    let tmp = setup_test_dir();
+    let prompt = setup_simple_prompt_test(tmp.path());
+    let mock = create_fixture_mock(tmp.path(), "afk-session.ndjson");
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args([prompt, "-a"])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .env("NO_COLOR", "1")
+            .stdin(Stdio::null()),
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        stdout.contains("─ Bash  git add specs/tokenizer-embedding.md"),
+        "should contain the long Bash tool call, got stdout:\n{stdout}"
+    );
+
+    let start = stdout
+        .find("─ Bash  git add specs/tokenizer-embedding.md")
+        .expect("should find Bash tool call");
+    let rest = &stdout[start..];
+    assert!(
+        rest.contains("..."),
+        "truncated Bash command should contain '...', got:\n{rest}"
+    );
+
+    assert!(
+        stdout.contains("─ Bash  git log --oneline -5"),
+        "short Bash command should not be truncated, got stdout:\n{stdout}"
+    );
+}
+
+#[test]
+fn iter_afk_hides_tool_results() {
+    let tmp = setup_test_dir();
+    let prompt = setup_simple_prompt_test(tmp.path());
+    let mock = create_fixture_mock(tmp.path(), "afk-session.ndjson");
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args([prompt, "-a"])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .env("NO_COLOR", "1")
+            .stdin(Stdio::null()),
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        !stdout.contains("# Buddy Ralph Specifications"),
+        "should NOT contain tool result content from Read, got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("Applied edit to specs/tokenizer-embedding.md"),
+        "should NOT contain tool result from Edit, got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("No such file or directory"),
+        "should NOT contain error tool result content, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn iter_afk_hides_test_result_lines() {
+    let tmp = setup_test_dir();
+    let prompt = setup_simple_prompt_test(tmp.path());
+    let mock = create_fixture_mock(tmp.path(), "test-results.ndjson");
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args([prompt, "-a"])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .env_remove("NO_COLOR")
+            .stdin(Stdio::null()),
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        !stdout.contains("test inference::test_load_model ... ok"),
+        "tool result lines should NOT appear in AFK output, got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("test inference::test_generate ... FAILED"),
+        "tool result lines should NOT appear in AFK output, got:\n{stdout}"
+    );
+}
+
+// ---- ANSI color handling ----
+
+#[test]
+fn iter_afk_no_color_disables_ansi() {
+    let tmp = setup_test_dir();
+    let prompt = setup_simple_prompt_test(tmp.path());
+    let mock = create_fixture_mock(tmp.path(), "afk-session.ndjson");
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args([prompt, "-a"])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .env("NO_COLOR", "1")
+            .stdin(Stdio::null()),
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    let has_ansi_style = stdout.as_bytes().windows(2).enumerate().any(|(i, w)| {
+        if w == b"\x1b[" {
+            let rest = &stdout.as_bytes()[i + 2..];
+            if rest.first() == Some(&b'2') && rest.get(1) == Some(&b'K') {
+                return false;
+            }
+            rest.iter()
+                .take_while(|&&b| b.is_ascii_digit() || b == b';')
+                .last()
+                .is_some()
+                && rest
+                    .iter()
+                    .position(|&b| !b.is_ascii_digit() && b != b';')
+                    .map(|pos| rest[pos] == b'm')
+                    .unwrap_or(false)
+        } else {
+            false
+        }
+    });
+    assert!(
+        !has_ansi_style,
+        "NO_COLOR=1 should produce no ANSI style/color codes in stdout"
+    );
+
+    assert!(
+        stdout.contains("─ Read"),
+        "should still contain tool call formatting without ANSI, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn iter_afk_tool_calls_have_ansi_colors() {
+    let tmp = setup_test_dir();
+    let prompt = setup_simple_prompt_test(tmp.path());
+    let mock = create_fixture_mock(tmp.path(), "afk-session.ndjson");
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args([prompt, "-a"])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .env_remove("NO_COLOR")
+            .stdin(Stdio::null()),
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        stdout.contains("\x1b[1;34mRead\x1b[0m"),
+        "Read tool call should have bold blue ANSI codes, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("\x1b[1;33mBash\x1b[0m"),
+        "Bash tool call should have bold yellow ANSI codes, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("\x1b[1;35mEdit\x1b[0m"),
+        "Edit tool call should have bold magenta ANSI codes, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("\x1b[1;34mGrep\x1b[0m"),
+        "Grep tool call should have bold blue ANSI codes, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("\x1b[1;34mGlob\x1b[0m"),
+        "Glob tool call should have bold blue ANSI codes, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("\x1b[1;36mTodoWrite\x1b[0m"),
+        "TodoWrite tool call should have bold cyan ANSI codes, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("\x1b[37m"),
+        "tool call details should have white ANSI codes, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn iter_afk_agent_text_has_bold_white_ansi() {
+    let tmp = setup_test_dir();
+    let prompt = setup_simple_prompt_test(tmp.path());
+    let mock = create_fixture_mock(tmp.path(), "afk-session.ndjson");
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args([prompt, "-a"])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .env_remove("NO_COLOR")
+            .stdin(Stdio::null()),
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        stdout.contains("\x1b[37m\x1b[1mI'll start by studying the required files"),
+        "agent text should have white+bold ANSI codes, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("\x1b[37m\x1b[1mNow I can see the cleanup plan."),
+        "agent text should have white+bold ANSI codes, got:\n{stdout}"
+    );
+}
+
+// ---- Sentinel detection & exit codes ----
+
+#[test]
+fn iter_afk_detects_completion_file() {
+    let tmp = setup_test_dir();
+    let prompt = setup_simple_prompt_test(tmp.path());
+    let mock = create_fixture_mock_with_sentinel(tmp.path(), "complete.ndjson");
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args([prompt, "-a"])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .stdin(Stdio::null()),
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        output.status.success(),
+        "should exit 0 on completion file, got: {:?}\nstdout:\n{stdout}",
+        output.status.code()
+    );
+    assert!(
+        stdout.contains("COMPLETE"),
+        "should contain COMPLETE banner, got:\n{stdout}"
+    );
+    assert!(
+        !tmp.path().join(".iter-complete").exists(),
+        "sentinel file should be cleaned up after exit"
+    );
+}
+
+#[test]
+fn iter_afk_detects_nested_completion_file() {
+    let tmp = setup_test_dir();
+    let prompt = setup_simple_prompt_test(tmp.path());
+    let mock =
+        create_fixture_mock_with_nested_sentinel(tmp.path(), "complete.ndjson", "sub/project");
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args([prompt, "-a"])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .stdin(Stdio::null()),
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        output.status.success(),
+        "should exit 0 on nested completion file, got: {:?}\nstdout:\n{stdout}",
+        output.status.code()
+    );
+    assert!(
+        stdout.contains("COMPLETE"),
+        "should contain COMPLETE banner, got:\n{stdout}"
+    );
+    assert!(
+        !tmp.path().join("sub/project/.iter-complete").exists(),
+        "nested sentinel file should be cleaned up after exit"
+    );
+}
+
+#[test]
+fn iter_afk_exhausts_iterations_without_completion() {
+    let tmp = setup_test_dir();
+    let prompt = setup_simple_prompt_test(tmp.path());
+    let mock = create_fixture_mock(tmp.path(), "afk-session.ndjson");
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args([prompt, "-a"])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .stdin(Stdio::null()),
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        !output.status.success(),
+        "should exit non-zero when no completion found"
+    );
+    assert_eq!(output.status.code(), Some(2), "should exit with code 2");
+    assert!(
+        stdout.contains("reached max iterations"),
+        "should contain max iterations message, got:\n{stdout}"
+    );
+}
+
+// ---- Banner formatting ----
+
+#[test]
+fn iter_startup_banner_uses_box_format() {
+    let tmp = setup_test_dir();
+    let prompt = setup_simple_prompt_test(tmp.path());
+    let mock = create_fixture_mock_with_sentinel(tmp.path(), "complete.ndjson");
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args([prompt, "-a"])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .env("NO_COLOR", "1")
+            .stdin(Stdio::null()),
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        stdout.contains("╭─ sgf Loop Starting"),
+        "startup banner should use box format with 'sgf' name, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn iter_iteration_banner_uses_box_format() {
+    let tmp = setup_test_dir();
+    let prompt = setup_simple_prompt_test(tmp.path());
+    let mock = create_fixture_mock_with_sentinel(tmp.path(), "complete.ndjson");
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args([prompt, "-a"])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .env("NO_COLOR", "1")
+            .stdin(Stdio::null()),
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        stdout.contains("╭─ Iteration 1 of"),
+        "iteration banner should use box format, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn iter_completion_banner_uses_box_format() {
+    let tmp = setup_test_dir();
+    let prompt = setup_simple_prompt_test(tmp.path());
+    let mock = create_fixture_mock_with_sentinel(tmp.path(), "complete.ndjson");
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args([prompt, "-a"])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .env("NO_COLOR", "1")
+            .stdin(Stdio::null()),
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        stdout.contains("╭─ sgf COMPLETE"),
+        "completion banner should use box format with 'sgf' name, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn iter_max_iterations_banner_uses_box_format() {
+    let tmp = setup_test_dir();
+    let prompt = setup_simple_prompt_test(tmp.path());
+    let mock = create_fixture_mock(tmp.path(), "afk-session.ndjson");
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args([prompt, "-a"])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .env("NO_COLOR", "1")
+            .stdin(Stdio::null()),
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert_eq!(output.status.code(), Some(2), "should exit with code 2");
+    assert!(
+        stdout.contains("╭─ sgf reached max iterations"),
+        "max-iterations banner should use box format with 'sgf' name, got:\n{stdout}"
+    );
+}
+
+// ---- Agent invocation flags ----
+
+#[test]
+fn iter_afk_invocation_passes_correct_flags() {
+    let tmp = setup_test_dir();
+    let prompt = setup_simple_prompt_test(tmp.path());
+    let mock = create_fixture_arg_capturing_mock(tmp.path(), "complete.ndjson");
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args([prompt, "-a"])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .stdin(Stdio::null()),
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "should exit 0, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        output.status.code()
+    );
+
+    let args =
+        fs::read_to_string(tmp.path().join("captured-args.txt")).expect("read captured args");
+    let arg_lines: Vec<&str> = args.lines().collect();
+
+    assert!(
+        arg_lines.contains(&"--verbose"),
+        "should pass --verbose, got args:\n{args}"
+    );
+    assert!(
+        arg_lines.contains(&"--print"),
+        "should pass --print in AFK mode, got args:\n{args}"
+    );
+    assert!(
+        arg_lines.contains(&"--output-format"),
+        "should pass --output-format in AFK mode, got args:\n{args}"
+    );
+    assert!(
+        arg_lines.contains(&"stream-json"),
+        "should pass stream-json as output format, got args:\n{args}"
+    );
+    assert!(
+        arg_lines.contains(&"--dangerously-skip-permissions"),
+        "should pass --dangerously-skip-permissions, got args:\n{args}"
+    );
+    assert!(
+        arg_lines.contains(&"--settings"),
+        "should pass --settings, got args:\n{args}"
+    );
+
+    let last_arg = arg_lines.last().expect("should have args");
+    assert!(
+        last_arg.starts_with('@') && last_arg.ends_with("prompt.md"),
+        "last arg should be @...prompt.md (file prompt), got: {last_arg}"
+    );
+}
+
+#[test]
+fn iter_interactive_invocation_passes_correct_flags() {
+    let tmp = setup_test_dir();
+    let prompt = setup_simple_prompt_test(tmp.path());
+    let mock = create_fixture_arg_capturing_mock(tmp.path(), "complete.ndjson");
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .arg(prompt)
+            .env("SGF_AGENT_COMMAND", &mock)
+            .stdin(Stdio::null()),
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "should exit 0, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        output.status.code()
+    );
+
+    let args =
+        fs::read_to_string(tmp.path().join("captured-args.txt")).expect("read captured args");
+    let arg_lines: Vec<&str> = args.lines().collect();
+
+    assert!(
+        arg_lines.contains(&"--verbose"),
+        "should pass --verbose, got args:\n{args}"
+    );
+    assert!(
+        !arg_lines.contains(&"--print"),
+        "should NOT pass --print in interactive mode, got args:\n{args}"
+    );
+    assert!(
+        !arg_lines.contains(&"--output-format"),
+        "should NOT pass --output-format in interactive mode, got args:\n{args}"
+    );
+    assert!(
+        arg_lines.contains(&"--dangerously-skip-permissions"),
+        "should pass --dangerously-skip-permissions, got args:\n{args}"
+    );
+    assert!(
+        arg_lines.contains(&"--settings"),
+        "should pass --settings, got args:\n{args}"
+    );
+
+    let last_arg = arg_lines.last().expect("should have args");
+    assert!(
+        last_arg.starts_with('@') && last_arg.ends_with("prompt.md"),
+        "last arg should be @...prompt.md (file prompt), got: {last_arg}"
+    );
+}
+
+// ---- Iteration limits ----
+
+// Requires tracing-subscriber in springfield (pn-69cdd94b) to see the warn! output.
+#[test]
+#[ignore]
+fn iter_iterations_clamped_at_1000() {
+    let tmp = setup_test_dir();
+    let prompt = setup_simple_prompt_test(tmp.path());
+    let mock = create_fixture_mock_with_sentinel(tmp.path(), "complete.ndjson");
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args([prompt, "-a", "-n", "5000"])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .stdin(Stdio::null()),
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        stderr.contains("clamping iterations to hard limit"),
+        "should warn about clamping, got stderr:\n{stderr}"
+    );
+}
+
+// ---- Terminal restoration ----
+
+#[test]
+fn iter_afk_terminal_restore_graceful_with_non_tty_stdin() {
+    let tmp = setup_test_dir();
+    let prompt = setup_simple_prompt_test(tmp.path());
+    let mock = create_fixture_mock(tmp.path(), "complete.ndjson");
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args([prompt, "-a", "-n", "2"])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .stdin(Stdio::null()),
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "should complete 2 iterations — save/restore is a no-op when stdin is not a tty"
+    );
+}
+
+fn open_pty() -> Option<(std::os::fd::OwnedFd, std::os::fd::OwnedFd)> {
+    use std::os::fd::FromRawFd;
+    unsafe {
+        let master = libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY);
+        if master < 0 {
+            return None;
+        }
+        if libc::grantpt(master) != 0 || libc::unlockpt(master) != 0 {
+            libc::close(master);
+            return None;
+        }
+        let slave_name = libc::ptsname(master);
+        if slave_name.is_null() {
+            libc::close(master);
+            return None;
+        }
+        let slave = libc::open(slave_name, libc::O_RDWR | libc::O_NOCTTY);
+        if slave < 0 {
+            libc::close(master);
+            return None;
+        }
+        Some((
+            std::os::fd::OwnedFd::from_raw_fd(master),
+            std::os::fd::OwnedFd::from_raw_fd(slave),
+        ))
+    }
+}
+
+fn termios_check_script() -> &'static str {
+    r#"python3 -c "
+import termios
+attrs = termios.tcgetattr(0)
+lflag = attrs[3]
+isig = 'yes' if (lflag & termios.ISIG) else 'no'
+icanon = 'yes' if (lflag & termios.ICANON) else 'no'
+print(f'isig={isig},icanon={icanon}')
+""#
+}
+
+fn termios_corrupt_script() -> &'static str {
+    r#"python3 -c "
+import termios
+attrs = termios.tcgetattr(0)
+attrs[3] &= ~(termios.ICANON | termios.ISIG)
+termios.tcsetattr(0, termios.TCSANOW, attrs)
+""#
+}
+
+#[test]
+fn iter_interactive_restores_terminal_settings_after_agent_corrupts() {
+    let Some((master, slave)) = open_pty() else {
+        eprintln!("skipping: PTY allocation unavailable (sandboxed environment)");
+        return;
+    };
+    let _master = master;
+
+    let tmp = setup_test_dir();
+    let prompt = setup_simple_prompt_test(tmp.path());
+    let captures_file = tmp.path().join("termios-captures.txt");
+
+    let check_cmd = termios_check_script();
+    let corrupt_cmd = termios_corrupt_script();
+    let mock = create_mock_script(
+        tmp.path(),
+        "mock_agent.sh",
+        &format!(
+            "#!/bin/bash\n{check_cmd} >> {captures} 2>/dev/null\n{corrupt_cmd} 2>/dev/null\n",
+            captures = captures_file.display(),
+        ),
+    );
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args([prompt, "-n", "2"])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .stdin(std::process::Stdio::from(slave)),
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "should exit 2 (iterations exhausted), stderr:\n{stderr}"
+    );
+
+    let captures = fs::read_to_string(&captures_file).expect("read termios captures");
+    let lines: Vec<&str> = captures.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(
+        lines.len(),
+        2,
+        "should have 2 termios captures (one per iteration), got: {captures}"
+    );
+    assert_eq!(
+        lines[0], "isig=yes,icanon=yes",
+        "iteration 1 should start with ISIG and ICANON enabled"
+    );
+    assert_eq!(
+        lines[1], "isig=yes,icanon=yes",
+        "iteration 2 should have ISIG and ICANON restored after agent corrupted them"
+    );
+}
+
+// ---- Multi-iteration session management ----
+
+#[test]
+fn iter_multi_iteration_generates_fresh_session_id_per_iteration() {
+    let tmp = setup_test_dir();
+    let prompt = setup_simple_prompt_test(tmp.path());
+    let mock = create_fixture_multi_iter_arg_capturing_mock(tmp.path(), "complete.ndjson");
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args([prompt, "-a", "-n", "2"])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .stdin(Stdio::null()),
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "should exit 2 (iterations exhausted), stderr:\n{stderr}"
+    );
+
+    let args1 = fs::read_to_string(tmp.path().join("captured-args/invocation-1.txt"))
+        .expect("read invocation 1 args");
+    let lines1: Vec<&str> = args1.lines().collect();
+
+    let sid1_idx = lines1
+        .iter()
+        .position(|&a| a == "--session-id")
+        .expect("iteration 1 should pass --session-id");
+    let sid1_val = lines1[sid1_idx + 1];
+
+    let args2 = fs::read_to_string(tmp.path().join("captured-args/invocation-2.txt"))
+        .expect("read invocation 2 args");
+    let lines2: Vec<&str> = args2.lines().collect();
+
+    let sid2_idx = lines2
+        .iter()
+        .position(|&a| a == "--session-id")
+        .expect("iteration 2 should pass --session-id");
+    let sid2_val = lines2[sid2_idx + 1];
+
+    assert_ne!(
+        sid1_val, sid2_val,
+        "iterations should use different session IDs"
+    );
+    assert!(
+        sid2_val.len() == 36 && sid2_val.contains('-'),
+        "iteration 2 session id should be a UUID, got: {sid2_val}"
+    );
+}
+
+// ---- Signal handling through simple prompt mode ----
+
+#[test]
+fn iter_afk_double_ctrlc_aborts() {
+    let tmp = setup_test_dir();
+    let prompt = setup_simple_prompt_test(tmp.path());
+    let mock = create_fixture_slow_mock(tmp.path(), "afk-session.ndjson");
+
+    let child = ChildGuard::spawn(
+        sgf_cmd(tmp.path())
+            .args([prompt, "-a", "-n", "5"])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn sgf");
+
+    let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+
+    std::thread::sleep(Duration::from_millis(500));
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send first SIGINT");
+    std::thread::sleep(Duration::from_millis(200));
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send second SIGINT");
+
+    let output = child
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("wait for sgf");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert_eq!(
+        output.status.code(),
+        Some(130),
+        "should exit 130 on double Ctrl+C, got stdout:\n{stdout}"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Press Ctrl-C again to exit"),
+        "should show double-press prompt on stderr, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn iter_sigterm_exits_immediately() {
+    let tmp = setup_test_dir();
+    let prompt = setup_simple_prompt_test(tmp.path());
+    let mock = create_mock_script(
+        tmp.path(),
+        "mock_agent.sh",
+        "#!/bin/bash\ntrap '' INT TERM\nsleep 10\n",
+    );
+
+    let child = ChildGuard::spawn(
+        sgf_cmd(tmp.path())
+            .args([prompt])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn sgf");
+
+    let pid = nix::unistd::Pid::from_raw(child.id() as i32);
+
+    std::thread::sleep(Duration::from_millis(500));
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGTERM).expect("send SIGTERM");
+
+    let output = child
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("wait for sgf");
+
+    assert_eq!(
+        output.status.code(),
+        Some(130),
+        "should exit 130 immediately on SIGTERM"
+    );
+}
+
+// ---- E2E chain: sgf → cl → mock claude-wrapper ----
+
+#[test]
+fn iter_sgf_to_cl_e2e_invocation_chain() {
+    let tmp = setup_test_dir();
+    let prompt = setup_simple_prompt_test(tmp.path());
+    let fixture_path = fixtures_dir().join("complete.ndjson");
+
+    fs::create_dir_all(tmp.path().join(".sgf")).expect("create .sgf dir");
+    fs::write(tmp.path().join(".sgf/MEMENTO.md"), "memento content").expect("write MEMENTO.md");
+    fs::write(
+        tmp.path().join(".sgf/BACKPRESSURE.md"),
+        "backpressure content",
+    )
+    .expect("write BACKPRESSURE.md");
+
+    let mock_dir = TempDir::new().expect("create mock dir");
+    let args_file = tmp.path().join("captured-secret-args.txt");
+    let mock_script = mock_dir.path().join("claude-wrapper-secret");
+    let script_content = format!(
+        "#!/bin/bash\nprintf '%s\\n' \"$@\" > {args}\ncat {fixture}\ntouch {sentinel}\n",
+        args = args_file.display(),
+        fixture = fixture_path.display(),
+        sentinel = tmp.path().join(".iter-complete").display(),
+    );
+    fs::write(&mock_script, script_content).expect("write mock claude-wrapper-secret");
+    fs::set_permissions(&mock_script, fs::Permissions::from_mode(0o755)).expect("chmod");
+
+    let cl_path = {
+        let mut p = std::env::current_exe().unwrap();
+        p.pop();
+        p.pop();
+        p.push("cl");
+        p
+    };
+    assert!(
+        cl_path.exists(),
+        "cl binary not found at {}; build with `cargo build --workspace`",
+        cl_path.display()
+    );
+
+    let path_var = format!(
+        "{}:{}",
+        mock_dir.path().to_string_lossy(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args([prompt, "-a"])
+            .env("SGF_AGENT_COMMAND", cl_path.to_str().unwrap())
+            .env("PATH", &path_var)
+            .env("HOME", tmp.path().to_str().unwrap())
+            .stdin(Stdio::null()),
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "sgf → cl → mock should exit 0, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        output.status.code()
+    );
+
+    assert!(
+        args_file.exists(),
+        "claude-wrapper-secret was never invoked — the chain is broken"
+    );
+
+    let captured = fs::read_to_string(&args_file).expect("read captured args");
+    let lines: Vec<&str> = captured.lines().collect();
+
+    let asp_idx = lines
+        .iter()
+        .position(|&l| l == "--append-system-prompt")
+        .expect("cl should inject --append-system-prompt for context files");
+    let study_arg = lines[asp_idx + 1];
+    assert!(
+        study_arg.contains("study @") && study_arg.contains("MEMENTO.md"),
+        "should contain study @...MEMENTO.md, got: {study_arg}"
+    );
+    assert!(
+        study_arg.contains("BACKPRESSURE.md"),
+        "should contain BACKPRESSURE.md, got: {study_arg}"
+    );
+
+    assert!(
+        lines.contains(&"--verbose"),
+        "should forward --verbose, got:\n{captured}"
+    );
+    assert!(
+        lines.contains(&"--dangerously-skip-permissions"),
+        "should forward --dangerously-skip-permissions, got:\n{captured}"
+    );
+    assert!(
+        lines.contains(&"--print"),
+        "should forward --print (AFK mode), got:\n{captured}"
+    );
+    assert!(
+        lines.contains(&"stream-json"),
+        "should forward stream-json output format, got:\n{captured}"
+    );
+
+    assert!(
+        lines
+            .iter()
+            .any(|&l| l.starts_with('@') && l.ends_with("prompt.md")),
+        "should forward prompt arg through the chain, got:\n{captured}"
+    );
+}
+
+// ---- Auto-push through simple prompt mode ----
+
+#[test]
+fn iter_auto_push_pushes_when_head_changes() {
+    let tmp = setup_test_dir();
+    let prompt = setup_simple_prompt_test(tmp.path());
+
+    let bare_dir = TempDir::new().expect("create bare repo dir");
+    let run_git = |args: &[&str], cwd: &Path| {
+        let _permit = SGF_PERMITS
+            .acquire_timeout(Duration::from_secs(60))
+            .expect("semaphore timed out");
+        ChildGuard::spawn(
+            Command::new("git")
+                .args(args)
+                .current_dir(cwd)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped()),
+        )
+        .expect("spawn git")
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("git command")
+    };
+
+    run_git(&["init", "--bare"], bare_dir.path());
+    run_git(
+        &["remote", "add", "origin", bare_dir.path().to_str().unwrap()],
+        tmp.path(),
+    );
+    run_git(&["push", "-u", "origin", "master"], tmp.path());
+
+    let fixture_path = fixtures_dir().join("complete.ndjson");
+    let mock = create_mock_script(
+        tmp.path(),
+        "mock_agent.sh",
+        &format!(
+            concat!(
+                "#!/bin/bash\n",
+                "cat {fixture}\n",
+                "echo 'auto-push test' > change.txt\n",
+                "git -c user.name=test -c user.email=test@test.com add change.txt\n",
+                "git -c user.name=test -c user.email=test@test.com commit -m 'test commit'\n",
+                "touch .iter-complete\n",
+            ),
+            fixture = fixture_path.display()
+        ),
+    );
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args([prompt, "-a"])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .stdin(Stdio::null()),
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "should exit 0, got: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        output.status.code()
+    );
+
+    assert!(
+        stdout.contains("New commits detected, pushing..."),
+        "should detect new commits and push, got stdout:\n{stdout}"
+    );
+
+    let remote_log = run_git(&["log", "--oneline"], bare_dir.path());
+    let remote_log_str = String::from_utf8_lossy(&remote_log.stdout);
+    assert!(
+        remote_log_str.contains("test commit"),
+        "remote should contain the pushed commit, got:\n{remote_log_str}"
+    );
+}
+
+#[test]
+fn iter_auto_push_disabled_with_no_push_flag() {
+    let tmp = setup_test_dir();
+    let prompt = setup_simple_prompt_test(tmp.path());
+
+    let fixture_path = fixtures_dir().join("complete.ndjson");
+    let mock = create_mock_script(
+        tmp.path(),
+        "mock_agent.sh",
+        &format!(
+            concat!(
+                "#!/bin/bash\n",
+                "cat {fixture}\n",
+                "echo 'no-push test' > change.txt\n",
+                "git -c user.name=test -c user.email=test@test.com add change.txt\n",
+                "git -c user.name=test -c user.email=test@test.com commit -m 'test commit'\n",
+                "touch .iter-complete\n",
+            ),
+            fixture = fixture_path.display()
+        ),
+    );
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args([prompt, "-a", "--no-push"])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .stdin(Stdio::null()),
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        output.status.success(),
+        "should exit 0, got: {:?}",
+        output.status.code()
+    );
+
+    assert!(
+        !stdout.contains("New commits detected, pushing..."),
+        "should NOT push when --no-push is used, got stdout:\n{stdout}"
+    );
+}
+
+// ---- Log file handling ----
+
+#[test]
+fn iter_simple_mode_creates_log_file() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    let prompt = setup_simple_prompt_test(tmp.path());
+    let mock = create_fixture_mock_with_sentinel(tmp.path(), "complete.ndjson");
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args([prompt, "-a"])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .stdin(Stdio::null()),
+    );
+
+    assert!(
+        output.status.success(),
+        "should exit 0, got: {:?}",
+        output.status.code()
+    );
+
+    let logs_dir = tmp.path().join(".sgf/logs");
+    if logs_dir.exists() {
+        let log_files: Vec<_> = fs::read_dir(&logs_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "log"))
+            .collect();
+        assert!(
+            !log_files.is_empty(),
+            "simple prompt mode should create a log file in .sgf/logs/"
+        );
+
+        let log_content = fs::read_to_string(log_files[0].path()).expect("read log file");
+        assert!(
+            log_content.contains("Iteration 1 of 1"),
+            "log should contain iteration banner, got: {log_content}"
+        );
+    }
+}
