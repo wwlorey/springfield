@@ -1755,6 +1755,7 @@ fn double_ctrl_c_exits_130() {
             .args(["build", "auth", "-a"])
             .env("SGF_AGENT_COMMAND", &mock_agent)
             .env("SGF_READY_FILE", &ready_file)
+            .env("SGF_MONITOR_STDIN", "0")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped()),
     )
@@ -1798,6 +1799,7 @@ fn single_ctrl_c_continues_after_timeout() {
             .args(["build", "auth", "-a"])
             .env("SGF_AGENT_COMMAND", &mock_agent)
             .env("SGF_READY_FILE", &ready_file)
+            .env("SGF_MONITOR_STDIN", "0")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped()),
     )
@@ -1835,6 +1837,7 @@ fn sigterm_exits_immediately() {
             .args(["build", "auth", "-a"])
             .env("SGF_AGENT_COMMAND", &mock_agent)
             .env("SGF_READY_FILE", &ready_file)
+            .env("SGF_MONITOR_STDIN", "0")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped()),
     )
@@ -1872,6 +1875,7 @@ fn confirmation_message_on_first_ctrl_c() {
             .args(["build", "auth", "-a"])
             .env("SGF_AGENT_COMMAND", &mock_agent)
             .env("SGF_READY_FILE", &ready_file)
+            .env("SGF_MONITOR_STDIN", "0")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped()),
     )
@@ -2061,6 +2065,7 @@ fn double_ctrl_c_kills_entire_process_tree() {
             .args(["build", "auth", "-a"])
             .env("SGF_AGENT_COMMAND", &mock_agent)
             .env("SGF_READY_FILE", &ready_file)
+            .env("SGF_MONITOR_STDIN", "0")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped()),
     )

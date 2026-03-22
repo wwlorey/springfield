@@ -309,11 +309,8 @@ fn run_cursus_loop(
     metadata: &mut RunMetadata,
     start_index: usize,
 ) -> io::Result<i32> {
-    if let Ok(ready_path) = std::env::var("SGF_READY_FILE") {
-        let _ = fs::write(&ready_path, "");
-    }
-
     let mut current_index = start_index;
+    let mut ready_signaled = false;
 
     let exit_code = loop {
         let iter = &def.iters[current_index];
@@ -352,6 +349,14 @@ fn run_cursus_loop(
             monitor_stdin,
             ..Default::default()
         })?;
+
+        if !ready_signaled {
+            if let Ok(ready_path) = std::env::var("SGF_READY_FILE") {
+                let _ = fs::write(&ready_path, "");
+            }
+            ready_signaled = true;
+        }
+
         let session_id = Uuid::new_v4().to_string();
 
         let prompt_path = resolve_prompt(root, &iter.prompt).ok_or_else(|| {
