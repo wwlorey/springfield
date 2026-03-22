@@ -57,7 +57,7 @@ impl TeeWriter {
     }
 }
 
-const SENTINEL: &str = ".ralph-complete";
+const SENTINEL: &str = ".iter-complete";
 const SENTINEL_MAX_DEPTH: usize = 2;
 const DING_SENTINEL: &str = ".ralph-ding";
 

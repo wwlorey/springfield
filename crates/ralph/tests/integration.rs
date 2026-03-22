@@ -73,7 +73,7 @@ fn create_mock_script_with_sentinel(dir: &TempDir, fixture_name: &str) -> PathBu
     let fixture_path = fixtures_dir().join(fixture_name);
     let script_path = dir.path().join("mock.sh");
     let content = format!(
-        "#!/bin/bash\ncat {}\ntouch .ralph-complete\n",
+        "#!/bin/bash\ncat {}\ntouch .iter-complete\n",
         fixture_path.display()
     );
     fs::write(&script_path, content).expect("write mock script");
@@ -90,7 +90,7 @@ fn create_mock_script_with_nested_sentinel(
     let nested_dir = dir.path().join(subdir);
     fs::create_dir_all(&nested_dir).expect("create nested dir");
     let script_path = dir.path().join("mock.sh");
-    let sentinel_path = nested_dir.join(".ralph-complete");
+    let sentinel_path = nested_dir.join(".iter-complete");
     let content = format!(
         "#!/bin/bash\ncat {}\ntouch {}\n",
         fixture_path.display(),
@@ -251,7 +251,7 @@ fn afk_detects_completion_file() {
         "should contain final text from fixture, got:\n{stdout}"
     );
     assert!(
-        !dir.path().join(".ralph-complete").exists(),
+        !dir.path().join(".iter-complete").exists(),
         "sentinel file should be cleaned up after ralph exits"
     );
 }
@@ -415,7 +415,7 @@ fn afk_detects_nested_completion_file() {
         "should contain COMPLETE banner, got:\n{stdout}"
     );
     assert!(
-        !dir.path().join("sub/project/.ralph-complete").exists(),
+        !dir.path().join("sub/project/.iter-complete").exists(),
         "nested sentinel file should be cleaned up after ralph exits"
     );
 }
@@ -762,7 +762,7 @@ fn create_arg_capturing_mock(dir: &TempDir, fixture_name: &str) -> PathBuf {
     let args_file = dir.path().join("captured-args.txt");
     let script_path = dir.path().join("mock.sh");
     let content = format!(
-        "#!/bin/bash\nprintf '%s\\n' \"$@\" > {}\ncat {}\ntouch .ralph-complete\n",
+        "#!/bin/bash\nprintf '%s\\n' \"$@\" > {}\ncat {}\ntouch .iter-complete\n",
         args_file.display(),
         fixture_path.display()
     );
@@ -1253,7 +1253,7 @@ fn auto_push_pushes_when_head_changes() {
             "echo 'auto-push test' > change.txt\n",
             "git -c user.name=test -c user.email=test@test.com add change.txt\n",
             "git -c user.name=test -c user.email=test@test.com commit -m 'test commit'\n",
-            "touch .ralph-complete\n",
+            "touch .iter-complete\n",
         ),
         fixture = fixture_path.display()
     );
@@ -1303,7 +1303,7 @@ fn auto_push_disabled_does_not_push() {
             "echo 'no-push test' > change.txt\n",
             "git -c user.name=test -c user.email=test@test.com add change.txt\n",
             "git -c user.name=test -c user.email=test@test.com commit -m 'test commit'\n",
-            "touch .ralph-complete\n",
+            "touch .iter-complete\n",
         ),
         fixture = fixture_path.display()
     );
@@ -2377,7 +2377,7 @@ fn ralph_to_cl_e2e_invocation_chain() {
         "#!/bin/bash\nprintf '%s\\n' \"$@\" > {args}\ncat {fixture}\ntouch {sentinel}\n",
         args = args_file.display(),
         fixture = fixture_path.display(),
-        sentinel = dir.path().join(".ralph-complete").display(),
+        sentinel = dir.path().join(".iter-complete").display(),
     );
     fs::write(&mock_script, script_content).expect("write mock claude-wrapper-secret");
     fs::set_permissions(&mock_script, fs::Permissions::from_mode(0o755)).expect("chmod");

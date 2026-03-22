@@ -80,7 +80,7 @@ In both interactive and AFK modes, ralph passes `--settings '{"sandbox": {"allow
 
 | Code | Meaning |
 |------|---------|
-| `0` | Completion file `.ralph-complete` detected |
+| `0` | Completion file `.iter-complete` detected |
 | `1` | Error (prompt file missing, `cl` not found in PATH, etc.) |
 | `2` | Iterations exhausted without completion |
 | `130` | Interrupted by SIGINT (Ctrl+C) or SIGTERM |
