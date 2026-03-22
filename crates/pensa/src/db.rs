@@ -1730,23 +1730,36 @@ impl Db {
             fixes_applied.push(format!("removed {} orphaned deps", orphaned_deps.len()));
         }
 
-        // Check 3: JSONL/SQLite drift
-        let issues_path = self.pensa_dir.join("issues.jsonl");
-        if issues_path.exists() {
-            let content = fs::read_to_string(&issues_path).unwrap_or_default();
-            let jsonl_count = content.lines().filter(|l| !l.trim().is_empty()).count();
-            let db_count: i64 = self
-                .conn
-                .query_row("SELECT COUNT(*) FROM issues", [], |row| row.get(0))
-                .map_err(|e| PensaError::Internal(format!("failed to count issues: {e}")))?;
-            if jsonl_count as i64 != db_count {
-                findings.push(DoctorFinding {
-                    check: "jsonl_drift".to_string(),
-                    message: format!(
-                        "issues.jsonl has {jsonl_count} entries but DB has {db_count}"
-                    ),
-                    issue_id: None,
-                });
+        // Check 3: JSONL/SQLite drift (all entity files)
+        let entity_checks: &[(&str, &str)] = &[
+            ("issues.jsonl", "issues"),
+            ("deps.jsonl", "deps"),
+            ("comments.jsonl", "comments"),
+            ("src_refs.jsonl", "src_refs"),
+            ("doc_refs.jsonl", "doc_refs"),
+        ];
+        for (jsonl_file, table_name) in entity_checks {
+            let path = self.pensa_dir.join(jsonl_file);
+            if path.exists() {
+                let content = fs::read_to_string(&path).unwrap_or_default();
+                let jsonl_count = content.lines().filter(|l| !l.trim().is_empty()).count();
+                let db_count: i64 = self
+                    .conn
+                    .query_row(&format!("SELECT COUNT(*) FROM {table_name}"), [], |row| {
+                        row.get(0)
+                    })
+                    .map_err(|e| {
+                        PensaError::Internal(format!("failed to count {table_name}: {e}"))
+                    })?;
+                if jsonl_count as i64 != db_count {
+                    findings.push(DoctorFinding {
+                        check: "jsonl_drift".to_string(),
+                        message: format!(
+                            "{jsonl_file} has {jsonl_count} entries but DB has {db_count}"
+                        ),
+                        issue_id: None,
+                    });
+                }
             }
         }
 
@@ -2721,5 +2734,61 @@ mod tests {
         let issue_b = db.get_issue_only(&b.id).unwrap();
         assert_eq!(issue_b.status, Status::Open);
         assert!(issue_b.assignee.is_none());
+    }
+
+    #[test]
+    fn doctor_detects_drift_all_entity_files() {
+        let (db, _dir) = open_temp_db();
+        let a = create_task(&db, "task A");
+        let b = create_task(&db, "task B");
+        db.add_dep(&b.id, &a.id, "test").unwrap();
+        db.add_comment(&a.id, "test", "hello").unwrap();
+        db.add_src_ref(&a.id, "src/main.rs", Some("entry"), "test")
+            .unwrap();
+        db.add_doc_ref(&b.id, "README.md", Some("docs"), "test")
+            .unwrap();
+
+        db.export_jsonl().unwrap();
+
+        // No drift yet — should be clean
+        let report = db.doctor(false).unwrap();
+        let drift_findings: Vec<_> = report
+            .findings
+            .iter()
+            .filter(|f| f.check == "jsonl_drift")
+            .collect();
+        assert!(drift_findings.is_empty(), "expected no drift initially");
+
+        // Create a third issue in DB only (no re-export) to cause issues.jsonl drift
+        create_task(&db, "task C");
+        // Add another comment directly to cause comments.jsonl drift
+        db.add_comment(&a.id, "test", "extra comment").unwrap();
+        // Add another dep to cause deps.jsonl drift
+        let c_issues = db.list_issues(&ListFilters::default()).unwrap();
+        let c_id = c_issues.iter().find(|i| i.title == "task C").unwrap();
+        db.add_dep(&c_id.id, &a.id, "test").unwrap();
+        // Add another src_ref to cause src_refs.jsonl drift
+        db.add_src_ref(&b.id, "lib.rs", None, "test").unwrap();
+        // Add another doc_ref to cause doc_refs.jsonl drift
+        db.add_doc_ref(&a.id, "CHANGELOG.md", None, "test").unwrap();
+
+        let report = db.doctor(false).unwrap();
+        let drift_findings: Vec<_> = report
+            .findings
+            .iter()
+            .filter(|f| f.check == "jsonl_drift")
+            .collect();
+        assert_eq!(
+            drift_findings.len(),
+            5,
+            "expected drift for all 5 entity files, got: {drift_findings:?}"
+        );
+
+        let messages: Vec<&str> = drift_findings.iter().map(|f| f.message.as_str()).collect();
+        assert!(messages.iter().any(|m| m.contains("issues.jsonl")));
+        assert!(messages.iter().any(|m| m.contains("deps.jsonl")));
+        assert!(messages.iter().any(|m| m.contains("comments.jsonl")));
+        assert!(messages.iter().any(|m| m.contains("src_refs.jsonl")));
+        assert!(messages.iter().any(|m| m.contains("doc_refs.jsonl")));
     }
 }
