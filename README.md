@@ -167,7 +167,7 @@ auto_push = true      # auto-push after commits (default: false)
 **Iters** are defined as an array of tables:
 
 ```toml
-[[iters]]
+[[iter]]
 name = "build"
 prompt = "build.md"        # resolved via layered .sgf/prompts/ lookup
 mode = "interactive"       # "interactive" (default) or "afk"
@@ -177,14 +177,14 @@ auto_push = true           # override cursus-level auto_push (optional)
 
 #### Single-Iter Cursus
 
-A single-iter cursus is the simplest form — equivalent to a `config.toml` entry. Example `build.toml`:
+A single-iter cursus is the simplest form. Example `build.toml`:
 
 ```toml
 description = "Implementation loop"
 alias = "b"
 auto_push = true
 
-[[iters]]
+[[iter]]
 name = "build"
 prompt = "build.md"
 mode = "interactive"
@@ -200,14 +200,14 @@ description = "Spec creation and refinement"
 alias = "s"
 auto_push = true
 
-[[iters]]
+[[iter]]
 name = "discuss"
 prompt = "spec-discuss.md"
 mode = "interactive"
 produces = "discuss-summary"
 auto_push = false
 
-[[iters]]
+[[iter]]
 name = "draft"
 prompt = "spec-draft.md"
 mode = "afk"
@@ -215,17 +215,17 @@ iterations = 10
 produces = "draft-presentation"
 consumes = ["discuss-summary"]
 
-[[iters]]
+[[iter]]
 name = "review"
 prompt = "spec-review.md"
 mode = "interactive"
 consumes = ["discuss-summary", "draft-presentation"]
 
-  [iters.transitions]
+  [iter.transitions]
   on_reject = "draft"
   on_revise = "revise"
 
-[[iters]]
+[[iter]]
 name = "revise"
 prompt = "spec-revise.md"
 mode = "afk"
@@ -234,7 +234,7 @@ consumes = ["discuss-summary", "draft-presentation"]
 produces = "draft-presentation"
 next = "review"
 
-[[iters]]
+[[iter]]
 name = "approve"
 prompt = "spec-approve.md"
 mode = "interactive"
@@ -264,10 +264,10 @@ After each iter completes, cursus checks for sentinel files (in priority order):
 
 Interactive iters with `iterations = 1` that end without a sentinel are treated as successfully completed.
 
-Transitions are defined in a `[iters.transitions]` table and must reference an existing iter name in the same cursus:
+Transitions are defined in a `[iter.transitions]` table and must reference an existing iter name in the same cursus:
 
 ```toml
-[iters.transitions]
+[iter.transitions]
 on_reject = "draft"     # jump back to draft on rejection
 on_revise = "revise"    # jump to revise for minor changes
 ```
@@ -302,24 +302,7 @@ Resolution order for `sgf <command>`:
 2. `./.sgf/cursus/<command>.toml` (project-local override)
 3. `~/.sgf/cursus/<command>.toml` (global default)
 4. Alias match across all resolved cursus definitions
-5. `config.toml` fallback (legacy, removed once migration is complete)
-6. Error: `unknown command: <command>`
-
-#### Migration from `config.toml`
-
-Each `[section]` in the old `.sgf/prompts/config.toml` becomes its own cursus TOML in `.sgf/cursus/`:
-
-| Old (`config.toml`) | New (`.sgf/cursus/`) |
-|----------------------|----------------------|
-| `[build]` | `build.toml` |
-| `[spec]` | `spec.toml` (multi-iter) |
-| `[verify]` | `verify.toml` |
-| `[test]` | `test.toml` |
-| `[test-plan]` | `test-plan.toml` |
-| `[doc]` | `doc.toml` |
-| `[issues-log]` | `issues-log.toml` |
-
-Cursus definitions take precedence over `config.toml`. Both resolution paths coexist during the transition.
+5. Error: `unknown command: <command>`
 
 ### Development
 
