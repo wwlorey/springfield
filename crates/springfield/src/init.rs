@@ -40,6 +40,8 @@ const GITIGNORE_FULL: &str = "\
 .sgf/logs/
 .sgf/run/
 .iter-complete
+.iter-reject
+.iter-revise
 .iter-ding
 
 # Rust
@@ -71,6 +73,8 @@ const GITIGNORE_ENTRIES: &[&str] = &[
     ".sgf/logs/",
     ".sgf/run/",
     ".iter-complete",
+    ".iter-reject",
+    ".iter-revise",
     ".iter-ding",
     "/target",
     "node_modules/",
