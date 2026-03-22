@@ -124,7 +124,7 @@ pub fn remove_sentinel() {
     remove_sentinel_from(Path::new("."));
 }
 
-fn save_terminal_settings() -> Option<libc::termios> {
+pub fn save_terminal_settings() -> Option<libc::termios> {
     unsafe {
         let mut termios: libc::termios = std::mem::zeroed();
         if libc::tcgetattr(libc::STDIN_FILENO, &mut termios) == 0 {
@@ -135,7 +135,7 @@ fn save_terminal_settings() -> Option<libc::termios> {
     }
 }
 
-fn restore_terminal_settings(termios: &libc::termios) {
+pub fn restore_terminal_settings(termios: &libc::termios) {
     unsafe {
         libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, termios);
     }

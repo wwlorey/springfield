@@ -205,7 +205,11 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
             ..Default::default()
         })?;
 
+        let saved_termios = crate::iter_runner::save_terminal_settings();
         let exit_code = run_interactive_claude(&prompt_path, &session_id, &controller)?;
+        if let Some(ref termios) = saved_termios {
+            crate::iter_runner::restore_terminal_settings(termios);
+        }
 
         append_iteration_to_metadata(root, &loop_id, 1, &session_id);
         update_metadata_on_exit(root, &loop_id, exit_code);
@@ -282,7 +286,11 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
         style::print_action_detail(&format!("launching ralph [{loop_id}]"), &parts.join(" · "));
     }
 
+    let saved_termios = crate::iter_runner::save_terminal_settings();
     let exit_code = run_ralph(&binary, &args, is_afk, &controller)?;
+    if let Some(ref termios) = saved_termios {
+        crate::iter_runner::restore_terminal_settings(termios);
+    }
 
     append_iteration_to_metadata(root, &loop_id, 1, &session_id);
     update_metadata_on_exit(root, &loop_id, exit_code);
