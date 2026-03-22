@@ -44,6 +44,7 @@ pub fn resolve_consumes(
     run_id: &str,
     consumes: &[String],
     def: &CursusDefinition,
+    context_producers: &HashMap<String, String>,
 ) -> String {
     if consumes.is_empty() {
         return String::new();
@@ -54,7 +55,11 @@ pub fn resolve_consumes(
 
     for key in consumes {
         let path = context_file_path(root, run_id, key);
-        let iter_name = key_to_iter.get(key.as_str()).copied().unwrap_or("unknown");
+        let iter_name = context_producers
+            .get(key.as_str())
+            .map(|s| s.as_str())
+            .or_else(|| key_to_iter.get(key.as_str()).copied())
+            .unwrap_or("unknown");
 
         match fs::read_to_string(&path) {
             Ok(content) => {
@@ -155,7 +160,13 @@ mod tests {
             ("draft", None, vec!["discuss-summary"]),
         ]);
 
-        let result = resolve_consumes(tmp.path(), run_id, &["discuss-summary".to_string()], &def);
+        let result = resolve_consumes(
+            tmp.path(),
+            run_id,
+            &["discuss-summary".to_string()],
+            &def,
+            &HashMap::new(),
+        );
 
         assert!(result.contains("=== Context from iter: discuss (discuss-summary) ==="));
         assert!(result.contains("Discussion notes here."));
@@ -192,7 +203,7 @@ mod tests {
             "discuss-summary".to_string(),
             "draft-presentation".to_string(),
         ];
-        let result = resolve_consumes(tmp.path(), run_id, &consumes, &def);
+        let result = resolve_consumes(tmp.path(), run_id, &consumes, &def, &HashMap::new());
 
         let discuss_pos = result
             .find("Context from iter: discuss")
@@ -224,7 +235,7 @@ mod tests {
         ]);
 
         let consumes = vec!["discuss-summary".to_string(), "missing-key".to_string()];
-        let result = resolve_consumes(tmp.path(), run_id, &consumes, &def);
+        let result = resolve_consumes(tmp.path(), run_id, &consumes, &def, &HashMap::new());
 
         assert!(result.contains("Discussion content."));
         assert!(!result.contains("missing-key"));
@@ -234,7 +245,7 @@ mod tests {
     fn resolve_consumes_empty_list_returns_empty_string() {
         let tmp = TempDir::new().unwrap();
         let def = make_def_with_produces(vec![("build", None, vec![])]);
-        let result = resolve_consumes(tmp.path(), "any-run", &[], &def);
+        let result = resolve_consumes(tmp.path(), "any-run", &[], &def, &HashMap::new());
         assert!(result.is_empty());
     }
 
@@ -259,6 +270,7 @@ mod tests {
             run_id,
             &["draft-presentation".to_string()],
             &def,
+            &HashMap::new(),
         );
 
         assert!(result.contains("Revised draft."));
@@ -279,9 +291,73 @@ mod tests {
 
         let def = make_def_with_produces(vec![("build", None, vec![])]);
 
-        let result = resolve_consumes(tmp.path(), run_id, &["orphan-key".to_string()], &def);
+        let result = resolve_consumes(
+            tmp.path(),
+            run_id,
+            &["orphan-key".to_string()],
+            &def,
+            &HashMap::new(),
+        );
 
         assert!(result.contains("Context from iter: unknown (orphan-key)"));
         assert!(result.contains("Orphan content."));
+    }
+
+    #[test]
+    fn resolve_consumes_runtime_producers_override_static_toml() {
+        let tmp = TempDir::new().unwrap();
+        let run_id = "test-20260317T140000";
+        create_run_dir(tmp.path(), run_id).unwrap();
+
+        let path = context_file_path(tmp.path(), run_id, "draft-presentation");
+        fs::write(&path, "Revised by revise iter.").unwrap();
+
+        let def = make_def_with_produces(vec![
+            ("draft", Some("draft-presentation"), vec![]),
+            ("revise", Some("draft-presentation"), vec![]),
+            ("approve", None, vec!["draft-presentation"]),
+        ]);
+
+        let mut runtime_producers = HashMap::new();
+        runtime_producers.insert("draft-presentation".to_string(), "revise".to_string());
+
+        let result = resolve_consumes(
+            tmp.path(),
+            run_id,
+            &["draft-presentation".to_string()],
+            &def,
+            &runtime_producers,
+        );
+
+        assert!(result.contains("Context from iter: revise (draft-presentation)"));
+        assert!(!result.contains("Context from iter: draft"));
+    }
+
+    #[test]
+    fn resolve_consumes_falls_back_to_static_when_no_runtime_producer() {
+        let tmp = TempDir::new().unwrap();
+        let run_id = "test-20260317T140000";
+        create_run_dir(tmp.path(), run_id).unwrap();
+
+        fs::write(
+            context_file_path(tmp.path(), run_id, "discuss-summary"),
+            "Discussion content.",
+        )
+        .unwrap();
+
+        let def = make_def_with_produces(vec![
+            ("discuss", Some("discuss-summary"), vec![]),
+            ("draft", None, vec!["discuss-summary"]),
+        ]);
+
+        let result = resolve_consumes(
+            tmp.path(),
+            run_id,
+            &["discuss-summary".to_string()],
+            &def,
+            &HashMap::new(),
+        );
+
+        assert!(result.contains("Context from iter: discuss (discuss-summary)"));
     }
 }

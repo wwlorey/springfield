@@ -417,8 +417,13 @@ fn run_cursus_loop(
 
         clean_sentinels(root);
 
-        let consumed_content =
-            context::resolve_consumes(root, &metadata.run_id, &iter.consumes, def);
+        let consumed_content = context::resolve_consumes(
+            root,
+            &metadata.run_id,
+            &iter.consumes,
+            def,
+            &metadata.context_producers,
+        );
 
         let effective_mode = config
             .mode_override
