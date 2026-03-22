@@ -6743,3 +6743,85 @@ fn iter_simple_mode_creates_log_file() {
         );
     }
 }
+
+// ---- SGF_AGENT_COMMAND override (test-harness spec §7) ----
+
+#[test]
+fn agent_command_env_overrides_default_binary_simple_mode() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let mock_dir = TempDir::new().unwrap();
+    let marker = mock_dir.path().join("custom_agent_was_invoked");
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "custom_agent.sh",
+        &format!(
+            "#!/bin/sh\necho \"custom-agent-marker\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
+            marker.display()
+        ),
+    );
+
+    fs::write(tmp.path().join("task.md"), "Test task.\n").unwrap();
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["task.md", "-a"])
+            .env("SGF_AGENT_COMMAND", &mock_agent),
+    );
+
+    assert!(
+        output.status.success(),
+        "sgf should succeed with custom agent, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        marker.exists(),
+        "custom agent marker file should exist — SGF_AGENT_COMMAND was not used"
+    );
+    let content = fs::read_to_string(&marker).unwrap();
+    assert!(
+        content.contains("custom-agent-marker"),
+        "marker should contain expected content, got: {content}"
+    );
+}
+
+#[test]
+fn agent_command_env_overrides_default_binary_cursus_mode() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
+
+    let mock_dir = TempDir::new().unwrap();
+    let marker = mock_dir.path().join("cursus_agent_invoked");
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "custom_agent.sh",
+        &format!(
+            "#!/bin/sh\necho \"cursus-agent-marker\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
+            marker.display()
+        ),
+    );
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-a"])
+            .env("SGF_AGENT_COMMAND", &mock_agent),
+    );
+
+    assert!(
+        output.status.success(),
+        "sgf cursus should succeed with custom agent, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        marker.exists(),
+        "custom agent marker file should exist in cursus mode — SGF_AGENT_COMMAND was not used"
+    );
+    let content = fs::read_to_string(&marker).unwrap();
+    assert!(
+        content.contains("cursus-agent-marker"),
+        "marker should contain expected content, got: {content}"
+    );
+}
