@@ -1,6 +1,7 @@
 pub mod config;
 pub mod cursus;
 pub mod init;
+pub mod iter_runner;
 pub mod loop_mgmt;
 pub mod orchestrate;
 pub mod prompt;

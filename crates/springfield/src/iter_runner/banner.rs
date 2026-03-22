@@ -1,4 +1,4 @@
-use crate::style;
+use super::style;
 
 const MIN_WIDTH: usize = 40;
 
@@ -49,7 +49,6 @@ mod tests {
         let mut chars = s.chars();
         while let Some(c) = chars.next() {
             if c == '\x1b' {
-                // Skip until 'm'
                 for c2 in chars.by_ref() {
                     if c2 == 'm' {
                         break;

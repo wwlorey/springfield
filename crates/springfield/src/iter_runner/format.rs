@@ -258,7 +258,7 @@ fn fallback_detail(input: &serde_json::Value) -> String {
     String::new()
 }
 
-pub(crate) fn truncate(s: &str, max: usize) -> String {
+pub fn truncate(s: &str, max: usize) -> String {
     if s.len() <= max {
         let char_count = s.chars().count();
         if char_count <= max {

@@ -30,22 +30,18 @@ pub fn yellow(s: &str) -> String {
     wrap("33", s, no_color())
 }
 
-#[allow(dead_code)]
 pub fn red(s: &str) -> String {
     wrap("31", s, no_color())
 }
 
-#[allow(dead_code)]
 pub fn blue(s: &str) -> String {
     wrap("34", s, no_color())
 }
 
-#[allow(dead_code)]
 pub fn magenta(s: &str) -> String {
     wrap("35", s, no_color())
 }
 
-#[allow(dead_code)]
 pub fn cyan(s: &str) -> String {
     wrap("36", s, no_color())
 }

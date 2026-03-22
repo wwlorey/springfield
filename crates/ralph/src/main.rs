@@ -1,6 +1,4 @@
-pub(crate) mod banner;
-pub(crate) mod format;
-pub(crate) mod style;
+use springfield::iter_runner::{banner, format, style};
 
 use clap::Parser;
 use shutdown::{ShutdownConfig, ShutdownController, ShutdownStatus, kill_process_group};
