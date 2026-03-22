@@ -33,21 +33,29 @@ Cursus is a module within the `springfield` crate. Pipeline definitions live in 
 ~/.sgf/
   cursus/                      # global pipeline definitions (TOML)
     build.toml
-    spec.toml
-    verify.toml
-    test.toml
-    test-plan.toml
     doc.toml
-    issues-log.toml
-  prompts/                     # prompt content (markdown) — unchanged
-    spec-discuss.md
-    spec-draft.md
-    spec-review.md
-    spec-revise.md
-    spec-approve.md
+    incarnatur.toml
+    install.toml
+    precatur.toml
+    spec-gen.toml
+  prompts/                     # prompt content (markdown)
     build.md
-    verify.md
-    ...
+    doc.md
+    incarnatur-0-spec-to-issues.md
+    incarnatur-1-spec-to-issues-final-pass.md
+    incarnatur-2-build.md
+    install.md
+    precatur-0-gather-preces.md
+    precatur-1-discuss-and-interview.md
+    precatur-1-write.md
+    precatur-2-review.md
+    precatur-3-revise.md
+    precatur-4-approve.md
+    spec-gen-0-discuss-and-interview.md
+    spec-gen-1-write.md
+    spec-gen-2-review.md
+    spec-gen-3-revise.md
+    spec-gen-4-approve.md
 
 .sgf/                          # per-project overrides
   cursus/                      # project-local pipeline overrides
