@@ -96,6 +96,7 @@ fn main() {
         resume: cli.resume,
         env_vars: Vec::new(),
         runner_name: Some("Ralph".to_string()),
+        work_dir: None,
     };
 
     let shutdown_config = ShutdownConfig {

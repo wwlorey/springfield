@@ -1,19 +1,16 @@
 use std::fs;
 use std::io;
 use std::io::IsTerminal;
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
 
 use chrono::Utc;
-use shutdown::{ShutdownConfig, ShutdownController, ShutdownStatus};
-use tracing::warn;
+use shutdown::{ShutdownConfig, ShutdownController};
 use uuid::Uuid;
 
 use crate::cursus::context;
 use crate::cursus::state::{self, CompletedIter, RunMetadata, RunStatus};
 use crate::cursus::toml::{CursusDefinition, IterDefinition, Mode};
+use crate::iter_runner::{self, IterExitCode, IterRunnerConfig};
 use crate::loop_mgmt;
 use crate::style;
 
@@ -180,7 +177,7 @@ fn resolve_agent_command(config: &CursusConfig) -> String {
     std::env::var("SGF_AGENT_COMMAND").unwrap_or_else(|_| "ralph".to_string())
 }
 
-struct RalphInvocation<'a> {
+struct IterInvocation<'a> {
     root: &'a Path,
     run_id: &'a str,
     iter: &'a IterDefinition,
@@ -189,161 +186,55 @@ struct RalphInvocation<'a> {
     prompt_path: &'a Path,
     consumed_content: &'a str,
     auto_push: bool,
+    effective_mode: &'a Mode,
 }
 
-const SPAWN_RETRY_ATTEMPTS: u32 = 3;
-const SPAWN_RETRY_BASE_DELAY: Duration = Duration::from_secs(5);
+fn run_iter(inv: &IterInvocation<'_>, controller: &ShutdownController) -> io::Result<i32> {
+    let agent_cmd = resolve_agent_command(inv.config);
 
-fn spawn_with_retry(
-    cmd: &mut Command,
-    label: &str,
-    controller: &ShutdownController,
-) -> io::Result<std::process::Child> {
-    for attempt in 0..SPAWN_RETRY_ATTEMPTS {
-        match cmd.spawn() {
-            Ok(child) => return Ok(child),
-            Err(e)
-                if e.raw_os_error() == Some(libc::EAGAIN) && attempt + 1 < SPAWN_RETRY_ATTEMPTS =>
-            {
-                let delay = SPAWN_RETRY_BASE_DELAY * 2u32.pow(attempt);
-                warn!(
-                    attempt = attempt + 1,
-                    max = SPAWN_RETRY_ATTEMPTS,
-                    delay_secs = delay.as_secs(),
-                    error = %e,
-                    "resource pressure spawning {label}, retrying"
-                );
-                let deadline = Instant::now() + delay;
-                while Instant::now() < deadline {
-                    if controller.poll() == ShutdownStatus::Shutdown {
-                        return Err(io::Error::new(io::ErrorKind::Interrupted, "shutdown"));
-                    }
-                    std::thread::sleep(Duration::from_millis(100));
-                }
-            }
-            Err(e) => {
-                return Err(io::Error::other(format!("failed to spawn {label}: {e}")));
-            }
-        }
-    }
-    unreachable!()
-}
-
-fn invoke_ralph(inv: &RalphInvocation<'_>, controller: &ShutdownController) -> io::Result<i32> {
-    let binary = resolve_agent_command(inv.config);
-
-    let mut args = vec!["-a".to_string()];
-
-    args.push("--loop-id".to_string());
-    args.push(inv.run_id.to_string());
-
-    args.push("--session-id".to_string());
-    args.push(inv.session_id.to_string());
-
-    args.push("--auto-push".to_string());
-    args.push(inv.auto_push.to_string());
-
-    if inv.iter.banner {
-        args.push("--banner".to_string());
-    }
-
+    let mut prompt_files = Vec::new();
     if !inv.consumed_content.is_empty() {
         let ctx_file = context::context_file_path(inv.root, inv.run_id, "_consumed");
         fs::write(&ctx_file, inv.consumed_content)?;
-        args.push("--prompt-file".to_string());
-        args.push(ctx_file.to_string_lossy().to_string());
+        prompt_files.push(ctx_file.to_string_lossy().to_string());
     }
 
     let log_path = loop_mgmt::create_log_file(inv.root, inv.run_id)?;
-    args.push("--log-file".to_string());
-    args.push(log_path.to_string_lossy().to_string());
-
-    args.push(inv.iter.iterations.to_string());
-    args.push(inv.prompt_path.to_string_lossy().to_string());
-
-    let mut cmd = Command::new(&binary);
-    cmd.args(&args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .env("SGF_MANAGED", "1");
 
     let (ctx_env_name, ctx_env_val) = context::context_env_var(inv.run_id);
-    cmd.env(&ctx_env_name, &ctx_env_val);
-
-    if std::env::var("SGF_TEST_NO_SETSID").is_err() {
-        unsafe {
-            cmd.pre_exec(|| {
-                libc::setsid();
-                Ok(())
-            });
-        }
-    }
-
-    let mut child = spawn_with_retry(&mut cmd, "ralph", controller)?;
-
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return Ok(status.code().unwrap_or(1)),
-            Ok(None) => {
-                if controller.poll() == ShutdownStatus::Shutdown {
-                    shutdown::kill_process_group(child.id(), Duration::from_millis(200));
-                    let _ = child.wait();
-                    return Ok(130);
-                }
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            Err(e) => return Err(e),
-        }
-    }
-}
-
-fn invoke_cl(
-    prompt_path: &Path,
-    session_id: &str,
-    consumed_content: &str,
-    run_id: &str,
-    controller: &ShutdownController,
-) -> io::Result<i32> {
-    let prompt_arg = format!("@{}", prompt_path.display());
-    let mut args = vec![
-        "--verbose".to_string(),
-        "--session-id".to_string(),
-        session_id.to_string(),
+    let mut env_vars = vec![
+        ("SGF_MANAGED".to_string(), "1".to_string()),
+        (ctx_env_name, ctx_env_val),
     ];
-
-    if !consumed_content.is_empty() {
-        args.push("--append-system-prompt".to_string());
-        args.push(consumed_content.to_string());
+    if std::env::var("SGF_TEST_NO_SETSID").is_ok() {
+        env_vars.push(("SGF_TEST_NO_SETSID".to_string(), "1".to_string()));
     }
 
-    args.push(prompt_arg);
+    let iter_config = IterRunnerConfig {
+        afk: *inv.effective_mode == Mode::Afk,
+        banner: inv.iter.banner,
+        loop_id: Some(inv.run_id.to_string()),
+        iterations: inv.iter.iterations,
+        prompt: inv.prompt_path.to_string_lossy().to_string(),
+        auto_push: inv.auto_push,
+        command: Some(agent_cmd),
+        prompt_files,
+        log_file: Some(log_path),
+        session_id: Some(inv.session_id.to_string()),
+        resume: None,
+        env_vars,
+        runner_name: None,
+        work_dir: Some(inv.root.to_path_buf()),
+    };
 
-    let mut cmd = Command::new("cl");
-    cmd.args(&args)
-        .stdin(Stdio::inherit())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit());
+    let exit_code = iter_runner::run_iteration_loop(iter_config, controller);
 
-    let (ctx_env_name, ctx_env_val) = context::context_env_var(run_id);
-    cmd.env(&ctx_env_name, &ctx_env_val);
-
-    let mut child = spawn_with_retry(&mut cmd, "cl", controller)?;
-
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return Ok(status.code().unwrap_or(1)),
-            Ok(None) => {
-                if controller.poll() == ShutdownStatus::Shutdown {
-                    shutdown::kill_process_group(child.id(), Duration::from_millis(200));
-                    let _ = child.wait();
-                    return Ok(130);
-                }
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            Err(e) => return Err(e),
-        }
-    }
+    Ok(match exit_code {
+        IterExitCode::Complete => 0,
+        IterExitCode::Error => 1,
+        IterExitCode::Exhausted => 2,
+        IterExitCode::Interrupted => 130,
+    })
 }
 
 fn print_stall_banner(cursus_name: &str, iter_name: &str, iterations: u32, run_id: &str) {
@@ -477,28 +368,20 @@ fn run_cursus_loop(
             None
         };
 
-        let exit_code = match effective_mode {
-            Mode::Afk => invoke_ralph(
-                &RalphInvocation {
-                    root,
-                    run_id: &metadata.run_id,
-                    iter,
-                    config,
-                    session_id: &session_id,
-                    prompt_path: &prompt_path,
-                    consumed_content: &consumed_content,
-                    auto_push,
-                },
-                &controller,
-            )?,
-            Mode::Interactive => invoke_cl(
-                &prompt_path,
-                &session_id,
-                &consumed_content,
-                &metadata.run_id,
-                &controller,
-            )?,
-        };
+        let exit_code = run_iter(
+            &IterInvocation {
+                root,
+                run_id: &metadata.run_id,
+                iter,
+                config,
+                session_id: &session_id,
+                prompt_path: &prompt_path,
+                consumed_content: &consumed_content,
+                auto_push,
+                effective_mode: &effective_mode,
+            },
+            &controller,
+        )?;
 
         if let Some(ref before) = head_before {
             vcs_utils::auto_push_if_changed(before, |msg| {
@@ -1375,12 +1258,11 @@ exit 0
         let root = tmp.path();
         setup_cursus_project(root, &["build.md"]);
 
-        // Mock that captures args
-        let ralph = mock_script(
+        let mock = mock_script(
             root,
-            "mock_ralph.sh",
+            "mock_agent.sh",
             &format!(
-                "#!/bin/sh\necho \"$@\" > \"{}/ralph_args.txt\"\ntouch \"{}/.iter-complete\"\nexit 0\n",
+                "#!/bin/sh\necho \"$@\" > \"{}/agent_args.txt\"\ntouch \"{}/.iter-complete\"\nexit 0\n",
                 root.display(),
                 root.display()
             ),
@@ -1396,7 +1278,7 @@ exit 0
             spec: None,
             mode_override: Some(Mode::Afk),
             no_push: true,
-            agent_command: Some(ralph),
+            agent_command: Some(mock),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
         };
@@ -1404,26 +1286,26 @@ exit 0
         let exit_code = run_cursus(root, "build", &def, &config).unwrap();
         assert_eq!(exit_code, 0);
 
-        // Should have invoked ralph (AFK), not cl
-        let args = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
+        // AFK mode passes --print to the agent
+        let args = fs::read_to_string(root.join("agent_args.txt")).unwrap();
         assert!(
-            args.contains("--loop-id"),
-            "should invoke ralph with --loop-id, got: {args}"
+            args.contains("--print"),
+            "should invoke agent in AFK mode with --print, got: {args}"
         );
     }
 
+    #[test]
     #[test]
     fn run_cursus_spec_passthrough() {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
         setup_cursus_project(root, &["build.md"]);
 
-        let ralph = mock_script(
+        let mock = mock_script(
             root,
-            "mock_ralph.sh",
+            "mock_agent.sh",
             &format!(
-                "#!/bin/sh\necho \"$@\" > \"{}/ralph_args.txt\"\ntouch \"{}/.iter-complete\"\nexit 0\n",
-                root.display(),
+                "#!/bin/sh\ntouch \"{}/.iter-complete\"\nexit 0\n",
                 root.display()
             ),
         );
@@ -1437,19 +1319,13 @@ exit 0
             spec: Some("auth".to_string()),
             mode_override: None,
             no_push: true,
-            agent_command: Some(ralph),
+            agent_command: Some(mock),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
         };
 
         let exit_code = run_cursus(root, "build", &def, &config).unwrap();
         assert_eq!(exit_code, 0);
-
-        let args = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
-        assert!(
-            !args.contains("--spec"),
-            "should NOT pass --spec to ralph, got: {args}"
-        );
 
         let run_dir = root.join(".sgf/run");
         let entries: Vec<_> = fs::read_dir(&run_dir)

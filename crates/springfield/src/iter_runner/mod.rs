@@ -37,6 +37,8 @@ pub struct IterRunnerConfig {
     pub env_vars: Vec<(String, String)>,
     /// Name shown in banner messages (e.g. "Ralph", "sgf"). Defaults to empty.
     pub runner_name: Option<String>,
+    /// Working directory for sentinel detection and spawned commands. Defaults to `.`.
+    pub work_dir: Option<PathBuf>,
 }
 
 /// Exit codes returned by the iteration loop.
@@ -112,10 +114,14 @@ pub fn find_sentinel(dir: &Path, max_depth: usize) -> Option<PathBuf> {
     None
 }
 
-pub fn remove_sentinel() {
-    if let Some(path) = find_sentinel(Path::new("."), SENTINEL_MAX_DEPTH) {
+pub fn remove_sentinel_from(root: &Path) {
+    if let Some(path) = find_sentinel(root, SENTINEL_MAX_DEPTH) {
         let _ = fs::remove_file(path);
     }
+}
+
+pub fn remove_sentinel() {
+    remove_sentinel_from(Path::new("."));
 }
 
 fn save_terminal_settings() -> Option<libc::termios> {
@@ -537,13 +543,15 @@ pub fn run_iteration_loop(
         print_startup_banner(&config, iterations, is_file, &agent_cmd, &tee);
     }
 
-    remove_sentinel();
-    let _ = fs::remove_file(DING_SENTINEL);
+    let root = config.work_dir.as_deref().unwrap_or_else(|| Path::new("."));
+
+    remove_sentinel_from(root);
+    let _ = fs::remove_file(root.join(DING_SENTINEL));
 
     let saved_termios = save_terminal_settings();
 
     for i in 1..=iterations {
-        remove_sentinel();
+        remove_sentinel_from(root);
 
         let iter_title = if let Some(ref id) = config.loop_id {
             format!("Iteration {} of {} [{}]", i, iterations, id)
@@ -573,7 +581,7 @@ pub fn run_iteration_loop(
             return IterExitCode::Interrupted;
         }
 
-        if let Some(sentinel_path) = find_sentinel(Path::new("."), SENTINEL_MAX_DEPTH) {
+        if let Some(sentinel_path) = find_sentinel(root, SENTINEL_MAX_DEPTH) {
             let _ = fs::remove_file(sentinel_path);
             let complete_title = match &config.runner_name {
                 Some(name) => format!("{} COMPLETE after {} iterations!", name, i),
@@ -609,7 +617,7 @@ pub fn run_iteration_loop(
         auto_push_if_changed(&config, &head_before, &tee);
     }
 
-    remove_sentinel();
+    remove_sentinel_from(root);
     let max_title = match &config.runner_name {
         Some(name) => format!("{} reached max iterations ({})", name, iterations),
         None => format!("Reached max iterations ({})", iterations),
