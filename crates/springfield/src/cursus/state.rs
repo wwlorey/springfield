@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -43,6 +44,8 @@ pub struct RunMetadata {
     pub iters_completed: Vec<CompletedIter>,
     pub spec: Option<String>,
     pub mode_override: Option<String>,
+    #[serde(default)]
+    pub context_producers: HashMap<String, String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -65,6 +68,7 @@ impl RunMetadata {
             iters_completed: Vec::new(),
             spec: spec.map(|s| s.to_string()),
             mode_override: mode_override.map(|m| m.to_string()),
+            context_producers: HashMap::new(),
             created_at: now.clone(),
             updated_at: now,
         }
@@ -244,6 +248,7 @@ mod tests {
         assert!(meta.iters_completed.is_empty());
         assert_eq!(meta.spec.as_deref(), Some("auth"));
         assert!(meta.mode_override.is_none());
+        assert!(meta.context_producers.is_empty());
         assert_eq!(meta.created_at, meta.updated_at);
     }
 
@@ -266,6 +271,7 @@ mod tests {
             }],
             spec: Some("auth".to_string()),
             mode_override: None,
+            context_producers: HashMap::new(),
             created_at: "2026-03-17T14:00:00Z".to_string(),
             updated_at: "2026-03-17T14:10:00Z".to_string(),
         };
@@ -302,6 +308,7 @@ mod tests {
             iters_completed: Vec::new(),
             spec: None,
             mode_override: None,
+            context_producers: HashMap::new(),
             created_at: "2026-03-17T14:00:00Z".to_string(),
             updated_at: "2026-03-17T14:00:00Z".to_string(),
         };
@@ -375,6 +382,7 @@ mod tests {
             iters_completed: Vec::new(),
             spec: None,
             mode_override: None,
+            context_producers: HashMap::new(),
             created_at: "2026-03-17T14:00:00Z".to_string(),
             updated_at: "2026-03-17T14:00:00Z".to_string(),
         };
@@ -400,6 +408,7 @@ mod tests {
             iters_completed: Vec::new(),
             spec: None,
             mode_override: None,
+            context_producers: HashMap::new(),
             created_at: "2026-03-17T14:00:00Z".to_string(),
             updated_at: "2026-03-17T14:00:00Z".to_string(),
         };
@@ -426,6 +435,7 @@ mod tests {
             iters_completed: Vec::new(),
             spec: None,
             mode_override: None,
+            context_producers: HashMap::new(),
             created_at: "2026-03-17T14:00:00Z".to_string(),
             updated_at: "2026-03-17T14:00:00Z".to_string(),
         };
@@ -450,6 +460,7 @@ mod tests {
             iters_completed: Vec::new(),
             spec: None,
             mode_override: None,
+            context_producers: HashMap::new(),
             created_at: "2026-03-17T14:00:00Z".to_string(),
             updated_at: "2026-03-17T14:00:00Z".to_string(),
         };
@@ -481,6 +492,7 @@ mod tests {
             iters_completed: Vec::new(),
             spec: None,
             mode_override: None,
+            context_producers: HashMap::new(),
             created_at: "2026-03-17T14:00:00Z".to_string(),
             updated_at: "2026-03-17T14:00:00Z".to_string(),
         };
@@ -499,6 +511,7 @@ mod tests {
             iters_completed: Vec::new(),
             spec: None,
             mode_override: None,
+            context_producers: HashMap::new(),
             created_at: "2026-03-17T15:00:00Z".to_string(),
             updated_at: "2026-03-17T15:00:00Z".to_string(),
         };
@@ -544,6 +557,7 @@ mod tests {
             iters_completed: Vec::new(),
             spec: None,
             mode_override: None,
+            context_producers: HashMap::new(),
             created_at: "2026-03-17T14:00:00Z".to_string(),
             updated_at: "2026-03-17T14:00:00Z".to_string(),
         };
@@ -594,6 +608,7 @@ mod tests {
                 iters_completed: Vec::new(),
                 spec: None,
                 mode_override: None,
+                context_producers: HashMap::new(),
                 created_at: "2026-03-17T14:00:00Z".to_string(),
                 updated_at: "2026-03-17T14:10:00Z".to_string(),
             },
@@ -613,6 +628,7 @@ mod tests {
                 iters_completed: Vec::new(),
                 spec: None,
                 mode_override: None,
+                context_producers: HashMap::new(),
                 created_at: "2026-03-17T15:00:00Z".to_string(),
                 updated_at: "2026-03-17T15:05:00Z".to_string(),
             },
@@ -632,6 +648,7 @@ mod tests {
                 iters_completed: Vec::new(),
                 spec: None,
                 mode_override: None,
+                context_producers: HashMap::new(),
                 created_at: "2026-03-17T16:00:00Z".to_string(),
                 updated_at: "2026-03-17T16:05:00Z".to_string(),
             },
@@ -651,6 +668,7 @@ mod tests {
                 iters_completed: Vec::new(),
                 spec: None,
                 mode_override: None,
+                context_producers: HashMap::new(),
                 created_at: "2026-03-17T17:00:00Z".to_string(),
                 updated_at: "2026-03-17T17:05:00Z".to_string(),
             },
@@ -691,6 +709,7 @@ mod tests {
                 iters_completed: Vec::new(),
                 spec: None,
                 mode_override: None,
+                context_producers: HashMap::new(),
                 created_at: "2026-03-17T10:00:00Z".to_string(),
                 updated_at: "2026-03-17T10:05:00Z".to_string(),
             },
@@ -710,6 +729,7 @@ mod tests {
                 iters_completed: Vec::new(),
                 spec: None,
                 mode_override: None,
+                context_producers: HashMap::new(),
                 created_at: "2026-03-17T20:00:00Z".to_string(),
                 updated_at: "2026-03-17T20:05:00Z".to_string(),
             },
@@ -743,6 +763,7 @@ mod tests {
             }],
             spec: Some("auth".to_string()),
             mode_override: None,
+            context_producers: HashMap::new(),
             created_at: "2026-03-17T14:00:00Z".to_string(),
             updated_at: "2026-03-17T14:10:00Z".to_string(),
         };
@@ -753,5 +774,61 @@ mod tests {
         assert_eq!(read_back.current_iter, "draft");
         assert_eq!(read_back.current_iter_index, 1);
         assert_eq!(read_back.iters_completed.len(), 1);
+    }
+
+    #[test]
+    fn context_producers_roundtrip() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let run_id = "spec-20260317T140000";
+
+        create_run_dir(root, run_id).unwrap();
+        let mut producers = HashMap::new();
+        producers.insert("discuss-summary".to_string(), "discuss".to_string());
+        producers.insert("draft-presentation".to_string(), "revise".to_string());
+
+        let meta = RunMetadata {
+            run_id: run_id.to_string(),
+            cursus: "spec".to_string(),
+            status: RunStatus::Running,
+            current_iter: "review".to_string(),
+            current_iter_index: 3,
+            iters_completed: Vec::new(),
+            spec: None,
+            mode_override: None,
+            context_producers: producers.clone(),
+            created_at: "2026-03-17T14:00:00Z".to_string(),
+            updated_at: "2026-03-17T14:10:00Z".to_string(),
+        };
+        write_metadata(root, &meta).unwrap();
+
+        let read_back = read_metadata(root, run_id).unwrap().unwrap();
+        assert_eq!(read_back.context_producers, producers);
+    }
+
+    #[test]
+    fn context_producers_backward_compat() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let run_id = "old-20260317T140000";
+
+        let dir = run_dir(root, run_id);
+        fs::create_dir_all(&dir).unwrap();
+        let json = r#"{
+            "run_id": "old-20260317T140000",
+            "cursus": "build",
+            "status": "running",
+            "current_iter": "build",
+            "current_iter_index": 0,
+            "iters_completed": [],
+            "spec": null,
+            "mode_override": null,
+            "created_at": "2026-03-17T14:00:00Z",
+            "updated_at": "2026-03-17T14:00:00Z"
+        }"#;
+        fs::write(meta_path(root, run_id), json).unwrap();
+
+        let read_back = read_metadata(root, run_id).unwrap().unwrap();
+        assert!(read_back.context_producers.is_empty());
     }
 }

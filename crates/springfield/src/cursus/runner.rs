@@ -519,8 +519,12 @@ fn run_cursus_loop(
             outcome: outcome.to_string(),
         });
 
-        if let Some(ref key) = iter.produces {
-            context::check_produces(root, &metadata.run_id, key);
+        if let Some(ref key) = iter.produces
+            && context::check_produces(root, &metadata.run_id, key)
+        {
+            metadata
+                .context_producers
+                .insert(key.clone(), iter.name.clone());
         }
 
         let transition = resolve_transition(iter, &outcome)?;
@@ -692,6 +696,8 @@ pub fn resume_cursus(root: &Path, run_id: &str) -> io::Result<i32> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
     use crate::cursus::toml::Transitions;
     use tempfile::TempDir;
@@ -1623,6 +1629,7 @@ exit 0
                 iters_completed: Vec::new(),
                 spec: None,
                 mode_override: None,
+                context_producers: HashMap::new(),
                 created_at: "2026-03-17T14:00:00Z".to_string(),
                 updated_at: "2026-03-17T14:05:00Z".to_string(),
             },
@@ -1650,6 +1657,7 @@ exit 0
                 iters_completed: Vec::new(),
                 spec: None,
                 mode_override: None,
+                context_producers: HashMap::new(),
                 created_at: "2026-03-17T14:00:00Z".to_string(),
                 updated_at: "2026-03-17T14:05:00Z".to_string(),
             },
@@ -1678,6 +1686,7 @@ exit 0
                 iters_completed: Vec::new(),
                 spec: None,
                 mode_override: None,
+                context_producers: HashMap::new(),
                 created_at: "2026-03-17T14:00:00Z".to_string(),
                 updated_at: "2026-03-17T14:05:00Z".to_string(),
             },
@@ -1751,6 +1760,7 @@ prompt = "build.md"
             }],
             spec: None,
             mode_override: None,
+            context_producers: HashMap::new(),
             created_at: "2026-03-17T14:00:00Z".to_string(),
             updated_at: "2026-03-17T14:10:00Z".to_string(),
         };
@@ -1811,6 +1821,7 @@ prompt = "build.md"
             iters_completed: Vec::new(),
             spec: None,
             mode_override: None,
+            context_producers: HashMap::new(),
             created_at: "2026-03-17T14:00:00Z".to_string(),
             updated_at: "2026-03-17T14:10:00Z".to_string(),
         };
