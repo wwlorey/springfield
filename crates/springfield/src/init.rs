@@ -39,8 +39,8 @@ const GITIGNORE_FULL: &str = "\
 **/.forma/daemon.url
 .sgf/logs/
 .sgf/run/
-.ralph-complete
-.ralph-ding
+.iter-complete
+.iter-ding
 
 # Rust
 /target
@@ -70,8 +70,8 @@ const GITIGNORE_ENTRIES: &[&str] = &[
     "**/.forma/daemon.url",
     ".sgf/logs/",
     ".sgf/run/",
-    ".ralph-complete",
-    ".ralph-ding",
+    ".iter-complete",
+    ".iter-ding",
     "/target",
     "node_modules/",
     ".svelte-kit/",
@@ -777,7 +777,7 @@ mod tests {
         let ds_count = content.lines().filter(|l| l.trim() == ".DS_Store").count();
         assert_eq!(ds_count, 1, ".DS_Store duplicated");
         assert!(
-            content.lines().any(|l| l.trim() == ".ralph-complete"),
+            content.lines().any(|l| l.trim() == ".iter-complete"),
             "missing new entry"
         );
     }

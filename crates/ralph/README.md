@@ -64,7 +64,7 @@ ralph --resume a1b2c3d4-e5f6-... 1 prompt.md           # Resume a previous sessi
 
 ### Interactive (default)
 
-Spawns the agent with full terminal passthrough (stdin/stdout/stderr inherited). The user interacts with Claude directly. A background watcher thread monitors for the `.ralph-ding` sentinel file and plays a notification sound when Claude needs input.
+Spawns the agent with full terminal passthrough (stdin/stdout/stderr inherited). The user interacts with Claude directly. A background watcher thread monitors for the `.iter-ding` sentinel file and plays a notification sound when Claude needs input.
 
 ### AFK (`--afk`)
 

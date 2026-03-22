@@ -27,4 +27,4 @@ Based on the user's feedback, end the session appropriately:
   * Touch `.iter-complete` and end.
 - **User wants revisions**:
   * Write the user's feedback to `$SGF_RUN_CONTEXT/draft-presentation.md` (append a "## Revision Feedback" section) so the REVISE phase knows what to address.
-  * Touch `.ralph-revise` and end.
+  * Touch `.iter-revise` and end.

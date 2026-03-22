@@ -257,9 +257,9 @@ After each iter completes, cursus checks for sentinel files (in priority order):
 
 | Sentinel File | Meaning | Behavior |
 |---------------|---------|----------|
-| `.ralph-complete` | Iter succeeded | Advance to next iter (or `next` override). Final iter → pipeline complete |
-| `.ralph-reject` | Reviewer rejected | Follow `on_reject` transition |
-| `.ralph-revise` | Minor revision needed | Follow `on_revise` transition |
+| `.iter-complete` | Iter succeeded | Advance to next iter (or `next` override). Final iter → pipeline complete |
+| `.iter-reject` | Reviewer rejected | Follow `on_reject` transition |
+| `.iter-revise` | Minor revision needed | Follow `on_revise` transition |
 | (none, iterations exhausted) | Stalled | Pipeline enters stalled state |
 
 Interactive iters with `iterations = 1` that end without a sentinel are treated as successfully completed.
