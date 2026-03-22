@@ -710,7 +710,7 @@ impl Db {
     pub fn ready_issues(&self, filters: &ListFilters) -> Result<Vec<Issue>, PensaError> {
         let mut conditions = vec![
             "status = 'open'".to_string(),
-            "(issue_type != 'bug' OR id NOT IN (SELECT fixes FROM issues WHERE fixes IS NOT NULL AND status != 'closed'))".to_string(),
+            "(issue_type != 'bug' OR id NOT IN (SELECT fixes FROM issues WHERE fixes IS NOT NULL AND status != 'closed') OR id IN (SELECT issue_id FROM events WHERE event_type = 'reopened'))".to_string(),
             "id NOT IN (SELECT d.issue_id FROM deps d JOIN issues i ON d.depends_on_id = i.id WHERE i.status != 'closed')".to_string(),
         ];
         let mut values: Vec<Value> = Vec::new();
@@ -2253,6 +2253,65 @@ mod tests {
         assert_eq!(ready2.len(), 2); // fix task + original task, but not the bug
         let ready2_ids: Vec<&str> = ready2.iter().map(|i| i.id.as_str()).collect();
         assert!(!ready2_ids.contains(&bug.id.as_str()));
+    }
+
+    #[test]
+    fn ready_includes_reopened_bugs_despite_fix_tasks() {
+        let (db, _dir) = open_temp_db();
+
+        let bug = create_issue_with(&db, "a bug", IssueType::Bug, Priority::P0);
+
+        // Create a fix task for the bug
+        let fix = db
+            .create_issue(&CreateIssueParams {
+                title: "fix the bug".into(),
+                issue_type: IssueType::Task,
+                priority: Priority::P1,
+                description: None,
+                spec: None,
+                fixes: Some(bug.id.clone()),
+                assignee: None,
+                deps: vec![],
+                actor: "test-agent".into(),
+            })
+            .unwrap();
+
+        // Bug is planned (has open fix task) → excluded from ready
+        let ready = db.ready_issues(&ListFilters::default()).unwrap();
+        let ready_ids: Vec<&str> = ready.iter().map(|i| i.id.as_str()).collect();
+        assert!(!ready_ids.contains(&bug.id.as_str()));
+
+        // Close the fix task → bug auto-closes
+        db.close_issue(&fix.id, Some("done"), false, "test-agent")
+            .unwrap();
+        let closed_bug = db.get_issue_only(&bug.id).unwrap();
+        assert_eq!(closed_bug.status, Status::Closed);
+
+        // Reopen the bug
+        db.reopen_issue(&bug.id, Some("still broken"), "test-agent")
+            .unwrap();
+
+        // Create a new fix task for the reopened bug
+        db.create_issue(&CreateIssueParams {
+            title: "fix the bug again".into(),
+            issue_type: IssueType::Task,
+            priority: Priority::P1,
+            description: None,
+            spec: None,
+            fixes: Some(bug.id.clone()),
+            assignee: None,
+            deps: vec![],
+            actor: "test-agent".into(),
+        })
+        .unwrap();
+
+        // Reopened bug should appear in ready despite having open fix tasks
+        let ready2 = db.ready_issues(&ListFilters::default()).unwrap();
+        let ready2_ids: Vec<&str> = ready2.iter().map(|i| i.id.as_str()).collect();
+        assert!(
+            ready2_ids.contains(&bug.id.as_str()),
+            "reopened bug should appear in ready even with open fix tasks"
+        );
     }
 
     #[test]
