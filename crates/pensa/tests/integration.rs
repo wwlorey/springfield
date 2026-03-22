@@ -423,6 +423,10 @@ impl PensaOnlyDaemon {
     fn url(&self, path: &str) -> String {
         format!("http://localhost:{}{}", self.port, path)
     }
+
+    fn dir(&self) -> &std::path::Path {
+        self._dir.path()
+    }
 }
 
 impl Drop for PensaOnlyDaemon {
@@ -2463,5 +2467,31 @@ fn json_output_shape_validation() {
     assert!(
         doctor["fixes_applied"].is_array(),
         "doctor: fixes_applied should be array, got: {doctor}"
+    );
+}
+
+#[test]
+fn daemon_status_shows_project_directory() {
+    let d = PensaOnlyDaemon::start();
+    let output = run_pn(
+        Command::new(pn_bin())
+            .env("PN_DAEMON", format!("http://localhost:{}", d.port))
+            .env_remove("PN_DAEMON_HOST")
+            .current_dir(d.dir())
+            .args(["daemon", "status"]),
+    );
+    assert!(output.status.success(), "daemon status should succeed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("daemon reachable at"),
+        "should print daemon URL, got: {stdout}"
+    );
+    let canonical = d
+        .dir()
+        .canonicalize()
+        .unwrap_or_else(|_| d.dir().to_path_buf());
+    assert!(
+        stdout.contains(&format!("project directory: {}", canonical.display())),
+        "should print project directory, got: {stdout}"
     );
 }

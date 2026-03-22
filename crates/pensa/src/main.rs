@@ -386,6 +386,14 @@ fn main() {
                 match client.check_reachable() {
                     Ok(()) => {
                         println!("daemon reachable at {}", client.base_url());
+                        let dir = std::env::current_dir().unwrap_or_default();
+                        let project_file = dir.join(".pensa/daemon.project");
+                        if let Ok(project_dir) = std::fs::read_to_string(&project_file) {
+                            let project_dir = project_dir.trim();
+                            if !project_dir.is_empty() {
+                                println!("project directory: {project_dir}");
+                            }
+                        }
                         process::exit(0);
                     }
                     Err(e) => {
