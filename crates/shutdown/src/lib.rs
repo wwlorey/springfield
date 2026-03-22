@@ -341,6 +341,7 @@ pub struct ProcessSemaphore {
 
 impl ProcessSemaphore {
     pub fn new(max: usize) -> Self {
+        assert!(max > 0, "ProcessSemaphore::new() requires max >= 1, got 0");
         Self {
             mutex: Mutex::new(0),
             condvar: Condvar::new(),
@@ -813,6 +814,28 @@ mod tests {
             unsafe { std::env::remove_var(key) };
             let sem = ProcessSemaphore::from_env(key, 5);
             assert_eq!(sem.max(), 5);
+        }
+
+        #[test]
+        #[should_panic(expected = "requires max >= 1")]
+        fn new_zero_panics() {
+            ProcessSemaphore::new(0);
+        }
+
+        #[test]
+        #[should_panic(expected = "requires max >= 1")]
+        fn from_env_zero_panics() {
+            let key = "SGF_TEST_SEM_ZERO_VAR";
+            unsafe { std::env::set_var(key, "0") };
+            ProcessSemaphore::from_env(key, 5);
+        }
+
+        #[test]
+        #[should_panic(expected = "requires max >= 1")]
+        fn from_env_default_zero_panics() {
+            let key = "SGF_TEST_SEM_DEFAULT_ZERO_VAR";
+            unsafe { std::env::remove_var(key) };
+            ProcessSemaphore::from_env(key, 0);
         }
 
         mod prop {
