@@ -37,7 +37,7 @@ fn mock_bin_path() -> &'static str {
 }
 ```
 
-Replaces per-test `setup_mock_pn()` calls. The `TempDir` lives for the process lifetime. All tests reference the same mock scripts via `mock_bin_path()`.
+A single `LazyLock` creates the shared mock `pn`/`fm` scripts once, reused by all tests. The `TempDir` lives for the process lifetime. All tests reference the same mock scripts via `mock_bin_path()`.
 
 ### 2. Concurrency Semaphore (`SGF_PERMITS`)
 
@@ -92,7 +92,7 @@ fn sgf_cmd(dir: &Path) -> Command {
 }
 ```
 
-The updated `sgf_cmd` automatically injects `mock_bin_path()`, `SGF_SKIP_PREFLIGHT=1`, `SGF_TEST_NO_SETSID=1`, and strips daemon-related env vars. Tests that need custom behavior override explicitly.
+The `sgf_cmd` helper automatically injects `mock_bin_path()`, `SGF_SKIP_PREFLIGHT=1`, `SGF_TEST_NO_SETSID=1`, and strips daemon-related env vars. Tests that need custom behavior override explicitly.
 
 ### 6. `SGF_TEST_NO_SETSID` Convention
 
@@ -100,7 +100,7 @@ When `SGF_TEST_NO_SETSID=1` is set, springfield's iteration runner and cursus ru
 
 ### 7. `SGF_AGENT_COMMAND` for Mock Agents
 
-Tests that exercise the iteration runner use `SGF_AGENT_COMMAND` (replaces the former `RALPH_COMMAND`) to point to a mock script that emits fixture NDJSON:
+Tests that exercise the iteration runner use `SGF_AGENT_COMMAND` to point to a mock script that emits fixture NDJSON:
 
 ```rust
 cmd.env("SGF_AGENT_COMMAND", mock_agent_path);
@@ -182,11 +182,9 @@ This forces high parallelism with low concurrency — the harshest test of the s
 
 A test `harness_semaphore_limits_concurrency` spawns multiple threads that each acquire a permit, increment a shared atomic counter, sleep briefly, then release. It asserts the counter never exceeds the semaphore max.
 
-### Migration completeness check
+### Correctness checks
 
-After migration, `grep -c 'setup_mock_pn()' crates/springfield/tests/integration.rs` should return `1` (only the definition, or `0` if removed entirely). All tests should use `mock_bin_path()` instead.
-
-Similarly, `grep -c '\.output()\\.unwrap()' crates/springfield/tests/integration.rs` should match only non-sgf commands (git, etc.) — all `sgf` invocations should go through `run_sgf()`.
+All tests use `mock_bin_path()` for mock binaries and `run_sgf()` for spawning `sgf` — no direct `.output().unwrap()` calls on sgf commands. `SGF_AGENT_COMMAND` points tests to mock agent scripts instead of real agent binaries.
 
 ### Timeout conventions
 
