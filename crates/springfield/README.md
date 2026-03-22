@@ -7,9 +7,14 @@ CLI entry point for [Springfield](../../README.md). All developer interaction go
 ```
 sgf <command> [spec] [-a | -i] [-n N] [--no-push]   — run a prompt-driven command
 sgf init [--force]                                    — scaffold a new project
+sgf resume [loop_id]                                  — resume a previous session
 sgf logs <loop-id>                                    — tail a running loop's output
 sgf status                                            — show project state (future work)
 ```
+
+### `sgf resume`
+
+Resumes a previously interrupted or completed session. Without arguments, presents an interactive picker showing recent sessions (cursus runs first, then legacy sessions). With a `loop_id`, resumes that specific run directly. Resume always launches in interactive mode regardless of the original session's mode.
 
 ### Command Resolution
 
