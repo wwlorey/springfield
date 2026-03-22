@@ -238,12 +238,29 @@ fn run_iter(inv: &IterInvocation<'_>, controller: &ShutdownController) -> io::Re
     })
 }
 
+fn render_stall_banner(
+    cursus_name: &str,
+    iter_name: &str,
+    iterations: u32,
+    run_id: &str,
+) -> String {
+    use crate::iter_runner::banner::render_box_styled;
+
+    let lines = vec![
+        format!("Cursus:    {cursus_name}"),
+        format!("Iter:      {iter_name}"),
+        format!("Reason:    Iterations exhausted ({iterations}/{iterations})"),
+        String::new(),
+        format!("To resume: sgf resume {run_id}"),
+    ];
+    render_box_styled("Cursus STALLED", &lines, |s| style::yellow(&style::bold(s)))
+}
+
 fn print_stall_banner(cursus_name: &str, iter_name: &str, iterations: u32, run_id: &str) {
-    let detail = format!(
-        "iter: {} · reason: iterations exhausted ({}/{}) · resume: sgf resume {}",
-        iter_name, iterations, iterations, run_id
+    eprintln!(
+        "{}",
+        render_stall_banner(cursus_name, iter_name, iterations, run_id)
     );
-    style::print_warning_detail(&format!("cursus STALLED [{cursus_name}]"), &detail);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1733,5 +1750,40 @@ prompt = "build.md"
         assert_eq!(metadata.iters_completed.len(), 2);
         assert_eq!(metadata.iters_completed[0].name, "review");
         assert_eq!(metadata.iters_completed[1].name, "approve");
+    }
+
+    #[test]
+    fn stall_banner_contains_box_drawing_chars() {
+        let banner = render_stall_banner("spec", "draft", 10, "spec-20260317T140000");
+        let stripped = style::strip_ansi(&banner);
+        assert!(stripped.starts_with("╭─"));
+        assert!(stripped.contains("╮"));
+        assert!(stripped.ends_with('╯'));
+        assert!(stripped.contains('│'));
+    }
+
+    #[test]
+    fn stall_banner_contains_all_fields() {
+        let banner = render_stall_banner("spec", "draft", 10, "spec-20260317T140000");
+        let stripped = style::strip_ansi(&banner);
+        assert!(stripped.contains("Cursus STALLED"));
+        assert!(stripped.contains("Cursus:    spec"));
+        assert!(stripped.contains("Iter:      draft"));
+        assert!(stripped.contains("Reason:    Iterations exhausted (10/10)"));
+        assert!(stripped.contains("To resume: sgf resume spec-20260317T140000"));
+    }
+
+    #[test]
+    fn stall_banner_lines_aligned() {
+        let banner = render_stall_banner("build", "compile", 5, "build-20260321T100000");
+        let stripped = style::strip_ansi(&banner);
+        let lines: Vec<&str> = stripped.lines().collect();
+        // title + 5 content lines + bottom border = 7 lines
+        assert_eq!(lines.len(), 7, "expected 7 lines, got: {stripped}");
+        let widths: Vec<usize> = lines.iter().map(|l| l.chars().count()).collect();
+        assert!(
+            widths.windows(2).all(|w| w[0] == w[1]),
+            "widths not aligned: {widths:?}\n{stripped}"
+        );
     }
 }
