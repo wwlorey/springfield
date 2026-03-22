@@ -2495,3 +2495,105 @@ fn daemon_status_shows_project_directory() {
         "should print project directory, got: {stdout}"
     );
 }
+
+#[test]
+fn refs_cascade_on_force_delete() {
+    let d = PensaOnlyDaemon::start();
+
+    // Create an issue
+    let resp = d
+        .client
+        .post(d.url("/issues"))
+        .json(&serde_json::json!({
+            "title": "Cascade delete test",
+            "issue_type": "task"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    let issue: Value = resp.json().unwrap();
+    let id = issue["id"].as_str().unwrap();
+
+    // Add a src-ref
+    let resp = d
+        .client
+        .post(d.url(&format!("/issues/{id}/src-refs")))
+        .json(&serde_json::json!({
+            "path": "crates/pensa/src/db.rs",
+            "reason": "cascade test src",
+            "actor": "test"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+
+    // Add a doc-ref
+    let resp = d
+        .client
+        .post(d.url(&format!("/issues/{id}/doc-refs")))
+        .json(&serde_json::json!({
+            "path": "specs/pensa.md",
+            "reason": "cascade test doc",
+            "actor": "test"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+
+    // Verify refs exist
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{id}/src-refs")))
+        .send()
+        .unwrap();
+    let src_refs: Vec<Value> = resp.json().unwrap();
+    assert_eq!(src_refs.len(), 1, "src-ref should exist before delete");
+
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{id}/doc-refs")))
+        .send()
+        .unwrap();
+    let doc_refs: Vec<Value> = resp.json().unwrap();
+    assert_eq!(doc_refs.len(), 1, "doc-ref should exist before delete");
+
+    // Force-delete the issue
+    let resp = d
+        .client
+        .delete(d.url(&format!("/issues/{id}?force=true")))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 204, "force delete should succeed");
+
+    // Verify issue is gone
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{id}")))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 404, "issue should be gone after delete");
+
+    // Verify src-refs are gone (not orphaned)
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{id}/src-refs")))
+        .send()
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        404,
+        "src-refs endpoint should 404 for deleted issue"
+    );
+
+    // Verify doc-refs are gone (not orphaned)
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{id}/doc-refs")))
+        .send()
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        404,
+        "doc-refs endpoint should 404 for deleted issue"
+    );
+}
