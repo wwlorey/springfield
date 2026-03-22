@@ -5253,3 +5253,210 @@ fn cursus_afk_then_interactive_stdin_not_stolen() {
         "interactive cl should receive stdin data, but got: {captured:?}\nstderr: {stderr}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Simple Prompt Mode tests (sgf <file>)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn simple_prompt_mode_runs_file_directly() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let mock_dir = TempDir::new().unwrap();
+    let args_file = mock_dir.path().join("agent_args.txt");
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        &format!(
+            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
+            args_file.display()
+        ),
+    );
+
+    let prompt_path = tmp.path().join("my-task.md");
+    fs::write(&prompt_path, "Do the thing").unwrap();
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .arg("my-task.md")
+            .arg("-a")
+            .env("SGF_AGENT_COMMAND", &mock_agent),
+    );
+
+    assert!(
+        output.status.success(),
+        "sgf simple prompt should succeed (exit 0), stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let args = fs::read_to_string(&args_file).unwrap();
+    assert!(
+        args.contains("my-task.md"),
+        "agent should receive the prompt file path, got: {args}"
+    );
+}
+
+#[test]
+fn simple_prompt_mode_defaults_to_one_iteration() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let mock_dir = TempDir::new().unwrap();
+    let count_file = mock_dir.path().join("count.txt");
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        &format!(
+            concat!(
+                "#!/bin/sh\n",
+                "if [ -f \"{}\" ]; then\n",
+                "  count=$(cat \"{}\")\n",
+                "else\n",
+                "  count=0\n",
+                "fi\n",
+                "count=$((count + 1))\n",
+                "echo $count > \"{}\"\n",
+                "exit 0\n",
+            ),
+            count_file.display(),
+            count_file.display(),
+            count_file.display(),
+        ),
+    );
+
+    let prompt_path = tmp.path().join("task.md");
+    fs::write(&prompt_path, "Do the thing").unwrap();
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .arg("task.md")
+            .arg("-a")
+            .env("SGF_AGENT_COMMAND", &mock_agent),
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "should exit 2 (iterations exhausted) with default 1 iteration and no sentinel, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let count: u32 = fs::read_to_string(&count_file)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    assert_eq!(count, 1, "should run exactly 1 iteration by default");
+}
+
+#[test]
+fn simple_prompt_mode_respects_iteration_count() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let mock_dir = TempDir::new().unwrap();
+    let count_file = mock_dir.path().join("count.txt");
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        &format!(
+            concat!(
+                "#!/bin/sh\n",
+                "if [ -f \"{}\" ]; then\n",
+                "  count=$(cat \"{}\")\n",
+                "else\n",
+                "  count=0\n",
+                "fi\n",
+                "count=$((count + 1))\n",
+                "echo $count > \"{}\"\n",
+                "if [ $count -ge 3 ]; then\n",
+                "  touch \"${{PWD}}/.iter-complete\"\n",
+                "fi\n",
+                "exit 0\n",
+            ),
+            count_file.display(),
+            count_file.display(),
+            count_file.display(),
+        ),
+    );
+
+    let prompt_path = tmp.path().join("task.md");
+    fs::write(&prompt_path, "Do the thing").unwrap();
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .arg("task.md")
+            .arg("-a")
+            .arg("-n")
+            .arg("5")
+            .env("SGF_AGENT_COMMAND", &mock_agent),
+    );
+
+    assert!(
+        output.status.success(),
+        "sgf should succeed when sentinel is created, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let count: u32 = fs::read_to_string(&count_file)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    assert_eq!(
+        count, 3,
+        "should stop after sentinel is created on iteration 3"
+    );
+}
+
+#[test]
+fn simple_prompt_mode_with_absolute_path() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let mock_dir = TempDir::new().unwrap();
+    let args_file = mock_dir.path().join("agent_args.txt");
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        &format!(
+            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
+            args_file.display()
+        ),
+    );
+
+    let prompt_path = tmp.path().join("my-task.md");
+    fs::write(&prompt_path, "Do the thing").unwrap();
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .arg(prompt_path.to_str().unwrap())
+            .arg("-a")
+            .env("SGF_AGENT_COMMAND", &mock_agent),
+    );
+
+    assert!(
+        output.status.success(),
+        "sgf simple prompt with absolute path should succeed, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn simple_prompt_mode_nonexistent_file_falls_through_to_cursus() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let output = run_sgf(sgf_cmd(tmp.path()).arg("nonexistent.md"));
+
+    assert!(
+        !output.status.success(),
+        "should fail for nonexistent file that is also not a cursus command"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unknown command"),
+        "should report unknown command, got: {stderr}"
+    );
+}

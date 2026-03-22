@@ -2,8 +2,10 @@ use std::ffi::OsString;
 use std::path::Path;
 
 use clap::{Parser, Subcommand};
+use shutdown::{ShutdownConfig, ShutdownController};
 
 use springfield::cursus;
+use springfield::iter_runner::IterRunnerConfig;
 
 /// CLI entry point for Springfield — scaffolding, prompt delivery, loop orchestration.
 #[derive(Parser)]
@@ -128,8 +130,62 @@ fn resolve_command(root: &Path, name: &str) -> Result<cursus::ResolvedCursus, St
     Err(format!("unknown command: {name}"))
 }
 
+fn run_simple_prompt(root: &Path, args: &DynamicArgs, prompt_path: &Path) -> ! {
+    let afk = args.afk;
+    let iterations = args.iterations.unwrap_or(1);
+    let auto_push = !args.no_push;
+
+    let loop_id = format!("simple-{}", &uuid::Uuid::new_v4().to_string()[..8]);
+
+    let log_file = springfield::loop_mgmt::create_log_file(root, &loop_id).ok();
+
+    let agent_command = std::env::var("SGF_AGENT_COMMAND").ok();
+
+    let config = IterRunnerConfig {
+        afk,
+        banner: true,
+        loop_id: Some(loop_id),
+        iterations,
+        prompt: prompt_path.to_string_lossy().to_string(),
+        auto_push,
+        command: agent_command,
+        prompt_files: vec![],
+        log_file,
+        session_id: Some(uuid::Uuid::new_v4().to_string()),
+        resume: None,
+        env_vars: vec![],
+        runner_name: Some("sgf".to_string()),
+        work_dir: Some(root.to_path_buf()),
+    };
+
+    let monitor_stdin = !afk && std::io::IsTerminal::is_terminal(&std::io::stdin());
+    let controller = match ShutdownController::new(ShutdownConfig {
+        monitor_stdin,
+        ..Default::default()
+    }) {
+        Ok(c) => c,
+        Err(e) => {
+            springfield::style::print_error(&format!("shutdown init: {e}"));
+            std::process::exit(1);
+        }
+    };
+
+    let exit_code = springfield::iter_runner::run_iteration_loop(config, &controller);
+    std::process::exit(exit_code as i32);
+}
+
 fn run_dynamic(args: DynamicArgs) -> ! {
     let root = std::env::current_dir().expect("failed to get current directory");
+
+    let candidate = Path::new(&args.command);
+    if candidate.exists() && candidate.is_file() {
+        let prompt_path = if candidate.is_absolute() {
+            candidate.to_path_buf()
+        } else {
+            root.join(candidate)
+        };
+        run_simple_prompt(&root, &args, &prompt_path);
+    }
 
     let resolved = match resolve_command(&root, &args.command) {
         Ok(r) => r,
