@@ -1,1 +1,1 @@
-Test prompt for ralph integration tests.
+Test prompt for agent integration tests.

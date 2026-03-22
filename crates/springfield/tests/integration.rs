@@ -614,11 +614,11 @@ fn prompt_validate_returns_raw_path() {
 }
 
 // ===========================================================================
-// Loop orchestration (mocked ralph via CLI)
+// Loop orchestration (mocked agent via CLI)
 // ===========================================================================
 
 #[test]
-fn build_invokes_ralph_with_correct_flags() {
+fn build_invokes_agent_with_correct_flags() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
     setup_default_cursus(tmp.path());
@@ -639,9 +639,9 @@ fn build_invokes_ralph_with_correct_flags() {
     );
     create_spec_and_commit(tmp.path(), "auth");
 
-    // Mock ralph that logs all args
+    // Mock agent that logs all args
     let mock_dir = TempDir::new().unwrap();
-    let args_file = mock_dir.path().join("ralph_args.txt");
+    let args_file = mock_dir.path().join("agent_args.txt");
     let mock_agent = create_mock_script(
         mock_dir.path(),
         "mock_agent.sh",
@@ -683,7 +683,7 @@ fn build_creates_and_cleans_pid_file() {
     setup_default_cursus(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
-    // Mock ralph that checks for PID file existence during execution
+    // Mock agent that checks for PID file existence during execution
     let mock_dir = TempDir::new().unwrap();
     let state_file = mock_dir.path().join("pid_state.txt");
     let mock_agent = create_mock_script(
@@ -711,14 +711,14 @@ fn build_creates_and_cleans_pid_file() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    // PID file should have existed while ralph was running
+    // PID file should have existed while agent was running
     let pid_state = fs::read_to_string(&state_file).unwrap();
     assert!(
         pid_state.contains(".pid"),
-        "PID file should exist during ralph execution"
+        "PID file should exist during agent execution"
     );
 
-    // PID file should be cleaned up after ralph exits
+    // PID file should be cleaned up after agent exits
     let run_dir = tmp.path().join(".sgf/run");
     let mut remaining_pids = Vec::new();
     fn find_pids(dir: &Path, pids: &mut Vec<std::path::PathBuf>) {
@@ -738,7 +738,7 @@ fn build_creates_and_cleans_pid_file() {
 }
 
 #[test]
-fn afk_passes_log_file_to_ralph() {
+fn afk_passes_log_file_to_agent() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
     setup_default_cursus(tmp.path());
@@ -748,7 +748,7 @@ fn afk_passes_log_file_to_ralph() {
     let mock_agent = create_mock_script(
         mock_dir.path(),
         "mock_agent.sh",
-        "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
+        "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/agent_args.txt\"\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
     );
 
     let output = run_sgf(
@@ -758,10 +758,10 @@ fn afk_passes_log_file_to_ralph() {
     );
     assert!(output.status.success());
 
-    let args_content = fs::read_to_string(mock_dir.path().join("ralph_args.txt")).unwrap();
+    let args_content = fs::read_to_string(mock_dir.path().join("agent_args.txt")).unwrap();
     assert!(
         args_content.contains("--log-file"),
-        "should pass --log-file to ralph, got: {args_content}"
+        "should pass --log-file to agent, got: {args_content}"
     );
     assert!(
         args_content.contains(".sgf/logs/"),
@@ -1057,10 +1057,10 @@ fn end_to_end_build_passes_raw_path_and_spec() {
     fs::write(tmp.path().join("specs/auth.md"), "# Auth spec").unwrap();
     git_add_commit(tmp.path(), "add spec");
 
-    // Mock ralph that logs args and env
+    // Mock agent that logs args and env
     let mock_dir = TempDir::new().unwrap();
-    let args_file = mock_dir.path().join("ralph_args.txt");
-    let env_file = mock_dir.path().join("ralph_env.txt");
+    let args_file = mock_dir.path().join("agent_args.txt");
+    let env_file = mock_dir.path().join("agent_env.txt");
     let mock_agent = create_mock_script(
         mock_dir.path(),
         "mock_agent.sh",
@@ -1083,7 +1083,7 @@ fn end_to_end_build_passes_raw_path_and_spec() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    // Ralph should receive raw prompt path (not assembled)
+    // Agent should receive raw prompt path (not assembled)
     let args = fs::read_to_string(&args_file).unwrap();
     assert!(
         args.contains(".sgf/prompts/build.md"),
@@ -1095,7 +1095,7 @@ fn end_to_end_build_passes_raw_path_and_spec() {
     );
     assert!(
         !args.contains("--spec"),
-        "should NOT pass --spec to ralph, got: {args}"
+        "should NOT pass --spec to agent, got: {args}"
     );
 }
 
@@ -1149,8 +1149,8 @@ fn build_without_spec_omits_spec_flag_and_env() {
     setup_default_cursus(tmp.path());
 
     let mock_dir = TempDir::new().unwrap();
-    let args_file = mock_dir.path().join("ralph_args.txt");
-    let env_file = mock_dir.path().join("ralph_env.txt");
+    let args_file = mock_dir.path().join("agent_args.txt");
+    let env_file = mock_dir.path().join("agent_env.txt");
     let mock_agent = create_mock_script(
         mock_dir.path(),
         "mock_agent.sh",
@@ -1204,14 +1204,14 @@ fn build_without_spec_omits_spec_flag_and_env() {
 }
 
 #[test]
-fn build_with_spec_does_not_pass_spec_to_ralph() {
+fn build_with_spec_does_not_pass_spec_to_agent() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
     setup_default_cursus(tmp.path());
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
-    let args_file = mock_dir.path().join("ralph_args.txt");
+    let args_file = mock_dir.path().join("agent_args.txt");
     let mock_agent = create_mock_script(
         mock_dir.path(),
         "mock_agent.sh",
@@ -1236,7 +1236,7 @@ fn build_with_spec_does_not_pass_spec_to_ralph() {
     let args = fs::read_to_string(&args_file).unwrap();
     assert!(
         !args.contains("--spec"),
-        "should NOT pass --spec to ralph, got: {args}"
+        "should NOT pass --spec to agent, got: {args}"
     );
 }
 
@@ -1815,7 +1815,7 @@ fn single_ctrl_c_continues_after_timeout() {
     assert_eq!(
         output.status.code(),
         Some(0),
-        "should exit 0 (ralph completed) after single Ctrl+C timeout, not 130"
+        "should exit 0 (agent completed) after single Ctrl+C timeout, not 130"
     );
 }
 
@@ -1906,7 +1906,7 @@ fn double_ctrl_c_kills_entire_process_tree() {
     let grandchild_pid_file = mock_dir.path().join("grandchild.pid");
     let ready_file = mock_dir.path().join("sgf_ready");
 
-    // Mock ralph that spawns a long-running grandchild, writes the grandchild's
+    // Mock agent that spawns a long-running grandchild, writes the grandchild's
     // PID to a file, then sleeps. The grandchild sleeps forever — if it's still
     // alive after sgf exits, the process tree was NOT fully killed.
     let mock_agent = create_mock_script(
@@ -2101,7 +2101,7 @@ fn afk_mode_child_gets_new_session() {
     let mock_dir = TempDir::new().unwrap();
     let sid_file = mock_dir.path().join("sid_info.txt");
 
-    // Mock ralph that checks if it became a session leader.
+    // Mock agent that checks if it became a session leader.
     // setsid() creates a new session AND new process group where PGID == PID.
     // We get bash's own PID ($$) and its PGID via python os.getpgid(parent).
     let mock_agent = create_mock_script(
@@ -2215,7 +2215,7 @@ fn interactive_mode_stdin_eof_does_not_trigger_shutdown() {
 }
 
 #[test]
-fn config_afk_mode_invokes_ralph_with_afk_flag() {
+fn config_afk_mode_invokes_agent_with_afk_flag() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
     setup_default_cursus(tmp.path());
@@ -2236,7 +2236,7 @@ fn config_afk_mode_invokes_ralph_with_afk_flag() {
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
-    let args_file = mock_dir.path().join("ralph_args.txt");
+    let args_file = mock_dir.path().join("agent_args.txt");
     let mock_agent = create_mock_script(
         mock_dir.path(),
         "mock_agent.sh",
@@ -2266,12 +2266,12 @@ fn config_afk_mode_invokes_ralph_with_afk_flag() {
     let argv: Vec<&str> = args.split_whitespace().collect();
     assert!(
         argv.contains(&"-a"),
-        "AFK mode from config should pass -a flag to ralph, got: {args}"
+        "AFK mode from config should pass -a flag to agent, got: {args}"
     );
 }
 
 #[test]
-fn interactive_override_does_not_invoke_ralph() {
+fn interactive_override_does_not_invoke_agent() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
     setup_default_cursus(tmp.path());
@@ -2346,7 +2346,7 @@ fn alias_resolves_to_prompt() {
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
-    let args_file = mock_dir.path().join("ralph_args.txt");
+    let args_file = mock_dir.path().join("agent_args.txt");
     let mock_agent = create_mock_script(
         mock_dir.path(),
         "mock_agent.sh",
@@ -2517,9 +2517,9 @@ fn exit_0_uses_success_styling() {
 
 #[test]
 fn exit_1_uses_error_styling() {
-    // In the cursus runner, ralph exiting with code 1 without touching
+    // In the cursus runner, agent exiting with code 1 without touching
     // .iter-complete is treated as "exhausted" (stalled), exit code 2.
-    // This test verifies stall styling for a ralph error scenario.
+    // This test verifies stall styling for an agent error scenario.
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
     setup_default_cursus(tmp.path());
@@ -2549,7 +2549,7 @@ fn exit_1_uses_error_styling() {
 
     assert!(
         stderr.contains("cursus STALLED"),
-        "ralph exit 1 without sentinel should stall, got stderr: {stderr}"
+        "agent exit 1 without sentinel should stall, got stderr: {stderr}"
     );
     assert!(
         stderr.contains("\x1b[1;33m"),
@@ -2708,7 +2708,7 @@ fn install_runs_afk_with_one_iteration_via_mock_agent() {
     );
 
     let mock_dir = TempDir::new().unwrap();
-    let args_file = mock_dir.path().join("ralph_args.txt");
+    let args_file = mock_dir.path().join("agent_args.txt");
     let mock_agent = create_mock_script(
         mock_dir.path(),
         "mock_agent.sh",
@@ -2762,7 +2762,7 @@ fn alias_i_resolves_to_install() {
     );
 
     let mock_dir = TempDir::new().unwrap();
-    let args_file = mock_dir.path().join("ralph_args.txt");
+    let args_file = mock_dir.path().join("agent_args.txt");
     let mock_agent = create_mock_script(
         mock_dir.path(),
         "mock_agent.sh",
@@ -2838,7 +2838,7 @@ fn build_auth_uses_config_defaults() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    // Interactive mode invokes cl, not ralph
+    // Interactive mode invokes cl, not agent
     let args = fs::read_to_string(&args_file).unwrap();
     assert!(
         args.contains("--verbose"),
@@ -2872,7 +2872,7 @@ fn build_dash_a_overrides_mode_to_afk() {
     );
 
     let mock_dir = TempDir::new().unwrap();
-    let args_file = mock_dir.path().join("ralph_args.txt");
+    let args_file = mock_dir.path().join("agent_args.txt");
     let mock_agent = create_mock_script(
         mock_dir.path(),
         "mock_agent.sh",
@@ -2894,9 +2894,9 @@ fn build_dash_a_overrides_mode_to_afk() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    // -a should invoke ralph (AFK mode), not cl
+    // -a should invoke agent (AFK mode), not cl
     let args = fs::read_to_string(&args_file).unwrap();
-    assert!(args.contains("-a"), "should pass -a to ralph");
+    assert!(args.contains("-a"), "should pass -a to agent");
     assert!(
         args.contains(".sgf/prompts/build.md"),
         "should pass build prompt path, got: {args}"
@@ -2941,7 +2941,7 @@ fn build_dash_n_overrides_iterations() {
     );
 
     let mock_dir = TempDir::new().unwrap();
-    let args_file = mock_dir.path().join("ralph_args.txt");
+    let args_file = mock_dir.path().join("agent_args.txt");
     let mock_agent = create_mock_script(
         mock_dir.path(),
         "mock_agent.sh",
@@ -2997,7 +2997,7 @@ fn unknown_command_errors_with_clear_message() {
 }
 
 // ===========================================================================
-// End-to-end: sgf → ralph → cl → mock claude-wrapper-secret
+// End-to-end: sgf → agent → cl → mock claude-wrapper-secret
 // ===========================================================================
 
 fn target_bin_dir() -> PathBuf {
@@ -3007,7 +3007,7 @@ fn target_bin_dir() -> PathBuf {
 }
 
 #[test]
-fn e2e_sgf_ralph_cl_context_files_in_append_system_prompt() {
+fn e2e_sgf_agent_cl_context_files_in_append_system_prompt() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
     write_cursus_toml(
@@ -3050,11 +3050,11 @@ fn e2e_sgf_ralph_cl_context_files_in_append_system_prompt() {
     git_add_commit(tmp.path(), "add context files");
 
     let bin_dir = target_bin_dir();
-    let ralph_bin = bin_dir.join("ralph");
+    let agent_bin = bin_dir.join("ralph");
     assert!(
-        ralph_bin.exists(),
+        agent_bin.exists(),
         "ralph binary not found at {}; run `cargo build --workspace` first",
-        ralph_bin.display()
+        agent_bin.display()
     );
     assert!(
         bin_dir.join("cl").exists(),
@@ -3093,7 +3093,7 @@ fn e2e_sgf_ralph_cl_context_files_in_append_system_prompt() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_AGENT_COMMAND", &ralph_bin)
+            .env("SGF_AGENT_COMMAND", &agent_bin)
             .env("PATH", &path)
             .env("HOME", tmp.path().to_str().unwrap()),
     );
@@ -3122,7 +3122,7 @@ fn e2e_sgf_ralph_cl_context_files_in_append_system_prompt() {
         "missing BACKPRESSURE.md in captured args:\n{args}"
     );
 
-    // ralph should pass AFK-mode flags
+    // agent should pass AFK-mode flags
     assert!(lines.contains(&"--verbose"), "missing --verbose:\n{args}");
     assert!(lines.contains(&"--print"), "missing --print:\n{args}");
     assert!(
@@ -3167,7 +3167,7 @@ fn afk_session_writes_metadata_with_session_id() {
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
-    let args_file = mock_dir.path().join("ralph_args.txt");
+    let args_file = mock_dir.path().join("agent_args.txt");
     let mock_agent = create_mock_script(
         mock_dir.path(),
         "mock_agent.sh",
@@ -3213,15 +3213,15 @@ fn afk_session_writes_metadata_with_session_id() {
     );
     assert_eq!(iters_completed[0]["outcome"], "complete");
 
-    // Verify ralph received the same session_id
+    // Verify agent received the same session_id
     let args = fs::read_to_string(&args_file).unwrap();
     assert!(
         args.contains(session_id),
-        "ralph should receive same session_id as metadata, got: {args}"
+        "agent should receive same session_id as metadata, got: {args}"
     );
     assert!(
         args.contains("--session-id"),
-        "ralph should receive --session-id flag, got: {args}"
+        "agent should receive --session-id flag, got: {args}"
     );
 }
 
@@ -3712,9 +3712,9 @@ fn cursus_single_iter_dispatches_and_completes() {
     fs::write(prompts_dir.join("build.md"), "Build prompt content\n").unwrap();
     git_add_commit(tmp.path(), "add cursus and prompt");
 
-    // Mock ralph that logs args and touches .iter-complete sentinel
+    // Mock agent that logs args and touches .iter-complete sentinel
     let mock_dir = TempDir::new().unwrap();
-    let args_file = mock_dir.path().join("ralph_args.txt");
+    let args_file = mock_dir.path().join("agent_args.txt");
     let mock_agent = create_mock_script(
         mock_dir.path(),
         "mock_agent.sh",
@@ -3741,7 +3741,7 @@ fn cursus_single_iter_dispatches_and_completes() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    // Verify ralph was invoked with expected flags
+    // Verify agent was invoked with expected flags
     let args = fs::read_to_string(&args_file).unwrap();
     assert!(args.contains("-a"), "should pass -a (afk) flag");
     assert!(args.contains("--loop-id"), "should pass --loop-id");
@@ -3830,7 +3830,7 @@ fn cursus_single_iter_alias_dispatch() {
     git_add_commit(tmp.path(), "add cursus and prompt");
 
     let mock_dir = TempDir::new().unwrap();
-    let args_file = mock_dir.path().join("ralph_args.txt");
+    let args_file = mock_dir.path().join("agent_args.txt");
     let mock_agent = create_mock_script(
         mock_dir.path(),
         "mock_agent.sh",
@@ -3853,10 +3853,10 @@ fn cursus_single_iter_alias_dispatch() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    // Verify ralph was actually invoked
+    // Verify agent was actually invoked
     assert!(
         args_file.exists(),
-        "ralph should have been invoked via alias dispatch"
+        "agent should have been invoked via alias dispatch"
     );
 }
 
@@ -3887,7 +3887,7 @@ fn cursus_single_iter_sentinel_cleaned_on_exhausted() {
     fs::write(prompts_dir.join("build.md"), "Build prompt\n").unwrap();
     git_add_commit(tmp.path(), "add cursus and prompt");
 
-    // Mock ralph that does NOT touch any sentinel and exits 2 (simulates exhaustion)
+    // Mock agent that does NOT touch any sentinel and exits 2 (simulates exhaustion)
     let mock_dir = TempDir::new().unwrap();
     let mock_agent = create_mock_script(mock_dir.path(), "mock_agent.sh", "#!/bin/sh\nexit 2\n");
 
@@ -4615,7 +4615,7 @@ fn cursus_layered_resolution_local_overrides_global() {
     git_add_commit(tmp.path(), "add layered cursus");
 
     let mock_dir = TempDir::new().unwrap();
-    let args_file = mock_dir.path().join("ralph_args.txt");
+    let args_file = mock_dir.path().join("agent_args.txt");
     let mock_agent = create_mock_script(
         mock_dir.path(),
         "mock_agent.sh",
@@ -4657,7 +4657,7 @@ fn cursus_layered_resolution_local_overrides_global() {
 // ===========================================================================
 
 #[test]
-fn cursus_banner_true_passes_banner_flag_to_ralph() {
+fn cursus_banner_true_passes_banner_flag_to_agent() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
 
@@ -4683,7 +4683,7 @@ fn cursus_banner_true_passes_banner_flag_to_ralph() {
     git_add_commit(tmp.path(), "add prompt");
 
     let mock_dir = TempDir::new().unwrap();
-    let args_file = mock_dir.path().join("ralph_args.txt");
+    let args_file = mock_dir.path().join("agent_args.txt");
     let mock_agent = create_mock_script(
         mock_dir.path(),
         "mock_agent.sh",
@@ -4738,7 +4738,7 @@ fn cursus_banner_false_omits_banner_flag() {
     git_add_commit(tmp.path(), "add prompt");
 
     let mock_dir = TempDir::new().unwrap();
-    let args_file = mock_dir.path().join("ralph_args.txt");
+    let args_file = mock_dir.path().join("agent_args.txt");
     let mock_agent = create_mock_script(
         mock_dir.path(),
         "mock_agent.sh",

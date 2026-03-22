@@ -1004,7 +1004,7 @@ mod tests {
         let root = tmp.path();
         setup_cursus_project(root, &["build.md"]);
 
-        let ralph = mock_script(
+        let mock_agent = mock_script(
             root,
             "mock_agent.sh",
             &format!(
@@ -1022,7 +1022,7 @@ mod tests {
             spec: None,
             mode_override: None,
             no_push: true,
-            agent_command: Some(ralph),
+            agent_command: Some(mock_agent),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
         };
@@ -1055,7 +1055,7 @@ mod tests {
         setup_cursus_project(root, &["build.md"]);
 
         // Mock that does NOT create any sentinel and exits 2 → exhausted for AFK mode
-        let ralph = mock_script(root, "mock_agent.sh", "#!/bin/sh\nexit 2\n");
+        let mock_agent = mock_script(root, "mock_agent.sh", "#!/bin/sh\nexit 2\n");
 
         let def = make_cursus_def(
             vec![make_iter("build", Mode::Afk, 5, None, None, None)],
@@ -1066,7 +1066,7 @@ mod tests {
             spec: None,
             mode_override: None,
             no_push: true,
-            agent_command: Some(ralph),
+            agent_command: Some(mock_agent),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
         };
@@ -1092,7 +1092,7 @@ mod tests {
         setup_cursus_project(root, &["draft.md", "review.md", "approve.md"]);
 
         // Mock that creates .iter-complete for all iters
-        let ralph = mock_script(
+        let mock_agent = mock_script(
             root,
             "mock_agent.sh",
             &format!(
@@ -1114,7 +1114,7 @@ mod tests {
             spec: None,
             mode_override: Some(Mode::Afk),
             no_push: true,
-            agent_command: Some(ralph),
+            agent_command: Some(mock_agent),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
         };
@@ -1148,7 +1148,7 @@ mod tests {
         let counter_file = root.join("call_count");
         fs::write(&counter_file, "0").unwrap();
 
-        let ralph = mock_script(
+        let mock_agent = mock_script(
             root,
             "mock_agent.sh",
             &format!(
@@ -1180,7 +1180,7 @@ exit 0
             spec: None,
             mode_override: None,
             no_push: true,
-            agent_command: Some(ralph),
+            agent_command: Some(mock_agent),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
         };
@@ -1216,13 +1216,13 @@ exit 0
         setup_cursus_project(root, &["generate.md", "verify.md"]);
 
         // Mock that captures args (NUL-delimited) and writes a produces file
-        let ralph = mock_script(
+        let mock_agent = mock_script(
             root,
             "mock_agent.sh",
             &format!(
                 r#"#!/bin/sh
-printf '%s\0' "$@" >> "{root}/ralph_args.bin"
-printf '\n---CALL---\n' >> "{root}/ralph_args.bin"
+printf '%s\0' "$@" >> "{root}/agent_args.bin"
+printf '\n---CALL---\n' >> "{root}/agent_args.bin"
 # Write produces file if SGF_RUN_CONTEXT is set
 if [ -n "$SGF_RUN_CONTEXT" ]; then
     echo "Generated output summary." > "$SGF_RUN_CONTEXT/output-summary.md"
@@ -1264,7 +1264,7 @@ exit 0
             spec: None,
             mode_override: None,
             no_push: true,
-            agent_command: Some(ralph),
+            agent_command: Some(mock_agent),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
         };
@@ -1273,7 +1273,7 @@ exit 0
         assert_eq!(exit_code, 0);
 
         // Verify context was injected: verify iter should have received --append-system-prompt
-        let raw = fs::read_to_string(root.join("ralph_args.bin")).unwrap();
+        let raw = fs::read_to_string(root.join("agent_args.bin")).unwrap();
         let calls: Vec<&str> = raw.split("---CALL---").collect();
         // Should have 2 calls (+ trailing empty from final separator)
         let calls: Vec<&str> = calls
@@ -1392,7 +1392,7 @@ exit 0
         let root = tmp.path();
         setup_cursus_project(root, &["build.md"]);
 
-        let ralph = mock_script(
+        let mock_agent = mock_script(
             root,
             "mock_agent.sh",
             &format!(
@@ -1410,7 +1410,7 @@ exit 0
             spec: None,
             mode_override: None,
             no_push: true,
-            agent_command: Some(ralph),
+            agent_command: Some(mock_agent),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
         };
@@ -1460,7 +1460,7 @@ exit 0
         fs::write(&counter_file, "0").unwrap();
 
         // draft → complete → revise (via next override) → complete → review → complete
-        let ralph = mock_script(
+        let mock_agent = mock_script(
             root,
             "mock_agent.sh",
             &format!(
@@ -1491,7 +1491,7 @@ exit 0
             spec: None,
             mode_override: None,
             no_push: true,
-            agent_command: Some(ralph),
+            agent_command: Some(mock_agent),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
         };
@@ -1644,7 +1644,7 @@ prompt = "build.md"
         let root = tmp.path();
         setup_cursus_project(root, &["draft.md", "review.md", "approve.md"]);
 
-        let ralph = mock_script(
+        let mock_agent = mock_script(
             root,
             "mock_agent.sh",
             &format!(
@@ -1666,7 +1666,7 @@ prompt = "build.md"
             spec: None,
             mode_override: None,
             no_push: true,
-            agent_command: Some(ralph),
+            agent_command: Some(mock_agent),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
         };
@@ -1710,7 +1710,7 @@ prompt = "build.md"
         let root = tmp.path();
         setup_cursus_project(root, &["draft.md", "review.md", "approve.md"]);
 
-        let ralph = mock_script(
+        let mock_agent = mock_script(
             root,
             "mock_agent.sh",
             &format!(
@@ -1732,7 +1732,7 @@ prompt = "build.md"
             spec: None,
             mode_override: None,
             no_push: true,
-            agent_command: Some(ralph),
+            agent_command: Some(mock_agent),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
         };

@@ -35,7 +35,7 @@ pub struct IterRunnerConfig {
     pub resume: Option<String>,
     /// Extra environment variables set on spawned agent commands.
     pub env_vars: Vec<(String, String)>,
-    /// Name shown in banner messages (e.g. "Ralph", "sgf"). Defaults to empty.
+    /// Name shown in banner messages (e.g. "sgf"). Defaults to empty.
     pub runner_name: Option<String>,
     /// Working directory for sentinel detection and spawned commands. Defaults to `.`.
     pub work_dir: Option<PathBuf>,
@@ -491,7 +491,7 @@ fn print_startup_banner(
 
 /// Run the iteration loop. Returns an `IterExitCode` instead of calling `process::exit`.
 ///
-/// This is the core loop extracted from ralph. It handles:
+/// This is the core iteration loop. It handles:
 /// - TeeWriter (dual stdout + log file output)
 /// - Stdout reader thread (AFK mode NDJSON parsing)
 /// - Notification watcher (.iter-ding)

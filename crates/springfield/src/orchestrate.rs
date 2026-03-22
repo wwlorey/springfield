@@ -48,7 +48,7 @@ fn export_pensa() {
     }
 }
 
-fn build_ralph_args(
+fn build_agent_args(
     config: &LoopConfig,
     loop_id: &str,
     prompt_path: &Path,
@@ -97,10 +97,10 @@ fn exit_code_to_status(code: i32) -> &'static str {
 fn print_exit_message(code: i32, loop_id: &str) {
     match code {
         0 => style::print_success(&format!("loop complete [{loop_id}]")),
-        1 => style::print_error(&format!("ralph exited with error [{loop_id}]")),
+        1 => style::print_error(&format!("agent exited with error [{loop_id}]")),
         2 => style::print_warning(&format!("iterations exhausted [{loop_id}]")),
         130 => style::print_warning(&format!("interrupted [{loop_id}]")),
-        _ => style::print_error(&format!("ralph exited with unexpected code [{loop_id}]")),
+        _ => style::print_error(&format!("agent exited with unexpected code [{loop_id}]")),
     }
 }
 
@@ -251,7 +251,7 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
         None
     };
 
-    let args = build_ralph_args(
+    let args = build_agent_args(
         config,
         &loop_id,
         &prompt_path,
@@ -278,11 +278,11 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
         if is_afk {
             parts.push("mode: afk".to_string());
         }
-        style::print_action_detail(&format!("launching ralph [{loop_id}]"), &parts.join(" · "));
+        style::print_action_detail(&format!("launching agent [{loop_id}]"), &parts.join(" · "));
     }
 
     let saved_termios = crate::iter_runner::save_terminal_settings();
-    let exit_code = run_ralph(&binary, &args, is_afk, &controller)?;
+    let exit_code = run_agent(&binary, &args, is_afk, &controller)?;
     if let Some(ref termios) = saved_termios {
         crate::iter_runner::restore_terminal_settings(termios);
     }
@@ -330,7 +330,7 @@ fn run_interactive_claude(
     }
 }
 
-fn run_ralph(
+fn run_agent(
     binary: &str,
     args: &[String],
     afk: bool,
@@ -352,7 +352,7 @@ fn run_ralph(
     }
     let mut child = cmd
         .spawn()
-        .map_err(|e| io::Error::other(format!("failed to spawn ralph: {e}")))?;
+        .map_err(|e| io::Error::other(format!("failed to spawn agent: {e}")))?;
 
     loop {
         match child.try_wait() {
@@ -659,7 +659,7 @@ mod tests {
             agent_command: None,
             skip_preflight: false,
         };
-        let args = build_ralph_args(
+        let args = build_agent_args(
             &config,
             "build-auth-20260226T143000",
             Path::new("/tmp/prompt.md"),
@@ -694,7 +694,7 @@ mod tests {
             agent_command: None,
             skip_preflight: false,
         };
-        let args = build_ralph_args(
+        let args = build_agent_args(
             &config,
             "verify-20260226T150000",
             Path::new("/tmp/verify.md"),
@@ -720,7 +720,7 @@ mod tests {
             agent_command: None,
             skip_preflight: false,
         };
-        let args = build_ralph_args(
+        let args = build_agent_args(
             &config,
             "build-auth-20260226T143000",
             Path::new("/tmp/prompt.md"),
@@ -765,7 +765,7 @@ mod tests {
 
         let mock = mock_agent_script(
             root,
-            "#!/bin/sh\necho \"ralph invoked: $@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
+            "#!/bin/sh\necho \"agent invoked: $@\" > \"$(dirname \"$0\")/agent_args.txt\"\nexit 0\n",
         );
 
         let config = LoopConfig {
@@ -781,7 +781,7 @@ mod tests {
         let exit_code = run(root, &config).unwrap();
         assert_eq!(exit_code, 0);
 
-        let args_content = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
+        let args_content = fs::read_to_string(root.join("agent_args.txt")).unwrap();
         assert!(args_content.contains("--loop-id"));
         assert!(args_content.contains("--auto-push true"));
         assert!(!args_content.contains("--max-iterations"));
@@ -854,7 +854,7 @@ mod tests {
 
         let mock = mock_agent_script(
             root,
-            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/agent_args.txt\"\nexit 0\n",
         );
 
         let config = LoopConfig {
@@ -870,10 +870,10 @@ mod tests {
         let exit_code = run(root, &config).unwrap();
         assert_eq!(exit_code, 0);
 
-        let args_content = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
+        let args_content = fs::read_to_string(root.join("agent_args.txt")).unwrap();
         assert!(
             args_content.contains("--log-file"),
-            "should pass --log-file to ralph, got: {args_content}"
+            "should pass --log-file to agent, got: {args_content}"
         );
         assert!(
             args_content.contains(".sgf/logs/"),
@@ -891,7 +891,7 @@ mod tests {
 
         let mock = mock_agent_script(
             root,
-            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/agent_args.txt\"\nexit 0\n",
         );
 
         let config = LoopConfig {
@@ -907,7 +907,7 @@ mod tests {
         let exit_code = run(root, &config).unwrap();
         assert_eq!(exit_code, 0);
 
-        let args_content = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
+        let args_content = fs::read_to_string(root.join("agent_args.txt")).unwrap();
         assert!(args_content.contains("--auto-push false"));
     }
 
@@ -921,7 +921,7 @@ mod tests {
 
         let mock = mock_agent_script(
             root,
-            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/agent_args.txt\"\nexit 0\n",
         );
 
         let config = LoopConfig {
@@ -936,7 +936,7 @@ mod tests {
 
         run(root, &config).unwrap();
 
-        let args_content = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
+        let args_content = fs::read_to_string(root.join("agent_args.txt")).unwrap();
         assert!(
             args_content.contains(".sgf/prompts/build.md"),
             "should pass raw template path, got: {args_content}"
@@ -956,7 +956,7 @@ mod tests {
 
         let mock = mock_agent_script(
             root,
-            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/agent_args.txt\"\nexit 0\n",
         );
 
         let config = LoopConfig {
@@ -972,7 +972,7 @@ mod tests {
         let exit_code = run(root, &config).unwrap();
         assert_eq!(exit_code, 0);
 
-        let args_content = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
+        let args_content = fs::read_to_string(root.join("agent_args.txt")).unwrap();
         assert!(args_content.contains("--loop-id"));
         assert!(args_content.contains("verify-"));
         assert!(args_content.contains("-a"));
@@ -989,7 +989,7 @@ mod tests {
 
         let mock = mock_agent_script(
             root,
-            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/agent_args.txt\"\nexit 0\n",
         );
 
         let config = LoopConfig {
@@ -1005,10 +1005,10 @@ mod tests {
         let exit_code = run(root, &config).unwrap();
         assert_eq!(exit_code, 0);
 
-        let args_content = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
+        let args_content = fs::read_to_string(root.join("agent_args.txt")).unwrap();
         assert!(
             !args_content.contains("--spec"),
-            "should NOT pass --spec to ralph, got: {args_content}"
+            "should NOT pass --spec to agent, got: {args_content}"
         );
     }
 
@@ -1021,7 +1021,7 @@ mod tests {
 
         let mock = mock_agent_script(
             root,
-            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/agent_args.txt\"\nexit 0\n",
         );
 
         let config = LoopConfig {
@@ -1037,7 +1037,7 @@ mod tests {
         let exit_code = run(root, &config).unwrap();
         assert_eq!(exit_code, 0);
 
-        let args_content = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
+        let args_content = fs::read_to_string(root.join("agent_args.txt")).unwrap();
         assert!(args_content.contains("test-plan-"));
     }
 
@@ -1051,7 +1051,7 @@ mod tests {
 
         let mock = mock_agent_script(
             root,
-            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/agent_args.txt\"\nexit 0\n",
         );
 
         let config = LoopConfig {
@@ -1067,7 +1067,7 @@ mod tests {
         let exit_code = run(root, &config).unwrap();
         assert_eq!(exit_code, 0);
 
-        let args_content = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
+        let args_content = fs::read_to_string(root.join("agent_args.txt")).unwrap();
         let args: Vec<&str> = args_content.split_whitespace().collect();
         assert!(
             args.contains(&"-a"),
@@ -1179,7 +1179,7 @@ mod tests {
     }
 
     #[test]
-    fn run_afk_passes_session_id_to_ralph() {
+    fn run_afk_passes_session_id_to_agent() {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
         setup_project(root, "build", "Build the spec now.");
@@ -1188,7 +1188,7 @@ mod tests {
 
         let mock = mock_agent_script(
             root,
-            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
+            "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/agent_args.txt\"\nexit 0\n",
         );
 
         let config = LoopConfig {
@@ -1203,10 +1203,10 @@ mod tests {
 
         run(root, &config).unwrap();
 
-        let args_content = fs::read_to_string(root.join("ralph_args.txt")).unwrap();
+        let args_content = fs::read_to_string(root.join("agent_args.txt")).unwrap();
         assert!(
             args_content.contains("--session-id"),
-            "should pass --session-id to ralph, got: {args_content}"
+            "should pass --session-id to agent, got: {args_content}"
         );
 
         let sessions = loop_mgmt::list_session_metadata(root).unwrap();
@@ -1214,7 +1214,7 @@ mod tests {
         assert_eq!(meta.iterations.len(), 1);
         assert!(
             args_content.contains(&meta.iterations[0].session_id),
-            "ralph should receive the same session_id as metadata, got: {args_content}"
+            "agent should receive the same session_id as metadata, got: {args_content}"
         );
     }
 
