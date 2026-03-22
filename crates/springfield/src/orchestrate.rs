@@ -20,17 +20,17 @@ pub struct LoopConfig {
     pub mode: Mode,
     pub no_push: bool,
     pub iterations: u32,
-    /// Override ralph binary path (defaults to `SGF_RALPH_BINARY` env, then `ralph`).
-    pub ralph_binary: Option<String>,
+    /// Override agent command (defaults to `SGF_AGENT_COMMAND` env, then `ralph`).
+    pub agent_command: Option<String>,
     /// Skip pre-launch recovery and daemon startup (for testing).
     pub skip_preflight: bool,
 }
 
-fn resolve_ralph_binary(config: &LoopConfig) -> String {
-    if let Some(ref bin) = config.ralph_binary {
+fn resolve_agent_command(config: &LoopConfig) -> String {
+    if let Some(ref bin) = config.agent_command {
         return bin.clone();
     }
-    std::env::var("SGF_RALPH_BINARY").unwrap_or_else(|_| "ralph".to_string())
+    std::env::var("SGF_AGENT_COMMAND").unwrap_or_else(|_| "ralph".to_string())
 }
 
 fn export_pensa() {
@@ -239,7 +239,7 @@ pub fn run(root: &Path, config: &LoopConfig) -> io::Result<i32> {
 
     write_initial_metadata(root, &loop_id, config, &prompt_path);
 
-    let binary = resolve_ralph_binary(config);
+    let binary = resolve_agent_command(config);
 
     let log_path = if is_afk {
         Some(loop_mgmt::create_log_file(root, &loop_id)?)
@@ -653,7 +653,7 @@ mod tests {
             mode: Mode::Afk,
             no_push: true,
             iterations: 10,
-            ralph_binary: None,
+            agent_command: None,
             skip_preflight: false,
         };
         let args = build_ralph_args(
@@ -688,7 +688,7 @@ mod tests {
             mode: Mode::Interactive,
             no_push: false,
             iterations: 30,
-            ralph_binary: None,
+            agent_command: None,
             skip_preflight: false,
         };
         let args = build_ralph_args(
@@ -714,7 +714,7 @@ mod tests {
             mode: Mode::Interactive,
             no_push: false,
             iterations: 30,
-            ralph_binary: None,
+            agent_command: None,
             skip_preflight: false,
         };
         let args = build_ralph_args(
@@ -746,10 +746,10 @@ mod tests {
             mode: Mode::Interactive,
             no_push: false,
             iterations: 30,
-            ralph_binary: Some("/custom/ralph".to_string()),
+            agent_command: Some("/custom/ralph".to_string()),
             skip_preflight: false,
         };
-        assert_eq!(resolve_ralph_binary(&config), "/custom/ralph");
+        assert_eq!(resolve_agent_command(&config), "/custom/ralph");
     }
 
     #[test]
@@ -771,7 +771,7 @@ mod tests {
             mode: Mode::Afk,
             no_push: false,
             iterations: 30,
-            ralph_binary: Some(mock),
+            agent_command: Some(mock),
             skip_preflight: true,
         };
 
@@ -804,7 +804,7 @@ mod tests {
             mode: Mode::Afk,
             no_push: false,
             iterations: 30,
-            ralph_binary: Some(mock),
+            agent_command: Some(mock),
             skip_preflight: true,
         };
 
@@ -830,7 +830,7 @@ mod tests {
             mode: Mode::Afk,
             no_push: false,
             iterations: 30,
-            ralph_binary: Some(mock),
+            agent_command: Some(mock),
             skip_preflight: true,
         };
 
@@ -860,7 +860,7 @@ mod tests {
             mode: Mode::Afk,
             no_push: false,
             iterations: 30,
-            ralph_binary: Some(mock),
+            agent_command: Some(mock),
             skip_preflight: true,
         };
 
@@ -897,7 +897,7 @@ mod tests {
             mode: Mode::Afk,
             no_push: true,
             iterations: 10,
-            ralph_binary: Some(mock),
+            agent_command: Some(mock),
             skip_preflight: true,
         };
 
@@ -927,7 +927,7 @@ mod tests {
             mode: Mode::Afk,
             no_push: false,
             iterations: 30,
-            ralph_binary: Some(mock),
+            agent_command: Some(mock),
             skip_preflight: true,
         };
 
@@ -962,7 +962,7 @@ mod tests {
             mode: Mode::Afk,
             no_push: false,
             iterations: 30,
-            ralph_binary: Some(mock),
+            agent_command: Some(mock),
             skip_preflight: true,
         };
 
@@ -995,7 +995,7 @@ mod tests {
             mode: Mode::Afk,
             no_push: false,
             iterations: 30,
-            ralph_binary: Some(mock),
+            agent_command: Some(mock),
             skip_preflight: true,
         };
 
@@ -1027,7 +1027,7 @@ mod tests {
             mode: Mode::Afk,
             no_push: false,
             iterations: 30,
-            ralph_binary: Some(mock),
+            agent_command: Some(mock),
             skip_preflight: true,
         };
 
@@ -1057,7 +1057,7 @@ mod tests {
             mode: Mode::Afk,
             no_push: false,
             iterations: 30,
-            ralph_binary: Some(mock),
+            agent_command: Some(mock),
             skip_preflight: true,
         };
 
@@ -1097,7 +1097,7 @@ mod tests {
             mode: Mode::Afk,
             no_push: false,
             iterations: 30,
-            ralph_binary: Some(mock),
+            agent_command: Some(mock),
             skip_preflight: true,
         };
 
@@ -1135,7 +1135,7 @@ mod tests {
             mode: Mode::Afk,
             no_push: false,
             iterations: 10,
-            ralph_binary: Some(mock),
+            agent_command: Some(mock),
             skip_preflight: true,
         };
 
@@ -1163,7 +1163,7 @@ mod tests {
             mode: Mode::Afk,
             no_push: false,
             iterations: 10,
-            ralph_binary: Some(mock),
+            agent_command: Some(mock),
             skip_preflight: true,
         };
 
@@ -1194,7 +1194,7 @@ mod tests {
             mode: Mode::Afk,
             no_push: false,
             iterations: 30,
-            ralph_binary: Some(mock),
+            agent_command: Some(mock),
             skip_preflight: true,
         };
 
@@ -1230,7 +1230,7 @@ mod tests {
             mode: Mode::Afk,
             no_push: false,
             iterations: 30,
-            ralph_binary: Some(mock),
+            agent_command: Some(mock),
             skip_preflight: true,
         };
 

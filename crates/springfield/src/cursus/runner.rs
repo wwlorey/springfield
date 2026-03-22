@@ -25,7 +25,7 @@ pub struct CursusConfig {
     pub spec: Option<String>,
     pub mode_override: Option<Mode>,
     pub no_push: bool,
-    pub ralph_binary: Option<String>,
+    pub agent_command: Option<String>,
     pub skip_preflight: bool,
     pub monitor_stdin_override: Option<bool>,
 }
@@ -173,11 +173,11 @@ fn resolve_prompt(root: &Path, prompt: &str) -> Option<PathBuf> {
     None
 }
 
-fn resolve_ralph_binary(config: &CursusConfig) -> String {
-    if let Some(ref bin) = config.ralph_binary {
+fn resolve_agent_command(config: &CursusConfig) -> String {
+    if let Some(ref bin) = config.agent_command {
         return bin.clone();
     }
-    std::env::var("SGF_RALPH_BINARY").unwrap_or_else(|_| "ralph".to_string())
+    std::env::var("SGF_AGENT_COMMAND").unwrap_or_else(|_| "ralph".to_string())
 }
 
 struct RalphInvocation<'a> {
@@ -230,7 +230,7 @@ fn spawn_with_retry(
 }
 
 fn invoke_ralph(inv: &RalphInvocation<'_>, controller: &ShutdownController) -> io::Result<i32> {
-    let binary = resolve_ralph_binary(inv.config);
+    let binary = resolve_agent_command(inv.config);
 
     let mut args = vec!["-a".to_string()];
 
@@ -649,7 +649,7 @@ pub fn resume_cursus(root: &Path, run_id: &str) -> io::Result<i32> {
         spec: metadata.spec.clone(),
         mode_override,
         no_push: false,
-        ralph_binary: None,
+        agent_command: None,
         skip_preflight: true,
         monitor_stdin_override: None,
     };
@@ -1108,7 +1108,7 @@ mod tests {
             spec: None,
             mode_override: None,
             no_push: true,
-            ralph_binary: Some(ralph),
+            agent_command: Some(ralph),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
         };
@@ -1152,7 +1152,7 @@ mod tests {
             spec: None,
             mode_override: None,
             no_push: true,
-            ralph_binary: Some(ralph),
+            agent_command: Some(ralph),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
         };
@@ -1200,7 +1200,7 @@ mod tests {
             spec: None,
             mode_override: Some(Mode::Afk),
             no_push: true,
-            ralph_binary: Some(ralph),
+            agent_command: Some(ralph),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
         };
@@ -1266,7 +1266,7 @@ exit 0
             spec: None,
             mode_override: None,
             no_push: true,
-            ralph_binary: Some(ralph),
+            agent_command: Some(ralph),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
         };
@@ -1349,7 +1349,7 @@ exit 0
             spec: None,
             mode_override: None,
             no_push: true,
-            ralph_binary: Some(ralph),
+            agent_command: Some(ralph),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
         };
@@ -1396,7 +1396,7 @@ exit 0
             spec: None,
             mode_override: Some(Mode::Afk),
             no_push: true,
-            ralph_binary: Some(ralph),
+            agent_command: Some(ralph),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
         };
@@ -1437,7 +1437,7 @@ exit 0
             spec: Some("auth".to_string()),
             mode_override: None,
             no_push: true,
-            ralph_binary: Some(ralph),
+            agent_command: Some(ralph),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
         };
@@ -1486,7 +1486,7 @@ exit 0
             spec: None,
             mode_override: None,
             no_push: true,
-            ralph_binary: Some(ralph),
+            agent_command: Some(ralph),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
         };
@@ -1517,7 +1517,7 @@ exit 0
             spec: None,
             mode_override: None,
             no_push: true,
-            ralph_binary: None,
+            agent_command: None,
             skip_preflight: true,
             monitor_stdin_override: None,
         };
@@ -1567,7 +1567,7 @@ exit 0
             spec: None,
             mode_override: None,
             no_push: true,
-            ralph_binary: Some(ralph),
+            agent_command: Some(ralph),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
         };
@@ -1742,7 +1742,7 @@ prompt = "build.md"
             spec: None,
             mode_override: None,
             no_push: true,
-            ralph_binary: Some(ralph),
+            agent_command: Some(ralph),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
         };
@@ -1808,7 +1808,7 @@ prompt = "build.md"
             spec: None,
             mode_override: None,
             no_push: true,
-            ralph_binary: Some(ralph),
+            agent_command: Some(ralph),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
         };

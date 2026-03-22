@@ -187,7 +187,7 @@ fn run_cursus_dispatch(root: &Path, args: &DynamicArgs, resolved: cursus::Resolv
         spec: args.spec.clone(),
         mode_override,
         no_push: args.no_push,
-        ralph_binary: None,
+        agent_command: None,
         skip_preflight: false,
         monitor_stdin_override: None,
     };

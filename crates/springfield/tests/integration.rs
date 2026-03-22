@@ -650,7 +650,7 @@ fn build_invokes_ralph_with_correct_flags() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_ralph),
     );
 
     assert!(
@@ -699,7 +699,7 @@ fn build_creates_and_cleans_pid_file() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_ralph),
     );
     assert!(
         output.status.success(),
@@ -750,7 +750,7 @@ fn afk_passes_log_file_to_ralph() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_ralph),
     );
     assert!(output.status.success());
 
@@ -890,7 +890,7 @@ fn recovery_cleans_stale_state() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_ralph),
     );
     assert!(
         output.status.success(),
@@ -959,7 +959,7 @@ fn recovery_skips_when_live_pid() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_ralph),
     );
     assert!(
         output.status.success(),
@@ -1070,7 +1070,7 @@ fn end_to_end_build_passes_raw_path_and_spec() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_ralph),
     );
 
     assert!(
@@ -1160,7 +1160,7 @@ fn build_without_spec_omits_spec_flag_and_env() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_ralph),
     );
 
     assert!(
@@ -1220,7 +1220,7 @@ fn build_with_spec_does_not_pass_spec_to_ralph() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_ralph),
     );
 
     assert!(
@@ -1282,7 +1282,7 @@ fn build_valid_spec_proceeds() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_ralph),
     );
 
     assert!(
@@ -1749,7 +1749,7 @@ fn double_ctrl_c_exits_130() {
     let guard = ChildGuard::spawn(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_ralph)
             .env("SGF_READY_FILE", &ready_file)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped()),
@@ -1792,7 +1792,7 @@ fn single_ctrl_c_continues_after_timeout() {
     let guard = ChildGuard::spawn(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_ralph)
             .env("SGF_READY_FILE", &ready_file)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped()),
@@ -1829,7 +1829,7 @@ fn sigterm_exits_immediately() {
     let guard = ChildGuard::spawn(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_ralph)
             .env("SGF_READY_FILE", &ready_file)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped()),
@@ -1866,7 +1866,7 @@ fn confirmation_message_on_first_ctrl_c() {
     let guard = ChildGuard::spawn(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_ralph)
             .env("SGF_READY_FILE", &ready_file)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped()),
@@ -1907,7 +1907,7 @@ fn double_ctrl_d_exits_130() {
     let mut guard = ChildGuard::spawn(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_ralph)
             .env("SGF_MONITOR_STDIN", "1")
             .env("SGF_READY_FILE", &ready_file)
             .stdin(Stdio::piped())
@@ -1969,7 +1969,7 @@ fn mixed_ctrl_c_then_ctrl_d_no_shutdown() {
     let mut guard = ChildGuard::spawn(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_ralph)
             .env("SGF_MONITOR_STDIN", "1")
             .env("SGF_READY_FILE", &ready_file)
             .stdin(Stdio::piped())
@@ -2055,7 +2055,7 @@ fn double_ctrl_c_kills_entire_process_tree() {
     let guard = ChildGuard::spawn(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_ralph)
             .env("SGF_READY_FILE", &ready_file)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped()),
@@ -2154,7 +2154,7 @@ fn panic_does_not_leak_child_tree() {
         let guard = ChildGuard::spawn(
             sgf_cmd(tmp.path())
                 .args(["build", "auth", "-a"])
-                .env("SGF_RALPH_BINARY", &mock_ralph)
+                .env("SGF_AGENT_COMMAND", &mock_ralph)
                 .env("SGF_READY_FILE", &ready_file)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped()),
@@ -2250,7 +2250,7 @@ fn afk_mode_child_gets_new_session() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_ralph),
     );
     assert!(
         output.status.success(),
@@ -2357,7 +2357,7 @@ fn afk_monitor_stdin_eof_triggers_shutdown() {
     let mut guard = ChildGuard::spawn(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_ralph)
             .env("SGF_MONITOR_STDIN", "1")
             .env("SGF_READY_FILE", &ready_file)
             .stdin(Stdio::piped())
@@ -2432,7 +2432,7 @@ fn config_afk_mode_invokes_ralph_with_afk_flag() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth"])
-            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_ralph)
             .env("PATH", &mock_path_with_cl),
     );
     assert!(
@@ -2538,7 +2538,7 @@ fn alias_resolves_to_prompt() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["b", "auth", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_ralph),
     );
     assert!(
         output.status.success(),
@@ -2578,7 +2578,7 @@ fn no_color_badge_falls_back_to_plain_prefix() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_ralph)
             .env("PATH", &mock_path_with_cl)
             .env("NO_COLOR", "1")
             .stdin(Stdio::null())
@@ -2627,7 +2627,7 @@ fn colored_output_contains_bold_badge() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_ralph)
             .env("PATH", &mock_path_with_cl)
             .env_remove("NO_COLOR")
             .stdin(Stdio::null())
@@ -2672,7 +2672,7 @@ fn exit_0_uses_success_styling() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_ralph)
             .env("PATH", &mock_path_with_cl)
             .env_remove("NO_COLOR")
             .stdin(Stdio::null())
@@ -2714,7 +2714,7 @@ fn exit_1_uses_error_styling() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_ralph)
             .env("PATH", &mock_path_with_cl)
             .env_remove("NO_COLOR")
             .stdin(Stdio::null())
@@ -2752,7 +2752,7 @@ fn exit_2_uses_warning_styling() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_ralph)
             .env("PATH", &mock_path_with_cl)
             .env_remove("NO_COLOR")
             .stdin(Stdio::null())
@@ -2797,7 +2797,7 @@ fn no_color_exit_messages_use_plain_prefix() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph_0)
+            .env("SGF_AGENT_COMMAND", &mock_ralph_0)
             .env("PATH", &mock_path_with_cl)
             .env("NO_COLOR", "1")
             .stdin(Stdio::null())
@@ -2823,7 +2823,7 @@ fn no_color_exit_messages_use_plain_prefix() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph_1)
+            .env("SGF_AGENT_COMMAND", &mock_ralph_1)
             .env("PATH", &mock_path_with_cl)
             .env("NO_COLOR", "1")
             .stdin(Stdio::null())
@@ -2845,7 +2845,7 @@ fn no_color_exit_messages_use_plain_prefix() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph_2)
+            .env("SGF_AGENT_COMMAND", &mock_ralph_2)
             .env("PATH", &mock_path_with_cl)
             .env("NO_COLOR", "1")
             .stdin(Stdio::null())
@@ -2900,7 +2900,7 @@ fn install_runs_afk_with_one_iteration_via_mock_ralph() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .arg("install")
-            .env("SGF_RALPH_BINARY", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_ralph),
     );
 
     assert!(
@@ -2954,7 +2954,7 @@ fn alias_i_resolves_to_install() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .arg("i")
-            .env("SGF_RALPH_BINARY", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_ralph),
     );
 
     assert!(
@@ -3064,7 +3064,7 @@ fn build_dash_a_overrides_mode_to_afk() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_ralph),
     );
 
     assert!(
@@ -3133,7 +3133,7 @@ fn build_dash_n_overrides_iterations() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "-n", "5"])
-            .env("SGF_RALPH_BINARY", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_ralph),
     );
 
     assert!(
@@ -3272,7 +3272,7 @@ fn e2e_sgf_ralph_cl_context_files_in_append_system_prompt() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_RALPH_BINARY", &ralph_bin)
+            .env("SGF_AGENT_COMMAND", &ralph_bin)
             .env("PATH", &path)
             .env("HOME", tmp.path().to_str().unwrap()),
     );
@@ -3359,7 +3359,7 @@ fn afk_session_writes_metadata_with_session_id() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_ralph),
     );
 
     assert!(
@@ -3608,7 +3608,7 @@ fn metadata_survives_interrupted_session() {
     let guard = ChildGuard::spawn(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_ralph)
             .env("SGF_READY_FILE", &ready_file)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped()),
@@ -3911,7 +3911,7 @@ fn cursus_single_iter_dispatches_and_completes() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_ralph),
     );
 
     assert!(
@@ -4023,7 +4023,7 @@ fn cursus_single_iter_alias_dispatch() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["b", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_ralph),
     );
 
     assert!(
@@ -4073,7 +4073,7 @@ fn cursus_single_iter_sentinel_cleaned_on_exhausted() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_ralph),
     );
 
     // Should exit with code 2 (stalled)
@@ -4264,7 +4264,7 @@ fn cursus_multi_iter_happy_path() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["pipeline", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_ralph),
     );
 
     assert!(
@@ -4336,7 +4336,7 @@ fn cursus_multi_iter_reject_transition() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["pipeline", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_ralph),
     );
 
     assert!(
@@ -4422,7 +4422,7 @@ fn cursus_multi_iter_revise_transition() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["pipeline", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_ralph),
     );
 
     assert!(
@@ -4501,7 +4501,7 @@ fn cursus_multi_iter_context_passing() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["pipeline", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_ralph),
     );
 
     assert!(
@@ -4590,7 +4590,7 @@ fn cursus_multi_iter_stall_recovery() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["pipeline", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_ralph),
     );
 
     assert_eq!(
@@ -4681,7 +4681,7 @@ fn cursus_multi_iter_resume_stalled_run() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["pipeline", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph_stall),
+            .env("SGF_AGENT_COMMAND", &mock_ralph_stall),
     );
 
     assert_eq!(output.status.code(), Some(2), "should stall");
@@ -4704,7 +4704,7 @@ fn cursus_multi_iter_resume_stalled_run() {
     let mut guard = ChildGuard::spawn(
         sgf_cmd(tmp.path())
             .args(["resume", &run_id])
-            .env("SGF_RALPH_BINARY", &mock_ralph_complete)
+            .env("SGF_AGENT_COMMAND", &mock_ralph_complete)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped()),
@@ -4807,7 +4807,7 @@ fn cursus_layered_resolution_local_overrides_global() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["layered", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_ralph),
     );
 
     assert!(
@@ -4875,7 +4875,7 @@ fn cursus_banner_true_passes_banner_flag_to_ralph() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["banner-test", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_ralph),
     );
 
     assert!(
@@ -4930,7 +4930,7 @@ fn cursus_banner_false_omits_banner_flag() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["no-banner", "-a"])
-            .env("SGF_RALPH_BINARY", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_ralph),
     );
 
     assert!(
@@ -5216,7 +5216,7 @@ fn cursus_afk_then_interactive_stdin_not_stolen() {
     let mut guard = ChildGuard::spawn(
         sgf_cmd(tmp.path())
             .args(["mixed", "auth"])
-            .env("SGF_RALPH_BINARY", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_ralph)
             .env("PATH", &mock_path_with_cl)
             .env("SGF_MONITOR_STDIN", "1")
             .env_remove("CLAUDECODE")
