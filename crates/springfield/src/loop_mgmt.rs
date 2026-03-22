@@ -18,6 +18,7 @@ pub struct SessionMetadata {
     pub iterations: Vec<IterationRecord>,
     pub stage: String,
     pub spec: Option<String>,
+    pub cursus: Option<String>,
     pub mode: String,
     pub prompt: String,
     pub iterations_total: u32,
@@ -298,6 +299,7 @@ mod tests {
             }],
             stage: "build".to_string(),
             spec: Some("auth".to_string()),
+            cursus: None,
             mode: "interactive".to_string(),
             prompt: ".sgf/prompts/build.md".to_string(),
             iterations_total: 3,
@@ -331,6 +333,7 @@ mod tests {
         assert_eq!(read_back.iterations[0].completed_at, "2026-03-16T12:02:30Z");
         assert_eq!(read_back.stage, meta.stage);
         assert_eq!(read_back.spec, meta.spec);
+        assert_eq!(read_back.cursus, meta.cursus);
         assert_eq!(read_back.mode, meta.mode);
         assert_eq!(read_back.prompt, meta.prompt);
         assert_eq!(read_back.iterations_total, meta.iterations_total);
@@ -443,6 +446,7 @@ mod tests {
             iterations: Vec::new(),
             stage: "build".to_string(),
             spec: None,
+            cursus: None,
             mode: "afk".to_string(),
             prompt: ".sgf/prompts/build.md".to_string(),
             iterations_total: 5,
@@ -484,6 +488,7 @@ mod tests {
             ],
             stage: "build".to_string(),
             spec: Some("auth".to_string()),
+            cursus: None,
             mode: "afk".to_string(),
             prompt: ".sgf/prompts/build.md".to_string(),
             iterations_total: 5,
@@ -515,6 +520,7 @@ mod tests {
             iterations: Vec::new(),
             stage: "build".to_string(),
             spec: None,
+            cursus: None,
             mode: "afk".to_string(),
             prompt: ".sgf/prompts/build.md".to_string(),
             iterations_total: 3,
@@ -547,5 +553,41 @@ mod tests {
         let read_back = read_session_metadata(root, "append-test").unwrap().unwrap();
         assert_eq!(read_back.iterations.len(), 2);
         assert_eq!(read_back.iterations[1].session_id, "uuid-iter-2");
+    }
+
+    #[test]
+    fn cursus_field_roundtrip_some() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let meta = SessionMetadata {
+            loop_id: "cursus-loop".to_string(),
+            iterations: Vec::new(),
+            stage: "build".to_string(),
+            spec: None,
+            cursus: Some("my-pipeline".to_string()),
+            mode: "afk".to_string(),
+            prompt: ".sgf/prompts/build.md".to_string(),
+            iterations_total: 3,
+            status: "running".to_string(),
+            created_at: "2026-03-16T12:00:00Z".to_string(),
+            updated_at: "2026-03-16T12:00:00Z".to_string(),
+        };
+
+        write_session_metadata(root, &meta).unwrap();
+        let read_back = read_session_metadata(root, "cursus-loop").unwrap().unwrap();
+        assert_eq!(read_back.cursus, Some("my-pipeline".to_string()));
+    }
+
+    #[test]
+    fn cursus_field_roundtrip_none() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let meta = make_metadata("cursus-none-loop", "2026-03-16T12:00:00Z");
+
+        write_session_metadata(root, &meta).unwrap();
+        let read_back = read_session_metadata(root, "cursus-none-loop")
+            .unwrap()
+            .unwrap();
+        assert_eq!(read_back.cursus, None);
     }
 }
