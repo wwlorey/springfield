@@ -7,11 +7,17 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
+use tokio::sync::Notify;
 
 use crate::db::Db;
 use crate::types::FormaError;
 
-type AppState = Arc<Mutex<Db>>;
+struct FormaState {
+    db: Mutex<Db>,
+    shutdown: Notify,
+}
+
+type AppState = Arc<FormaState>;
 
 struct AppError(FormaError);
 
@@ -64,7 +70,10 @@ pub async fn start_with_data_dir(port: u16, project_dir: PathBuf, data_dir: Opti
         }
         None => Db::open(&project_dir).expect("failed to open database"),
     };
-    let state: AppState = Arc::new(Mutex::new(db));
+    let state: AppState = Arc::new(FormaState {
+        db: Mutex::new(db),
+        shutdown: Notify::new(),
+    });
 
     let app = Router::new()
         // Spec routes
@@ -96,9 +105,10 @@ pub async fn start_with_data_dir(port: u16, project_dir: PathBuf, data_dir: Opti
         .route("/import", post(import_jsonl))
         .route("/check", get(check))
         .route("/doctor", post(doctor))
-        // Status
+        // Status & lifecycle
         .route("/status", get(project_status))
-        .with_state(state);
+        .route("/shutdown", post(shutdown_endpoint))
+        .with_state(state.clone());
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}"))
         .await
@@ -121,7 +131,7 @@ pub async fn start_with_data_dir(port: u16, project_dir: PathBuf, data_dir: Opti
     tracing::info!("forma daemon listening on port {port}");
 
     axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
+        .with_graceful_shutdown(shutdown_signal(state))
         .await
         .expect("server error");
 
@@ -129,7 +139,12 @@ pub async fn start_with_data_dir(port: u16, project_dir: PathBuf, data_dir: Opti
     let _ = std::fs::remove_file(&project_file);
 }
 
-async fn shutdown_signal() {
+async fn shutdown_endpoint(State(state): State<AppState>) -> StatusCode {
+    state.shutdown.notify_one();
+    StatusCode::OK
+}
+
+async fn shutdown_signal(state: AppState) {
     let ctrl_c = async {
         tokio::signal::ctrl_c()
             .await
@@ -150,6 +165,7 @@ async fn shutdown_signal() {
     tokio::select! {
         () = ctrl_c => {},
         () = terminate => {},
+        () = state.shutdown.notified() => {},
     }
 
     tracing::info!("shutdown signal received");
@@ -165,12 +181,12 @@ struct CreateSpecBody {
 }
 
 async fn create_spec(
-    State(db): State<AppState>,
+    State(app): State<AppState>,
     headers: HeaderMap,
     Json(body): Json<CreateSpecBody>,
 ) -> Result<impl IntoResponse, AppError> {
     let actor = actor_from_headers(&headers);
-    let db = db.lock().unwrap();
+    let db = app.db.lock().unwrap();
     let spec = db.create_spec(
         &body.stem,
         body.src.as_deref(),
@@ -181,10 +197,10 @@ async fn create_spec(
 }
 
 async fn get_spec(
-    State(db): State<AppState>,
+    State(app): State<AppState>,
     Path(stem): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let db = db.lock().unwrap();
+    let db = app.db.lock().unwrap();
     let detail = db.get_spec(&stem)?;
     Ok(Json(serde_json::to_value(detail).unwrap()))
 }
@@ -195,10 +211,10 @@ struct ListSpecsQuery {
 }
 
 async fn list_specs(
-    State(db): State<AppState>,
+    State(app): State<AppState>,
     Query(query): Query<ListSpecsQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, AppError> {
-    let db = db.lock().unwrap();
+    let db = app.db.lock().unwrap();
     let specs = db.list_specs(query.status.as_deref())?;
     let values: Vec<serde_json::Value> = specs
         .into_iter()
@@ -215,13 +231,13 @@ struct UpdateSpecBody {
 }
 
 async fn update_spec(
-    State(db): State<AppState>,
+    State(app): State<AppState>,
     Path(stem): Path<String>,
     headers: HeaderMap,
     Json(body): Json<UpdateSpecBody>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let actor = actor_from_headers(&headers);
-    let db = db.lock().unwrap();
+    let db = app.db.lock().unwrap();
     let spec = db.update_spec(
         &stem,
         body.status.as_deref(),
@@ -239,13 +255,13 @@ struct DeleteQuery {
 }
 
 async fn delete_spec(
-    State(db): State<AppState>,
+    State(app): State<AppState>,
     Path(stem): Path<String>,
     headers: HeaderMap,
     Query(query): Query<DeleteQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let actor = actor_from_headers(&headers);
-    let db = db.lock().unwrap();
+    let db = app.db.lock().unwrap();
     db.delete_spec(&stem, query.force, actor.as_deref())?;
     Ok(Json(serde_json::json!({
         "status": "deleted",
@@ -259,10 +275,10 @@ struct SearchQuery {
 }
 
 async fn search_specs(
-    State(db): State<AppState>,
+    State(app): State<AppState>,
     Query(query): Query<SearchQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, AppError> {
-    let db = db.lock().unwrap();
+    let db = app.db.lock().unwrap();
     let specs = db.search_specs(&query.q)?;
     let values: Vec<serde_json::Value> = specs
         .into_iter()
@@ -278,25 +294,25 @@ struct CountQuery {
 }
 
 async fn count_specs(
-    State(db): State<AppState>,
+    State(app): State<AppState>,
     Query(query): Query<CountQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let db = db.lock().unwrap();
+    let db = app.db.lock().unwrap();
     let result = db.count_specs(query.by_status)?;
     Ok(Json(serde_json::to_value(result).unwrap()))
 }
 
-async fn project_status(State(db): State<AppState>) -> Result<Json<serde_json::Value>, AppError> {
-    let db = db.lock().unwrap();
+async fn project_status(State(app): State<AppState>) -> Result<Json<serde_json::Value>, AppError> {
+    let db = app.db.lock().unwrap();
     let status = db.project_status()?;
     Ok(Json(serde_json::to_value(status).unwrap()))
 }
 
 async fn spec_history(
-    State(db): State<AppState>,
+    State(app): State<AppState>,
     Path(stem): Path<String>,
 ) -> Result<Json<Vec<serde_json::Value>>, AppError> {
-    let db = db.lock().unwrap();
+    let db = app.db.lock().unwrap();
     let events = db.spec_history(&stem)?;
     let values: Vec<serde_json::Value> = events
         .into_iter()
@@ -316,13 +332,13 @@ struct AddSectionBody {
 }
 
 async fn add_section(
-    State(db): State<AppState>,
+    State(app): State<AppState>,
     Path(stem): Path<String>,
     headers: HeaderMap,
     Json(body): Json<AddSectionBody>,
 ) -> Result<impl IntoResponse, AppError> {
     let actor = actor_from_headers(&headers);
-    let db = db.lock().unwrap();
+    let db = app.db.lock().unwrap();
     let section = db.add_section(
         &stem,
         &body.name,
@@ -339,31 +355,31 @@ struct SetSectionBody {
 }
 
 async fn set_section(
-    State(db): State<AppState>,
+    State(app): State<AppState>,
     Path((stem, slug)): Path<(String, String)>,
     headers: HeaderMap,
     Json(body): Json<SetSectionBody>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let actor = actor_from_headers(&headers);
-    let db = db.lock().unwrap();
+    let db = app.db.lock().unwrap();
     let section = db.set_section(&stem, &slug, &body.body, actor.as_deref())?;
     Ok(Json(serde_json::to_value(section).unwrap()))
 }
 
 async fn get_section(
-    State(db): State<AppState>,
+    State(app): State<AppState>,
     Path((stem, slug)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let db = db.lock().unwrap();
+    let db = app.db.lock().unwrap();
     let section = db.get_section(&stem, &slug)?;
     Ok(Json(serde_json::to_value(section).unwrap()))
 }
 
 async fn list_sections(
-    State(db): State<AppState>,
+    State(app): State<AppState>,
     Path(stem): Path<String>,
 ) -> Result<Json<Vec<serde_json::Value>>, AppError> {
-    let db = db.lock().unwrap();
+    let db = app.db.lock().unwrap();
     let sections = db.list_sections(&stem)?;
     let values: Vec<serde_json::Value> = sections
         .into_iter()
@@ -373,12 +389,12 @@ async fn list_sections(
 }
 
 async fn remove_section(
-    State(db): State<AppState>,
+    State(app): State<AppState>,
     Path((stem, slug)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let actor = actor_from_headers(&headers);
-    let db = db.lock().unwrap();
+    let db = app.db.lock().unwrap();
     db.remove_section(&stem, &slug, actor.as_deref())?;
     Ok(Json(serde_json::json!({
         "status": "removed",
@@ -393,13 +409,13 @@ struct MoveSectionBody {
 }
 
 async fn move_section(
-    State(db): State<AppState>,
+    State(app): State<AppState>,
     Path((stem, slug)): Path<(String, String)>,
     headers: HeaderMap,
     Json(body): Json<MoveSectionBody>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let actor = actor_from_headers(&headers);
-    let db = db.lock().unwrap();
+    let db = app.db.lock().unwrap();
     let section = db.move_section(&stem, &slug, &body.after, actor.as_deref())?;
     Ok(Json(serde_json::to_value(section).unwrap()))
 }
@@ -412,13 +428,13 @@ struct AddRefBody {
 }
 
 async fn add_ref(
-    State(db): State<AppState>,
+    State(app): State<AppState>,
     Path(stem): Path<String>,
     headers: HeaderMap,
     Json(body): Json<AddRefBody>,
 ) -> Result<impl IntoResponse, AppError> {
     let actor = actor_from_headers(&headers);
-    let db = db.lock().unwrap();
+    let db = app.db.lock().unwrap();
     db.add_ref(&stem, &body.target, actor.as_deref())?;
     Ok((
         StatusCode::CREATED,
@@ -431,12 +447,12 @@ async fn add_ref(
 }
 
 async fn remove_ref(
-    State(db): State<AppState>,
+    State(app): State<AppState>,
     Path((stem, target)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let actor = actor_from_headers(&headers);
-    let db = db.lock().unwrap();
+    let db = app.db.lock().unwrap();
     db.remove_ref(&stem, &target, actor.as_deref())?;
     Ok(Json(serde_json::json!({
         "status": "removed",
@@ -446,10 +462,10 @@ async fn remove_ref(
 }
 
 async fn list_refs(
-    State(db): State<AppState>,
+    State(app): State<AppState>,
     Path(stem): Path<String>,
 ) -> Result<Json<Vec<serde_json::Value>>, AppError> {
-    let db = db.lock().unwrap();
+    let db = app.db.lock().unwrap();
     let specs = db.list_refs(&stem)?;
     let values: Vec<serde_json::Value> = specs
         .into_iter()
@@ -469,11 +485,11 @@ fn default_direction() -> String {
 }
 
 async fn ref_tree(
-    State(db): State<AppState>,
+    State(app): State<AppState>,
     Path(stem): Path<String>,
     Query(query): Query<RefTreeQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, AppError> {
-    let db = db.lock().unwrap();
+    let db = app.db.lock().unwrap();
     let nodes = db.ref_tree(&stem, &query.direction)?;
     let values: Vec<serde_json::Value> = nodes
         .into_iter()
@@ -482,16 +498,16 @@ async fn ref_tree(
     Ok(Json(values))
 }
 
-async fn ref_cycles(State(db): State<AppState>) -> Result<Json<Vec<Vec<String>>>, AppError> {
-    let db = db.lock().unwrap();
+async fn ref_cycles(State(app): State<AppState>) -> Result<Json<Vec<Vec<String>>>, AppError> {
+    let db = app.db.lock().unwrap();
     let cycles = db.detect_cycles()?;
     Ok(Json(cycles))
 }
 
 // --- Data endpoints ---
 
-async fn export_jsonl(State(db): State<AppState>) -> Result<Json<serde_json::Value>, AppError> {
-    let db = db.lock().unwrap();
+async fn export_jsonl(State(app): State<AppState>) -> Result<Json<serde_json::Value>, AppError> {
+    let db = app.db.lock().unwrap();
     let result = db.export_jsonl()?;
     Ok(Json(serde_json::json!({
         "status": "ok",
@@ -501,8 +517,8 @@ async fn export_jsonl(State(db): State<AppState>) -> Result<Json<serde_json::Val
     })))
 }
 
-async fn import_jsonl(State(db): State<AppState>) -> Result<Json<serde_json::Value>, AppError> {
-    let db = db.lock().unwrap();
+async fn import_jsonl(State(app): State<AppState>) -> Result<Json<serde_json::Value>, AppError> {
+    let db = app.db.lock().unwrap();
     let result = db.import_jsonl()?;
     Ok(Json(serde_json::to_value(result).unwrap()))
 }
@@ -514,17 +530,17 @@ struct DoctorQuery {
 }
 
 async fn doctor(
-    State(db): State<AppState>,
+    State(app): State<AppState>,
     Query(query): Query<DoctorQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let db = db.lock().unwrap();
+    let db = app.db.lock().unwrap();
     let report = db.doctor(query.fix)?;
     Ok(Json(serde_json::to_value(report).unwrap()))
 }
 
-async fn check(State(db): State<AppState>) -> Result<Json<serde_json::Value>, AppError> {
+async fn check(State(app): State<AppState>) -> Result<Json<serde_json::Value>, AppError> {
     let report = tokio::task::spawn_blocking(move || {
-        let db = db.lock().unwrap();
+        let db = app.db.lock().unwrap();
         let project_dir = db
             .forma_dir
             .parent()

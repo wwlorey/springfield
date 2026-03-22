@@ -367,6 +367,13 @@ impl DualDaemon {
     }
 }
 
+impl Drop for DualDaemon {
+    fn drop(&mut self) {
+        let _ = self.client.post(self.pensa_url("/shutdown")).send();
+        let _ = self.client.post(self.forma_url("/shutdown")).send();
+    }
+}
+
 struct PensaOnlyDaemon {
     port: u16,
     client: reqwest::blocking::Client,
@@ -415,6 +422,12 @@ impl PensaOnlyDaemon {
 
     fn url(&self, path: &str) -> String {
         format!("http://localhost:{}{}", self.port, path)
+    }
+}
+
+impl Drop for PensaOnlyDaemon {
+    fn drop(&mut self) {
+        let _ = self.client.post(self.url("/shutdown")).send();
     }
 }
 

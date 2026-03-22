@@ -7,6 +7,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
+use tokio::sync::Notify;
 
 use crate::db::Db;
 use crate::error::{ErrorResponse, PensaError};
@@ -15,6 +16,7 @@ use crate::types::{CreateIssueParams, IssueType, ListFilters, Priority, Status, 
 struct DaemonState {
     db: Mutex<Db>,
     project_dir: PathBuf,
+    shutdown: Notify,
 }
 
 type AppState = Arc<DaemonState>;
@@ -110,6 +112,7 @@ pub async fn start_with_data_dir(port: u16, project_dir: PathBuf, data_dir: Opti
     let state: AppState = Arc::new(DaemonState {
         db: Mutex::new(db),
         project_dir: project_dir.clone(),
+        shutdown: Notify::new(),
     });
 
     let app = Router::new()
@@ -148,7 +151,8 @@ pub async fn start_with_data_dir(port: u16, project_dir: PathBuf, data_dir: Opti
         .route("/import", post(import_jsonl))
         .route("/doctor", post(doctor))
         .route("/status", get(project_status))
-        .with_state(state);
+        .route("/shutdown", post(shutdown_endpoint))
+        .with_state(state.clone());
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}"))
         .await
@@ -171,7 +175,7 @@ pub async fn start_with_data_dir(port: u16, project_dir: PathBuf, data_dir: Opti
     tracing::info!("pensa daemon listening on port {port}");
 
     axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
+        .with_graceful_shutdown(shutdown_signal(state))
         .await
         .expect("server error");
 
@@ -179,7 +183,12 @@ pub async fn start_with_data_dir(port: u16, project_dir: PathBuf, data_dir: Opti
     let _ = std::fs::remove_file(&project_file);
 }
 
-async fn shutdown_signal() {
+async fn shutdown_endpoint(State(state): State<AppState>) -> StatusCode {
+    state.shutdown.notify_one();
+    StatusCode::OK
+}
+
+async fn shutdown_signal(state: AppState) {
     let ctrl_c = async {
         tokio::signal::ctrl_c()
             .await
@@ -200,6 +209,7 @@ async fn shutdown_signal() {
     tokio::select! {
         () = ctrl_c => {},
         () = terminate => {},
+        () = state.shutdown.notified() => {},
     }
 
     tracing::info!("shutdown signal received");

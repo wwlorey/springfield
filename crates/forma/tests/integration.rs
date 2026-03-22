@@ -66,6 +66,12 @@ impl TestDaemon {
     }
 }
 
+impl Drop for TestDaemon {
+    fn drop(&mut self) {
+        let _ = self.client.post(self.url("/shutdown")).send();
+    }
+}
+
 #[test]
 fn spec_crud_lifecycle() {
     let d = TestDaemon::start();

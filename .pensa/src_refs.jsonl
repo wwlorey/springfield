@@ -168,3 +168,7 @@
 {"id":"pn-5fb7e405","issue_id":"pn-5b73086c","path":"crates/springfield/src/cursus/runner.rs","reason":"prompt_resume_action() — add accumulated context display","created_at":"2026-03-21T21:29:42Z"}
 {"id":"pn-5a365e8c","issue_id":"pn-3ba52ef7","path":"crates/springfield/tests/integration.rs","reason":"sgf_cmd() helper — add env_remove for daemon vars","created_at":"2026-03-21T21:29:42Z"}
 {"id":"pn-f0b59128","issue_id":"pn-29e30308","path":"crates/shutdown/src/lib.rs","reason":"ProcessSemaphore::new() — add max=0 panic validation","created_at":"2026-03-21T21:29:42Z"}
+{"id":"pn-4efd127b","issue_id":"pn-b18ec70f","path":"crates/forma/src/daemon.rs","reason":"Added POST /shutdown endpoint and tokio::sync::Notify to FormaState for programmatic shutdown","created_at":"2026-03-22T01:45:09Z"}
+{"id":"pn-8497a412","issue_id":"pn-b18ec70f","path":"crates/pensa/src/daemon.rs","reason":"Added POST /shutdown endpoint and tokio::sync::Notify to DaemonState for programmatic shutdown","created_at":"2026-03-22T01:45:09Z"}
+{"id":"pn-15210b4a","issue_id":"pn-b18ec70f","path":"crates/forma/tests/integration.rs","reason":"Added Drop impl for TestDaemon to POST /shutdown on teardown","created_at":"2026-03-22T01:45:09Z"}
+{"id":"pn-20923f26","issue_id":"pn-b18ec70f","path":"crates/pensa/tests/integration.rs","reason":"Added Drop impls for DualDaemon and PensaOnlyDaemon to POST /shutdown on teardown","created_at":"2026-03-22T01:45:09Z"}
