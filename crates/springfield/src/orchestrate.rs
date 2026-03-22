@@ -632,8 +632,8 @@ mod tests {
             .unwrap();
     }
 
-    fn mock_ralph_script(root: &Path, script: &str) -> String {
-        let mock_path = root.join("mock_ralph.sh");
+    fn mock_agent_script(root: &Path, script: &str) -> String {
+        let mock_path = root.join("mock_agent.sh");
         fs::write(&mock_path, script).unwrap();
         #[cfg(unix)]
         {
@@ -753,14 +753,14 @@ mod tests {
     }
 
     #[test]
-    fn run_with_mock_ralph_exit_0() {
+    fn run_with_mock_agent_exit_0() {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
         setup_project(root, "build", "Build the spec now.");
         setup_spec(root, "auth");
         setup_git_repo(root);
 
-        let mock = mock_ralph_script(
+        let mock = mock_agent_script(
             root,
             "#!/bin/sh\necho \"ralph invoked: $@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
         );
@@ -789,14 +789,14 @@ mod tests {
     }
 
     #[test]
-    fn run_with_mock_ralph_exit_1() {
+    fn run_with_mock_agent_exit_1() {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
         setup_project(root, "build", "Build the spec now.");
         setup_spec(root, "auth");
         setup_git_repo(root);
 
-        let mock = mock_ralph_script(root, "#!/bin/sh\nexit 1\n");
+        let mock = mock_agent_script(root, "#!/bin/sh\nexit 1\n");
 
         let config = LoopConfig {
             stage: "build".to_string(),
@@ -816,13 +816,13 @@ mod tests {
     }
 
     #[test]
-    fn run_with_mock_ralph_exit_2() {
+    fn run_with_mock_agent_exit_2() {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
         setup_project(root, "verify", "Verify everything.");
         setup_git_repo(root);
 
-        let mock = mock_ralph_script(root, "#!/bin/sh\nexit 2\n");
+        let mock = mock_agent_script(root, "#!/bin/sh\nexit 2\n");
 
         let config = LoopConfig {
             stage: "verify".to_string(),
@@ -849,7 +849,7 @@ mod tests {
         setup_spec(root, "auth");
         setup_git_repo(root);
 
-        let mock = mock_ralph_script(
+        let mock = mock_agent_script(
             root,
             "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
         );
@@ -886,7 +886,7 @@ mod tests {
         setup_spec(root, "auth");
         setup_git_repo(root);
 
-        let mock = mock_ralph_script(
+        let mock = mock_agent_script(
             root,
             "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
         );
@@ -916,7 +916,7 @@ mod tests {
         setup_spec(root, "auth");
         setup_git_repo(root);
 
-        let mock = mock_ralph_script(
+        let mock = mock_agent_script(
             root,
             "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
         );
@@ -951,7 +951,7 @@ mod tests {
         setup_project(root, "verify", "Verify all specs against codebase.");
         setup_git_repo(root);
 
-        let mock = mock_ralph_script(
+        let mock = mock_agent_script(
             root,
             "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
         );
@@ -984,7 +984,7 @@ mod tests {
         setup_spec(root, "auth");
         setup_git_repo(root);
 
-        let mock = mock_ralph_script(
+        let mock = mock_agent_script(
             root,
             "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
         );
@@ -1016,7 +1016,7 @@ mod tests {
         setup_project(root, "test-plan", "Generate a testing plan.");
         setup_git_repo(root);
 
-        let mock = mock_ralph_script(
+        let mock = mock_agent_script(
             root,
             "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
         );
@@ -1046,7 +1046,7 @@ mod tests {
         setup_spec(root, "auth");
         setup_git_repo(root);
 
-        let mock = mock_ralph_script(
+        let mock = mock_agent_script(
             root,
             "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
         );
@@ -1089,7 +1089,7 @@ mod tests {
         setup_spec(root, "auth");
         setup_git_repo(root);
 
-        let mock = mock_ralph_script(root, "#!/bin/sh\nexit 0\n");
+        let mock = mock_agent_script(root, "#!/bin/sh\nexit 0\n");
 
         let config = LoopConfig {
             stage: "build".to_string(),
@@ -1127,7 +1127,7 @@ mod tests {
         setup_spec(root, "auth");
         setup_git_repo(root);
 
-        let mock = mock_ralph_script(root, "#!/bin/sh\nexit 2\n");
+        let mock = mock_agent_script(root, "#!/bin/sh\nexit 2\n");
 
         let config = LoopConfig {
             stage: "build".to_string(),
@@ -1155,7 +1155,7 @@ mod tests {
         setup_spec(root, "auth");
         setup_git_repo(root);
 
-        let mock = mock_ralph_script(root, "#!/bin/sh\nexit 1\n");
+        let mock = mock_agent_script(root, "#!/bin/sh\nexit 1\n");
 
         let config = LoopConfig {
             stage: "build".to_string(),
@@ -1183,7 +1183,7 @@ mod tests {
         setup_spec(root, "auth");
         setup_git_repo(root);
 
-        let mock = mock_ralph_script(
+        let mock = mock_agent_script(
             root,
             "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\nexit 0\n",
         );
@@ -1222,7 +1222,7 @@ mod tests {
         setup_project(root, "verify", "Verify everything.");
         setup_git_repo(root);
 
-        let mock = mock_ralph_script(root, "#!/bin/sh\nexit 0\n");
+        let mock = mock_agent_script(root, "#!/bin/sh\nexit 0\n");
 
         let config = LoopConfig {
             stage: "verify".to_string(),

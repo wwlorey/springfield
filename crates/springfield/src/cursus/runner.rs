@@ -975,7 +975,7 @@ mod tests {
 
         let ralph = mock_script(
             root,
-            "mock_ralph.sh",
+            "mock_agent.sh",
             &format!(
                 "#!/bin/sh\ntouch \"{}/.iter-complete\"\nexit 0\n",
                 root.display()
@@ -1024,7 +1024,7 @@ mod tests {
         setup_cursus_project(root, &["build.md"]);
 
         // Mock that does NOT create any sentinel and exits 2 → exhausted for AFK mode
-        let ralph = mock_script(root, "mock_ralph.sh", "#!/bin/sh\nexit 2\n");
+        let ralph = mock_script(root, "mock_agent.sh", "#!/bin/sh\nexit 2\n");
 
         let def = make_cursus_def(
             vec![make_iter("build", Mode::Afk, 5, None, None, None)],
@@ -1063,7 +1063,7 @@ mod tests {
         // Mock that creates .iter-complete for all iters
         let ralph = mock_script(
             root,
-            "mock_ralph.sh",
+            "mock_agent.sh",
             &format!(
                 "#!/bin/sh\ntouch \"{}/.iter-complete\"\nexit 0\n",
                 root.display()
@@ -1119,7 +1119,7 @@ mod tests {
 
         let ralph = mock_script(
             root,
-            "mock_ralph.sh",
+            "mock_agent.sh",
             &format!(
                 r#"#!/bin/sh
 COUNT=$(cat "{counter}")
@@ -1187,7 +1187,7 @@ exit 0
         // Mock that captures args and writes a produces file
         let ralph = mock_script(
             root,
-            "mock_ralph.sh",
+            "mock_agent.sh",
             &format!(
                 r#"#!/bin/sh
 echo "$@" >> "{root}/ralph_calls.txt"
@@ -1346,7 +1346,7 @@ exit 0
 
         let ralph = mock_script(
             root,
-            "mock_ralph.sh",
+            "mock_agent.sh",
             &format!(
                 "#!/bin/sh\ntouch \"{}/.iter-complete\"\nexit 0\n",
                 root.display()
@@ -1414,7 +1414,7 @@ exit 0
         // draft → complete → revise (via next override) → complete → review → complete
         let ralph = mock_script(
             root,
-            "mock_ralph.sh",
+            "mock_agent.sh",
             &format!(
                 "#!/bin/sh\ntouch \"{}/.iter-complete\"\nexit 0\n",
                 root.display()
@@ -1598,7 +1598,7 @@ prompt = "build.md"
 
         let ralph = mock_script(
             root,
-            "mock_ralph.sh",
+            "mock_agent.sh",
             &format!(
                 "#!/bin/sh\ntouch \"{}/.iter-complete\"\nexit 0\n",
                 root.display()
@@ -1664,7 +1664,7 @@ prompt = "build.md"
 
         let ralph = mock_script(
             root,
-            "mock_ralph.sh",
+            "mock_agent.sh",
             &format!(
                 "#!/bin/sh\ntouch \"{}/.iter-complete\"\nexit 0\n",
                 root.display()

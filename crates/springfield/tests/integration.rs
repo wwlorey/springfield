@@ -638,9 +638,9 @@ fn build_invokes_ralph_with_correct_flags() {
     // Mock ralph that logs all args
     let mock_dir = TempDir::new().unwrap();
     let args_file = mock_dir.path().join("ralph_args.txt");
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         &format!(
             "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
             args_file.display()
@@ -650,7 +650,7 @@ fn build_invokes_ralph_with_correct_flags() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_agent),
     );
 
     assert!(
@@ -682,9 +682,9 @@ fn build_creates_and_cleans_pid_file() {
     // Mock ralph that checks for PID file existence during execution
     let mock_dir = TempDir::new().unwrap();
     let state_file = mock_dir.path().join("pid_state.txt");
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         &format!(
             concat!(
                 "#!/bin/sh\n",
@@ -699,7 +699,7 @@ fn build_creates_and_cleans_pid_file() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_agent),
     );
     assert!(
         output.status.success(),
@@ -741,16 +741,16 @@ fn afk_passes_log_file_to_ralph() {
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         "#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/ralph_args.txt\"\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
     );
 
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_agent),
     );
     assert!(output.status.success());
 
@@ -881,16 +881,16 @@ fn recovery_cleans_stale_state() {
     .unwrap();
 
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         "#!/bin/sh\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
     );
 
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_agent),
     );
     assert!(
         output.status.success(),
@@ -950,16 +950,16 @@ fn recovery_skips_when_live_pid() {
     .unwrap();
 
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         "#!/bin/sh\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
     );
 
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_agent),
     );
     assert!(
         output.status.success(),
@@ -1057,9 +1057,9 @@ fn end_to_end_build_passes_raw_path_and_spec() {
     let mock_dir = TempDir::new().unwrap();
     let args_file = mock_dir.path().join("ralph_args.txt");
     let env_file = mock_dir.path().join("ralph_env.txt");
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         &format!(
             "#!/bin/sh\necho \"$@\" > \"{}\"\necho \"SGF_SPEC=$SGF_SPEC\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
             args_file.display(),
@@ -1070,7 +1070,7 @@ fn end_to_end_build_passes_raw_path_and_spec() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_agent),
     );
 
     assert!(
@@ -1147,9 +1147,9 @@ fn build_without_spec_omits_spec_flag_and_env() {
     let mock_dir = TempDir::new().unwrap();
     let args_file = mock_dir.path().join("ralph_args.txt");
     let env_file = mock_dir.path().join("ralph_env.txt");
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         &format!(
             "#!/bin/sh\necho \"$@\" > \"{}\"\necho \"SGF_SPEC=${{SGF_SPEC:-}}\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
             args_file.display(),
@@ -1160,7 +1160,7 @@ fn build_without_spec_omits_spec_flag_and_env() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_agent),
     );
 
     assert!(
@@ -1208,9 +1208,9 @@ fn build_with_spec_does_not_pass_spec_to_ralph() {
 
     let mock_dir = TempDir::new().unwrap();
     let args_file = mock_dir.path().join("ralph_args.txt");
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         &format!(
             "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
             args_file.display(),
@@ -1220,7 +1220,7 @@ fn build_with_spec_does_not_pass_spec_to_ralph() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_agent),
     );
 
     assert!(
@@ -1273,16 +1273,16 @@ fn build_valid_spec_proceeds() {
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         "#!/bin/sh\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
     );
 
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_agent),
     );
 
     assert!(
@@ -1711,10 +1711,10 @@ fn doc_no_push_when_head_unchanged() {
 // Signal handling (shutdown controller integration)
 // ===========================================================================
 
-fn create_slow_mock_ralph(dir: &Path) -> PathBuf {
+fn create_slow_mock_agent(dir: &Path) -> PathBuf {
     create_mock_script(
         dir,
-        "mock_ralph_slow.sh",
+        "mock_agent_slow.sh",
         "#!/bin/bash\ntrap '' INT\nfor i in $(seq 1 50); do sleep 0.1; done\nexit 2\n",
     )
 }
@@ -1743,13 +1743,13 @@ fn double_ctrl_c_exits_130() {
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_slow_mock_ralph(mock_dir.path());
+    let mock_agent = create_slow_mock_agent(mock_dir.path());
     let ready_file = mock_dir.path().join("sgf_ready");
 
     let guard = ChildGuard::spawn(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_agent)
             .env("SGF_READY_FILE", &ready_file)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped()),
@@ -1782,9 +1782,9 @@ fn single_ctrl_c_continues_after_timeout() {
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph_quick.sh",
+        "mock_agent_quick.sh",
         "#!/bin/bash\ntrap '' INT\nsleep 3\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
     );
     let ready_file = mock_dir.path().join("sgf_ready");
@@ -1792,7 +1792,7 @@ fn single_ctrl_c_continues_after_timeout() {
     let guard = ChildGuard::spawn(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_agent)
             .env("SGF_READY_FILE", &ready_file)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped()),
@@ -1823,13 +1823,13 @@ fn sigterm_exits_immediately() {
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_slow_mock_ralph(mock_dir.path());
+    let mock_agent = create_slow_mock_agent(mock_dir.path());
     let ready_file = mock_dir.path().join("sgf_ready");
 
     let guard = ChildGuard::spawn(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_agent)
             .env("SGF_READY_FILE", &ready_file)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped()),
@@ -1860,13 +1860,13 @@ fn confirmation_message_on_first_ctrl_c() {
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_slow_mock_ralph(mock_dir.path());
+    let mock_agent = create_slow_mock_agent(mock_dir.path());
     let ready_file = mock_dir.path().join("sgf_ready");
 
     let guard = ChildGuard::spawn(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_agent)
             .env("SGF_READY_FILE", &ready_file)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped()),
@@ -1899,7 +1899,7 @@ fn double_ctrl_d_exits_130() {
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_slow_mock_ralph(mock_dir.path());
+    let mock_agent = create_slow_mock_agent(mock_dir.path());
     let ready_file = mock_dir.path().join("sgf_ready");
 
     // Closing a piped stdin causes continuous EOF (read returns 0), which
@@ -1907,7 +1907,7 @@ fn double_ctrl_d_exits_130() {
     let mut guard = ChildGuard::spawn(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_agent)
             .env("SGF_MONITOR_STDIN", "1")
             .env("SGF_READY_FILE", &ready_file)
             .stdin(Stdio::piped())
@@ -1959,9 +1959,9 @@ fn mixed_ctrl_c_then_ctrl_d_no_shutdown() {
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph_mixed.sh",
+        "mock_agent_mixed.sh",
         "#!/bin/bash\ntrap '' INT\nfor i in $(seq 1 50); do sleep 0.1; done\nexit 0\n",
     );
     let ready_file = mock_dir.path().join("sgf_ready");
@@ -1969,7 +1969,7 @@ fn mixed_ctrl_c_then_ctrl_d_no_shutdown() {
     let mut guard = ChildGuard::spawn(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_agent)
             .env("SGF_MONITOR_STDIN", "1")
             .env("SGF_READY_FILE", &ready_file)
             .stdin(Stdio::piped())
@@ -2036,9 +2036,9 @@ fn double_ctrl_c_kills_entire_process_tree() {
     // Mock ralph that spawns a long-running grandchild, writes the grandchild's
     // PID to a file, then sleeps. The grandchild sleeps forever — if it's still
     // alive after sgf exits, the process tree was NOT fully killed.
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph_tree.sh",
+        "mock_agent_tree.sh",
         &format!(
             concat!(
                 "#!/bin/bash\n",
@@ -2055,7 +2055,7 @@ fn double_ctrl_c_kills_entire_process_tree() {
     let guard = ChildGuard::spawn(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_agent)
             .env("SGF_READY_FILE", &ready_file)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped()),
@@ -2129,12 +2129,12 @@ fn panic_does_not_leak_child_tree() {
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph_pid_file = mock_dir.path().join("mock_ralph.pid");
+    let mock_agent_pid_file = mock_dir.path().join("mock_agent.pid");
     let ready_file = mock_dir.path().join("sgf_ready");
 
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph_pid.sh",
+        "mock_agent_pid.sh",
         &format!(
             concat!(
                 "#!/bin/bash\n",
@@ -2143,18 +2143,18 @@ fn panic_does_not_leak_child_tree() {
                 "for i in $(seq 1 500); do sleep 0.1; done\n",
                 "exit 2\n",
             ),
-            mock_ralph_pid_file.display()
+            mock_agent_pid_file.display()
         ),
     );
 
     let sgf_pid;
-    let mock_ralph_pid: i32;
+    let mock_agent_pid: i32;
 
     {
         let guard = ChildGuard::spawn(
             sgf_cmd(tmp.path())
                 .args(["build", "auth", "-a"])
-                .env("SGF_AGENT_COMMAND", &mock_ralph)
+                .env("SGF_AGENT_COMMAND", &mock_agent)
                 .env("SGF_READY_FILE", &ready_file)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped()),
@@ -2166,24 +2166,24 @@ fn panic_does_not_leak_child_tree() {
         wait_for_ready(&ready_file);
 
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        while !mock_ralph_pid_file.exists() {
+        while !mock_agent_pid_file.exists() {
             assert!(
                 std::time::Instant::now() < deadline,
-                "mock ralph PID file was not created within 5s"
+                "mock agent PID file was not created within 5s"
             );
             std::thread::sleep(Duration::from_millis(25));
         }
 
-        mock_ralph_pid = fs::read_to_string(&mock_ralph_pid_file)
-            .expect("read mock ralph PID file")
+        mock_agent_pid = fs::read_to_string(&mock_agent_pid_file)
+            .expect("read mock agent PID file")
             .trim()
             .parse()
-            .expect("parse mock ralph PID");
+            .expect("parse mock agent PID");
 
         assert_eq!(
-            unsafe { libc::kill(mock_ralph_pid, 0) },
+            unsafe { libc::kill(mock_agent_pid, 0) },
             0,
-            "mock ralph (pid {mock_ralph_pid}) should be alive before panic"
+            "mock agent (pid {mock_agent_pid}) should be alive before panic"
         );
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -2209,8 +2209,8 @@ fn panic_does_not_leak_child_tree() {
         "sgf (pid {sgf_pid}) should be dead after guard dropped during panic"
     );
     assert!(
-        wait_dead(mock_ralph_pid as u32),
-        "mock ralph (pid {mock_ralph_pid}) should be dead after guard dropped during panic"
+        wait_dead(mock_agent_pid as u32),
+        "mock agent (pid {mock_agent_pid}) should be dead after guard dropped during panic"
     );
 }
 
@@ -2231,9 +2231,9 @@ fn afk_mode_child_gets_new_session() {
     // Mock ralph that checks if it became a session leader.
     // setsid() creates a new session AND new process group where PGID == PID.
     // We get bash's own PID ($$) and its PGID via python os.getpgid(parent).
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph_sid.sh",
+        "mock_agent_sid.sh",
         &format!(
             concat!(
                 "#!/bin/bash\n",
@@ -2250,7 +2250,7 @@ fn afk_mode_child_gets_new_session() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_agent),
     );
     assert!(
         output.status.success(),
@@ -2349,7 +2349,7 @@ fn afk_monitor_stdin_eof_triggers_shutdown() {
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_slow_mock_ralph(mock_dir.path());
+    let mock_agent = create_slow_mock_agent(mock_dir.path());
 
     let ready_file = mock_dir.path().join("sgf_ready");
 
@@ -2357,7 +2357,7 @@ fn afk_monitor_stdin_eof_triggers_shutdown() {
     let mut guard = ChildGuard::spawn(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_agent)
             .env("SGF_MONITOR_STDIN", "1")
             .env("SGF_READY_FILE", &ready_file)
             .stdin(Stdio::piped())
@@ -2416,9 +2416,9 @@ fn config_afk_mode_invokes_ralph_with_afk_flag() {
 
     let mock_dir = TempDir::new().unwrap();
     let args_file = mock_dir.path().join("ralph_args.txt");
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         &format!(
             "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
             args_file.display()
@@ -2432,7 +2432,7 @@ fn config_afk_mode_invokes_ralph_with_afk_flag() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_agent)
             .env("PATH", &mock_path_with_cl),
     );
     assert!(
@@ -2526,9 +2526,9 @@ fn alias_resolves_to_prompt() {
 
     let mock_dir = TempDir::new().unwrap();
     let args_file = mock_dir.path().join("ralph_args.txt");
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         &format!(
             "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
             args_file.display()
@@ -2538,7 +2538,7 @@ fn alias_resolves_to_prompt() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["b", "auth", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_agent),
     );
     assert!(
         output.status.success(),
@@ -2565,9 +2565,9 @@ fn no_color_badge_falls_back_to_plain_prefix() {
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         "#!/bin/sh\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
     );
 
@@ -2578,7 +2578,7 @@ fn no_color_badge_falls_back_to_plain_prefix() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_agent)
             .env("PATH", &mock_path_with_cl)
             .env("NO_COLOR", "1")
             .stdin(Stdio::null())
@@ -2614,9 +2614,9 @@ fn colored_output_contains_bold_badge() {
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         "#!/bin/sh\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
     );
 
@@ -2627,7 +2627,7 @@ fn colored_output_contains_bold_badge() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_agent)
             .env("PATH", &mock_path_with_cl)
             .env_remove("NO_COLOR")
             .stdin(Stdio::null())
@@ -2659,9 +2659,9 @@ fn exit_0_uses_success_styling() {
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         "#!/bin/sh\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
     );
 
@@ -2672,7 +2672,7 @@ fn exit_0_uses_success_styling() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_agent)
             .env("PATH", &mock_path_with_cl)
             .env_remove("NO_COLOR")
             .stdin(Stdio::null())
@@ -2705,7 +2705,7 @@ fn exit_1_uses_error_styling() {
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 1\n");
+    let mock_agent = create_mock_script(mock_dir.path(), "mock_agent.sh", "#!/bin/sh\nexit 1\n");
 
     let mock_cl_dir = TempDir::new().unwrap();
     create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
@@ -2714,7 +2714,7 @@ fn exit_1_uses_error_styling() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_agent)
             .env("PATH", &mock_path_with_cl)
             .env_remove("NO_COLOR")
             .stdin(Stdio::null())
@@ -2743,7 +2743,7 @@ fn exit_2_uses_warning_styling() {
     setup_default_cursus(tmp.path());
 
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 2\n");
+    let mock_agent = create_mock_script(mock_dir.path(), "mock_agent.sh", "#!/bin/sh\nexit 2\n");
 
     let mock_cl_dir = TempDir::new().unwrap();
     create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
@@ -2752,7 +2752,7 @@ fn exit_2_uses_warning_styling() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_agent)
             .env("PATH", &mock_path_with_cl)
             .env_remove("NO_COLOR")
             .stdin(Stdio::null())
@@ -2788,16 +2788,16 @@ fn no_color_exit_messages_use_plain_prefix() {
     let mock_dir = TempDir::new().unwrap();
 
     // Test exit 0 (success) with NO_COLOR
-    let mock_ralph_0 = create_mock_script(
+    let mock_agent_0 = create_mock_script(
         mock_dir.path(),
-        "mock_ralph_0.sh",
+        "mock_agent_0.sh",
         "#!/bin/sh\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
     );
 
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph_0)
+            .env("SGF_AGENT_COMMAND", &mock_agent_0)
             .env("PATH", &mock_path_with_cl)
             .env("NO_COLOR", "1")
             .stdin(Stdio::null())
@@ -2817,13 +2817,13 @@ fn no_color_exit_messages_use_plain_prefix() {
     );
 
     // Test exit 1 (stalled, no sentinel) with NO_COLOR
-    let mock_ralph_1 =
-        create_mock_script(mock_dir.path(), "mock_ralph_1.sh", "#!/bin/sh\nexit 1\n");
+    let mock_agent_1 =
+        create_mock_script(mock_dir.path(), "mock_agent_1.sh", "#!/bin/sh\nexit 1\n");
 
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph_1)
+            .env("SGF_AGENT_COMMAND", &mock_agent_1)
             .env("PATH", &mock_path_with_cl)
             .env("NO_COLOR", "1")
             .stdin(Stdio::null())
@@ -2839,13 +2839,13 @@ fn no_color_exit_messages_use_plain_prefix() {
     );
 
     // Test exit 2 (warning) with NO_COLOR
-    let mock_ralph_2 =
-        create_mock_script(mock_dir.path(), "mock_ralph_2.sh", "#!/bin/sh\nexit 2\n");
+    let mock_agent_2 =
+        create_mock_script(mock_dir.path(), "mock_agent_2.sh", "#!/bin/sh\nexit 2\n");
 
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph_2)
+            .env("SGF_AGENT_COMMAND", &mock_agent_2)
             .env("PATH", &mock_path_with_cl)
             .env("NO_COLOR", "1")
             .stdin(Stdio::null())
@@ -2866,7 +2866,7 @@ fn no_color_exit_messages_use_plain_prefix() {
 // ===========================================================================
 
 #[test]
-fn install_runs_afk_with_one_iteration_via_mock_ralph() {
+fn install_runs_afk_with_one_iteration_via_mock_agent() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
     setup_default_cursus(tmp.path());
@@ -2888,9 +2888,9 @@ fn install_runs_afk_with_one_iteration_via_mock_ralph() {
 
     let mock_dir = TempDir::new().unwrap();
     let args_file = mock_dir.path().join("ralph_args.txt");
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         &format!(
             "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
             args_file.display()
@@ -2900,7 +2900,7 @@ fn install_runs_afk_with_one_iteration_via_mock_ralph() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .arg("install")
-            .env("SGF_AGENT_COMMAND", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_agent),
     );
 
     assert!(
@@ -2942,9 +2942,9 @@ fn alias_i_resolves_to_install() {
 
     let mock_dir = TempDir::new().unwrap();
     let args_file = mock_dir.path().join("ralph_args.txt");
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         &format!(
             "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
             args_file.display()
@@ -2954,7 +2954,7 @@ fn alias_i_resolves_to_install() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .arg("i")
-            .env("SGF_AGENT_COMMAND", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_agent),
     );
 
     assert!(
@@ -3052,9 +3052,9 @@ fn build_dash_a_overrides_mode_to_afk() {
 
     let mock_dir = TempDir::new().unwrap();
     let args_file = mock_dir.path().join("ralph_args.txt");
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         &format!(
             "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
             args_file.display()
@@ -3064,7 +3064,7 @@ fn build_dash_a_overrides_mode_to_afk() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_agent),
     );
 
     assert!(
@@ -3121,9 +3121,9 @@ fn build_dash_n_overrides_iterations() {
 
     let mock_dir = TempDir::new().unwrap();
     let args_file = mock_dir.path().join("ralph_args.txt");
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         &format!(
             "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
             args_file.display()
@@ -3133,7 +3133,7 @@ fn build_dash_n_overrides_iterations() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "-n", "5"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_agent),
     );
 
     assert!(
@@ -3347,9 +3347,9 @@ fn afk_session_writes_metadata_with_session_id() {
 
     let mock_dir = TempDir::new().unwrap();
     let args_file = mock_dir.path().join("ralph_args.txt");
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         &format!(
             "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
             args_file.display()
@@ -3359,7 +3359,7 @@ fn afk_session_writes_metadata_with_session_id() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_agent),
     );
 
     assert!(
@@ -3602,13 +3602,13 @@ fn metadata_survives_interrupted_session() {
     create_spec_and_commit(tmp.path(), "auth");
 
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_slow_mock_ralph(mock_dir.path());
+    let mock_agent = create_slow_mock_agent(mock_dir.path());
     let ready_file = mock_dir.path().join("sgf_ready");
 
     let guard = ChildGuard::spawn(
         sgf_cmd(tmp.path())
             .args(["build", "auth", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_agent)
             .env("SGF_READY_FILE", &ready_file)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped()),
@@ -3894,9 +3894,9 @@ fn cursus_single_iter_dispatches_and_completes() {
     // Mock ralph that logs args and touches .iter-complete sentinel
     let mock_dir = TempDir::new().unwrap();
     let args_file = mock_dir.path().join("ralph_args.txt");
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         &format!(
             concat!(
                 "#!/bin/sh\n",
@@ -3911,7 +3911,7 @@ fn cursus_single_iter_dispatches_and_completes() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_agent),
     );
 
     assert!(
@@ -4010,9 +4010,9 @@ fn cursus_single_iter_alias_dispatch() {
 
     let mock_dir = TempDir::new().unwrap();
     let args_file = mock_dir.path().join("ralph_args.txt");
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         &format!(
             "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
             args_file.display()
@@ -4023,7 +4023,7 @@ fn cursus_single_iter_alias_dispatch() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["b", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_agent),
     );
 
     assert!(
@@ -4068,12 +4068,12 @@ fn cursus_single_iter_sentinel_cleaned_on_exhausted() {
 
     // Mock ralph that does NOT touch any sentinel and exits 2 (simulates exhaustion)
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_mock_script(mock_dir.path(), "mock_ralph.sh", "#!/bin/sh\nexit 2\n");
+    let mock_agent = create_mock_script(mock_dir.path(), "mock_agent.sh", "#!/bin/sh\nexit 2\n");
 
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["build", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_agent),
     );
 
     // Should exit with code 2 (stalled)
@@ -4237,9 +4237,9 @@ fn cursus_multi_iter_happy_path() {
 
     let mock_dir = TempDir::new().unwrap();
     let invocation_log = mock_dir.path().join("invocations.txt");
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         &format!(
             concat!(
                 "#!/bin/sh\n",
@@ -4264,7 +4264,7 @@ fn cursus_multi_iter_happy_path() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["pipeline", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_agent),
     );
 
     assert!(
@@ -4299,9 +4299,9 @@ fn cursus_multi_iter_reject_transition() {
     let call_count_file = mock_dir.path().join("review_count");
     fs::write(&call_count_file, "0").unwrap();
 
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         &format!(
             concat!(
                 "#!/bin/sh\n",
@@ -4336,7 +4336,7 @@ fn cursus_multi_iter_reject_transition() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["pipeline", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_agent),
     );
 
     assert!(
@@ -4382,9 +4382,9 @@ fn cursus_multi_iter_revise_transition() {
     let call_count_file = mock_dir.path().join("review_count");
     fs::write(&call_count_file, "0").unwrap();
 
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         &format!(
             concat!(
                 "#!/bin/sh\n",
@@ -4422,7 +4422,7 @@ fn cursus_multi_iter_revise_transition() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["pipeline", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_agent),
     );
 
     assert!(
@@ -4472,9 +4472,9 @@ fn cursus_multi_iter_context_passing() {
     let mock_dir = TempDir::new().unwrap();
     let draft_args_file = mock_dir.path().join("draft_args.txt");
 
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         &format!(
             concat!(
                 "#!/bin/sh\n",
@@ -4501,7 +4501,7 @@ fn cursus_multi_iter_context_passing() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["pipeline", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_agent),
     );
 
     assert!(
@@ -4572,9 +4572,9 @@ fn cursus_multi_iter_stall_recovery() {
     git_add_commit(tmp.path(), "add stall cursus");
 
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         concat!(
             "#!/bin/sh\n",
             "PROMPT=\"${@: -1}\"\n",
@@ -4590,7 +4590,7 @@ fn cursus_multi_iter_stall_recovery() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["pipeline", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_agent),
     );
 
     assert_eq!(
@@ -4664,9 +4664,9 @@ fn cursus_multi_iter_resume_stalled_run() {
 
     // First run: discuss completes, draft stalls
     let mock_dir = TempDir::new().unwrap();
-    let mock_ralph_stall = create_mock_script(
+    let mock_agent_stall = create_mock_script(
         mock_dir.path(),
-        "mock_ralph_stall.sh",
+        "mock_agent_stall.sh",
         concat!(
             "#!/bin/sh\n",
             "PROMPT=\"${@: -1}\"\n",
@@ -4681,17 +4681,17 @@ fn cursus_multi_iter_resume_stalled_run() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["pipeline", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph_stall),
+            .env("SGF_AGENT_COMMAND", &mock_agent_stall),
     );
 
     assert_eq!(output.status.code(), Some(2), "should stall");
 
     let run_id = get_run_id(tmp.path());
 
-    // Now resume: mock ralph that completes draft
-    let mock_ralph_complete = create_mock_script(
+    // Now resume: mock agent that completes draft
+    let mock_agent_complete = create_mock_script(
         mock_dir.path(),
-        "mock_ralph_complete.sh",
+        "mock_agent_complete.sh",
         "#!/bin/sh\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
     );
 
@@ -4704,7 +4704,7 @@ fn cursus_multi_iter_resume_stalled_run() {
     let mut guard = ChildGuard::spawn(
         sgf_cmd(tmp.path())
             .args(["resume", &run_id])
-            .env("SGF_AGENT_COMMAND", &mock_ralph_complete)
+            .env("SGF_AGENT_COMMAND", &mock_agent_complete)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped()),
@@ -4795,9 +4795,9 @@ fn cursus_layered_resolution_local_overrides_global() {
 
     let mock_dir = TempDir::new().unwrap();
     let args_file = mock_dir.path().join("ralph_args.txt");
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         &format!(
             "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
             args_file.display()
@@ -4807,7 +4807,7 @@ fn cursus_layered_resolution_local_overrides_global() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["layered", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_agent),
     );
 
     assert!(
@@ -4863,9 +4863,9 @@ fn cursus_banner_true_passes_banner_flag_to_ralph() {
 
     let mock_dir = TempDir::new().unwrap();
     let args_file = mock_dir.path().join("ralph_args.txt");
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         &format!(
             "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
             args_file.display()
@@ -4875,7 +4875,7 @@ fn cursus_banner_true_passes_banner_flag_to_ralph() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["banner-test", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_agent),
     );
 
     assert!(
@@ -4918,9 +4918,9 @@ fn cursus_banner_false_omits_banner_flag() {
 
     let mock_dir = TempDir::new().unwrap();
     let args_file = mock_dir.path().join("ralph_args.txt");
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         &format!(
             "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
             args_file.display()
@@ -4930,7 +4930,7 @@ fn cursus_banner_false_omits_banner_flag() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["no-banner", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph),
+            .env("SGF_AGENT_COMMAND", &mock_agent),
     );
 
     assert!(
@@ -5163,9 +5163,9 @@ fn cursus_afk_then_interactive_stdin_not_stolen() {
     let mock_dir = TempDir::new().unwrap();
     let stdin_capture = mock_dir.path().join("stdin_capture.txt");
 
-    let mock_ralph = create_mock_script(
+    let mock_agent = create_mock_script(
         mock_dir.path(),
-        "mock_ralph.sh",
+        "mock_agent.sh",
         concat!(
             "#!/bin/sh\n",
             "mkdir -p \"$SGF_RUN_CONTEXT\"\n",
@@ -5216,7 +5216,7 @@ fn cursus_afk_then_interactive_stdin_not_stolen() {
     let mut guard = ChildGuard::spawn(
         sgf_cmd(tmp.path())
             .args(["mixed", "auth"])
-            .env("SGF_AGENT_COMMAND", &mock_ralph)
+            .env("SGF_AGENT_COMMAND", &mock_agent)
             .env("PATH", &mock_path_with_cl)
             .env("SGF_MONITOR_STDIN", "1")
             .env_remove("CLAUDECODE")
