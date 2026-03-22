@@ -268,7 +268,7 @@ fn invoke_ralph(inv: &RalphInvocation<'_>, controller: &ShutdownController) -> i
         .stderr(Stdio::inherit())
         .env("SGF_MANAGED", "1");
 
-    let (ctx_env_name, ctx_env_val) = context::context_env_var(inv.root, inv.run_id);
+    let (ctx_env_name, ctx_env_val) = context::context_env_var(inv.run_id);
     cmd.env(&ctx_env_name, &ctx_env_val);
 
     if std::env::var("SGF_TEST_NO_SETSID").is_err() {
@@ -302,7 +302,6 @@ fn invoke_cl(
     prompt_path: &Path,
     session_id: &str,
     consumed_content: &str,
-    root: &Path,
     run_id: &str,
     controller: &ShutdownController,
 ) -> io::Result<i32> {
@@ -326,7 +325,7 @@ fn invoke_cl(
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
 
-    let (ctx_env_name, ctx_env_val) = context::context_env_var(root, run_id);
+    let (ctx_env_name, ctx_env_val) = context::context_env_var(run_id);
     cmd.env(&ctx_env_name, &ctx_env_val);
 
     let mut child = spawn_with_retry(&mut cmd, "cl", controller)?;
@@ -491,7 +490,6 @@ fn run_cursus_loop(
                 &prompt_path,
                 &session_id,
                 &consumed_content,
-                root,
                 &metadata.run_id,
                 &controller,
             )?,

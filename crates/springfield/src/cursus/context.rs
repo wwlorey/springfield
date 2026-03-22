@@ -9,12 +9,9 @@ pub fn context_file_path(root: &Path, run_id: &str, key: &str) -> PathBuf {
     context_dir(root, run_id).join(format!("{key}.md"))
 }
 
-pub fn context_env_var(root: &Path, run_id: &str) -> (String, String) {
-    let dir = context_dir(root, run_id);
-    (
-        "SGF_RUN_CONTEXT".to_string(),
-        dir.to_string_lossy().into_owned(),
-    )
+pub fn context_env_var(run_id: &str) -> (String, String) {
+    let relative = format!(".sgf/run/{run_id}/context/");
+    ("SGF_RUN_CONTEXT".to_string(), relative)
 }
 
 pub fn check_produces(root: &Path, run_id: &str, key: &str) -> bool {
@@ -119,10 +116,9 @@ mod tests {
 
     #[test]
     fn context_env_var_set() {
-        let tmp = TempDir::new().unwrap();
-        let (name, value) = context_env_var(tmp.path(), "spec-20260317T140000");
+        let (name, value) = context_env_var("spec-20260317T140000");
         assert_eq!(name, "SGF_RUN_CONTEXT");
-        assert!(value.ends_with(".sgf/run/spec-20260317T140000/context"));
+        assert_eq!(value, ".sgf/run/spec-20260317T140000/context/");
     }
 
     #[test]
