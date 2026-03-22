@@ -4,10 +4,11 @@ use std::io::IsTerminal;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::Utc;
 use shutdown::{ShutdownConfig, ShutdownController, ShutdownStatus};
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::cursus::context;
@@ -190,6 +191,44 @@ struct RalphInvocation<'a> {
     auto_push: bool,
 }
 
+const SPAWN_RETRY_ATTEMPTS: u32 = 3;
+const SPAWN_RETRY_BASE_DELAY: Duration = Duration::from_secs(5);
+
+fn spawn_with_retry(
+    cmd: &mut Command,
+    label: &str,
+    controller: &ShutdownController,
+) -> io::Result<std::process::Child> {
+    for attempt in 0..SPAWN_RETRY_ATTEMPTS {
+        match cmd.spawn() {
+            Ok(child) => return Ok(child),
+            Err(e)
+                if e.raw_os_error() == Some(libc::EAGAIN) && attempt + 1 < SPAWN_RETRY_ATTEMPTS =>
+            {
+                let delay = SPAWN_RETRY_BASE_DELAY * 2u32.pow(attempt);
+                warn!(
+                    attempt = attempt + 1,
+                    max = SPAWN_RETRY_ATTEMPTS,
+                    delay_secs = delay.as_secs(),
+                    error = %e,
+                    "resource pressure spawning {label}, retrying"
+                );
+                let deadline = Instant::now() + delay;
+                while Instant::now() < deadline {
+                    if controller.poll() == ShutdownStatus::Shutdown {
+                        return Err(io::Error::new(io::ErrorKind::Interrupted, "shutdown"));
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+            }
+            Err(e) => {
+                return Err(io::Error::other(format!("failed to spawn {label}: {e}")));
+            }
+        }
+    }
+    unreachable!()
+}
+
 fn invoke_ralph(inv: &RalphInvocation<'_>, controller: &ShutdownController) -> io::Result<i32> {
     let binary = resolve_ralph_binary(inv.config);
 
@@ -241,9 +280,7 @@ fn invoke_ralph(inv: &RalphInvocation<'_>, controller: &ShutdownController) -> i
         }
     }
 
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| io::Error::other(format!("failed to spawn ralph: {e}")))?;
+    let mut child = spawn_with_retry(&mut cmd, "ralph", controller)?;
 
     loop {
         match child.try_wait() {
@@ -292,9 +329,7 @@ fn invoke_cl(
     let (ctx_env_name, ctx_env_val) = context::context_env_var(root, run_id);
     cmd.env(&ctx_env_name, &ctx_env_val);
 
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| io::Error::other(format!("failed to spawn cl: {e}")))?;
+    let mut child = spawn_with_retry(&mut cmd, "cl", controller)?;
 
     loop {
         match child.try_wait() {

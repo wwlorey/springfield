@@ -309,7 +309,7 @@ pub fn kill_process_group(pid: u32, timeout: Duration) -> bool {
     let start = Instant::now();
     while start.elapsed() < timeout {
         thread::sleep(Duration::from_millis(100));
-        if unsafe { libc::kill(pid as i32, 0) } != 0 {
+        if unsafe { libc::kill(neg_pid, 0) } != 0 {
             let err = io::Error::last_os_error();
             if err.raw_os_error() == Some(libc::ESRCH) {
                 return true;
