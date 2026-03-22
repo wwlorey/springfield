@@ -14,6 +14,7 @@ use crate::types::FormaError;
 
 struct FormaState {
     db: Mutex<Db>,
+    project_dir: PathBuf,
     shutdown: Notify,
 }
 
@@ -72,6 +73,7 @@ pub async fn start_with_data_dir(port: u16, project_dir: PathBuf, data_dir: Opti
     };
     let state: AppState = Arc::new(FormaState {
         db: Mutex::new(db),
+        project_dir: project_dir.clone(),
         shutdown: Notify::new(),
     });
 
@@ -162,10 +164,21 @@ async fn shutdown_signal(state: AppState) {
     #[cfg(not(unix))]
     let terminate = std::future::pending::<()>();
 
+    let project_dir_gone = async {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            if !state.project_dir.exists() {
+                tracing::info!("project directory gone, shutting down");
+                break;
+            }
+        }
+    };
+
     tokio::select! {
         () = ctrl_c => {},
         () = terminate => {},
         () = state.shutdown.notified() => {},
+        () = project_dir_gone => {},
     }
 
     tracing::info!("shutdown signal received");

@@ -206,10 +206,21 @@ async fn shutdown_signal(state: AppState) {
     #[cfg(not(unix))]
     let terminate = std::future::pending::<()>();
 
+    let project_dir_gone = async {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            if !state.project_dir.exists() {
+                tracing::info!("project directory gone, shutting down");
+                break;
+            }
+        }
+    };
+
     tokio::select! {
         () = ctrl_c => {},
         () = terminate => {},
         () = state.shutdown.notified() => {},
+        () = project_dir_gone => {},
     }
 
     tracing::info!("shutdown signal received");

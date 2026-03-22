@@ -6,6 +6,8 @@ use forma::client::Client;
 use forma::types::FormaError;
 
 struct TestEnv {
+    port: u16,
+    http: reqwest::blocking::Client,
     _dir: TempDir,
 }
 
@@ -30,11 +32,27 @@ impl TestEnv {
         for _ in 0..50 {
             if http.get(format!("{base_url}/status")).send().is_ok() {
                 let client = Client::with_url(base_url);
-                return (TestEnv { _dir: dir }, client);
+                return (
+                    TestEnv {
+                        port,
+                        http: reqwest::blocking::Client::new(),
+                        _dir: dir,
+                    },
+                    client,
+                );
             }
             std::thread::sleep(Duration::from_millis(100));
         }
         panic!("daemon did not start in time");
+    }
+}
+
+impl Drop for TestEnv {
+    fn drop(&mut self) {
+        let _ = self
+            .http
+            .post(format!("http://localhost:{}/shutdown", self.port))
+            .send();
     }
 }
 
