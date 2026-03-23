@@ -6362,6 +6362,67 @@ fn iter_sigterm_exits_immediately() {
     );
 }
 
+#[test]
+fn simple_prompt_interactive_mode_does_not_monitor_stdin() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    let prompt = setup_simple_prompt_test(tmp.path());
+
+    let mock = create_mock_script(
+        tmp.path(),
+        "mock_agent.sh",
+        "#!/bin/bash\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
+    );
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args([prompt])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .env("SGF_FORCE_TERMINAL", "1")
+            .env("RUST_LOG", "debug")
+            .env("NO_COLOR", "1"),
+    );
+
+    assert!(
+        output.status.success(),
+        "should succeed, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("monitor_stdin=false"),
+        "interactive (non-AFK) mode must have monitor_stdin=false even with terminal, stderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn simple_prompt_afk_mode_monitors_stdin_with_terminal() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    let prompt = setup_simple_prompt_test(tmp.path());
+
+    let mock = create_mock_script(
+        tmp.path(),
+        "mock_agent.sh",
+        "#!/bin/bash\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
+    );
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args([prompt, "-a"])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .env("SGF_FORCE_TERMINAL", "1")
+            .env("RUST_LOG", "debug")
+            .env("NO_COLOR", "1"),
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("monitor_stdin=true"),
+        "AFK mode with terminal should have monitor_stdin=true, stderr:\n{stderr}"
+    );
+}
+
 // ---- E2E chain: sgf → cl → mock claude-wrapper ----
 
 #[test]

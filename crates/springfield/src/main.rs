@@ -158,7 +158,11 @@ fn run_simple_prompt(root: &Path, args: &DynamicArgs, prompt_path: &Path) -> ! {
         work_dir: Some(root.to_path_buf()),
     };
 
-    let monitor_stdin = !afk && std::io::IsTerminal::is_terminal(&std::io::stdin());
+    let is_tty = std::env::var("SGF_FORCE_TERMINAL")
+        .map(|v| v == "1")
+        .unwrap_or_else(|_| std::io::IsTerminal::is_terminal(&std::io::stdin()));
+    let monitor_stdin = afk && is_tty;
+    tracing::debug!(monitor_stdin, afk, is_tty, "simple prompt shutdown config");
     let controller = match ShutdownController::new(ShutdownConfig {
         monitor_stdin,
         ..Default::default()
