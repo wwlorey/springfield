@@ -29,7 +29,7 @@ Terminal-level end-to-end tests for CLI binaries. Uses [Tuistory](https://github
 
 ## Frontend
 
-> Stack: TypeScript, React, Vitest, Playwright
+> Stack: TypeScript, React 19, Vite, Zustand, shadcn/ui, Tailwind CSS v4, Vitest, @testing-library/react, Playwright
 >
 > **Build targets:** Web (`pnpm run build`), Mobile (`pnpm run expo export --platform all`), Tauri (`pnpm run tauri build`)
 
