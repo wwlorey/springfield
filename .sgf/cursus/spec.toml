@@ -1,0 +1,16 @@
+description = "Spec refinement, creation, hardening, and blessing"
+alias = "s"
+auto_push = "true"
+
+
+[[iter]]
+name = "refine-and-create"
+prompt = "spec-refine-and-create.md"
+mode = "interactive"
+
+[[iter]]
+name = "harden"
+prompt = "spec-harden.md"
+mode = "interactive"
+produces = "discuss-and-interview-summary"
+iterations = 25

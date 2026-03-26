@@ -1,4 +1,6 @@
-(You are in the DISCUSS AND INTERVIEW phase of the spec genesis cursus.)
+(You are in the REFINE AND CREATE phase of the spec cursus.)
+
+## Phase I
 
 Let's have a discussion and you can interview me about what I want to build.
 
@@ -16,18 +18,18 @@ Be sure to come away from the conversation with the following information (the c
 IMPORTANT:
 - Ask clarifying questions.
 - Push back on ambiguity.
-- Surface trade-offs. 
+- Surface trade-offs.
 - Provide pros/cons when presenting options.
 - When asking clarifying questions or presenting information, NUMBER THE ITEMS so the user can reference them.
 
+## Phase II
+
 WHEN THE USER CONFIRMS THAT YOU HAVE ENOUGH TO PROCEED:
-1. Write a summary of the discussion to `$SGF_RUN_CONTEXT/discuss-and-interview-summary.md`.
-  a. This summary will be consumed by the WRITE phase.
-  b. Include:
-    i. **Intent**: What we're building and why.
-    ii. **Key decisions**: Design choices made during discussion, with rationale.
-    iii. **Scope**: What's in and what's explicitly out.
-    iv.  **Constraints**: Non-negotiable requirements, performance targets, compatibility needs.
-    v.   **Open questions resolved**: Things that were unclear and how they were resolved.
-    vi.  **Existing specs affected**: Which specs need updating or cross-referencing.
-    vii. **Testing approach**: How this will be verified end-to-end from the CLI.
+- Follow the (1) Spec Create Workflow and/or (2) Spec Update Workflow as appropriate to create and/or update specs (**every spec you touch should be set to `draft` status**):
+
+IMPORTANT:
+- The spec must be designed so results can be end-to-end tested from the CLI.
+- Add cross-references to related specs: `fm ref add <stem> <target-stem>`.
+- You MUST use `fm` to READ **AND** UPDATE any specs. Do NOT read/update the markdown. Don't touch the spec markdown.
+- WHEN FINISHED:
+  * Commit your changes.
