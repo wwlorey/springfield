@@ -1,6 +1,6 @@
 description = "Spec refinement, creation, hardening, and blessing"
 alias = "s"
-auto_push = "true"
+auto_push = true
 
 
 [[iter]]
