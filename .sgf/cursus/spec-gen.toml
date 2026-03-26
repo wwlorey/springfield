@@ -8,6 +8,12 @@ prompt = "spec-gen-0-discuss-and-interview.md"
 mode = "interactive"
 produces = "discuss-and-interview-summary"
 
+# [[iter]]
+# name = "harden"
+# prompt = "harden.md"
+# mode = "interactive"
+# produces = "discuss-and-interview-summary"
+
 
 [[iter]]
 name = "write"

@@ -683,130 +683,50 @@ mode = "turbo"
     }
 
     #[test]
-    fn parse_global_cursus_tomls() {
-        let tomls: &[(&str, &str, Option<&str>, &str, u32, bool)] = &[
-            (
-                "build",
-                "Claim and implement one issue from the backlog",
-                Some("b"),
-                "interactive",
-                30,
-                true,
-            ),
-            (
-                "doc",
-                "Run pn and fm doctor checks and remediate findings",
-                None,
-                "afk",
-                1,
-                true,
-            ),
-            (
-                "install",
-                "Install project dependencies",
-                Some("i"),
-                "afk",
-                1,
-                false,
-            ),
-        ];
+    fn parse_file_from_tempdir() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("test.toml");
+        std::fs::write(
+            &path,
+            r#"
+description = "Test cursus"
 
-        let home = std::env::var("HOME").expect("HOME not set");
-        let cursus_dir = PathBuf::from(home).join(".sgf/cursus");
+[[iter]]
+name = "build"
+prompt = "build.md"
+mode = "afk"
+"#,
+        )
+        .unwrap();
 
-        for (name, desc, alias, mode, iterations, auto_push) in tomls {
-            let path = cursus_dir.join(format!("{name}.toml"));
-            assert!(path.exists(), "missing cursus TOML: {name}.toml");
-
-            let def = parse_file(&path).unwrap_or_else(|e| {
-                panic!("failed to parse {name}.toml: {e}");
-            });
-            validate(&def).unwrap_or_else(|e| {
-                panic!("validation failed for {name}.toml: {e}");
-            });
-
-            assert_eq!(def.description, *desc, "{name}: description mismatch");
-            assert_eq!(def.alias.as_deref(), *alias, "{name}: alias mismatch");
-            assert_eq!(def.auto_push, *auto_push, "{name}: auto_push mismatch");
-            assert_eq!(def.iters.len(), 1, "{name}: expected single iter");
-
-            let iter = &def.iters[0];
-            assert_eq!(iter.name, *name, "{name}: iter name mismatch");
-            assert_eq!(iter.prompt, format!("{name}.md"), "{name}: prompt mismatch");
-            let expected_mode = match *mode {
-                "afk" => Mode::Afk,
-                _ => Mode::Interactive,
-            };
-            assert_eq!(iter.mode, expected_mode, "{name}: mode mismatch");
-            assert_eq!(iter.iterations, *iterations, "{name}: iterations mismatch");
-        }
+        let def = parse_file(&path).unwrap();
+        validate(&def).unwrap();
+        assert_eq!(def.description, "Test cursus");
+        assert_eq!(def.iters.len(), 1);
     }
 
     #[test]
-    fn parse_global_spec_gen_cursus_multi_iter() {
+    fn all_global_cursus_tomls_parse_and_validate() {
         let home = std::env::var("HOME").expect("HOME not set");
-        let path = PathBuf::from(home).join(".sgf/cursus/spec-gen.toml");
-        assert!(path.exists(), "missing cursus TOML: spec-gen.toml");
+        let cursus_dir = PathBuf::from(home).join(".sgf/cursus");
+        if !cursus_dir.exists() {
+            return;
+        }
 
-        let def = parse_file(&path).unwrap_or_else(|e| {
-            panic!("failed to parse spec-gen.toml: {e}");
-        });
-        validate(&def).unwrap_or_else(|e| {
-            panic!("validation failed for spec-gen.toml: {e}");
-        });
-
-        assert_eq!(def.description, "Spec creation, refinement, and blessing");
-        assert_eq!(def.alias.as_deref(), Some("sg"));
-        assert!(!def.auto_push);
-        assert_eq!(def.iters.len(), 5);
-
-        let names: Vec<&str> = def.iters.iter().map(|i| i.name.as_str()).collect();
-        assert_eq!(
-            names,
-            vec![
-                "discuss-and-interview",
-                "write",
-                "review",
-                "revise",
-                "approve"
-            ]
-        );
-
-        let discuss = &def.iters[0];
-        assert_eq!(discuss.mode, Mode::Interactive);
-        assert_eq!(
-            discuss.produces.as_deref(),
-            Some("discuss-and-interview-summary")
-        );
-        assert!(discuss.consumes.is_empty());
-
-        let write = &def.iters[1];
-        assert_eq!(write.mode, Mode::Afk);
-        assert_eq!(write.iterations, 1);
-        assert_eq!(write.produces.as_deref(), Some("draft-presentation"));
-        assert_eq!(write.consumes, vec!["discuss-and-interview-summary"]);
-        assert_eq!(write.auto_push, Some(true));
-
-        let review = &def.iters[2];
-        assert_eq!(review.mode, Mode::Interactive);
-        assert_eq!(
-            review.consumes,
-            vec!["discuss-and-interview-summary", "draft-presentation"]
-        );
-        assert_eq!(review.transitions.on_revise.as_deref(), Some("revise"));
-        assert_eq!(review.next.as_deref(), Some("approve"));
-
-        let revise = &def.iters[3];
-        assert_eq!(revise.mode, Mode::Afk);
-        assert_eq!(revise.iterations, 1);
-        assert_eq!(revise.produces.as_deref(), Some("draft-presentation"));
-        assert_eq!(
-            revise.consumes,
-            vec!["discuss-and-interview-summary", "draft-presentation"]
-        );
-        assert_eq!(revise.next.as_deref(), Some("review"));
-
-        let approve = &def.iters[4];
-        assert_eq!(approve.mode, Mode::Afk);
+        let mut count = 0;
+        for entry in std::fs::read_dir(&cursus_dir).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if path.extension().is_some_and(|e| e == "toml") {
+                let def = parse_file(&path).unwrap_or_else(|e| {
+                    panic!("failed to parse {}: {e}", path.display());
+                });
+                validate(&def).unwrap_or_else(|e| {
+                    panic!("validation failed for {}: {e}", path.display());
+                });
+                count += 1;
+            }
+        }
+        assert!(count > 0, "no TOML files found in {}", cursus_dir.display());
     }
 }

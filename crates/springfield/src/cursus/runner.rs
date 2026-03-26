@@ -1343,7 +1343,6 @@ exit 0
     }
 
     #[test]
-    #[test]
     fn run_cursus_spec_passthrough() {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
