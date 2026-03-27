@@ -13,7 +13,7 @@ Read the specs marked `draft` and compare them against this quality checklist:
 - **Security**: The spec has no security holes or vulnerabilities, and does not contain risky design patterns.
 - **KISS**: Operates under KISS (Keep It Simple Stupid) principles.
 
-Present your findings to the user. Based on the user's input, update the specs.
+Present your findings to the user. Fix obvious problems and surface more complicated questions/concerns to the user for their input. Based on the user's input, update the specs.
 
 When finished:
 - Commit your changes.
