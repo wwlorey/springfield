@@ -15,8 +15,8 @@ Read the specs marked `draft` and compare them against this quality checklist:
 
 Present your findings to the user. Fix obvious problems and surface more complicated questions/concerns to the user for their input. Based on the user's input, update the specs.
 
-When finished:
-- Commit your changes.
+When finished editing the specs:
+- **Export fm and commit your changes**.
 - IF the user says the specs are fully hardened (ask them):
   * Move the specs marked `draft` to `stable` status.
   * Touch `.iter-complete`.
