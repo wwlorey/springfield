@@ -10,6 +10,8 @@ Read the specs marked `draft` and compare them against this quality checklist:
 - **Scope boundaries**: Clear in/out of scope. No ambiguous "maybe" features.
 - **Implementability**: A build agent could implement this with no additional context.
 - **Cohesion and Integrity**: No gaps within these specs, or between these specs and all other specs.
+- **Security**: The spec has no security holes or vulnerabilities, and does not contain risky design patterns.
+- **KISS**: Operates under KISS (Keep It Simple Stupid) principles.
 
 Present your findings to the user. Based on the user's input, update the specs.
 
