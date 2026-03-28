@@ -192,3 +192,12 @@
 {"id":"pn-11127883","issue_id":"pn-7e324cb3","path":"crates/springfield/README.md","reason":"README has outdated command resolution, config.toml references, and key flows descriptions","created_at":"2026-03-28T21:01:00Z"}
 {"id":"pn-edb8b123","issue_id":"pn-ec03ac35","path":"crates/springfield/tests/integration.rs","reason":"Add test functions for the new init warnings","created_at":"2026-03-28T21:01:12Z"}
 {"id":"pn-3d6ead8e","issue_id":"pn-474c9340","path":"crates/springfield/tests/integration.rs","reason":"Add test functions for --skip-preflight flag behavior","created_at":"2026-03-28T21:01:18Z"}
+{"id":"pn-6324161d","issue_id":"pn-943bcefd","path":"crates/springfield/src/orchestrate.rs","reason":"Doc comment on line 23 says 'ralph' but default is 'cl'; unit test on line 752 uses '/custom/ralph'","created_at":"2026-03-28T21:07:04Z"}
+{"id":"pn-1c39ffb2","issue_id":"pn-961c640b","path":"crates/springfield/src/iter_runner/mod.rs","reason":"Lines 628-634: hardcoded 2s inter-iteration sleep (20 × 100ms) needs env var override for tests","created_at":"2026-03-28T21:07:16Z"}
+{"id":"pn-7706103d","issue_id":"pn-0d2df779","path":"crates/forma/src/db.rs","reason":"~30 references to 'ralph' and 'crates/ralph/' as test fixture spec names — stale crate path","created_at":"2026-03-28T21:07:29Z"}
+{"id":"pn-5ad2528f","issue_id":"pn-0d2df779","path":"crates/forma/src/types.rs","reason":"Line 445: test fixture uses 'ralph' as to_stem","created_at":"2026-03-28T21:07:29Z"}
+{"id":"pn-db1bfc4e","issue_id":"pn-aa2eeea7","path":"crates/forma/tests/integration.rs","reason":"Lines 275, 279, 283, 290, 293, 364: test fixtures use 'ralph' spec name with 'crates/ralph/' src","created_at":"2026-03-28T21:07:41Z"}
+{"id":"pn-8ac74bf2","issue_id":"pn-aa2eeea7","path":"crates/forma/tests/cli_client.rs","reason":"Line 232: test creates spec named 'ralph' with src 'crates/ralph/'","created_at":"2026-03-28T21:07:41Z"}
+{"id":"pn-7c8b4ac1","issue_id":"pn-f3356e74","path":"crates/pensa/tests/integration.rs","reason":"Lines 542-543, 566: test fixtures use 'ralph' spec name with 'crates/ralph/' src","created_at":"2026-03-28T21:07:51Z"}
+{"id":"pn-2a033221","issue_id":"pn-78fcef75","path":"crates/springfield/src/prompt.rs","reason":"Lines 135, 137: test fixtures reference 'ralph.md' and 'specs/ralph.md'","created_at":"2026-03-28T21:08:01Z"}
+{"id":"pn-5f28479f","issue_id":"pn-78fcef75","path":"crates/springfield/tests/integration.rs","reason":"Line 5366: migration comment; lines 5528-5538: 'buddy-ralph' fixture paths in assertions","created_at":"2026-03-28T21:08:01Z"}

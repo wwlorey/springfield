@@ -5,7 +5,7 @@ Cross-crate integration test harness — concurrency control, process lifecycle 
 | Field | Value |
 |-------|-------|
 | Src | `crates/springfield/tests/` |
-| Status | stable |
+| Status | proven |
 
 ## Overview
 
