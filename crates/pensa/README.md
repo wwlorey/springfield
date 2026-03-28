@@ -20,7 +20,9 @@ The daemon keeps SQLite behind a single process, making concurrent access from m
 ├── db.sqlite        (working database, gitignored)
 ├── issues.jsonl     (git-committed export)
 ├── deps.jsonl       (git-committed export)
-└── comments.jsonl   (git-committed export)
+├── comments.jsonl   (git-committed export)
+├── src_refs.jsonl   (git-committed export)
+└── doc_refs.jsonl   (git-committed export)
 ```
 
 - **SQLite** is the runtime store. Rebuilt from JSONL on clone.
@@ -50,7 +52,7 @@ pn status
 
 ## Command Reference
 
-See [`specs/pensa.md`](../../specs/pensa.md) for the full specification. Summary:
+See the `pensa` forma spec (`fm show pensa`) for the full specification. Summary:
 
 ### Issues
 ```
@@ -89,6 +91,20 @@ pn comment add <id> "text"
 pn comment list <id>
 ```
 
+### Source References
+```
+pn src-ref add <id> <path> [--reason "..."]
+pn src-ref list <id>
+pn src-ref remove <ref-id>
+```
+
+### Documentation References
+```
+pn doc-ref add <id> <path> [--reason "..."]
+pn doc-ref list <id>
+pn doc-ref remove <ref-id>
+```
+
 ### Data & Maintenance
 ```
 pn export          # SQLite → JSONL, then git add
@@ -102,6 +118,19 @@ pn where           # Print .pensa/ path
 pn daemon [--port <port>] [--project-dir <path>]
 pn daemon status
 ```
+
+#### Shutdown Conditions
+
+The daemon shuts down on any of:
+
+1. **Ctrl+C** (`tokio::signal::ctrl_c()`)
+2. **SIGTERM** (`tokio::signal::unix::signal(SignalKind::terminate())`)
+3. **`/shutdown` endpoint** (internal — used by test fixtures, not the CLI)
+4. **Project directory watchdog** (3 consecutive failures at 5s interval)
+
+#### Project Directory Watchdog
+
+The daemon monitors the existence of its `--project-dir` on a fixed 5-second interval. If the directory does not exist for 3 consecutive checks (15 seconds total), the daemon shuts down gracefully. A single successful check resets the failure counter to zero. This prevents the daemon from running indefinitely after the project directory is deleted (e.g., temp dirs in tests, renamed projects).
 
 ## Environment Variables
 
