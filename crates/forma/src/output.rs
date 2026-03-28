@@ -265,13 +265,11 @@ pub fn print_count(value: &Value, mode: OutputMode) {
         OutputMode::Human => {
             if let Some(count) = value["count"].as_i64() {
                 println!("count: {count}");
-            } else if let Some(total) = value["total"].as_i64() {
-                println!("total: {total}");
                 if let Some(groups) = value["groups"].as_array() {
                     for g in groups {
-                        let key = g["key"].as_str().unwrap_or("?");
+                        let status = g["status"].as_str().unwrap_or("?");
                         let count = g["count"].as_i64().unwrap_or(0);
-                        println!("  {key}: {count}");
+                        println!("  {status}: {count}");
                     }
                 }
             }

@@ -249,10 +249,10 @@ fn client_count() {
         .unwrap();
 
     let count = client.count_specs(false).unwrap();
-    assert_eq!(count["total"], 2);
+    assert_eq!(count["count"], 2);
 
     let by_status = client.count_specs(true).unwrap();
-    assert_eq!(by_status["total"], 2);
+    assert_eq!(by_status["count"], 2);
     assert!(by_status["groups"].is_array());
 }
 

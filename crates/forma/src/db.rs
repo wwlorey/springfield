@@ -501,14 +501,14 @@ impl Db {
     }
 
     pub fn count_specs(&self, by_status: bool) -> Result<CountResult, FormaError> {
-        let total: i64 = self
+        let count: i64 = self
             .conn
             .query_row("SELECT COUNT(*) FROM specs", [], |row| row.get(0))
             .map_err(|e| FormaError::Internal(format!("failed to count specs: {e}")))?;
 
         if !by_status {
             return Ok(CountResult {
-                total,
+                count,
                 groups: None,
             });
         }
@@ -529,7 +529,7 @@ impl Db {
             .map_err(|e| FormaError::Internal(format!("failed to read count results: {e}")))?;
 
         Ok(CountResult {
-            total,
+            count,
             groups: Some(groups),
         })
     }
@@ -1728,7 +1728,7 @@ pub struct DoctorReport {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CountResult {
-    pub total: i64,
+    pub count: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub groups: Option<Vec<StatusCount>>,
 }
@@ -2474,7 +2474,7 @@ mod tests {
             .unwrap();
 
         let result = db.count_specs(false).unwrap();
-        assert_eq!(result.total, 2);
+        assert_eq!(result.count, 2);
         assert!(result.groups.is_none());
     }
 
@@ -2489,7 +2489,7 @@ mod tests {
             .unwrap();
 
         let result = db.count_specs(true).unwrap();
-        assert_eq!(result.total, 2);
+        assert_eq!(result.count, 2);
         let groups = result.groups.unwrap();
         assert_eq!(groups.len(), 2);
 
@@ -2959,7 +2959,7 @@ mod tests {
         assert_eq!(all.len(), 1);
 
         let count = db.count_specs(false).unwrap();
-        assert_eq!(count.total, 1);
+        assert_eq!(count.count, 1);
 
         let events = db.spec_history("auth").unwrap();
         assert_eq!(events.len(), 2);

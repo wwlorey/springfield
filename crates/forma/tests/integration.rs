@@ -386,12 +386,12 @@ fn count_specs() {
     let resp = d.get("/specs/count");
     assert_eq!(resp.status(), 200);
     let body: Value = resp.json().unwrap();
-    assert_eq!(body["total"], 2);
+    assert_eq!(body["count"], 2);
 
     let resp = d.get("/specs/count?by_status=true");
     assert_eq!(resp.status(), 200);
     let body: Value = resp.json().unwrap();
-    assert_eq!(body["total"], 2);
+    assert_eq!(body["count"], 2);
     assert!(body["groups"].is_array());
 }
 
@@ -1164,8 +1164,8 @@ fn json_shape_count_ungrouped() {
     let resp = d.get("/specs/count");
     assert_eq!(resp.status(), 200);
     let body: Value = resp.json().unwrap();
-    assert!(body["total"].is_number(), "count.total should be number");
-    assert_eq!(body["total"], 1);
+    assert!(body["count"].is_number(), "count.count should be number");
+    assert_eq!(body["count"], 1);
 }
 
 #[test]
@@ -1184,8 +1184,8 @@ fn json_shape_count_grouped() {
     let resp = d.get("/specs/count?by_status=true");
     assert_eq!(resp.status(), 200);
     let body: Value = resp.json().unwrap();
-    assert!(body["total"].is_number());
-    assert_eq!(body["total"], 2);
+    assert!(body["count"].is_number());
+    assert_eq!(body["count"], 2);
     let groups = body["groups"].as_array().unwrap();
     assert!(!groups.is_empty());
     for group in groups {
