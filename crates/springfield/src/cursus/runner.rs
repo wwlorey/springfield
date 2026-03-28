@@ -1212,6 +1212,84 @@ exit 0
     }
 
     #[test]
+    fn run_cursus_revise_transition() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_cursus_project(root, &["draft.md", "revise.md", "review.md"]);
+
+        // Iter order: [draft, revise, review] — review is last so Advance completes the pipeline.
+        // draft.next="review" skips revise on the normal path; revise.next="review" loops back.
+        //
+        // Call 1 (draft):  .iter-complete → next="review" → jump to review
+        // Call 2 (review): .iter-revise   → on_revise="revise" → jump to revise
+        // Call 3 (revise): .iter-complete → next="review" → jump to review
+        // Call 4 (review): .iter-complete → Advance past last iter → pipeline done
+        let counter_file = root.join("call_count");
+        fs::write(&counter_file, "0").unwrap();
+
+        let mock_agent = mock_script(
+            root,
+            "mock_agent.sh",
+            &format!(
+                r#"#!/bin/sh
+COUNT=$(cat "{counter}")
+COUNT=$((COUNT + 1))
+echo $COUNT > "{counter}"
+if [ $COUNT -eq 2 ]; then
+    touch "{root}/.iter-revise"
+else
+    touch "{root}/.iter-complete"
+fi
+exit 0
+"#,
+                counter = counter_file.display(),
+                root = root.display()
+            ),
+        );
+
+        let def = make_cursus_def(
+            vec![
+                make_iter("draft", Mode::Afk, 10, Some("review"), None, None),
+                make_iter("revise", Mode::Afk, 10, Some("review"), None, None),
+                make_iter("review", Mode::Afk, 1, None, None, Some("revise")),
+            ],
+            false,
+        );
+
+        let config = CursusConfig {
+            spec: None,
+            mode_override: None,
+            no_push: true,
+            agent_command: Some(mock_agent),
+            skip_preflight: true,
+            monitor_stdin_override: Some(false),
+        };
+
+        let exit_code = run_cursus(root, "spec", &def, &config).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let run_dir = root.join(".sgf/run");
+        let entries: Vec<_> = fs::read_dir(&run_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().ok().is_some_and(|ft| ft.is_dir()))
+            .collect();
+        let run_id = entries[0].file_name().to_str().unwrap().to_string();
+        let meta = state::read_metadata(root, &run_id).unwrap().unwrap();
+        assert_eq!(meta.status, RunStatus::Completed);
+        // draft → review (revise) → revise → review → done
+        assert_eq!(meta.iters_completed.len(), 4);
+        assert_eq!(meta.iters_completed[0].name, "draft");
+        assert_eq!(meta.iters_completed[0].outcome, "complete");
+        assert_eq!(meta.iters_completed[1].name, "review");
+        assert_eq!(meta.iters_completed[1].outcome, "revise");
+        assert_eq!(meta.iters_completed[2].name, "revise");
+        assert_eq!(meta.iters_completed[2].outcome, "complete");
+        assert_eq!(meta.iters_completed[3].name, "review");
+        assert_eq!(meta.iters_completed[3].outcome, "complete");
+    }
+
+    #[test]
     fn run_cursus_context_passing() {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
