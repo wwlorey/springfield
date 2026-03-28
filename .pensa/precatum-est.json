@@ -327,5 +327,89 @@
     "priority": "p3",
     "closed_at": "2026-03-11T22:18:46Z",
     "close_reason": "Added SGF_READY_FILE readiness mechanism replacing fixed 500ms sleep in all 8 signal-handling integration tests"
+  },
+  {
+    "id": "pn-9d1bb769",
+    "title": "Stdin monitoring thread steals input from interactive cursus iters",
+    "priority": "p0",
+    "closed_at": "2026-03-20T21:37:21Z",
+    "close_reason": "fixed"
+  },
+  {
+    "id": "pn-ff1ffa1f",
+    "title": "Fix: cli_client.rs TestEnv leaks orphaned daemon processes (missing Drop impl)",
+    "priority": "p0",
+    "closed_at": "2026-03-22T03:03:45Z",
+    "close_reason": "Fixed: added port and http fields to TestEnv struct, implemented Drop to POST /shutdown on cleanup. Matches pattern from integration.rs TestDaemon (commit 5b85e85)."
+  },
+  {
+    "id": "pn-004129ef",
+    "title": "Fix: pn/fm daemons orphaned when project directory is deleted (add watchdog to shutdown_signal)",
+    "priority": "p0",
+    "closed_at": "2026-03-22T03:12:47Z",
+    "close_reason": "Fixed: added project-dir watchdog to shutdown_signal in both pensa/src/daemon.rs and forma/src/daemon.rs. Daemons now check every 5s if their project directory exists and exit gracefully if it's been deleted. Also added project_dir field to FormaState."
+  },
+  {
+    "id": "pn-498ffc5e",
+    "title": "Process exhaustion under concurrent cl usage due to kill_process_group checking leader PID not group, and build loop not resilient to spawn failures",
+    "priority": "p1",
+    "closed_at": "2026-03-22T01:27:00Z",
+    "close_reason": "fixed"
+  },
+  {
+    "id": "pn-b18ec70f",
+    "title": "Test daemon processes (pn, fm) orphaned after test completion, causing process accumulation",
+    "priority": "p1",
+    "closed_at": "2026-03-22T01:45:45Z",
+    "close_reason": "Fixed by adding POST /shutdown endpoint to forma and pensa daemons and Drop impls to all test fixtures"
+  },
+  {
+    "id": "pn-5034ad32",
+    "title": "run_afk() hangs indefinitely when Claude Code does not exit after emitting result event",
+    "priority": "p1",
+    "closed_at": "2026-03-28T18:24:48Z",
+    "close_reason": "fixed"
+  },
+  {
+    "id": "pn-29e30308",
+    "title": "ProcessSemaphore::new(0) does not panic as spec requires",
+    "priority": "p2",
+    "closed_at": "2026-03-22T03:14:05Z",
+    "close_reason": "Added assert!(max > 0) panic in ProcessSemaphore::new() with three #[should_panic] tests covering new(0), from_env with env=0, and from_env with default=0."
+  },
+  {
+    "id": "pn-e1a5818c",
+    "title": "ralph signal tests (single_ctrl_c_continues_after_timeout, afk_single_ctrlc_resets_after_timeout) flaky — child process timeouts after 30s",
+    "priority": "p2",
+    "closed_at": "2026-03-22T04:42:09Z",
+    "close_reason": "Fixed race condition: moved SGF_READY_FILE write after ShutdownController creation in run_cursus_loop. Added SGF_MONITOR_STDIN=0 to signal tests."
+  },
+  {
+    "id": "pn-c67c6bd7",
+    "title": "run_cursus_context_passing test fails — verify iter does not receive --prompt-file arg",
+    "priority": "p2",
+    "closed_at": "2026-03-22T03:40:10Z",
+    "close_reason": "Fixed SGF_RUN_CONTEXT to use absolute path and updated test to verify --append-system-prompt instead of --prompt-file"
+  },
+  {
+    "id": "pn-629299ff",
+    "title": "Pre-existing integration test failures in springfield (build_invokes_agent_with_correct_flags etc.)",
+    "priority": "p2",
+    "closed_at": "2026-03-22T06:12:38Z",
+    "close_reason": "Fixed resolve_agent_command defaults (ralph→cl) and updated 23 integration test assertions to match iter_runner architecture"
+  },
+  {
+    "id": "pn-00963dcb",
+    "title": "sgf init warns about missing MEMENTO.md/BACKPRESSURE.md even when available in ~/.sgf",
+    "priority": "p2",
+    "closed_at": "2026-03-22T21:37:59Z",
+    "close_reason": "Removed false-alarm warnings from init.rs; resolve_context_files already handles ~/.sgf/ fallback"
+  },
+  {
+    "id": "pn-5efef8d2",
+    "title": "Simple prompt mode inverts monitor_stdin flag, stealing keystrokes from child process",
+    "priority": "p2",
+    "closed_at": "2026-03-22T22:08:17Z",
+    "close_reason": "Fixed inverted monitor_stdin flag in run_simple_prompt and added regression tests"
   }
 ]
