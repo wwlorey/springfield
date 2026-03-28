@@ -5364,7 +5364,7 @@ fn simple_prompt_mode_nonexistent_file_falls_through_to_cursus() {
 }
 
 // ---------------------------------------------------------------------------
-// Migrated from crates/ralph/tests/integration.rs
+// Migrated from legacy integration tests
 // These tests exercise the iter_runner module through sgf simple prompt mode.
 // ---------------------------------------------------------------------------
 
@@ -5526,17 +5526,17 @@ fn iter_afk_formats_tool_calls_as_one_liners() {
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     assert!(
-        stdout.contains("─ Read  /Users/william/Repos/buddy-ralph/specs/README.md"),
+        stdout.contains("─ Read  /Users/william/Repos/test-project/specs/README.md"),
         "should contain Read tool call, got:\n{stdout}"
     );
     assert!(
         stdout.contains(
-            "─ Read  /Users/william/Repos/buddy-ralph/crates/buddy-llm/src/inference.rs [1:80]"
+            "─ Read  /Users/william/Repos/test-project/crates/buddy-llm/src/inference.rs [1:80]"
         ),
         "should contain Read with offset:limit, got:\n{stdout}"
     );
     assert!(
-        stdout.contains("─ Edit  /Users/william/Repos/buddy-ralph/specs/tokenizer-embedding.md"),
+        stdout.contains("─ Edit  /Users/william/Repos/test-project/specs/tokenizer-embedding.md"),
         "should contain Edit tool call, got:\n{stdout}"
     );
     assert!(
@@ -5631,7 +5631,7 @@ fn iter_afk_hides_tool_results() {
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     assert!(
-        !stdout.contains("# Buddy Ralph Specifications"),
+        !stdout.contains("# Test Project Specifications"),
         "should NOT contain tool result content from Read, got:\n{stdout}"
     );
     assert!(

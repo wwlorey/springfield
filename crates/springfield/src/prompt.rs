@@ -132,9 +132,9 @@ mod tests {
             "Install prompt.",
         )
         .unwrap();
-        fs::write(tmp.path().join("specs/ralph.md"), "# Ralph spec").unwrap();
+        fs::write(tmp.path().join("specs/runner.md"), "# Runner spec").unwrap();
 
-        let path = validate(tmp.path(), "install", Some("ralph")).unwrap();
+        let path = validate(tmp.path(), "install", Some("runner")).unwrap();
         assert!(path.ends_with(".sgf/prompts/install.md"));
     }
 
