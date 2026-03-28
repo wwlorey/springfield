@@ -6967,3 +6967,195 @@ fn init_no_warnings_when_memento_and_backpressure_present() {
         "should NOT warn about BACKPRESSURE.md when present, got:\n{stderr}"
     );
 }
+
+// ===========================================================================
+// --skip-preflight flag
+// ===========================================================================
+
+#[test]
+fn skip_preflight_flag_skips_recovery_and_export() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
+
+    // Create a stale run directory with dead PID so pre_launch_recovery
+    // would trigger git checkout/clean if preflight ran.
+    let stale_run_dir = tmp.path().join(".sgf/run/stale-build-20260101T000000");
+    fs::create_dir_all(&stale_run_dir).unwrap();
+    fs::write(
+        stale_run_dir.join("stale-build-20260101T000000.pid"),
+        "4000000",
+    )
+    .unwrap();
+    let stale_meta = serde_json::json!({
+        "run_id": "stale-build-20260101T000000",
+        "cursus": "build",
+        "status": "running",
+        "current_iter": "build",
+        "current_iter_index": 0,
+        "iters_completed": [],
+        "spec": null,
+        "mode_override": null,
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-01T00:00:00Z"
+    });
+    fs::write(
+        stale_run_dir.join("meta.json"),
+        serde_json::to_string_pretty(&stale_meta).unwrap(),
+    )
+    .unwrap();
+
+    // Dirty the tracked README — recovery would restore it via git checkout
+    fs::write(tmp.path().join("README.md"), "DIRTY CONTENT").unwrap();
+    // Create untracked file — recovery would remove it via git clean
+    fs::write(tmp.path().join("untracked_marker.txt"), "marker").unwrap();
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        "#!/bin/sh\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
+    );
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-a", "--skip-preflight"])
+            .env("SGF_AGENT_COMMAND", &mock_agent),
+    );
+    assert!(
+        output.status.success(),
+        "sgf build --skip-preflight failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Tracked file should still be dirty (git checkout did NOT run)
+    assert_eq!(
+        fs::read_to_string(tmp.path().join("README.md")).unwrap(),
+        "DIRTY CONTENT",
+        "README.md should remain dirty when --skip-preflight is passed"
+    );
+
+    // Untracked file should still exist (git clean did NOT run)
+    assert!(
+        tmp.path().join("untracked_marker.txt").exists(),
+        "untracked file should still exist when --skip-preflight is passed"
+    );
+
+    // pn export should not have run (whole run_pre_launch is skipped)
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("pn export"),
+        "pn export should not run with --skip-preflight, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn without_skip_preflight_recovery_and_daemons_attempted() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
+
+    // Create a stale run directory with dead PID
+    let stale_run_dir = tmp.path().join(".sgf/run/stale-build-20260101T000000");
+    fs::create_dir_all(&stale_run_dir).unwrap();
+    fs::write(
+        stale_run_dir.join("stale-build-20260101T000000.pid"),
+        "4000000",
+    )
+    .unwrap();
+    let stale_meta = serde_json::json!({
+        "run_id": "stale-build-20260101T000000",
+        "cursus": "build",
+        "status": "running",
+        "current_iter": "build",
+        "current_iter_index": 0,
+        "iters_completed": [],
+        "spec": null,
+        "mode_override": null,
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-01T00:00:00Z"
+    });
+    fs::write(
+        stale_run_dir.join("meta.json"),
+        serde_json::to_string_pretty(&stale_meta).unwrap(),
+    )
+    .unwrap();
+
+    // Custom mock pn/fm that log invocations to a file
+    let log_dir = TempDir::new().unwrap();
+    let pn_log = log_dir.path().join("pn_calls.log");
+    let fm_log = log_dir.path().join("fm_calls.log");
+
+    let mock_bin_dir = TempDir::new().unwrap();
+    create_mock_script(
+        mock_bin_dir.path(),
+        "pn",
+        &format!(
+            "#!/bin/sh\necho \"$@\" >> \"{}\"\nexit 0\n",
+            pn_log.display()
+        ),
+    );
+    create_mock_script(
+        mock_bin_dir.path(),
+        "fm",
+        &format!(
+            "#!/bin/sh\necho \"$@\" >> \"{}\"\nexit 0\n",
+            fm_log.display()
+        ),
+    );
+    let custom_path = format!(
+        "{}:{}",
+        mock_bin_dir.path().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+
+    let mock_agent_dir = TempDir::new().unwrap();
+    let mock_agent = create_mock_script(
+        mock_agent_dir.path(),
+        "mock_agent.sh",
+        "#!/bin/sh\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
+    );
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-a"])
+            .env("PATH", &custom_path)
+            .env_remove("SGF_SKIP_PREFLIGHT")
+            .env("SGF_AGENT_COMMAND", &mock_agent),
+    );
+    assert!(
+        output.status.success(),
+        "sgf build without --skip-preflight failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Recovery should have run: stale PID file removed
+    assert!(
+        !stale_run_dir
+            .join("stale-build-20260101T000000.pid")
+            .exists(),
+        "stale PID file should be removed when preflight runs"
+    );
+
+    // pn daemon status should have been called (daemons checked)
+    let pn_calls = fs::read_to_string(&pn_log).unwrap_or_default();
+    assert!(
+        pn_calls.contains("daemon status"),
+        "pn daemon status should be called without --skip-preflight, got:\n{pn_calls}"
+    );
+
+    // fm daemon status should have been called
+    let fm_calls = fs::read_to_string(&fm_log).unwrap_or_default();
+    assert!(
+        fm_calls.contains("daemon status"),
+        "fm daemon status should be called without --skip-preflight, got:\n{fm_calls}"
+    );
+
+    // pn export should have been called
+    assert!(
+        pn_calls.contains("export"),
+        "pn export should be called without --skip-preflight, got:\n{pn_calls}"
+    );
+}
