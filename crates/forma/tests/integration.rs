@@ -276,25 +276,25 @@ fn ref_lifecycle() {
     );
     d.post(
         "/specs",
-        &json!({"stem": "ralph", "src": "crates/ralph/", "purpose": "Runner"}),
+        &json!({"stem": "runner", "src": "crates/runner/", "purpose": "Runner"}),
     );
 
     // Add ref
-    let resp = d.post("/specs/auth/refs", &json!({"target": "ralph"}));
+    let resp = d.post("/specs/auth/refs", &json!({"target": "runner"}));
     assert_eq!(resp.status(), 201);
     let body: Value = resp.json().unwrap();
     assert_eq!(body["from"], "auth");
-    assert_eq!(body["to"], "ralph");
+    assert_eq!(body["to"], "runner");
 
     // List refs
     let resp = d.get("/specs/auth/refs");
     assert_eq!(resp.status(), 200);
     let refs: Vec<Value> = resp.json().unwrap();
     assert_eq!(refs.len(), 1);
-    assert_eq!(refs[0]["stem"], "ralph");
+    assert_eq!(refs[0]["stem"], "runner");
 
     // Remove ref
-    let resp = d.delete("/specs/auth/refs/ralph");
+    let resp = d.delete("/specs/auth/refs/runner");
     assert_eq!(resp.status(), 200);
 
     // Verify removed
@@ -365,7 +365,7 @@ fn search_specs() {
     );
     d.post(
         "/specs",
-        &json!({"stem": "ralph", "src": "crates/ralph/", "purpose": "Runner"}),
+        &json!({"stem": "runner", "src": "crates/runner/", "purpose": "Runner"}),
     );
 
     let resp = d.get("/specs/search?q=auth");

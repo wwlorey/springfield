@@ -229,7 +229,7 @@ fn client_search() {
         )
         .unwrap();
     client
-        .create_spec("ralph", Some("crates/ralph/"), "Runner", "tester")
+        .create_spec("runner", Some("crates/runner/"), "Runner", "tester")
         .unwrap();
 
     let results = client.search_specs("auth").unwrap();
