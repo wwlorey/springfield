@@ -207,11 +207,29 @@ async fn shutdown_signal(state: AppState) {
     let terminate = std::future::pending::<()>();
 
     let project_dir_gone = async {
+        let mut consecutive_failures: u32 = 0;
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
             if !state.project_dir.exists() {
-                tracing::info!("project directory gone, shutting down");
-                break;
+                consecutive_failures += 1;
+                tracing::warn!(
+                    consecutive_failures,
+                    "project directory missing (shutdown at 3)"
+                );
+                if consecutive_failures >= 3 {
+                    tracing::info!(
+                        "project directory gone for 3 consecutive checks, shutting down"
+                    );
+                    break;
+                }
+            } else {
+                if consecutive_failures > 0 {
+                    tracing::info!(
+                        consecutive_failures,
+                        "project directory reappeared, resetting failure counter"
+                    );
+                }
+                consecutive_failures = 0;
             }
         }
     };

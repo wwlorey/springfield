@@ -2838,3 +2838,57 @@ fn export_import_round_trip_full_data_verification() {
     assert_eq!(doc_refs[0]["path"], "specs/pensa.md");
     assert_eq!(doc_refs[0]["reason"], "Spec for child bug");
 }
+
+#[test]
+#[ignore] // requires ~12s of wall-clock time for watchdog interval checks
+fn watchdog_tolerates_transient_directory_removal() {
+    let dir = TempDir::new().expect("create temp dir");
+    let port = portpicker::pick_unused_port().expect("no free port");
+    let project_dir = dir.path().to_path_buf();
+    let data_dir = dir.path().join("pensa-data");
+
+    let pd = project_dir.clone();
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(pensa::daemon::start_with_data_dir(port, pd, Some(data_dir)));
+    });
+
+    let client = reqwest::blocking::Client::new();
+    let base = format!("http://localhost:{port}");
+    for _ in 0..50 {
+        if client.get(format!("{base}/status")).send().is_ok() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    // Remove the project directory — the daemon should survive because it
+    // needs 3 consecutive failures (15s) before shutting down.
+    std::fs::remove_dir_all(&project_dir).expect("remove project dir");
+
+    // Wait 6 seconds — enough for 1 watchdog check (5s interval) but not 3.
+    std::thread::sleep(Duration::from_secs(6));
+
+    // Daemon should still be alive.
+    let resp = client.get(format!("{base}/status")).send();
+    assert!(
+        resp.is_ok(),
+        "daemon should survive a single missing-directory check"
+    );
+
+    // Recreate the project directory — this should reset the failure counter.
+    std::fs::create_dir_all(&project_dir).expect("recreate project dir");
+
+    // Wait another 6 seconds for the counter to reset.
+    std::thread::sleep(Duration::from_secs(6));
+
+    // Daemon should still be alive after the reset.
+    let resp = client.get(format!("{base}/status")).send();
+    assert!(
+        resp.is_ok(),
+        "daemon should survive after directory reappears and resets failure counter"
+    );
+
+    // Clean up.
+    let _ = client.post(format!("{base}/shutdown")).send();
+}
