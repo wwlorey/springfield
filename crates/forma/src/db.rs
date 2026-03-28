@@ -2059,12 +2059,12 @@ mod tests {
         fs::create_dir_all(&forma_dir).unwrap();
 
         let specs = r#"{"stem":"auth","src":"crates/auth/","purpose":"Auth","status":"draft","created_at":"2026-03-14T14:30:00Z","updated_at":"2026-03-14T14:30:00Z"}
-{"stem":"ralph","src":"crates/ralph/","purpose":"Runner","status":"stable","created_at":"2026-03-14T14:30:00Z","updated_at":"2026-03-14T14:30:00Z"}"#;
+{"stem":"runner","src":"crates/runner/","purpose":"Runner","status":"stable","created_at":"2026-03-14T14:30:00Z","updated_at":"2026-03-14T14:30:00Z"}"#;
         fs::write(forma_dir.join("specs.jsonl"), specs).unwrap();
         fs::write(forma_dir.join("sections.jsonl"), "").unwrap();
         fs::write(
             forma_dir.join("refs.jsonl"),
-            r#"{"from_stem":"auth","to_stem":"ralph"}"#,
+            r#"{"from_stem":"auth","to_stem":"runner"}"#,
         )
         .unwrap();
 
@@ -2217,18 +2217,18 @@ mod tests {
         let (db, _p, _d) = test_db();
         db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
-        db.create_spec("ralph", Some("crates/ralph/"), "Runner", None)
+        db.create_spec("runner", Some("crates/runner/"), "Runner", None)
             .unwrap();
         db.conn
             .execute(
-                "INSERT INTO refs (from_stem, to_stem) VALUES ('auth', 'ralph')",
+                "INSERT INTO refs (from_stem, to_stem) VALUES ('auth', 'runner')",
                 [],
             )
             .unwrap();
 
         let detail = db.get_spec("auth").unwrap();
         assert_eq!(detail.refs.len(), 1);
-        assert_eq!(detail.refs[0].stem, "ralph");
+        assert_eq!(detail.refs[0].stem, "runner");
     }
 
     #[test]
@@ -2236,13 +2236,13 @@ mod tests {
         let (db, _p, _d) = test_db();
         db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
-        db.create_spec("ralph", Some("crates/ralph/"), "Runner", None)
+        db.create_spec("runner", Some("crates/runner/"), "Runner", None)
             .unwrap();
 
         let specs = db.list_specs(None).unwrap();
         assert_eq!(specs.len(), 2);
         assert_eq!(specs[0].stem, "auth");
-        assert_eq!(specs[1].stem, "ralph");
+        assert_eq!(specs[1].stem, "runner");
     }
 
     #[test]
@@ -2250,9 +2250,9 @@ mod tests {
         let (db, _p, _d) = test_db();
         db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
-        db.create_spec("ralph", Some("crates/ralph/"), "Runner", None)
+        db.create_spec("runner", Some("crates/runner/"), "Runner", None)
             .unwrap();
-        db.update_spec("ralph", Some("stable"), None, None, None)
+        db.update_spec("runner", Some("stable"), None, None, None)
             .unwrap();
 
         let drafts = db.list_specs(Some("draft")).unwrap();
@@ -2261,7 +2261,7 @@ mod tests {
 
         let stables = db.list_specs(Some("stable")).unwrap();
         assert_eq!(stables.len(), 1);
-        assert_eq!(stables[0].stem, "ralph");
+        assert_eq!(stables[0].stem, "runner");
     }
 
     #[test]
@@ -2373,11 +2373,11 @@ mod tests {
         let (db, _p, _d) = test_db();
         db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
-        db.create_spec("ralph", Some("crates/ralph/"), "Runner", None)
+        db.create_spec("runner", Some("crates/runner/"), "Runner", None)
             .unwrap();
         db.conn
             .execute(
-                "INSERT INTO refs (from_stem, to_stem) VALUES ('auth', 'ralph')",
+                "INSERT INTO refs (from_stem, to_stem) VALUES ('auth', 'runner')",
                 [],
             )
             .unwrap();
@@ -2416,7 +2416,7 @@ mod tests {
         let (db, _p, _d) = test_db();
         db.create_spec("auth", Some("crates/auth/"), "Login system", None)
             .unwrap();
-        db.create_spec("ralph", Some("crates/ralph/"), "Runner", None)
+        db.create_spec("runner", Some("crates/runner/"), "Runner", None)
             .unwrap();
 
         let results = db.search_specs("auth").unwrap();
@@ -2429,7 +2429,7 @@ mod tests {
         let (db, _p, _d) = test_db();
         db.create_spec("auth", Some("crates/auth/"), "Login system", None)
             .unwrap();
-        db.create_spec("ralph", Some("crates/ralph/"), "Runner", None)
+        db.create_spec("runner", Some("crates/runner/"), "Runner", None)
             .unwrap();
 
         let results = db.search_specs("Login").unwrap();
@@ -2485,7 +2485,7 @@ mod tests {
         let (db, _p, _d) = test_db();
         db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
-        db.create_spec("ralph", Some("crates/ralph/"), "Runner", None)
+        db.create_spec("runner", Some("crates/runner/"), "Runner", None)
             .unwrap();
 
         let result = db.count_specs(false).unwrap();
@@ -2498,9 +2498,9 @@ mod tests {
         let (db, _p, _d) = test_db();
         db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
-        db.create_spec("ralph", Some("crates/ralph/"), "Runner", None)
+        db.create_spec("runner", Some("crates/runner/"), "Runner", None)
             .unwrap();
-        db.update_spec("ralph", Some("stable"), None, None, None)
+        db.update_spec("runner", Some("stable"), None, None, None)
             .unwrap();
 
         let result = db.count_specs(true).unwrap();
@@ -2519,9 +2519,9 @@ mod tests {
         let (db, _p, _d) = test_db();
         db.create_spec("auth", Some("crates/auth/"), "Auth", None)
             .unwrap();
-        db.create_spec("ralph", Some("crates/ralph/"), "Runner", None)
+        db.create_spec("runner", Some("crates/runner/"), "Runner", None)
             .unwrap();
-        db.update_spec("ralph", Some("proven"), None, None, None)
+        db.update_spec("runner", Some("proven"), None, None, None)
             .unwrap();
 
         let status = db.project_status().unwrap();
@@ -3275,8 +3275,8 @@ mod tests {
         db.create_spec("auth", Some("crates/auth/"), "Authentication", Some("test"))
             .unwrap();
         db.create_spec(
-            "ralph",
-            Some("crates/ralph/"),
+            "runner",
+            Some("crates/runner/"),
             "Iterative runner",
             Some("test"),
         )
@@ -3296,7 +3296,7 @@ mod tests {
         let lines: Vec<&str> = specs_content.lines().collect();
         assert_eq!(lines.len(), 2);
         assert!(lines[0].contains("\"auth\""));
-        assert!(lines[1].contains("\"ralph\""));
+        assert!(lines[1].contains("\"runner\""));
     }
 
     #[test]
@@ -3326,20 +3326,20 @@ mod tests {
         db.create_spec("auth", Some("crates/auth/"), "Authentication", Some("test"))
             .unwrap();
         db.create_spec(
-            "ralph",
-            Some("crates/ralph/"),
+            "runner",
+            Some("crates/runner/"),
             "Iterative runner",
             Some("test"),
         )
         .unwrap();
-        db.add_ref("auth", "ralph", Some("test")).unwrap();
+        db.add_ref("auth", "runner", Some("test")).unwrap();
 
         db.export_jsonl().unwrap();
 
         let forma_dir = project_dir.path().join(".forma");
         let md = fs::read_to_string(forma_dir.join("specs/auth.md")).unwrap();
         assert!(md.contains("## Related Specifications"));
-        assert!(md.contains("[ralph](ralph.md) — Iterative runner"));
+        assert!(md.contains("[runner](runner.md) — Iterative runner"));
     }
 
     #[test]
@@ -3348,8 +3348,8 @@ mod tests {
         db.create_spec("auth", Some("crates/auth/"), "Authentication", Some("test"))
             .unwrap();
         db.create_spec(
-            "ralph",
-            Some("crates/ralph/"),
+            "runner",
+            Some("crates/runner/"),
             "Iterative runner",
             Some("test"),
         )
@@ -3362,7 +3362,7 @@ mod tests {
         assert!(readme.starts_with("# Specifications"));
         assert!(readme.contains("| Spec | Code | Status | Purpose |"));
         assert!(readme.contains("[auth](specs/auth.md)"));
-        assert!(readme.contains("[ralph](specs/ralph.md)"));
+        assert!(readme.contains("[runner](specs/runner.md)"));
         assert!(readme.contains("`crates/auth/`"));
     }
 
@@ -3372,15 +3372,15 @@ mod tests {
         db.create_spec("auth", Some("crates/auth/"), "Authentication", Some("test"))
             .unwrap();
         db.create_spec(
-            "ralph",
-            Some("crates/ralph/"),
+            "runner",
+            Some("crates/runner/"),
             "Iterative runner",
             Some("test"),
         )
         .unwrap();
         db.set_section("auth", "overview", "Auth overview.", Some("test"))
             .unwrap();
-        db.add_ref("auth", "ralph", Some("test")).unwrap();
+        db.add_ref("auth", "runner", Some("test")).unwrap();
 
         let export_result = db.export_jsonl().unwrap();
         assert_eq!(export_result.specs, 2);
@@ -3394,7 +3394,7 @@ mod tests {
         let detail = db.get_spec("auth").unwrap();
         assert_eq!(detail.spec.purpose, "Authentication");
         assert_eq!(detail.refs.len(), 1);
-        assert_eq!(detail.refs[0].stem, "ralph");
+        assert_eq!(detail.refs[0].stem, "runner");
 
         let overview = db.get_section("auth", "overview").unwrap();
         assert_eq!(overview.body, "Auth overview.");
