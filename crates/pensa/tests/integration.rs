@@ -539,8 +539,8 @@ fn forma_spec_validation_on_update() {
     d.client
         .post(d.forma_url("/specs"))
         .json(&serde_json::json!({
-            "stem": "ralph",
-            "src": "crates/ralph/",
+            "stem": "runner",
+            "src": "crates/runner/",
             "purpose": "Iterative runner"
         }))
         .send()
@@ -563,7 +563,7 @@ fn forma_spec_validation_on_update() {
     let resp = d
         .client
         .patch(d.pensa_url(&format!("/issues/{id}")))
-        .json(&serde_json::json!({"spec": "ralph"}))
+        .json(&serde_json::json!({"spec": "runner"}))
         .send()
         .unwrap();
     assert_eq!(resp.status(), 200, "update with valid spec should succeed");
