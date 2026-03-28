@@ -41,6 +41,10 @@ impl TestDaemon {
         panic!("daemon did not start in time");
     }
 
+    fn project_dir(&self) -> &std::path::Path {
+        self._dir.path()
+    }
+
     fn url(&self, path: &str) -> String {
         format!("http://localhost:{}{}", self.port, path)
     }
@@ -1884,5 +1888,23 @@ fn watchdog_tolerates_transient_directory_removal() {
     assert!(
         !daemon_alive(),
         "daemon should shut down after 3 consecutive failures"
+    );
+}
+
+#[test]
+fn daemon_writes_project_file_on_startup() {
+    let d = TestDaemon::start();
+    let project_file = d.project_dir().join(".forma/daemon.project");
+    let contents = std::fs::read_to_string(&project_file).expect("daemon.project should exist");
+    let stored = contents.trim();
+    assert!(!stored.is_empty(), "daemon.project should not be empty");
+    let canonical = d
+        .project_dir()
+        .canonicalize()
+        .expect("canonicalize project dir");
+    assert_eq!(
+        std::path::Path::new(stored),
+        canonical,
+        "daemon.project should contain the canonical project directory"
     );
 }
