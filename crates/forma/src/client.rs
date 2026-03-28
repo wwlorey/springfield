@@ -173,13 +173,13 @@ impl Client {
         })
     }
 
-    pub fn delete_spec(&self, stem: &str, force: bool) -> Result<Value, FormaError> {
+    pub fn delete_spec(&self, stem: &str, force: bool, actor: &str) -> Result<Value, FormaError> {
         self.request(|http| {
             let mut url = format!("{}/specs/{}", self.base_url, stem);
             if force {
                 url.push_str("?force=true");
             }
-            http.delete(&url).send()
+            http.delete(&url).header("x-forma-actor", actor).send()
         })
     }
 

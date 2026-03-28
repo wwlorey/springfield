@@ -81,7 +81,7 @@ fn client_spec_crud_lifecycle() {
     let filtered = client.list_specs(Some("draft")).unwrap();
     assert_eq!(filtered.as_array().unwrap().len(), 0);
 
-    client.delete_spec("auth", true).unwrap();
+    client.delete_spec("auth", true, "tester").unwrap();
 
     let err = client.get_spec("auth").unwrap_err();
     assert!(matches!(err, FormaError::NotFound(_)));

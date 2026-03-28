@@ -444,6 +444,28 @@ fn actor_from_header() {
 }
 
 #[test]
+fn actor_from_header_on_delete() {
+    let d = TestDaemon::start();
+    d.client
+        .post(d.url("/specs"))
+        .header("x-forma-actor", "create-agent")
+        .json(&json!({"stem": "auth", "src": "crates/auth/", "purpose": "Auth"}))
+        .send()
+        .unwrap();
+
+    let resp = d
+        .client
+        .delete(d.url("/specs/auth?force=true"))
+        .header("x-forma-actor", "delete-agent")
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().unwrap();
+    assert_eq!(body["status"], "deleted");
+    assert_eq!(body["stem"], "auth");
+}
+
+#[test]
 fn error_response_shape() {
     let d = TestDaemon::start();
     let resp = d.get("/specs/nonexistent");

@@ -380,7 +380,7 @@ fn main() {
         Commands::Delete { stem, force } => {
             check_stem(&stem, mode);
             let client = Client::new();
-            match client.delete_spec(&stem, force) {
+            match client.delete_spec(&stem, force, &actor) {
                 Ok(_) => output::print_deleted(&stem, mode),
                 Err(e) => fail(e, mode),
             }
