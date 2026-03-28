@@ -33,3 +33,4 @@
 {"id":"pn-e45d66f5","issue_id":"pn-7e835a3f","path":"crates/ralph/README.md","reason":"Reference: ralph docs to incorporate","created_at":"2026-03-21T21:17:18Z"}
 {"id":"pn-a5a96c98","issue_id":"pn-afa91c1d","path":"crates/springfield/README.md","reason":"Update any test harness documentation references","created_at":"2026-03-21T21:23:28Z"}
 {"id":"pn-78e2205e","issue_id":"pn-afa91c1d","path":"crates/ralph/README.md","reason":"Check for outdated RALPH_COMMAND documentation","created_at":"2026-03-21T21:23:28Z"}
+{"id":"pn-b99568c1","issue_id":"pn-07491f86","path":"README.md","reason":"Reference main README for detailed cursus docs to avoid duplication","created_at":"2026-03-28T20:39:32Z"}

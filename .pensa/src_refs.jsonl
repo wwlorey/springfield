@@ -172,3 +172,7 @@
 {"id":"pn-8497a412","issue_id":"pn-b18ec70f","path":"crates/pensa/src/daemon.rs","reason":"Added POST /shutdown endpoint and tokio::sync::Notify to DaemonState for programmatic shutdown","created_at":"2026-03-22T01:45:09Z"}
 {"id":"pn-15210b4a","issue_id":"pn-b18ec70f","path":"crates/forma/tests/integration.rs","reason":"Added Drop impl for TestDaemon to POST /shutdown on teardown","created_at":"2026-03-22T01:45:09Z"}
 {"id":"pn-20923f26","issue_id":"pn-b18ec70f","path":"crates/pensa/tests/integration.rs","reason":"Added Drop impls for DualDaemon and PensaOnlyDaemon to POST /shutdown on teardown","created_at":"2026-03-22T01:45:09Z"}
+{"id":"pn-fd02aedd","issue_id":"pn-50fa29b7","path":"crates/springfield/src/config.rs","reason":"Dead code to remove — only Mode enum is used, rest is unused config.toml parsing","created_at":"2026-03-28T20:39:29Z"}
+{"id":"pn-7433ac28","issue_id":"pn-50fa29b7","path":"crates/springfield/src/orchestrate.rs","reason":"Update Mode import from crate::config::Mode to crate::cursus::toml::Mode","created_at":"2026-03-28T20:39:30Z"}
+{"id":"pn-a85610e8","issue_id":"pn-50fa29b7","path":"crates/springfield/src/lib.rs","reason":"Remove pub mod config declaration if config.rs is deleted","created_at":"2026-03-28T20:39:31Z"}
+{"id":"pn-8ac1ee56","issue_id":"pn-07491f86","path":"crates/springfield/README.md","reason":"Rewrite to document cursus pipeline system instead of obsolete config.toml","created_at":"2026-03-28T20:39:32Z"}
