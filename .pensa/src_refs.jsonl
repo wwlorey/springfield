@@ -176,3 +176,9 @@
 {"id":"pn-7433ac28","issue_id":"pn-50fa29b7","path":"crates/springfield/src/orchestrate.rs","reason":"Update Mode import from crate::config::Mode to crate::cursus::toml::Mode","created_at":"2026-03-28T20:39:30Z"}
 {"id":"pn-a85610e8","issue_id":"pn-50fa29b7","path":"crates/springfield/src/lib.rs","reason":"Remove pub mod config declaration if config.rs is deleted","created_at":"2026-03-28T20:39:31Z"}
 {"id":"pn-8ac1ee56","issue_id":"pn-07491f86","path":"crates/springfield/README.md","reason":"Rewrite to document cursus pipeline system instead of obsolete config.toml","created_at":"2026-03-28T20:39:32Z"}
+{"id":"pn-a0d1908d","issue_id":"pn-9fa5a0ad","path":"crates/forma/src/db.rs","reason":"export_jsonl() needs stale file cleanup logic after writing spec markdown","created_at":"2026-03-28T20:47:07Z"}
+{"id":"pn-2b2bfbed","issue_id":"pn-9fa5a0ad","path":"crates/forma/tests/integration.rs","reason":"Add integration test for stale file cleanup on export","created_at":"2026-03-28T20:47:07Z"}
+{"id":"pn-e555c1f4","issue_id":"pn-2e9ede80","path":"crates/forma/src/db.rs","reason":"Fix README table header generation in export_jsonl()","created_at":"2026-03-28T20:47:08Z"}
+{"id":"pn-26ac5729","issue_id":"pn-72eeb442","path":"crates/forma/src/daemon.rs","reason":"Watchdog loop needs failure counter for 3-consecutive-failure logic","created_at":"2026-03-28T20:47:10Z"}
+{"id":"pn-c71f9b54","issue_id":"pn-72eeb442","path":"crates/forma/tests/integration.rs","reason":"Add test for watchdog transient failure tolerance","created_at":"2026-03-28T20:47:10Z"}
+{"id":"pn-25ca7ee4","issue_id":"pn-9e6316df","path":"crates/forma/src/main.rs","reason":"daemon status subcommand needs to read and print .forma/daemon.project","created_at":"2026-03-28T20:47:11Z"}
