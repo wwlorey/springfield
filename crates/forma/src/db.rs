@@ -1364,6 +1364,21 @@ impl Db {
                 .map_err(|e| FormaError::Internal(format!("failed to write spec markdown: {e}")))?;
         }
 
+        // Remove stale .md files for deleted specs
+        let active_stems: std::collections::HashSet<&str> =
+            specs.iter().map(|s| s.stem.as_str()).collect();
+        if let Ok(entries) = fs::read_dir(&specs_md_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("md")
+                    && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+                    && !active_stems.contains(stem)
+                {
+                    let _ = fs::remove_file(&path);
+                }
+            }
+        }
+
         // Generate README.md
         let mut readme = String::new();
         readme.push_str("# Specifications\n\n");

@@ -724,6 +724,39 @@ fn export_generates_readme() {
 }
 
 #[test]
+fn export_removes_stale_markdown_for_deleted_specs() {
+    let d = TestDaemon::start();
+
+    d.post(
+        "/specs",
+        &json!({"stem": "keeper", "src": "crates/keeper/", "purpose": "Stays"}),
+    );
+    d.post(
+        "/specs",
+        &json!({"stem": "doomed", "src": "crates/doomed/", "purpose": "Will be deleted"}),
+    );
+
+    d.post("/export", &json!({}));
+
+    let specs_dir = d._dir.path().join(".forma/specs");
+    assert!(specs_dir.join("keeper.md").exists());
+    assert!(specs_dir.join("doomed.md").exists());
+
+    d.delete("/specs/doomed?force=true");
+
+    d.post("/export", &json!({}));
+
+    assert!(
+        specs_dir.join("keeper.md").exists(),
+        "active spec markdown should remain"
+    );
+    assert!(
+        !specs_dir.join("doomed.md").exists(),
+        "deleted spec markdown should be removed"
+    );
+}
+
+#[test]
 fn check_reports_empty_required_sections_as_warnings() {
     let d = TestDaemon::start();
 
