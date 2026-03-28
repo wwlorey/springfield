@@ -1382,8 +1382,8 @@ impl Db {
         // Generate README.md
         let mut readme = String::new();
         readme.push_str("# Specifications\n\n");
-        readme.push_str("| Spec | Src | Status | Purpose |\n");
-        readme.push_str("|------|-----|--------|--------|\n");
+        readme.push_str("| Spec | Code | Status | Purpose |\n");
+        readme.push_str("|------|------|--------|--------|\n");
         for spec in &specs {
             let src_col = spec
                 .src
@@ -3360,7 +3360,7 @@ mod tests {
         let forma_dir = project_dir.path().join(".forma");
         let readme = fs::read_to_string(forma_dir.join("README.md")).unwrap();
         assert!(readme.starts_with("# Specifications"));
-        assert!(readme.contains("| Spec | Src | Status | Purpose |"));
+        assert!(readme.contains("| Spec | Code | Status | Purpose |"));
         assert!(readme.contains("[auth](specs/auth.md)"));
         assert!(readme.contains("[ralph](specs/ralph.md)"));
         assert!(readme.contains("`crates/auth/`"));

@@ -716,7 +716,7 @@ fn export_generates_readme() {
 
     let readme = std::fs::read_to_string(&readme_path).unwrap();
     assert!(readme.contains("# Specifications"));
-    assert!(readme.contains("| Spec | Src | Status | Purpose |"));
+    assert!(readme.contains("| Spec | Code | Status | Purpose |"));
     assert!(readme.contains("[alpha](specs/alpha.md)"));
     assert!(readme.contains("`crates/alpha/`"));
     assert!(readme.contains("Alpha module"));
