@@ -824,10 +824,7 @@ mod tests {
         let script = mock_script(
             dir.path(),
             "hang_after_result.sh",
-            &format!(
-                "#!/bin/sh\necho '{}'\nsleep 300\n",
-                result_json
-            ),
+            &format!("#!/bin/sh\necho '{}'\nsleep 300\n", result_json),
         );
 
         let mut config = make_config(dir.path(), script);
@@ -863,10 +860,7 @@ mod tests {
         let script = mock_script(
             dir.path(),
             "clean_exit.sh",
-            &format!(
-                "#!/bin/sh\necho '{}'\nexit 0\n",
-                result_json
-            ),
+            &format!("#!/bin/sh\necho '{}'\nexit 0\n", result_json),
         );
 
         let mut config = make_config(dir.path(), script);
@@ -896,10 +890,7 @@ mod tests {
         let script = mock_script(
             dir.path(),
             "hang_after_result_no_usage.sh",
-            &format!(
-                "#!/bin/sh\necho '{}'\nsleep 300\n",
-                result_json
-            ),
+            &format!("#!/bin/sh\necho '{}'\nsleep 300\n", result_json),
         );
 
         let mut config = make_config(dir.path(), script);

@@ -166,6 +166,21 @@ fn spawn_daemon(bin: &str, port: &str, root_str: &str, root: &Path) -> io::Resul
     Ok(())
 }
 
+pub fn export_pensa() {
+    match Command::new("pn").arg("export").output() {
+        Ok(out) if out.status.success() => {
+            style::print_success("pn export ok");
+        }
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            style::print_error(&format!("pn export failed: {}", stderr.trim()));
+        }
+        Err(e) => {
+            style::print_warning(&format!("pn export skipped (pn not found: {e})"));
+        }
+    }
+}
+
 fn daemon_is_reachable(bin: &str, root: &Path) -> bool {
     Command::new(bin)
         .args(["daemon", "status"])

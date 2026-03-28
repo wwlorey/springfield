@@ -50,6 +50,7 @@ struct DynamicArgs {
     interactive: bool,
     iterations: Option<u32>,
     no_push: bool,
+    skip_preflight: bool,
 }
 
 fn parse_dynamic_args(args: Vec<OsString>) -> Result<DynamicArgs, String> {
@@ -73,6 +74,7 @@ fn parse_dynamic_args(args: Vec<OsString>) -> Result<DynamicArgs, String> {
     let mut interactive = false;
     let mut iterations = None;
     let mut no_push = false;
+    let mut skip_preflight = false;
 
     let mut i = 0;
     while i < rest.len() {
@@ -80,6 +82,7 @@ fn parse_dynamic_args(args: Vec<OsString>) -> Result<DynamicArgs, String> {
             "-a" | "--afk" => afk = true,
             "-i" | "--interactive" => interactive = true,
             "--no-push" => no_push = true,
+            "--skip-preflight" => skip_preflight = true,
             "-n" | "--iterations" => {
                 i += 1;
                 if i >= rest.len() {
@@ -115,7 +118,26 @@ fn parse_dynamic_args(args: Vec<OsString>) -> Result<DynamicArgs, String> {
         interactive,
         iterations,
         no_push,
+        skip_preflight,
     })
+}
+
+fn run_pre_launch(root: &Path, skip_preflight: bool) {
+    if skip_preflight {
+        return;
+    }
+
+    if let Err(e) = springfield::recovery::pre_launch_recovery(root) {
+        springfield::style::print_warning(&format!("pre-launch recovery: {e}"));
+    }
+
+    if std::env::var("SGF_SKIP_PREFLIGHT").is_err()
+        && let Err(e) = springfield::recovery::ensure_daemons(root)
+    {
+        springfield::style::print_warning(&format!("daemon startup: {e}"));
+    }
+
+    springfield::recovery::export_pensa();
 }
 
 fn resolve_command(root: &Path, name: &str) -> Result<cursus::ResolvedCursus, String> {
@@ -131,6 +153,8 @@ fn resolve_command(root: &Path, name: &str) -> Result<cursus::ResolvedCursus, St
 }
 
 fn run_simple_prompt(root: &Path, args: &DynamicArgs, prompt_path: &Path) -> ! {
+    run_pre_launch(root, args.skip_preflight);
+
     let afk = args.afk;
     let iterations = args.iterations.unwrap_or(1);
     let auto_push = !args.no_push;
@@ -204,6 +228,8 @@ fn run_dynamic(args: DynamicArgs) -> ! {
 }
 
 fn run_cursus_dispatch(root: &Path, args: &DynamicArgs, resolved: cursus::ResolvedCursus) -> ! {
+    run_pre_launch(root, args.skip_preflight);
+
     let mut def = resolved.definition.clone();
 
     if let Err(e) = cursus::toml::validate(&def) {
@@ -255,7 +281,7 @@ fn run_cursus_dispatch(root: &Path, args: &DynamicArgs, resolved: cursus::Resolv
         mode_override,
         no_push: args.no_push,
         agent_command: None,
-        skip_preflight: false,
+        skip_preflight: args.skip_preflight,
         monitor_stdin_override: None,
     };
 
@@ -419,6 +445,7 @@ mod tests {
         assert!(!parsed.interactive);
         assert!(parsed.iterations.is_none());
         assert!(!parsed.no_push);
+        assert!(!parsed.skip_preflight);
     }
 
     #[test]
@@ -478,6 +505,13 @@ mod tests {
         let args = vec![os("build"), os("--no-push")];
         let parsed = parse_dynamic_args(args).unwrap();
         assert!(parsed.no_push);
+    }
+
+    #[test]
+    fn parse_skip_preflight() {
+        let args = vec![os("build"), os("--skip-preflight")];
+        let parsed = parse_dynamic_args(args).unwrap();
+        assert!(parsed.skip_preflight);
     }
 
     #[test]
