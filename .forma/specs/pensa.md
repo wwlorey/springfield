@@ -5,7 +5,7 @@ Agent persistent memory — SQLite-backed issue/task tracker with pn CLI
 | Field | Value |
 |-------|-------|
 | Src | `crates/pensa/` |
-| Status | proven |
+| Status | draft |
 
 ## Overview
 
@@ -73,6 +73,49 @@ This pattern ensures tests never conflict with each other or with production dae
 
 
 
+
+## Daemon Lifecycle
+
+### `/shutdown` Endpoint (Internal)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/shutdown` | Triggers graceful daemon shutdown |
+
+The `/shutdown` endpoint is internal-only — used by test fixtures and tooling, not by the `pn` CLI. It triggers a `tokio::sync::Notify` that participates in the daemon's `tokio::select\!` shutdown signal alongside SIGTERM, Ctrl+C, and the project-dir watchdog.
+
+No request body. Returns `200 OK` immediately. The daemon completes in-flight requests then exits.
+
+### Project Directory Watchdog
+
+The daemon monitors the existence of its `--project-dir` on a fixed 5-second interval. If the directory does not exist for 3 consecutive checks (15 seconds total), the daemon shuts down gracefully. This prevents the daemon from running indefinitely after the project directory is deleted (e.g., temp dirs in tests, renamed projects).
+
+The watchdog requires 3 consecutive failures before triggering shutdown to tolerate transient filesystem issues (NFS flakes, permission blips, momentary unmounts). A single successful check resets the failure counter to zero.
+
+The 5-second interval is hardcoded — not configurable.
+
+### `DaemonState`
+
+```rust
+struct DaemonState {
+    db: Mutex<Db>,
+    project_dir: PathBuf,
+    shutdown: Notify,
+}
+```
+
+`DaemonState` is the shared state passed to all Axum route handlers via `State<AppState>` (where `AppState = Arc<DaemonState>`). `project_dir` is the `--project-dir` value passed at daemon startup, stored as a `PathBuf`. `shutdown` is a `tokio::sync::Notify` used by the `/shutdown` endpoint to signal the main `tokio::select\!` loop.
+
+### Shutdown Conditions
+
+The daemon's main loop uses `tokio::select\!` to await any of four conditions:
+
+1. **Ctrl+C** (`tokio::signal::ctrl_c()`)
+2. **SIGTERM** (`tokio::signal::unix::signal(SignalKind::terminate())`)
+3. **`/shutdown` endpoint** (`state.shutdown.notified()`)
+4. **Project directory watchdog** (3 consecutive failures at 5s interval)
+
+Whichever fires first triggers graceful shutdown.
 
 ## Dependencies
 
@@ -529,6 +572,7 @@ The daemon exposes a REST API. The CLI translates subcommands into HTTP requests
 | `export` | POST | `/export` |
 | `import` | POST | `/import` |
 | `doctor` | POST | `/doctor` |
+| *(internal)* | POST | `/shutdown` |
 | `where` | — | *(client-only, no daemon request)* |
 
 All endpoints accept and return JSON. Query parameters map to CLI filter flags.

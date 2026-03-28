@@ -5,7 +5,7 @@ Cross-crate integration test harness — concurrency control, process lifecycle 
 | Field | Value |
 |-------|-------|
 | Src | `crates/springfield/tests/` |
-| Status | proven |
+| Status | draft |
 
 ## Overview
 
@@ -117,6 +117,45 @@ fn open_pty() -> Option<(OwnedFd, OwnedFd)> {
 
 Returns `Option` to gracefully degrade on headless CI environments.
 
+### 9. `Drop`-Based Daemon Cleanup
+
+Test fixtures that start daemons implement `Drop` to POST to the daemon's `/shutdown` endpoint, ensuring graceful cleanup even when tests panic:
+
+```rust
+// forma: TestDaemon (integration.rs), TestEnv (cli_client.rs)
+impl Drop for TestDaemon {
+    fn drop(&mut self) {
+        let _ = self.client.post(self.url("/shutdown")).send();
+    }
+}
+
+// pensa: DualDaemon (starts both pensa + forma daemons)
+impl Drop for DualDaemon {
+    fn drop(&mut self) {
+        let _ = self.client.post(self.pensa_url("/shutdown")).send();
+        let _ = self.client.post(self.forma_url("/shutdown")).send();
+    }
+}
+
+// pensa: PensaOnlyDaemon (pensa daemon only)
+impl Drop for PensaOnlyDaemon {
+    fn drop(&mut self) {
+        let _ = self.client.post(self.url("/shutdown")).send();
+    }
+}
+```
+
+All fixtures use `reqwest::blocking::Client` (not async) because `Drop` is synchronous. The `let _ =` pattern ignores send errors — if the daemon is already dead, the cleanup is a no-op.
+
+This pattern depends on the `/shutdown` endpoint documented in the [forma](forma.md) and [pensa](pensa.md) daemon lifecycle sections.
+
+| Fixture | Crate | Daemons Started |
+|---------|-------|-----------------|
+| `TestDaemon` | `forma/tests/integration.rs` | forma only |
+| `TestEnv` | `forma/tests/cli_client.rs` | forma only |
+| `DualDaemon` | `pensa/tests/integration.rs` | pensa + forma |
+| `PensaOnlyDaemon` | `pensa/tests/integration.rs` | pensa only |
+
 ## File Layout
 
 The harness code lives in test files across crates:
@@ -131,6 +170,7 @@ Common patterns (ProcessSemaphore, ChildGuard, env isolation) are shared via the
 The harness itself is verified by running the full integration test suite with default parallelism (`cargo test --workspace`). Success criteria: all tests pass with no `WouldBlock` or resource exhaustion errors, regardless of the `--test-threads` value.
 
 A dedicated integration test (`harness_semaphore_limits_concurrency`) verifies that the semaphore correctly limits concurrent `sgf` invocations by spawning N+1 tests against a semaphore of size N and asserting that at most N run simultaneously.
+
 
 ## Dependencies
 
@@ -197,5 +237,7 @@ All tests use `mock_bin_path()` for mock binaries and `run_sgf()` for spawning `
 ## Related Specifications
 
 - [claude-wrapper](claude-wrapper.md) — Agent wrapper — layered .sgf/ context injection, cl binary
+- [forma](forma.md) — Specification management — forma daemon and fm CLI
+- [pensa](pensa.md) — Agent persistent memory — SQLite-backed issue/task tracker with pn CLI
 - [shutdown](shutdown.md) — Shared graceful shutdown — double-press Ctrl+C/Ctrl+D detection with confirmation prompts
 - [springfield](springfield.md) — CLI entry point — scaffolding, prompt delivery, iteration runner, loop orchestration, recovery, and daemon lifecycle

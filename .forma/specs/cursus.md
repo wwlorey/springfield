@@ -5,7 +5,7 @@ Pipeline orchestration — declarative TOML-defined multi-iter workflows with co
 | Field | Value |
 |-------|-------|
 | Src | `crates/springfield/` |
-| Status | proven |
+| Status | draft |
 
 ## Overview
 
@@ -388,7 +388,8 @@ To track which iter last wrote each key, the cursus runner maintains a mapping o
 
 ### Environment Variable
 
-The run context directory path is set as an environment variable `SGF_RUN_CONTEXT=.sgf/run/<run-id>/context/` so agents can reference it programmatically in prompts. This is a relative path from the repo root.
+The run context directory path is set as an environment variable `SGF_RUN_CONTEXT` so agents can reference it programmatically in prompts. The value is an **absolute path** — e.g., `/home/user/myproject/.sgf/run/<run-id>/context/`. An absolute path is required because the agent process's working directory is not guaranteed to be the repository root (e.g., subprocesses spawned by the agent may change directories), so a relative path would resolve incorrectly.
+
 
 ## Run State
 

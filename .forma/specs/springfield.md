@@ -5,7 +5,7 @@ CLI entry point — scaffolding, prompt delivery, iteration runner, loop orchest
 | Field | Value |
 |-------|-------|
 | Src | `crates/springfield/` |
-| Status | proven |
+| Status | draft |
 
 ## Overview
 
@@ -376,8 +376,6 @@ CLAUDE.md                              (`ln -s` to AGENTS.md)
 
 No `.sgf/prompts/` directory is created — prompts resolve via layered lookup (local `./.sgf/prompts/` → global `~/.sgf/prompts/`). Users create `./.sgf/prompts/` manually when they need project-local overrides.
 
-Warns if `.sgf/MEMENTO.md` or `.sgf/BACKPRESSURE.md` is missing — agents need these for fm/pn workflow reference and build/test/lint commands. These files are not scaffolded; they are authored per-project.
-
 ### Claude settings
 
 `sgf init` creates or updates `.claude/settings.json` with deny rules protecting `.sgf/` and `.claude/` from agent modification, plus native sandbox configuration:
@@ -530,6 +528,7 @@ Config merges (`.gitignore`, `.claude/settings.json`, `.pre-commit-config.yaml`)
 
 
 
+
 ## Prompt Delivery
 
 sgf does not assemble, transform, or preprocess prompt files. Prompts in `.sgf/prompts/` are final — passed directly to `cl`.
@@ -588,6 +587,14 @@ cl \
 ```
 
 Spawns via `ChildGuard::spawn()` (which calls `setpgid(0, 0)` in `pre_exec` for process group isolation) with piped stdout, `Stdio::null()` for stdin, and inherited stderr. Stdout is read line-by-line via `BufRead`, parsed as NDJSON, and formatted with ANSI-styled output.
+
+### Post-Result Timeout (AFK Mode)
+
+In AFK mode, after the agent emits a result event (NDJSON `result` or `usage` message), sgf starts a 30-second countdown. If the agent process does not exit within 30 seconds, sgf kills it via the `ChildGuard` (which calls `kill_process_group()`). This prevents hung agent processes from blocking the iteration loop indefinitely.
+
+The timeout is stored in `IterRunnerConfig.post_result_timeout` (default: `Duration::from_secs(30)`). The timer starts on whichever event arrives first — `result` or `usage`. A single successful check resets nothing; the timeout is one-shot per invocation.
+
+This timeout only applies to AFK mode. Interactive mode inherits stdio and has no NDJSON parsing, so there is no result event to trigger the countdown.
 
 ### Execution Model
 
@@ -668,6 +675,7 @@ Iterations are clamped to a hard limit of 1000. If a higher value is provided (v
 ### Inter-Iteration Sleep
 
 A 2-second sleep between iterations allows git operations to settle and prevents rapid-fire agent invocations. The sleep is interruptible — polled in 100ms increments, checking the shutdown controller between polls.
+
 
 ## NDJSON Stream Format
 
