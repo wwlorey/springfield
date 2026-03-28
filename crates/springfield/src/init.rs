@@ -521,6 +521,17 @@ pub fn run(root: &Path, force: bool) -> io::Result<()> {
     merge_pre_commit_config(root)?;
     install_prek_hooks(root)?;
 
+    if !root.join(".sgf/MEMENTO.md").exists() {
+        crate::style::print_warning(
+            ".sgf/MEMENTO.md not found \u{2014} agents won't have fm/pn workflow reference",
+        );
+    }
+    if !root.join(".sgf/BACKPRESSURE.md").exists() {
+        crate::style::print_warning(
+            ".sgf/BACKPRESSURE.md not found \u{2014} agents won't have build/test/lint reference",
+        );
+    }
+
     crate::style::print_success("project scaffolded successfully");
     Ok(())
 }
@@ -1158,6 +1169,36 @@ repos:
             );
         }
         assert_eq!(domains.len(), SANDBOX_ALLOWED_DOMAINS.len() + 1);
+    }
+
+    #[test]
+    fn warns_missing_memento_and_backpressure() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+        run(tmp.path(), false).unwrap();
+
+        assert!(
+            !tmp.path().join(".sgf/MEMENTO.md").exists(),
+            "MEMENTO.md should not be created by init"
+        );
+        assert!(
+            !tmp.path().join(".sgf/BACKPRESSURE.md").exists(),
+            "BACKPRESSURE.md should not be created by init"
+        );
+    }
+
+    #[test]
+    fn no_warning_when_memento_and_backpressure_exist() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+        fs::create_dir_all(tmp.path().join(".sgf")).unwrap();
+        fs::write(tmp.path().join(".sgf/MEMENTO.md"), "# Memento").unwrap();
+        fs::write(tmp.path().join(".sgf/BACKPRESSURE.md"), "# Backpressure").unwrap();
+
+        run(tmp.path(), false).unwrap();
+
+        assert!(tmp.path().join(".sgf/MEMENTO.md").exists());
+        assert!(tmp.path().join(".sgf/BACKPRESSURE.md").exists());
     }
 
     #[test]
