@@ -744,6 +744,74 @@ fn doc_ref_crud_via_http() {
 }
 
 #[test]
+fn refs_in_show_includes_both_src_and_doc_refs() {
+    let d = PensaOnlyDaemon::start();
+
+    // Create an issue
+    let resp = d
+        .client
+        .post(d.url("/issues"))
+        .json(&serde_json::json!({
+            "title": "Refs in show test",
+            "issue_type": "task"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    let issue: Value = resp.json().unwrap();
+    let id = issue["id"].as_str().unwrap();
+
+    // Add a src-ref
+    let resp = d
+        .client
+        .post(d.url(&format!("/issues/{id}/src-refs")))
+        .json(&serde_json::json!({
+            "path": "crates/pensa/src/db.rs",
+            "reason": "database layer",
+            "actor": "test"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+
+    // Add a doc-ref
+    let resp = d
+        .client
+        .post(d.url(&format!("/issues/{id}/doc-refs")))
+        .json(&serde_json::json!({
+            "path": "specs/pensa.md",
+            "reason": "spec reference",
+            "actor": "test"
+        }))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+
+    // Show issue and verify both ref arrays are present and non-empty
+    let resp = d
+        .client
+        .get(d.url(&format!("/issues/{id}")))
+        .send()
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let detail: Value = resp.json().unwrap();
+
+    let src_refs = detail["src_refs"]
+        .as_array()
+        .expect("src_refs should be an array");
+    assert_eq!(src_refs.len(), 1);
+    assert_eq!(src_refs[0]["path"], "crates/pensa/src/db.rs");
+    assert_eq!(src_refs[0]["reason"], "database layer");
+
+    let doc_refs = detail["doc_refs"]
+        .as_array()
+        .expect("doc_refs should be an array");
+    assert_eq!(doc_refs.len(), 1);
+    assert_eq!(doc_refs[0]["path"], "specs/pensa.md");
+    assert_eq!(doc_refs[0]["reason"], "spec reference");
+}
+
+#[test]
 fn ref_on_nonexistent_issue_returns_404() {
     let d = PensaOnlyDaemon::start();
 
