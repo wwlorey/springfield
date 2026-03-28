@@ -8,7 +8,7 @@ use chrono::Utc;
 use shutdown::{ShutdownConfig, ShutdownController, ShutdownStatus};
 use uuid::Uuid;
 
-use crate::config::Mode;
+use crate::cursus::toml::Mode;
 use crate::loop_mgmt::{self, IterationRecord, SessionMetadata};
 use crate::prompt;
 use crate::recovery;

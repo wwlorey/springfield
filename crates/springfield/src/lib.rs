@@ -1,4 +1,3 @@
-pub mod config;
 pub mod cursus;
 pub mod init;
 pub mod iter_runner;
