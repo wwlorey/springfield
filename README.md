@@ -79,6 +79,8 @@ sgf list                    # show available commands
 sgf logs <loop-id>          # tail a running loop's output
 sgf resume                  # resume a previous session or stalled cursus run
 sgf resume <run-id>         # resume a specific session or cursus run by ID
+sgf my-task.md              # run a prompt file as a simple iteration loop
+sgf my-task.md -a -n 5      # simple prompt mode with AFK and 5 iterations
 ```
 
 `sgf list` displays all available cursus commands (from `.sgf/cursus/`) and built-in commands:
@@ -108,6 +110,7 @@ CLI flags apply to all iters in a cursus:
 - `-i` — force interactive mode on all iters
 - `-n <count>` — override iteration count on all iters
 - `--no-push` — disable auto-push on all iters
+- `--skip-preflight` — disable all pre-launch checks including recovery and daemon startup
 
 ### Session Resume
 
@@ -297,11 +300,12 @@ Resume with `sgf resume <run-id>` to retry the stalled iter, skip to the next it
 
 Resolution order for `sgf <command>`:
 
-1. Reserved built-ins: `init`, `list`, `logs`, `resume`, `status`
-2. `./.sgf/cursus/<command>.toml` (project-local override)
-3. `~/.sgf/cursus/<command>.toml` (global default)
-4. Alias match across all resolved cursus definitions
-5. Error: `unknown command: <command>`
+1. Reserved built-ins: `init`, `list`, `logs`, `resume`
+2. File path check: if the argument resolves to an existing file, run it as a simple iteration loop (no cursus TOML needed)
+3. `./.sgf/cursus/<command>.toml` (project-local override)
+4. `~/.sgf/cursus/<command>.toml` (global default)
+5. Alias match across all resolved cursus definitions
+6. Error: `unknown command: <command>`
 
 ### Development
 
