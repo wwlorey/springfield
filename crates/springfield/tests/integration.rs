@@ -6920,3 +6920,50 @@ fn iter_afk_result_without_usage_displays_result_text() {
         "result without usage should NOT display token stats, got:\n{stdout}"
     );
 }
+
+#[test]
+fn init_warns_when_memento_missing() {
+    let tmp = setup_test_dir();
+    // No .sgf/MEMENTO.md exists
+    let output = run_sgf(sgf_cmd(tmp.path()).arg("init").env("NO_COLOR", "1"));
+    assert!(output.status.success(), "sgf init should succeed");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("agents won't have fm/pn workflow reference"),
+        "should warn about missing MEMENTO.md, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn init_warns_when_backpressure_missing() {
+    let tmp = setup_test_dir();
+    // No .sgf/BACKPRESSURE.md exists
+    let output = run_sgf(sgf_cmd(tmp.path()).arg("init").env("NO_COLOR", "1"));
+    assert!(output.status.success(), "sgf init should succeed");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("agents won't have build/test/lint reference"),
+        "should warn about missing BACKPRESSURE.md, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn init_no_warnings_when_memento_and_backpressure_present() {
+    let tmp = setup_test_dir();
+    let sgf_dir = tmp.path().join(".sgf");
+    fs::create_dir_all(&sgf_dir).unwrap();
+    fs::write(sgf_dir.join("MEMENTO.md"), "# Memento\n").unwrap();
+    fs::write(sgf_dir.join("BACKPRESSURE.md"), "# Backpressure\n").unwrap();
+
+    let output = run_sgf(sgf_cmd(tmp.path()).arg("init").env("NO_COLOR", "1"));
+    assert!(output.status.success(), "sgf init should succeed");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("agents won't have fm/pn workflow reference"),
+        "should NOT warn about MEMENTO.md when present, got:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("agents won't have build/test/lint reference"),
+        "should NOT warn about BACKPRESSURE.md when present, got:\n{stderr}"
+    );
+}
