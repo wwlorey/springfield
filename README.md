@@ -1,16 +1,16 @@
 # Springfield (`sgf`)
 
-A suite of Rust tools for orchestrating AI-driven software development using iterative agent (Ralph) loops. The CLI entry point is `sgf`.
+A suite of Rust tools for orchestrating AI-driven software development using iterative agent loops. The CLI entry point is `sgf`.
 
 ## Origin & Workflow
 
-Springfield codifies a workflow inspired by Geoffrey Huntley and the [Ralph Wiggum technique](https://github.com/ghuntley/how-to-ralph-wiggum) — breaking projects into well-scoped tasks and executing them through tight, single-task ralph loops with fresh context each iteration.
+Springfield codifies a workflow inspired by Geoffrey Huntley and the [Ralph Wiggum technique](https://github.com/ghuntley/how-to-ralph-wiggum) — breaking projects into well-scoped tasks and executing them through tight, single-task agent loops with fresh context each iteration.
 
 The workflow grew out of hands-on experience building projects with Claude Code. The manual process involves:
 
 1. Running a Claude Code session that interviews the developer, then generates specs and an implementation plan
-2. Running iterative ralph loops in interactive mode for a few supervised rounds
-3. Switching to AFK mode and letting loops run autonomously
+2. Running iterative agent loops in interactive mode for a few supervised rounds
+3. Switching to AFK mode and letting agent loops run autonomously
 4. Running verification loops that certify the codebase adheres to specs
 5. Running test plan generation loops that produce test items
 6. Running test execution loops that run test items and produce a test report
