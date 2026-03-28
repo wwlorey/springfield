@@ -215,6 +215,12 @@ fn run_cursus_dispatch(root: &Path, args: &DynamicArgs, resolved: cursus::Resolv
         std::process::exit(1);
     }
 
+    let all_defs = cursus::load_all_definitions(root);
+    if let Err(e) = cursus::toml::validate_aliases(&all_defs) {
+        springfield::style::print_error(&format!("alias validation: {e}"));
+        std::process::exit(1);
+    }
+
     if let Some(n) = args.iterations {
         for iter in &mut def.iters {
             iter.iterations = n;

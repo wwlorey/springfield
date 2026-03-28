@@ -100,11 +100,14 @@ pub fn resolve_alias(root: &Path, alias: &str) -> Option<ResolvedCursus> {
     None
 }
 
-pub fn list_all(root: &Path) -> Vec<(String, String)> {
-    list_all_with_global(root, global_cursus_dir().as_deref())
+pub fn load_all_definitions(root: &Path) -> HashMap<String, CursusDefinition> {
+    load_all_definitions_with_global(root, global_cursus_dir().as_deref())
 }
 
-fn list_all_with_global(root: &Path, global_dir: Option<&Path>) -> Vec<(String, String)> {
+fn load_all_definitions_with_global(
+    root: &Path,
+    global_dir: Option<&Path>,
+) -> HashMap<String, CursusDefinition> {
     let local_dir = root.join(".sgf/cursus");
     let mut defs = load_all_from_dir(&local_dir);
 
@@ -114,6 +117,16 @@ fn list_all_with_global(root: &Path, global_dir: Option<&Path>) -> Vec<(String, 
             defs.entry(name).or_insert(def);
         }
     }
+
+    defs
+}
+
+pub fn list_all(root: &Path) -> Vec<(String, String)> {
+    list_all_with_global(root, global_cursus_dir().as_deref())
+}
+
+fn list_all_with_global(root: &Path, global_dir: Option<&Path>) -> Vec<(String, String)> {
+    let defs = load_all_definitions_with_global(root, global_dir);
 
     let mut entries: Vec<(String, String)> = defs
         .into_iter()
@@ -356,5 +369,43 @@ prompt = "build.md"
         assert_eq!(entries.len(), 2);
         assert!(entries.iter().any(|(n, _)| n == "build"));
         assert!(entries.iter().any(|(n, _)| n == "verify"));
+    }
+
+    #[test]
+    fn load_all_definitions_merges_local_and_global() {
+        let tmp = TempDir::new().unwrap();
+        let global = tmp.path().join("global_cursus");
+        let project = tmp.path().join("project");
+
+        write_cursus_toml(&project.join(".sgf/cursus"), "build", SIMPLE_CURSUS);
+        write_cursus_toml(&global, "verify", TEST_CURSUS);
+
+        let defs = load_all_definitions_with_global(&project, Some(&global));
+        assert_eq!(defs.len(), 2);
+        assert!(defs.contains_key("build"));
+        assert!(defs.contains_key("verify"));
+    }
+
+    #[test]
+    fn load_all_definitions_local_overrides_global() {
+        let tmp = TempDir::new().unwrap();
+        let global = tmp.path().join("global_cursus");
+        let project = tmp.path().join("project");
+
+        write_cursus_toml(&project.join(".sgf/cursus"), "build", SIMPLE_CURSUS);
+        write_cursus_toml(
+            &global,
+            "build",
+            r#"
+description = "Global build"
+[[iter]]
+name = "build"
+prompt = "build.md"
+"#,
+        );
+
+        let defs = load_all_definitions_with_global(&project, Some(&global));
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs["build"].description, "Build loop");
     }
 }
