@@ -3,6 +3,7 @@ use std::fs;
 use std::io;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use chrono::Utc;
 use shutdown::{ShutdownConfig, ShutdownController};
@@ -227,6 +228,7 @@ fn run_iter(inv: &IterInvocation<'_>, controller: &ShutdownController) -> io::Re
         env_vars,
         runner_name: None,
         work_dir: Some(inv.root.to_path_buf()),
+        post_result_timeout: Duration::from_secs(30),
     };
 
     let exit_code = iter_runner::run_iteration_loop(iter_config, controller);

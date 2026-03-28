@@ -39,6 +39,9 @@ pub struct IterRunnerConfig {
     pub runner_name: Option<String>,
     /// Working directory for sentinel detection and spawned commands. Defaults to `.`.
     pub work_dir: Option<PathBuf>,
+    /// Max time to wait for the agent process to exit after emitting its result event.
+    /// Defaults to 30 seconds.
+    pub post_result_timeout: Duration,
 }
 
 /// Exit codes returned by the iteration loop.
@@ -361,6 +364,8 @@ fn run_afk(
     });
 
     let child_pid = child.id();
+    let mut result_received_at: Option<std::time::Instant> = None;
+    let post_result_timeout = config.post_result_timeout;
 
     loop {
         if controller.poll() == ShutdownStatus::Shutdown {
@@ -368,6 +373,16 @@ fn run_afk(
             let _ = child.wait();
             let _ = reader_handle.join();
             return;
+        }
+
+        if let Some(received_at) = result_received_at
+            && received_at.elapsed() > post_result_timeout
+        {
+            warn!(
+                elapsed_secs = received_at.elapsed().as_secs(),
+                "agent process did not exit after result event, killing"
+            );
+            break;
         }
 
         match rx.recv_timeout(Duration::from_millis(100)) {
@@ -397,6 +412,7 @@ fn run_afk(
                     tee.write_ansi_line(&style::dim(&format!(
                         "  Input: {input_tokens} tokens · Output: {output_tokens} tokens"
                     )));
+                    result_received_at = Some(std::time::Instant::now());
                 }
                 format::FormattedOutput::Result(text) => {
                     tee.write_ansi_line("");
@@ -404,6 +420,9 @@ fn run_afk(
                         tee.write_ansi_line(l);
                     }
                     tee.write_ansi_line("");
+                    if result_received_at.is_none() {
+                        result_received_at = Some(std::time::Instant::now());
+                    }
                 }
                 format::FormattedOutput::Skip => {}
             },
@@ -634,6 +653,7 @@ pub fn run_iteration_loop(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shutdown::ShutdownConfig;
 
     #[test]
     fn find_sentinel_at_root() {
@@ -764,5 +784,146 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::env::set_current_dir(&self.prev);
         }
+    }
+
+    fn mock_script(dir: &Path, name: &str, script: &str) -> String {
+        let path = dir.join(name);
+        fs::write(&path, script).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        path.to_string_lossy().to_string()
+    }
+
+    fn make_config(dir: &Path, command: String) -> IterRunnerConfig {
+        IterRunnerConfig {
+            afk: true,
+            banner: false,
+            loop_id: None,
+            iterations: 1,
+            prompt: "test".to_string(),
+            auto_push: false,
+            command: Some(command),
+            prompt_files: vec![],
+            log_file: None,
+            session_id: None,
+            resume: None,
+            env_vars: vec![],
+            runner_name: None,
+            work_dir: Some(dir.to_path_buf()),
+            post_result_timeout: Duration::from_secs(30),
+        }
+    }
+
+    #[test]
+    fn post_result_timeout_kills_hung_process() {
+        let dir = tempfile::tempdir().unwrap();
+        let result_json = r#"{"type":"result","result":"Done.","session_id":"s1","usage":{"input_tokens":100,"output_tokens":200}}"#;
+        let script = mock_script(
+            dir.path(),
+            "hang_after_result.sh",
+            &format!(
+                "#!/bin/sh\necho '{}'\nsleep 300\n",
+                result_json
+            ),
+        );
+
+        let mut config = make_config(dir.path(), script);
+        config.post_result_timeout = Duration::from_secs(2);
+
+        let controller = ShutdownController::new(ShutdownConfig {
+            monitor_stdin: false,
+            ..Default::default()
+        })
+        .unwrap();
+
+        let start = std::time::Instant::now();
+        let exit_code = run_iteration_loop(config, &controller);
+        let elapsed = start.elapsed();
+
+        assert!(
+            elapsed < Duration::from_secs(10),
+            "should have killed hung process within timeout, took {:?}",
+            elapsed
+        );
+        assert!(
+            elapsed >= Duration::from_secs(2),
+            "should have waited for the timeout period, only took {:?}",
+            elapsed
+        );
+        assert!(matches!(exit_code, IterExitCode::Exhausted));
+    }
+
+    #[test]
+    fn clean_exit_not_affected_by_post_result_timeout() {
+        let dir = tempfile::tempdir().unwrap();
+        let result_json = r#"{"type":"result","result":"Done.","session_id":"s1","usage":{"input_tokens":100,"output_tokens":200}}"#;
+        let script = mock_script(
+            dir.path(),
+            "clean_exit.sh",
+            &format!(
+                "#!/bin/sh\necho '{}'\nexit 0\n",
+                result_json
+            ),
+        );
+
+        let mut config = make_config(dir.path(), script);
+        config.post_result_timeout = Duration::from_secs(30);
+
+        let controller = ShutdownController::new(ShutdownConfig {
+            monitor_stdin: false,
+            ..Default::default()
+        })
+        .unwrap();
+
+        let start = std::time::Instant::now();
+        let _exit_code = run_iteration_loop(config, &controller);
+        let elapsed = start.elapsed();
+
+        assert!(
+            elapsed < Duration::from_secs(10),
+            "clean exit should not wait for post-result timeout, took {:?}",
+            elapsed
+        );
+    }
+
+    #[test]
+    fn result_without_usage_also_triggers_timeout() {
+        let dir = tempfile::tempdir().unwrap();
+        let result_json = r#"{"type":"result","result":"Done."}"#;
+        let script = mock_script(
+            dir.path(),
+            "hang_after_result_no_usage.sh",
+            &format!(
+                "#!/bin/sh\necho '{}'\nsleep 300\n",
+                result_json
+            ),
+        );
+
+        let mut config = make_config(dir.path(), script);
+        config.post_result_timeout = Duration::from_secs(2);
+
+        let controller = ShutdownController::new(ShutdownConfig {
+            monitor_stdin: false,
+            ..Default::default()
+        })
+        .unwrap();
+
+        let start = std::time::Instant::now();
+        let _exit_code = run_iteration_loop(config, &controller);
+        let elapsed = start.elapsed();
+
+        assert!(
+            elapsed < Duration::from_secs(10),
+            "should have killed hung process within timeout, took {:?}",
+            elapsed
+        );
+        assert!(
+            elapsed >= Duration::from_secs(2),
+            "should have waited for the timeout period, only took {:?}",
+            elapsed
+        );
     }
 }
