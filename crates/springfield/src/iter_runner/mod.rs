@@ -18,6 +18,15 @@ pub const SENTINEL: &str = ".iter-complete";
 pub const SENTINEL_MAX_DEPTH: usize = 2;
 const DING_SENTINEL: &str = ".iter-ding";
 const MAX_ITERATIONS: u32 = 1000;
+const DEFAULT_ITER_DELAY_MS: u64 = 2000;
+
+fn iter_delay() -> Duration {
+    let ms = std::env::var("SGF_TEST_ITER_DELAY_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_ITER_DELAY_MS);
+    Duration::from_millis(ms)
+}
 
 pub struct IterRunnerConfig {
     pub afk: bool,
@@ -625,12 +634,16 @@ pub fn run_iteration_loop(
             i
         )));
 
-        for _ in 0..20 {
+        let tick = Duration::from_millis(100);
+        let mut elapsed = Duration::ZERO;
+        let target = iter_delay();
+        while elapsed < target {
             if controller.poll() == ShutdownStatus::Shutdown {
                 warn!("interrupted");
                 return IterExitCode::Interrupted;
             }
-            thread::sleep(Duration::from_millis(100));
+            thread::sleep(tick);
+            elapsed += tick;
         }
 
         auto_push_if_changed(&config, &head_before, &tee);
@@ -759,6 +772,11 @@ mod tests {
     #[test]
     fn iteration_clamping() {
         assert_eq!(MAX_ITERATIONS, 1000);
+    }
+
+    #[test]
+    fn default_iter_delay_is_2s() {
+        assert_eq!(DEFAULT_ITER_DELAY_MS, 2000);
     }
 
     #[test]
