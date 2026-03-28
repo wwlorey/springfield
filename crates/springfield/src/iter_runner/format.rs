@@ -213,9 +213,9 @@ fn format_tool_detail(name: &str, input: &serde_json::Value) -> String {
             let offset = input.get("offset").and_then(|v| v.as_u64());
             let limit = input.get("limit").and_then(|v| v.as_u64());
             match (offset, limit) {
-                (Some(o), Some(l)) => format!("{file_path} {o}:{l}"),
-                (Some(o), None) => format!("{file_path} {o}"),
-                (None, Some(l)) => format!("{file_path} :{l}"),
+                (Some(o), Some(l)) => format!("{file_path} [{o}:{l}]"),
+                (Some(o), None) => format!("{file_path} [{o}]"),
+                (None, Some(l)) => format!("{file_path} [:{l}]"),
                 (None, None) => file_path.to_string(),
             }
         }
@@ -316,7 +316,7 @@ mod tests {
         let line = r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/foo/bar.rs","offset":430,"limit":80}}]}}"#;
         assert_eq!(
             format_line(line),
-            FormattedOutput::ToolCalls(vec![tc("Read", "/foo/bar.rs 430:80")])
+            FormattedOutput::ToolCalls(vec![tc("Read", "/foo/bar.rs [430:80]")])
         );
     }
 

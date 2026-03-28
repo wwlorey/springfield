@@ -5531,7 +5531,7 @@ fn iter_afk_formats_tool_calls_as_one_liners() {
     );
     assert!(
         stdout.contains(
-            "─ Read  /Users/william/Repos/buddy-ralph/crates/buddy-llm/src/inference.rs 1:80"
+            "─ Read  /Users/william/Repos/buddy-ralph/crates/buddy-llm/src/inference.rs [1:80]"
         ),
         "should contain Read with offset:limit, got:\n{stdout}"
     );
