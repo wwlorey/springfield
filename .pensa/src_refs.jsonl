@@ -201,3 +201,13 @@
 {"id":"pn-7c8b4ac1","issue_id":"pn-f3356e74","path":"crates/pensa/tests/integration.rs","reason":"Lines 542-543, 566: test fixtures use 'ralph' spec name with 'crates/ralph/' src","created_at":"2026-03-28T21:07:51Z"}
 {"id":"pn-2a033221","issue_id":"pn-78fcef75","path":"crates/springfield/src/prompt.rs","reason":"Lines 135, 137: test fixtures reference 'ralph.md' and 'specs/ralph.md'","created_at":"2026-03-28T21:08:01Z"}
 {"id":"pn-5f28479f","issue_id":"pn-78fcef75","path":"crates/springfield/tests/integration.rs","reason":"Line 5366: migration comment; lines 5528-5538: 'buddy-ralph' fixture paths in assertions","created_at":"2026-03-28T21:08:01Z"}
+{"id":"pn-7526079a","issue_id":"pn-1f35b403","path":"crates/springfield/src/cursus/toml.rs","reason":"validate_aliases function exists here but is never called from production code","created_at":"2026-03-28T21:13:32Z"}
+{"id":"pn-d1f2286a","issue_id":"pn-1f35b403","path":"crates/springfield/src/main.rs","reason":"Cursus startup path where validate_aliases should be called","created_at":"2026-03-28T21:13:32Z"}
+{"id":"pn-9bb76a9f","issue_id":"pn-92f41a82","path":"crates/springfield/tests/integration.rs","reason":"Integration tests live here; add revise transition test alongside existing reject transition test","created_at":"2026-03-28T21:13:34Z"}
+{"id":"pn-a871d925","issue_id":"pn-a6e52046","path":"crates/forma/src/client.rs","reason":"Client::delete_spec needs actor parameter and x-forma-actor header","created_at":"2026-03-28T21:13:35Z"}
+{"id":"pn-0b6c5bf7","issue_id":"pn-a6e52046","path":"crates/forma/src/main.rs","reason":"Commands::Delete needs to pass actor to client","created_at":"2026-03-28T21:13:35Z"}
+{"id":"pn-a87b9526","issue_id":"pn-55f17189","path":"crates/forma/src/db.rs","reason":"CountResult struct uses 'total' field, should be 'count'","created_at":"2026-03-28T21:13:36Z"}
+{"id":"pn-0a4dc156","issue_id":"pn-55f17189","path":"crates/forma/src/output.rs","reason":"print_count reads g[\"key\"] but StatusCount serializes as 'status'","created_at":"2026-03-28T21:13:36Z"}
+{"id":"pn-903c4c64","issue_id":"pn-6b96e4cb","path":"crates/springfield/src/main.rs","reason":"run_cursus_dispatch and run_simple_prompt need pre-launch lifecycle calls","created_at":"2026-03-28T21:13:40Z"}
+{"id":"pn-363d73d9","issue_id":"pn-6b96e4cb","path":"crates/springfield/src/recovery.rs","reason":"Contains pre_launch_recovery() and ensure_daemons() to wire in","created_at":"2026-03-28T21:13:40Z"}
+{"id":"pn-05a2e949","issue_id":"pn-6b96e4cb","path":"crates/springfield/src/orchestrate.rs","reason":"Dead code shows intended pre-launch pattern including pn export","created_at":"2026-03-28T21:13:40Z"}
