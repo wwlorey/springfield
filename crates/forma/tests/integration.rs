@@ -1835,3 +1835,54 @@ fn full_lifecycle_end_to_end() {
     let resp = d.get("/status");
     assert_eq!(resp.status(), 200);
 }
+
+#[test]
+fn watchdog_tolerates_transient_directory_removal() {
+    let data_dir = TempDir::new().expect("create data dir");
+    let project_dir = data_dir.path().join("project");
+    std::fs::create_dir_all(&project_dir).unwrap();
+
+    let port = portpicker::pick_unused_port().expect("no free port");
+    let pd = project_dir.clone();
+    let dd = data_dir.path().join("data");
+
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        unsafe { std::env::set_var("FM_WATCHDOG_INTERVAL_MS", "200") };
+        rt.block_on(forma::daemon::start_with_data_dir(port, pd, Some(dd)));
+    });
+
+    let client = reqwest::blocking::Client::new();
+    let base = format!("http://localhost:{port}");
+    for _ in 0..50 {
+        if client.get(format!("{base}/status")).send().is_ok() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    let daemon_alive = || client.get(format!("{base}/status")).send().is_ok();
+
+    assert!(daemon_alive(), "daemon should be running");
+
+    // Remove project dir — 1 failure, daemon should survive
+    std::fs::remove_dir_all(&project_dir).unwrap();
+    std::thread::sleep(Duration::from_millis(350));
+    assert!(daemon_alive(), "daemon should survive 1 transient failure");
+
+    // Recreate project dir — counter should reset
+    std::fs::create_dir_all(&project_dir).unwrap();
+    std::thread::sleep(Duration::from_millis(350));
+    assert!(
+        daemon_alive(),
+        "daemon should survive after directory reappears"
+    );
+
+    // Remove again — wait long enough for 3+ consecutive failures
+    std::fs::remove_dir_all(&project_dir).unwrap();
+    std::thread::sleep(Duration::from_millis(1000));
+    assert!(
+        !daemon_alive(),
+        "daemon should shut down after 3 consecutive failures"
+    );
+}
