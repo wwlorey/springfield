@@ -14,6 +14,7 @@ Be sure to come away from the conversation with the following information (the c
 - Dependencies and integration points.
 - How the result will be tested end-to-end from the CLI.
 - Answers to all open questions.
+- User flows.
 
 IMPORTANT:
 - Ask clarifying questions.
