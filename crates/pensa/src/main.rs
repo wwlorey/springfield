@@ -255,6 +255,11 @@ fn fail(err: PensaError, mode: OutputMode) -> ! {
     process::exit(1);
 }
 
+fn project_dir() -> std::path::PathBuf {
+    pensa::db::find_project_root()
+        .unwrap_or_else(|| std::env::current_dir().unwrap())
+}
+
 fn is_remote_host() -> bool {
     if let Ok(host) = std::env::var("PN_DAEMON_HOST") {
         let h = host.trim();
@@ -263,23 +268,22 @@ fn is_remote_host() -> bool {
     if std::env::var("PN_DAEMON").is_ok() {
         return true;
     }
-    if let Ok(dir) = std::env::current_dir() {
-        let url_file = dir.join(".pensa/daemon.url");
-        if let Ok(contents) = std::fs::read_to_string(&url_file) {
-            let trimmed = contents.trim();
-            if !trimmed.is_empty() {
-                let host = trimmed
-                    .strip_prefix("http://")
-                    .or_else(|| trimmed.strip_prefix("https://"))
-                    .unwrap_or(trimmed)
-                    .split(':')
-                    .next()
-                    .unwrap_or("");
-                return !host.is_empty()
-                    && host != "localhost"
-                    && host != "127.0.0.1"
-                    && host != "::1";
-            }
+    let dir = project_dir();
+    let url_file = dir.join(".pensa/daemon.url");
+    if let Ok(contents) = std::fs::read_to_string(&url_file) {
+        let trimmed = contents.trim();
+        if !trimmed.is_empty() {
+            let host = trimmed
+                .strip_prefix("http://")
+                .or_else(|| trimmed.strip_prefix("https://"))
+                .unwrap_or(trimmed)
+                .split(':')
+                .next()
+                .unwrap_or("");
+            return !host.is_empty()
+                && host != "localhost"
+                && host != "127.0.0.1"
+                && host != "::1";
         }
     }
     false
@@ -305,7 +309,7 @@ fn is_daemon_stale(dir: &std::path::Path) -> bool {
 }
 
 fn ensure_daemon() {
-    let dir = std::env::current_dir().unwrap();
+    let dir = project_dir();
 
     if is_daemon_stale(&dir) {
         eprintln!("pn: stale daemon detected (project directory changed), restarting...");

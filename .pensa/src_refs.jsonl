@@ -211,3 +211,6 @@
 {"id":"pn-903c4c64","issue_id":"pn-6b96e4cb","path":"crates/springfield/src/main.rs","reason":"run_cursus_dispatch and run_simple_prompt need pre-launch lifecycle calls","created_at":"2026-03-28T21:13:40Z"}
 {"id":"pn-363d73d9","issue_id":"pn-6b96e4cb","path":"crates/springfield/src/recovery.rs","reason":"Contains pre_launch_recovery() and ensure_daemons() to wire in","created_at":"2026-03-28T21:13:40Z"}
 {"id":"pn-05a2e949","issue_id":"pn-6b96e4cb","path":"crates/springfield/src/orchestrate.rs","reason":"Dead code shows intended pre-launch pattern including pn export","created_at":"2026-03-28T21:13:40Z"}
+{"id":"pn-3c9ca5a3","issue_id":"pn-054be132","path":"crates/pensa/src/db.rs","reason":"Added find_project_root() that walks up directory tree to find .pensa/","created_at":"2026-03-30T21:00:42Z"}
+{"id":"pn-ca10917e","issue_id":"pn-054be132","path":"crates/pensa/src/client.rs","reason":"Updated discover_port() and read_daemon_url() to use find_project_root()","created_at":"2026-03-30T21:00:42Z"}
+{"id":"pn-db92c452","issue_id":"pn-054be132","path":"crates/pensa/src/main.rs","reason":"Updated ensure_daemon() and is_remote_host() to use find_project_root()","created_at":"2026-03-30T21:00:42Z"}

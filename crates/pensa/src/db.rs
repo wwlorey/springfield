@@ -51,6 +51,18 @@ fn old_data_dir(project_dir: &Path) -> PathBuf {
     PathBuf::from(home).join(".local/share/pensa").join(hash)
 }
 
+pub fn find_project_root() -> Option<PathBuf> {
+    let mut dir = std::env::current_dir().ok()?;
+    loop {
+        if dir.join(".pensa").is_dir() {
+            return Some(dir);
+        }
+        if !dir.pop() {
+            return None;
+        }
+    }
+}
+
 pub fn project_port(project_dir: &Path) -> u16 {
     let hash = project_hash(project_dir);
     let raw = u16::from_be_bytes([hash[8], hash[9]]);
