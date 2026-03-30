@@ -25,7 +25,7 @@ struct SkeletonFile {
 
 const SKELETON_FILES: &[SkeletonFile] = &[SkeletonFile {
     path: "AGENTS.md",
-    content: "",
+    content: include_str!("../../../AGENTS.md"),
 }];
 
 const GITIGNORE_FULL: &str = "\
@@ -586,6 +586,20 @@ mod tests {
             let content = fs::read_to_string(&path).unwrap();
             assert_eq!(content, sf.content, "content mismatch: {}", sf.path);
         }
+    }
+
+    #[test]
+    fn agents_md_scaffolded_with_repo_content() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+        run(tmp.path(), false).unwrap();
+
+        let content = fs::read_to_string(tmp.path().join("AGENTS.md")).unwrap();
+        assert!(!content.is_empty(), "AGENTS.md should not be empty");
+        assert!(
+            content.contains("## Code Style"),
+            "AGENTS.md should contain scaffolded repo content"
+        );
     }
 
     #[test]
