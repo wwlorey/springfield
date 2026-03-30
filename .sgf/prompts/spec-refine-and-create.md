@@ -12,10 +12,11 @@ Read the pertinent spec(s) sections that are involved in these changes as they c
 - Interactions with existing specs and crates.
 - Scope boundaries — what's in, what's out.
 - Dependencies and integration points.
-- How the result will be tested end-to-end from the CLI.
-- Answers to ALL open questions.
+- How this will be tested end-to-end from the CLI (frontend and backend).
 - ALL required UI components.
-- User flows defined and testable (FE and BE).
+  * Check for **implicitly defined components** and define them **explicitly**.
+- User flows defined and testable (frontend and backend).
+- Answers to ALL open questions.
 
 IMPORTANT:
 - Ask clarifying questions.
