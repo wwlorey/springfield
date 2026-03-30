@@ -6,6 +6,9 @@ Study the specs, issues, and codebase.
 
 Update, remove, and add (see Issue Create Workflow) `pn` issues to ensure that the implementation items exist which will sufficiently bring the codebase into alignment with the specs. Use subagents.
 
+Pay special attention to:
+- Root level and shared documentation (e.g. ./README.md).
+
 When you are confident that you are finished:
 1. Commit your changes.
 2. Touch `.iter-complete`.
