@@ -50,6 +50,12 @@ node_modules/
 # SvelteKit
 .svelte-kit/
 
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+
 # Environment
 .env
 .env.local
@@ -73,6 +79,10 @@ const GITIGNORE_ENTRIES: &[&str] = &[
     "/target",
     "node_modules/",
     ".svelte-kit/",
+    "/test-results/",
+    "/playwright-report/",
+    "/blob-report/",
+    "/playwright/.cache/",
     ".env",
     ".env.local",
     ".env.*.local",
