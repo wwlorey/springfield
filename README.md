@@ -2,6 +2,8 @@
 
 A suite of Rust tools for orchestrating AI-driven software development using iterative agent loops. The CLI entry point is `sgf`.
 
+> ⚠️ **WARNING**: This is a research project that frequently undergoes breaking, fundamental changes. I recommend using it directly to explore how it works—or pick one part to explore (the prompts in `.sgf/prompts/` are a good place to start). Note that the documentation is not trustworthy at this time.
+
 Springfield codifies a workflow inspired by Geoffrey Huntley and the [Ralph Wiggum technique](https://github.com/ghuntley/how-to-ralph-wiggum) — breaking projects into well-scoped tasks and executing them through tight, single-task agent loops with fresh context each iteration. The process is cyclical: discuss → build → verify → revise specs → build again.
 
 ## Getting Started
