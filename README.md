@@ -10,7 +10,7 @@ Springfield codifies a workflow inspired by Geoffrey Huntley and the [Ralph Wigg
 
 - [Rust](https://rustup.rs/) (edition 2024)
 - [just](https://github.com/casey/just) (command runner)
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (invoked by the iteration runner via `$AGENT_CMD`)
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (invoked by the iteration runner via `cl`)
 - [prek](https://github.com/j178/prek) (git hook manager — runs `pn export`/`pn import` hooks)
 
 ### Install
@@ -34,7 +34,7 @@ cd your-project
 sgf init
 ```
 
-This creates `.sgf/`, `.pensa/`, `.forma/`, prompt templates, `CLAUDE.md`, and merges entries into `.gitignore`, `.claude/settings.json` (including native sandbox configuration), and `.pre-commit-config.yaml`.
+This creates `.sgf/`, `.pensa/`, `.forma/`, `AGENTS.md`, and merges entries into `.gitignore`, `.claude/settings.json` (including native sandbox configuration), and `.pre-commit-config.yaml`.
 
 Then install the git hooks:
 
@@ -52,7 +52,7 @@ sgf <command> -a            # run in AFK mode (unattended)
 sgf list                    # show available cursus commands and built-ins
 sgf logs <loop-id>          # tail a running loop's output
 sgf resume                  # resume a previous session or stalled cursus run
-sgf resume <run-id>         # resume a specific run by ID
+sgf resume <loop-id>        # resume a specific run by ID
 sgf my-task.md              # run a prompt file as a simple iteration loop
 sgf my-task.md -a -n 5      # prompt file with AFK and 5 iterations
 ```
