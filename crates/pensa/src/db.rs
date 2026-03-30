@@ -54,13 +54,20 @@ fn old_data_dir(project_dir: &Path) -> PathBuf {
 pub fn find_project_root() -> Option<PathBuf> {
     let mut dir = std::env::current_dir().ok()?;
     loop {
-        if dir.join(".pensa").is_dir() {
+        let candidate = dir.join(".pensa");
+        if candidate.is_dir() && is_genuine_pensa_dir(&candidate) {
             return Some(dir);
         }
         if !dir.pop() {
             return None;
         }
     }
+}
+
+fn is_genuine_pensa_dir(pensa_dir: &Path) -> bool {
+    pensa_dir.join("issues.jsonl").exists()
+        || pensa_dir.join("deps.jsonl").exists()
+        || pensa_dir.join("db.sqlite").exists()
 }
 
 pub fn project_port(project_dir: &Path) -> u16 {
@@ -2802,5 +2809,37 @@ mod tests {
         assert!(messages.iter().any(|m| m.contains("comments.jsonl")));
         assert!(messages.iter().any(|m| m.contains("src_refs.jsonl")));
         assert!(messages.iter().any(|m| m.contains("doc_refs.jsonl")));
+    }
+
+    #[test]
+    fn is_genuine_pensa_dir_with_issues_jsonl() {
+        let dir = TempDir::new().unwrap();
+        let pensa = dir.path().join(".pensa");
+        fs::create_dir_all(&pensa).unwrap();
+        assert!(!is_genuine_pensa_dir(&pensa));
+
+        fs::write(pensa.join("issues.jsonl"), "").unwrap();
+        assert!(is_genuine_pensa_dir(&pensa));
+    }
+
+    #[test]
+    fn is_genuine_pensa_dir_with_db_sqlite() {
+        let dir = TempDir::new().unwrap();
+        let pensa = dir.path().join(".pensa");
+        fs::create_dir_all(&pensa).unwrap();
+
+        fs::write(pensa.join("db.sqlite"), "").unwrap();
+        assert!(is_genuine_pensa_dir(&pensa));
+    }
+
+    #[test]
+    fn is_genuine_pensa_dir_rogue_daemon_only() {
+        let dir = TempDir::new().unwrap();
+        let pensa = dir.path().join(".pensa");
+        fs::create_dir_all(&pensa).unwrap();
+
+        fs::write(pensa.join("daemon.port"), "12345").unwrap();
+        fs::write(pensa.join("daemon.project"), "/some/path").unwrap();
+        assert!(!is_genuine_pensa_dir(&pensa));
     }
 }
