@@ -43,8 +43,12 @@ impl Client {
         format!("http://localhost:{port}")
     }
 
+    fn project_dir() -> std::path::PathBuf {
+        crate::db::find_project_root().unwrap_or_else(|| std::env::current_dir().unwrap())
+    }
+
     fn read_daemon_url() -> Result<String, ()> {
-        let dir = std::env::current_dir().map_err(|_| ())?;
+        let dir = Self::project_dir();
         let url_file = dir.join(".forma/daemon.url");
         let contents = std::fs::read_to_string(&url_file).map_err(|_| ())?;
         let trimmed = contents.trim().to_string();
@@ -55,7 +59,7 @@ impl Client {
     }
 
     fn discover_port() -> u16 {
-        let dir = std::env::current_dir().unwrap();
+        let dir = Self::project_dir();
         let port_file = dir.join(".forma/daemon.port");
         if let Ok(contents) = std::fs::read_to_string(&port_file)
             && let Ok(port) = contents.trim().parse::<u16>()

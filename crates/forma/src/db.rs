@@ -33,6 +33,25 @@ pub fn data_dir(project_dir: &Path) -> PathBuf {
     PathBuf::from(home).join(".local/share/forma").join(hex)
 }
 
+pub fn find_project_root() -> Option<PathBuf> {
+    let mut dir = std::env::current_dir().ok()?;
+    loop {
+        let candidate = dir.join(".forma");
+        if candidate.is_dir() && is_genuine_forma_dir(&candidate) {
+            return Some(dir);
+        }
+        if !dir.pop() {
+            return None;
+        }
+    }
+}
+
+fn is_genuine_forma_dir(forma_dir: &Path) -> bool {
+    forma_dir.join("specs.jsonl").exists()
+        || forma_dir.join("refs.jsonl").exists()
+        || forma_dir.join("db.sqlite").exists()
+}
+
 pub fn project_port(project_dir: &Path) -> u16 {
     let hash = project_hash(project_dir);
     let raw = u16::from_be_bytes([hash[8], hash[9]]);

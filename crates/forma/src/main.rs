@@ -187,6 +187,10 @@ fn read_stdin() -> String {
     buf
 }
 
+fn project_dir() -> std::path::PathBuf {
+    forma::db::find_project_root().unwrap_or_else(|| std::env::current_dir().unwrap())
+}
+
 fn is_remote_host() -> bool {
     if let Ok(host) = std::env::var("FM_DAEMON_HOST") {
         let h = host.trim();
@@ -195,7 +199,7 @@ fn is_remote_host() -> bool {
     if std::env::var("FM_DAEMON").is_ok() {
         return true;
     }
-    if let Ok(dir) = std::env::current_dir() {
+    if let Some(dir) = forma::db::find_project_root() {
         let url_file = dir.join(".forma/daemon.url");
         if let Ok(contents) = std::fs::read_to_string(&url_file)
             && !contents.trim().is_empty()
@@ -226,7 +230,7 @@ fn is_daemon_stale(dir: &std::path::Path) -> bool {
 }
 
 fn ensure_daemon() {
-    let dir = std::env::current_dir().unwrap();
+    let dir = project_dir();
 
     if is_daemon_stale(&dir) {
         eprintln!("fm: stale daemon detected (project directory changed), restarting...");
@@ -299,7 +303,7 @@ fn main() {
     match cli.command {
         Commands::Daemon {
             port,
-            project_dir,
+            project_dir: explicit_dir,
             subcmd,
         } => match subcmd {
             Some(DaemonSubcommand::Status) => {
@@ -307,12 +311,12 @@ fn main() {
                 match client.check_reachable() {
                     Ok(()) => {
                         println!("daemon reachable at {}", client.base_url());
-                        let dir = std::env::current_dir().unwrap();
+                        let dir = project_dir();
                         let project_file = dir.join(".forma/daemon.project");
                         if let Ok(contents) = std::fs::read_to_string(&project_file) {
-                            let project_dir = contents.trim();
-                            if !project_dir.is_empty() {
-                                println!("project directory: {project_dir}");
+                            let stored = contents.trim();
+                            if !stored.is_empty() {
+                                println!("project directory: {stored}");
                             }
                         }
                         process::exit(0);
@@ -324,7 +328,7 @@ fn main() {
                 }
             }
             None => {
-                let dir = project_dir.unwrap_or_else(|| std::env::current_dir().unwrap());
+                let dir = explicit_dir.unwrap_or_else(project_dir);
                 let port = port.unwrap_or_else(|| forma::db::project_port(&dir));
                 let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
                 rt.block_on(forma::daemon::start(port, dir));
@@ -332,7 +336,7 @@ fn main() {
         },
 
         Commands::Where => {
-            let dir = std::env::current_dir().unwrap();
+            let dir = project_dir();
             output::print_where(
                 &dir.join(".forma").display().to_string(),
                 &forma::db::data_dir(&dir).display().to_string(),
