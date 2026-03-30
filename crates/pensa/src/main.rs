@@ -256,8 +256,7 @@ fn fail(err: PensaError, mode: OutputMode) -> ! {
 }
 
 fn project_dir() -> std::path::PathBuf {
-    pensa::db::find_project_root()
-        .unwrap_or_else(|| std::env::current_dir().unwrap())
+    pensa::db::find_project_root().unwrap_or_else(|| std::env::current_dir().unwrap())
 }
 
 fn is_remote_host() -> bool {
@@ -280,10 +279,7 @@ fn is_remote_host() -> bool {
                 .split(':')
                 .next()
                 .unwrap_or("");
-            return !host.is_empty()
-                && host != "localhost"
-                && host != "127.0.0.1"
-                && host != "::1";
+            return !host.is_empty() && host != "localhost" && host != "127.0.0.1" && host != "::1";
         }
     }
     false

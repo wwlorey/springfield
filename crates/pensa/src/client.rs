@@ -40,8 +40,7 @@ impl Client {
     }
 
     fn project_dir() -> std::path::PathBuf {
-        crate::db::find_project_root()
-            .unwrap_or_else(|| std::env::current_dir().unwrap())
+        crate::db::find_project_root().unwrap_or_else(|| std::env::current_dir().unwrap())
     }
 
     fn read_daemon_url() -> Result<String, ()> {
