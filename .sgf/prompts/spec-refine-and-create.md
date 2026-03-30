@@ -6,16 +6,16 @@ Let's have a discussion and you can interview me about what I want to build.
 
 Read the pertinent spec(s) sections that are involved in these changes as they come up in our conversation so you have the proper context for what we're talking about.
 
-Be sure to come away from the conversation with the following information (the conversation SHOULD NOT END until all of this is KNOWN):
+**Be sure to come away from the conversation with the following information (the conversation SHOULD NOT END until all of this is KNOWN)**:
 - Edge cases and failure modes.
 - Error handling behavior.
 - Interactions with existing specs and crates.
 - Scope boundaries — what's in, what's out.
 - Dependencies and integration points.
 - How the result will be tested end-to-end from the CLI.
-- Answers to all open questions.
-- All required UI components.
-- User flows.
+- Answers to ALL open questions.
+- ALL required UI components.
+- User flows defined and testable (FE and BE).
 
 IMPORTANT:
 - Ask clarifying questions.
