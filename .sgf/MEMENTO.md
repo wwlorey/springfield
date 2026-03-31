@@ -194,6 +194,7 @@ Specifications are the **source of truth** for all code. They are managed exclus
 - **When asked about what has been built** IN GENERAL or ON A PARTICULAR DAY/TIME:
   * Read the logs in `./.sgf/logs` to help formulate your answer.
 - **ALWAYS use `pn`** for anything having to do with BUGS and/or ISSUES.
+  * NEVER USE GITHUB (`gh`).
 
 ### Session Start
 
