@@ -13,3 +13,6 @@ The user will tell you something they would like to add, change, or fix.
     ii. Capture (i) the impetus for the change and (ii) what work was done to change it, including any relevant design decisions made.
     iii. **Close both as fixed.**
   c. Commit your changes.
+
+IMPORTANT:
+- Do NOT update the spec.
