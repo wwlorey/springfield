@@ -18,7 +18,7 @@ NOTE:
 IMPORTANT:
 - **Assume NOT implemented.** Many specs describe planned features that may not yet exist in the codebase.
 - **Use specs as guidance.** When implementing a feature, follow the design patterns, types, and architecture defined in the relevant spec.
-- **Do not implement placeholder code.** We want full, real implementations.
+- **DO NOT IMPLEMENT PLACEHOLDER CODE.** WE WANT FULL, REAL IMPLEMENTATIONS.
 - **Author PROPERTY BASED TESTS and/or UNIT TESTS** (whichever is best).
 - **After making changes to the files apply FULL BACKPRESSURE to verify behavior.**
 - **If you attempt to claim a `pn` issue and is already claimed, DO NOT WORK ON IT, even if it is claimed by you.**

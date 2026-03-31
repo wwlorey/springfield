@@ -1,0 +1,9 @@
+description = "Change the code and log a bug tracking it."
+alias = "c"
+auto_push = true
+
+[[iter]]
+name = "change"
+prompt = "change.md"
+mode = "interactive"
+iterations = 1
