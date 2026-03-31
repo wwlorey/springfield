@@ -5,7 +5,7 @@ CLI entry point — scaffolding, prompt delivery, iteration runner, loop orchest
 | Field | Value |
 |-------|-------|
 | Src | `crates/springfield/` |
-| Status | proven |
+| Status | draft |
 
 ## Overview
 
@@ -228,6 +228,15 @@ Springfield is tested via integration tests that exercise the full CLI. All inte
 |------|----------|-----------|
 | Init | `sgf init` idempotence | Re-running creates no duplicates in .gitignore, settings.json, hooks |
 | Init | `sgf init --force` safety | Fails on uncommitted changes; prompts before overwrite |
+| Init | Frontend scaffolding runs by default | `package.json`, `vite.config.ts`, `eslint.config.js` exist after init |
+| Init | Frontend scaffolding skipped with `--no-fe` | No `package.json` or `vite.config.ts` created |
+| Init | Frontend scaffolding skipped when `package.json` exists | create-vite not invoked; existing package.json preserved |
+| Init | Frontend scaffolding skipped when `vite.config.ts` exists | create-vite not invoked; existing config preserved |
+| Init | pnpm not found error | Exits with error message when pnpm missing and no `--no-fe` |
+| Init | create-vite failure warning | Warns with command, continues SGF scaffolding |
+| Init | `--force` does not re-run create-vite | Existing frontend files untouched by `--force` |
+| Init | Sandbox domains include npm registries | `registry.npmjs.org` and `registry.yarnpkg.com` in allowedDomains |
+| Init | SvelteKit not in .gitignore | `.svelte-kit/` entry absent |
 | Command resolution | Alias resolution | `sgf b` resolves to `build` cursus when `alias = "b"` |
 | Command resolution | Local overrides global | `./.sgf/cursus/build.toml` takes precedence over `~/.sgf/cursus/build.toml` |
 | Command resolution | Simple prompt mode | `sgf my-task.md` detected as file path, runs iteration loop |
@@ -247,13 +256,14 @@ Springfield is tested via integration tests that exercise the full CLI. All inte
 - **Shared mock binaries** (`MOCK_BINS` / `mock_bin_path()`) — single set of mock `pn`/`fm` scripts reused by all tests
 - **Concurrency semaphore** (`SGF_PERMITS` / `run_sgf()`) — limits concurrent `sgf` subprocess invocations to prevent resource exhaustion
 - **Automatic preflight skip** — `sgf_cmd()` injects `SGF_SKIP_PREFLIGHT=1` and mock `PATH` by default
+- **Mock pnpm** — Frontend scaffolding tests use a mock `pnpm` binary that creates expected files (package.json, vite.config.ts, etc.) without network access. Tests verify that `sgf init` invokes `pnpm create vite@latest . -- --template react-ts` with the correct arguments and handles success/failure appropriately.
 
 ## CLI Commands
 
 ```
 sgf <command> [-a | -i] [-n N] [--no-push] [--skip-preflight]   — run a cursus pipeline
 sgf <file>                                                       — run a prompt file as a simple iteration loop
-sgf init [--force]                                               — scaffold a new project
+sgf init [--force] [--no-fe]                                     — scaffold a new project
 sgf list                                                         — show available commands with descriptions
 sgf logs <loop-id>                                               — tail a running loop's output
 sgf resume [loop-id]                                             — resume a stalled/interrupted cursus run
@@ -352,11 +362,32 @@ sgf list                       # show available commands
 sgf resume                     # interactive picker for stalled/interrupted runs
 sgf resume spec-20260317T140000  # resume specific cursus run
 sgf my-task.md -a -n 5         # simple prompt mode
+sgf init --no-fe               # scaffold without frontend (backend-only project)
 ```
 
 ## sgf init
 
-Scaffolds a new project. Creates the project-local directory structure and configuration files. Does **not** write prompt files or context files — those live in the global `~/.sgf/` (synced via `just install`). Accepts `--force` to overwrite skeleton files with built-in defaults.
+Scaffolds a new project. Creates the project-local directory structure and configuration files. Does **not** write prompt files or context files — those live in the global `~/.sgf/` (synced via `just install`). Accepts `--force` to overwrite skeleton files with built-in defaults. Accepts `--no-fe` to skip frontend scaffolding.
+
+### Execution order
+
+1. **Frontend scaffolding** (unless `--no-fe` or frontend already exists)
+2. **SGF infrastructure** (directories, skeleton files, config merges, prek hooks)
+
+### Frontend scaffolding
+
+By default, `sgf init` runs `pnpm create vite@latest . -- --template react-ts` to scaffold a React + TypeScript frontend project with Vite.
+
+**Skip conditions** — Frontend scaffolding is skipped when:
+- `--no-fe` flag is passed
+- `package.json` already exists in the target directory
+- `vite.config.ts` already exists in the target directory
+
+**pnpm requirement** — If `pnpm` is not found on `$PATH` (and `--no-fe` is not set and skip conditions are not met), `sgf init` exits with an error: `pnpm not found — install pnpm or pass --no-fe`.
+
+**Failure handling** — If `pnpm create vite@latest` exits non-zero, `sgf init` prints a warning with the exact command that needs to be run manually, then continues with SGF infrastructure scaffolding. This way a network failure does not block project setup.
+
+**`--force` interaction** — `--force` does not re-run create-vite. It only affects SGF skeleton files.
 
 ### What it creates
 
@@ -372,6 +403,20 @@ Scaffolds a new project. Creates the project-local directory structure and confi
 .gitignore                             (Springfield entries + stack-specific entries)
 AGENTS.md                              (empty file)
 CLAUDE.md                              (`ln -s` to AGENTS.md)
+```
+
+When frontend scaffolding runs, create-vite additionally produces:
+
+```
+eslint.config.js
+index.html
+package.json
+public/
+src/
+tsconfig.json
+tsconfig.app.json
+tsconfig.node.json
+vite.config.ts
 ```
 
 No `.sgf/prompts/` directory is created — prompts resolve via layered lookup (local `./.sgf/prompts/` → global `~/.sgf/prompts/`). Users create `./.sgf/prompts/` manually when they need project-local overrides.
@@ -403,7 +448,9 @@ No `.sgf/prompts/` directory is created — prompts resolve via layered lookup (
         "github.com",
         "*.githubusercontent.com",
         "crates.io",
-        "*.crates.io"
+        "*.crates.io",
+        "registry.npmjs.org",
+        "registry.yarnpkg.com"
       ],
       "allowLocalBinding": true
     }
@@ -421,14 +468,14 @@ Claude Code's native sandbox provides OS-level filesystem and network isolation 
 |---------|-------|-----------|
 | `sandbox.enabled` | `true` | OS-level enforcement for all sessions |
 | `sandbox.autoAllowBashIfSandboxed` | `true` | Bash commands auto-approved within sandbox bounds, reducing prompt fatigue |
-| `sandbox.network.allowedDomains` | `["localhost", "github.com", "*.githubusercontent.com", "crates.io", "*.crates.io"]` | `localhost` for pensa daemon access; GitHub for git operations; crates.io for cargo |
+| `sandbox.network.allowedDomains` | `["localhost", "github.com", "*.githubusercontent.com", "crates.io", "*.crates.io", "registry.npmjs.org", "registry.yarnpkg.com"]` | `localhost` for pensa daemon access; GitHub for git operations; crates.io for cargo; npmjs/yarnpkg for frontend deps |
 | `sandbox.network.allowLocalBinding` | `true` | Allows test servers (e.g., `cargo test`) to bind localhost ports |
 
 **Automated stages:** The sandbox configuration in `.claude/settings.json` applies to automated agents. Combined with `--dangerously-skip-permissions`, automated agents operate freely within sandbox bounds but cannot break out.
 
 **Interactive stages:** Use project settings as-is. The sandbox is active; `allowUnsandboxedCommands` is left to the developer's global settings.
 
-**Extending for other stacks:** The default domains cover Rust development. Developers add domains for their stack (e.g., `registry.npmjs.org`, `registry.yarnpkg.com` for Node; `pypi.org` for Python) by editing `.claude/settings.json`. Additional filesystem write paths (e.g., `~/.npm`, `~/.cache`) follow the same pattern via global settings.
+**Extending for other stacks:** The default domains cover Rust and frontend development. Developers add domains for their stack (e.g., `pypi.org` for Python) by editing `.claude/settings.json`. Additional filesystem write paths (e.g., `~/.npm`, `~/.cache`) follow the same pattern via global settings.
 
 ### Prek hooks
 
@@ -493,8 +540,11 @@ If `.pre-commit-config.yaml` already exists, `sgf init` appends the pensa and fo
 # Node
 node_modules/
 
-# SvelteKit
-.svelte-kit/
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
 
 # Environment
 .env
@@ -513,11 +563,11 @@ All entries are always added regardless of what exists in the directory. If an e
 
 ### Idempotence
 
-`sgf init` is safe to re-run. It skips files that already exist (AGENTS.md, CLAUDE.md) and only merges additive content (deny rules, git hooks, gitignore entries). It never overwrites existing content. `prek install` is always run to ensure hooks are wired into `.git/hooks/`.
+`sgf init` is safe to re-run. Frontend scaffolding is skipped when `package.json` or `vite.config.ts` already exists. It skips files that already exist (AGENTS.md, CLAUDE.md) and only merges additive content (deny rules, git hooks, gitignore entries). It never overwrites existing content. `prek install` is always run to ensure hooks are wired into `.git/hooks/`.
 
 ### --force
 
-`sgf init --force` overwrites skeleton files with built-in defaults, **except `AGENTS.md`** which is never overwritten. Since init no longer scaffolds prompt files or templates, `--force` primarily affects skeleton files.
+`sgf init --force` overwrites skeleton files with built-in defaults, **except `AGENTS.md`** which is never overwritten. `--force` does not re-run create-vite — it only affects SGF skeleton files.
 
 Safety checks:
 - Fails if any target file has uncommitted changes or is untracked by git.
@@ -525,9 +575,9 @@ Safety checks:
 
 Config merges (`.gitignore`, `.claude/settings.json`, `.pre-commit-config.yaml`) are unaffected by `--force` — they always use additive merge logic.
 
+### --no-fe
 
-
-
+`sgf init --no-fe` skips frontend scaffolding (the `pnpm create vite@latest` step). All SGF infrastructure is still created. Use this for backend-only projects.
 
 ## Prompt Delivery
 
