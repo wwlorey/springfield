@@ -229,3 +229,6 @@
 {"id":"pn-f1cec587","issue_id":"pn-3890529e","path":"crates/springfield/tests/integration.rs","reason":"Add test functions for daemon lifecycle and data export scenarios","created_at":"2026-04-01T15:46:47Z"}
 {"id":"pn-05c9f361","issue_id":"pn-f105ae6a","path":"crates/springfield/tests/integration.rs","reason":"Add test function for post-result timeout behavior","created_at":"2026-04-01T15:46:48Z"}
 {"id":"pn-364b5616","issue_id":"pn-6788875e","path":"crates/springfield/src/style.rs","reason":"Add public detail() function for dim indented output without badge box","created_at":"2026-04-01T15:46:48Z"}
+{"id":"pn-4485ab22","issue_id":"pn-36572bb6","path":"crates/springfield/src/main.rs","reason":"Line 162: loop_id uses UUID format instead of generate_loop_id()","created_at":"2026-04-01T15:59:16Z"}
+{"id":"pn-4cea8e9e","issue_id":"pn-36572bb6","path":"crates/springfield/src/loop_mgmt.rs","reason":"generate_loop_id() function already implements the correct timestamp format","created_at":"2026-04-01T15:59:17Z"}
+{"id":"pn-372d1159","issue_id":"pn-f17978c8","path":".gitignore","reason":"Missing forma daemon entries; .svelte-kit/ should also be removed here","created_at":"2026-04-01T15:59:18Z"}
