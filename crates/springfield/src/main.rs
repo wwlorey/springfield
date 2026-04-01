@@ -157,24 +157,73 @@ fn resolve_command(root: &Path, name: &str) -> Result<cursus::ResolvedCursus, St
 }
 
 fn run_simple_prompt(root: &Path, args: &DynamicArgs, prompt_path: &Path) -> ! {
+    use chrono::Utc;
+    use springfield::loop_mgmt::{self, IterationRecord, SessionMetadata};
+
     run_pre_launch(root, args.skip_preflight);
 
     let afk = args.afk;
     let iterations = args.iterations.unwrap_or(1);
     let auto_push = !args.no_push;
 
-    let loop_id = springfield::loop_mgmt::generate_loop_id("simple", None);
+    let loop_id = loop_mgmt::generate_loop_id("simple", None);
 
-    let log_file = springfield::loop_mgmt::create_log_file(root, &loop_id).ok();
+    let log_file = loop_mgmt::create_log_file(root, &loop_id).ok();
 
     let agent_command = std::env::var("SGF_AGENT_COMMAND").ok();
+
+    let mode = if afk { "afk" } else { "interactive" };
+    let now = Utc::now().to_rfc3339();
+    let prompt_str = prompt_path.to_string_lossy().to_string();
+
+    let metadata = SessionMetadata {
+        loop_id: loop_id.clone(),
+        iterations: Vec::new(),
+        stage: "simple".to_string(),
+        spec: None,
+        cursus: None,
+        mode: mode.to_string(),
+        prompt: prompt_str.clone(),
+        iterations_total: iterations,
+        status: "running".to_string(),
+        created_at: now.clone(),
+        updated_at: now,
+    };
+    if let Err(e) = loop_mgmt::write_session_metadata(root, &metadata) {
+        tracing::warn!(error = %e, "failed to write initial session metadata");
+    }
+
+    let root_for_cb = root.to_path_buf();
+    let loop_id_for_cb = loop_id.clone();
+    let on_iteration_complete: springfield::iter_runner::IterationCallback =
+        Box::new(move |iteration: u32, session_id: &str| {
+            match loop_mgmt::read_session_metadata(&root_for_cb, &loop_id_for_cb) {
+                Ok(Some(mut meta)) => {
+                    meta.iterations.push(IterationRecord {
+                        iteration,
+                        session_id: session_id.to_string(),
+                        completed_at: Utc::now().to_rfc3339(),
+                    });
+                    meta.updated_at = Utc::now().to_rfc3339();
+                    if let Err(e) = loop_mgmt::write_session_metadata(&root_for_cb, &meta) {
+                        tracing::warn!(error = %e, "failed to update session metadata");
+                    }
+                }
+                Ok(None) => {
+                    tracing::warn!("session metadata missing during iteration callback");
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "failed to read session metadata");
+                }
+            }
+        });
 
     let config = IterRunnerConfig {
         afk,
         banner: true,
-        loop_id: Some(loop_id),
+        loop_id: Some(loop_id.clone()),
         iterations,
-        prompt: prompt_path.to_string_lossy().to_string(),
+        prompt: prompt_str,
         auto_push,
         command: agent_command,
         prompt_files: vec![],
@@ -185,6 +234,7 @@ fn run_simple_prompt(root: &Path, args: &DynamicArgs, prompt_path: &Path) -> ! {
         runner_name: Some("sgf".to_string()),
         work_dir: Some(root.to_path_buf()),
         post_result_timeout: std::time::Duration::from_secs(30),
+        on_iteration_complete: Some(on_iteration_complete),
     };
 
     let is_tty = std::env::var("SGF_FORCE_TERMINAL")
@@ -204,6 +254,21 @@ fn run_simple_prompt(root: &Path, args: &DynamicArgs, prompt_path: &Path) -> ! {
     };
 
     let exit_code = springfield::iter_runner::run_iteration_loop(config, &controller);
+
+    let status = match exit_code {
+        springfield::iter_runner::IterExitCode::Complete => "completed",
+        springfield::iter_runner::IterExitCode::Exhausted => "exhausted",
+        springfield::iter_runner::IterExitCode::Interrupted => "interrupted",
+        springfield::iter_runner::IterExitCode::Error => "interrupted",
+    };
+    if let Ok(Some(mut meta)) = loop_mgmt::read_session_metadata(root, &loop_id) {
+        meta.status = status.to_string();
+        meta.updated_at = Utc::now().to_rfc3339();
+        if let Err(e) = loop_mgmt::write_session_metadata(root, &meta) {
+            tracing::warn!(error = %e, "failed to update session metadata on exit");
+        }
+    }
+
     std::process::exit(exit_code as i32);
 }
 

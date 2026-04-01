@@ -28,6 +28,8 @@ fn iter_delay() -> Duration {
     Duration::from_millis(ms)
 }
 
+pub type IterationCallback = Box<dyn FnMut(u32, &str)>;
+
 pub struct IterRunnerConfig {
     pub afk: bool,
     pub banner: bool,
@@ -51,6 +53,8 @@ pub struct IterRunnerConfig {
     /// Max time to wait for the agent process to exit after emitting its result event.
     /// Defaults to 30 seconds.
     pub post_result_timeout: Duration,
+    /// Called after each iteration completes with (iteration_number, session_id).
+    pub on_iteration_complete: Option<IterationCallback>,
 }
 
 /// Exit codes returned by the iteration loop.
@@ -203,6 +207,7 @@ fn run_interactive(
     is_file: bool,
     controller: &ShutdownController,
     iteration: u32,
+    session_id: &str,
 ) {
     let stop = Arc::new(AtomicBool::new(false));
     let stop_clone = stop.clone();
@@ -217,14 +222,7 @@ fn run_interactive(
         "--settings",
         r#"{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}"#,
     ]);
-    if iteration == 1 {
-        if let Some(ref sid) = config.session_id {
-            command.args(["--session-id", sid]);
-        }
-    } else {
-        let fresh_id = uuid::Uuid::new_v4().to_string();
-        command.args(["--session-id", &fresh_id]);
-    }
+    command.args(["--session-id", session_id]);
     command.args(&asp_args);
     for (key, val) in &config.env_vars {
         command.env(key, val);
@@ -293,6 +291,7 @@ fn run_afk(
     controller: &ShutdownController,
     tee: &TeeWriter,
     iteration: u32,
+    session_id: &str,
 ) {
     let skip_setsid = std::env::var("SGF_TEST_NO_SETSID").is_ok();
     let setsid_hook = move || unsafe {
@@ -314,14 +313,7 @@ fn run_afk(
         "--settings",
         r#"{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}"#,
     ]);
-    if iteration == 1 {
-        if let Some(ref sid) = config.session_id {
-            cmd.args(["--session-id", sid]);
-        }
-    } else {
-        let fresh_id = uuid::Uuid::new_v4().to_string();
-        cmd.args(["--session-id", &fresh_id]);
-    }
+    cmd.args(["--session-id", session_id]);
     cmd.args(&asp_args);
     for (key, val) in &config.env_vars {
         cmd.env(key, val);
@@ -530,7 +522,7 @@ fn print_startup_banner(
 /// - Sentinel search (recursive depth<=2) and stale sentinel cleanup
 /// - Main run loop for both AFK and interactive modes
 pub fn run_iteration_loop(
-    config: IterRunnerConfig,
+    mut config: IterRunnerConfig,
     controller: &ShutdownController,
 ) -> IterExitCode {
     let tee = match TeeWriter::new(config.log_file.as_deref()) {
@@ -581,6 +573,15 @@ pub fn run_iteration_loop(
     for i in 1..=iterations {
         remove_sentinel_from(root);
 
+        let iter_session_id = if i == 1 {
+            config
+                .session_id
+                .clone()
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
+        } else {
+            uuid::Uuid::new_v4().to_string()
+        };
+
         let iter_title = if let Some(ref id) = config.loop_id {
             format!("Iteration {} of {} [{}]", i, iterations, id)
         } else {
@@ -595,13 +596,32 @@ pub fn run_iteration_loop(
         let head_before = vcs_utils::git_head();
 
         if config.afk {
-            run_afk(&agent_cmd, &config, is_file, controller, &tee, i);
+            run_afk(
+                &agent_cmd,
+                &config,
+                is_file,
+                controller,
+                &tee,
+                i,
+                &iter_session_id,
+            );
         } else {
-            run_interactive(&agent_cmd, &config, is_file, controller, i);
+            run_interactive(
+                &agent_cmd,
+                &config,
+                is_file,
+                controller,
+                i,
+                &iter_session_id,
+            );
         }
 
         if let Some(ref termios) = saved_termios {
             restore_terminal_settings(termios);
+        }
+
+        if let Some(ref mut cb) = config.on_iteration_complete {
+            cb(i, &iter_session_id);
         }
 
         if controller.poll() == ShutdownStatus::Shutdown {
@@ -832,6 +852,7 @@ mod tests {
             runner_name: None,
             work_dir: Some(dir.to_path_buf()),
             post_result_timeout: Duration::from_secs(30),
+            on_iteration_complete: None,
         }
     }
 
@@ -934,5 +955,73 @@ mod tests {
             "should have waited for the timeout period, only took {:?}",
             elapsed
         );
+    }
+
+    #[test]
+    fn on_iteration_complete_callback_invoked() {
+        let dir = tempfile::tempdir().unwrap();
+        let sentinel = dir.path().join(SENTINEL);
+        let script = mock_script(
+            dir.path(),
+            "callback_test.sh",
+            &format!("#!/bin/sh\ntouch \"{}\"\nexit 0\n", sentinel.display()),
+        );
+
+        let recorded = Arc::new(Mutex::new(Vec::new()));
+        let recorded_clone = recorded.clone();
+
+        let mut config = make_config(dir.path(), script);
+        config.session_id = Some("test-uuid-1234".to_string());
+        config.on_iteration_complete = Some(Box::new(move |iter, sid| {
+            recorded_clone.lock().unwrap().push((iter, sid.to_string()));
+        }));
+
+        let controller = ShutdownController::new(ShutdownConfig {
+            monitor_stdin: false,
+            ..Default::default()
+        })
+        .unwrap();
+
+        let exit_code = run_iteration_loop(config, &controller);
+        assert!(matches!(exit_code, IterExitCode::Complete));
+
+        let calls = recorded.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, 1);
+        assert_eq!(calls[0].1, "test-uuid-1234");
+    }
+
+    #[test]
+    fn on_iteration_complete_called_per_iteration_with_unique_session_ids() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = mock_script(dir.path(), "multi_iter_cb.sh", "#!/bin/sh\nexit 0\n");
+
+        let recorded = Arc::new(Mutex::new(Vec::new()));
+        let recorded_clone = recorded.clone();
+
+        let mut config = make_config(dir.path(), script);
+        config.iterations = 3;
+        config.session_id = Some("initial-uuid".to_string());
+        config.on_iteration_complete = Some(Box::new(move |iter, sid| {
+            recorded_clone.lock().unwrap().push((iter, sid.to_string()));
+        }));
+
+        let controller = ShutdownController::new(ShutdownConfig {
+            monitor_stdin: false,
+            ..Default::default()
+        })
+        .unwrap();
+
+        let exit_code = run_iteration_loop(config, &controller);
+        assert!(matches!(exit_code, IterExitCode::Exhausted));
+
+        let calls = recorded.lock().unwrap();
+        assert_eq!(calls.len(), 3);
+        assert_eq!(calls[0].0, 1);
+        assert_eq!(calls[1].0, 2);
+        assert_eq!(calls[2].0, 3);
+        assert_eq!(calls[0].1, "initial-uuid");
+        assert_ne!(calls[1].1, calls[0].1, "iteration 2 should have fresh UUID");
+        assert_ne!(calls[2].1, calls[1].1, "iteration 3 should have fresh UUID");
     }
 }

@@ -229,6 +229,7 @@ fn run_iter(inv: &IterInvocation<'_>, controller: &ShutdownController) -> io::Re
         runner_name: None,
         work_dir: Some(inv.root.to_path_buf()),
         post_result_timeout: Duration::from_secs(30),
+        on_iteration_complete: None,
     };
 
     let exit_code = iter_runner::run_iteration_loop(iter_config, controller);

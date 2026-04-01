@@ -7159,3 +7159,181 @@ fn without_skip_preflight_recovery_and_daemons_attempted() {
         "pn export should be called without --skip-preflight, got:\n{pn_calls}"
     );
 }
+
+fn read_simple_prompt_metadata(root: &Path) -> serde_json::Value {
+    let run_dir = root.join(".sgf/run");
+    let json_files: Vec<_> = fs::read_dir(&run_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            let p = e.path();
+            p.extension().and_then(|x| x.to_str()) == Some("json")
+        })
+        .collect();
+    assert_eq!(
+        json_files.len(),
+        1,
+        "expected exactly 1 session metadata JSON, found {}",
+        json_files.len()
+    );
+    let contents = fs::read_to_string(json_files[0].path()).unwrap();
+    serde_json::from_str(&contents).unwrap()
+}
+
+#[test]
+fn simple_prompt_afk_writes_session_metadata() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let mock_dir = TempDir::new().unwrap();
+    let args_file = mock_dir.path().join("agent_args.txt");
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        &format!(
+            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
+            args_file.display()
+        ),
+    );
+
+    let prompt_path = tmp.path().join("task.md");
+    fs::write(&prompt_path, "Do the thing").unwrap();
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .arg("task.md")
+            .arg("-a")
+            .env("SGF_AGENT_COMMAND", &mock_agent),
+    );
+
+    assert!(
+        output.status.success(),
+        "sgf simple prompt should succeed, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let meta = read_simple_prompt_metadata(tmp.path());
+
+    assert!(
+        meta["loop_id"].as_str().unwrap().starts_with("simple-"),
+        "loop_id should start with simple-, got: {}",
+        meta["loop_id"]
+    );
+    assert_eq!(meta["mode"], "afk");
+    assert_eq!(meta["status"], "completed");
+    assert_eq!(meta["stage"], "simple");
+    assert!(meta["cursus"].is_null(), "cursus should be null");
+    assert!(meta["spec"].is_null(), "spec should be null");
+
+    let iterations = meta["iterations"].as_array().unwrap();
+    assert_eq!(iterations.len(), 1, "should have 1 iteration record");
+    let session_id = iterations[0]["session_id"].as_str().unwrap();
+    assert!(
+        !session_id.is_empty() && session_id.contains('-'),
+        "session_id should be a UUID, got: {session_id}"
+    );
+    assert_eq!(iterations[0]["iteration"], 1);
+
+    let args = fs::read_to_string(&args_file).unwrap();
+    assert!(
+        args.contains(session_id),
+        "agent should receive same session_id, got: {args}"
+    );
+}
+
+#[test]
+fn simple_prompt_interactive_writes_session_metadata() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let mock_cl_dir = TempDir::new().unwrap();
+    let args_file = mock_cl_dir.path().join("agent_args.txt");
+    create_mock_script(
+        mock_cl_dir.path(),
+        "cl",
+        &format!(
+            "#!/bin/sh\necho \"$@\" > \"{}\"\ntouch \"${{PWD}}/.iter-complete\"\nexit 0\n",
+            args_file.display()
+        ),
+    );
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
+
+    let prompt_path = tmp.path().join("task.md");
+    fs::write(&prompt_path, "Do the thing").unwrap();
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .arg("task.md")
+            .env("PATH", &mock_path_with_cl)
+            .env_remove("CLAUDECODE"),
+    );
+
+    assert!(
+        output.status.success(),
+        "sgf simple prompt interactive should succeed, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let meta = read_simple_prompt_metadata(tmp.path());
+
+    assert!(
+        meta["loop_id"].as_str().unwrap().starts_with("simple-"),
+        "loop_id should start with simple-, got: {}",
+        meta["loop_id"]
+    );
+    assert_eq!(meta["mode"], "interactive");
+    assert_eq!(meta["status"], "completed");
+
+    let iterations = meta["iterations"].as_array().unwrap();
+    assert_eq!(iterations.len(), 1);
+    let session_id = iterations[0]["session_id"].as_str().unwrap();
+    assert!(!session_id.is_empty() && session_id.contains('-'));
+
+    let args = fs::read_to_string(&args_file).unwrap();
+    assert!(
+        args.contains(session_id),
+        "cl should receive same session_id, got: {args}"
+    );
+}
+
+#[test]
+fn simple_prompt_exhausted_writes_metadata_with_correct_status() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_agent = create_mock_script(mock_dir.path(), "mock_agent.sh", "#!/bin/sh\nexit 0\n");
+
+    let prompt_path = tmp.path().join("task.md");
+    fs::write(&prompt_path, "Do the thing").unwrap();
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["task.md", "-a", "-n", "2"])
+            .env("SGF_AGENT_COMMAND", &mock_agent),
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "should exit 2 (exhausted), stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let meta = read_simple_prompt_metadata(tmp.path());
+    assert_eq!(meta["status"], "exhausted");
+    assert_eq!(meta["iterations_total"], 2);
+
+    let iterations = meta["iterations"].as_array().unwrap();
+    assert_eq!(
+        iterations.len(),
+        2,
+        "should have 2 iteration records for 2 exhausted iterations"
+    );
+    assert_eq!(iterations[0]["iteration"], 1);
+    assert_eq!(iterations[1]["iteration"], 2);
+
+    let sid1 = iterations[0]["session_id"].as_str().unwrap();
+    let sid2 = iterations[1]["session_id"].as_str().unwrap();
+    assert_ne!(sid1, sid2, "each iteration should have a unique session_id");
+}
