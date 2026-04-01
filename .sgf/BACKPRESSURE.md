@@ -27,11 +27,18 @@ Terminal-level end-to-end tests for CLI binaries. Uses [Tuistory](https://github
 - **Run CLI e2e tests:** `cargo test -p <crate> --test cli_e2e`
 - **Run single test:** `cargo test -p <crate> --test cli_e2e <test_name>`
 
+### Tauri App (MCP)
+
+ These commands require windowing/GPU access and MUST use `unsandboxed-runner` MCP tools — not Bash.
+
+- **Smoke test:** `smoke_test_tauri` with `cwd` (e.g. `cwd: "crates/lsr-app"`) (validates the app boots without runtime panics — run after backend changes)
+- **Build:** `run_tauri_build` with `cwd` (e.g. `cwd: "crates/lsr-app"`)
+
 ## Frontend
 
 > Stack: TypeScript, React 19, Vite, Zustand, shadcn/ui, Tailwind CSS v4, Vitest, @testing-library/react, Playwright
 >
-> **Build targets:** Web (`pnpm run build`), Mobile (`pnpm run expo export --platform all`), Tauri (`pnpm run tauri build`)
+> **Build targets:** Web (`pnpm run build`), Mobile (`pnpm run expo export --platform all`), Tauri (`run_tauri_build`)
 
 - **Build:** `pnpm run build`
 - **Unit tests:** `pnpm run test:unit`
@@ -46,7 +53,7 @@ Terminal-level end-to-end tests for CLI binaries. Uses [Tuistory](https://github
 
 E2E tests run against the dev server (web/Tauri) or web export (mobile) with a mocked backend. No native binary, simulator, or backend build required.
 
-- **E2E tests:** `pnpm run test:e2e`
-- **E2E test single file:** `pnpm run test:e2e <path>` (e.g., `pnpm run test:e2e e2e/settings.test.ts`)
-- **E2E tests (headed):** `pnpm run test:e2e -- --headed`
+- **E2E tests:** `run_playwright` MCP tool (do NOT use Bash — sandbox blocks Chromium)
+- **E2E test single file:** `run_playwright` with `file: "<path>"` param (e.g., `file: "e2e/settings.test.ts"`)
 
+These MCP tools accept optional `cwd` (relative to project root) and `timeout_secs` (default 300, max 600).

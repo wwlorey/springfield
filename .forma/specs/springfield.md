@@ -240,16 +240,27 @@ Springfield is tested via integration tests that exercise the full CLI. All inte
 | Command resolution | Alias resolution | `sgf b` resolves to `build` cursus when `alias = "b"` |
 | Command resolution | Local overrides global | `./.sgf/cursus/build.toml` takes precedence over `~/.sgf/cursus/build.toml` |
 | Command resolution | Simple prompt mode | `sgf my-task.md` detected as file path, runs iteration loop |
+| Command resolution | Unknown command | `sgf nonexistent` exits 1 with "unknown command" message |
 | Cursus | TOML parsing and validation | Duplicate iter names, missing transitions → exit 1 |
 | Cursus | Sentinel transitions | `.iter-complete`, `.iter-reject`, `.iter-revise` trigger correct next iter |
 | Cursus | Context passing | `produces` files written to run dir; `consumes` files injected into prompt |
 | Cursus | Stall recovery | Iter exhaustion → stalled state → `sgf resume` works |
 | Pre-launch | Recovery | Stale `.pid` files cleaned up; stale run metadata marked interrupted |
 | Pre-launch | Daemon lifecycle | Daemons start, become ready, survive across iterations |
+| Pre-launch | Data export | pn export and fm export run after daemons, before loop |
+| Pre-launch | Export failure non-fatal | pn/fm export failure logs warning, does not block loop |
 | Shutdown | Double Ctrl+C | Process group killed with escalation |
 | Shutdown | Double Ctrl+D | Same as double Ctrl+C |
 | Loop | Loop ID generation | Format: `<command>-<timestamp>`, unique per invocation |
+| Loop | Iteration clamping | `-n 5000` clamps to 1000 with warning |
+| Loop | `--no-push` flag | Auto-push suppressed; no git push after commits |
+| Loop | Post-result timeout (AFK) | Agent killed after 30s of no exit following result event |
 | Output | Console formatting | Banners, iteration headers, stall messages formatted correctly |
+| List | `sgf list` output | Shows cursus commands with descriptions and built-ins |
+| List | Local override display | Local cursus overrides global; only one entry per command name |
+| Logs | `sgf logs <loop-id>` | Tails the correct log file |
+| Logs | Missing log file | Exits 1 with error message |
+| Flags | `-a` and `-i` mutual exclusion | Passing both exits 1 with error message |
 
 ### Test infrastructure
 
@@ -257,6 +268,7 @@ Springfield is tested via integration tests that exercise the full CLI. All inte
 - **Concurrency semaphore** (`SGF_PERMITS` / `run_sgf()`) — limits concurrent `sgf` subprocess invocations to prevent resource exhaustion
 - **Automatic preflight skip** — `sgf_cmd()` injects `SGF_SKIP_PREFLIGHT=1` and mock `PATH` by default
 - **Mock pnpm** — Frontend scaffolding tests use a mock `pnpm` binary that creates expected files (package.json, vite.config.ts, etc.) without network access. Tests verify that `sgf init` invokes `pnpm create vite@latest . -- --template react-ts` with the correct arguments and handles success/failure appropriately.
+
 
 ## CLI Commands
 
@@ -815,13 +827,13 @@ The `.sgf/logs/` directory is gitignored.
 
 ## Console Output
 
-sgf uses a rounded-box badge for all status output to stderr. Every message is wrapped in a 3-line box drawn with Unicode box-drawing characters (`╭╮╰╯│─`). The `sgf` label appears on the middle line in bold. The box borders are dim. Message text sits to the right of the box on the middle line — its color conveys semantic state.
+sgf uses a rounded-box badge for all status output to stderr. Every message is wrapped in a 3-line box drawn with Unicode box-drawing characters (\`╭╮╰╯│─\`). The \`sgf\` label appears on the middle line in bold. The box borders are dim. Message text sits to the right of the box on the middle line — its color conveys semantic state.
 
 ### Visual Format
 
-Each message gets its own 3-line box. The box is always 7 characters wide (`╭─────╮`). The `sgf` label is centered inside on the middle line in bold. The message text appears to the right of the closing `│` on the middle line.
+Each message gets its own 3-line box. The box is always 7 characters wide (\`╭─────╮\`). The \`sgf\` label is centered inside on the middle line in bold. The message text appears to the right of the closing \`│\` on the middle line.
 
-```
+\`\`\`
 ╭─────╮
 │ sgf │ launching iteration runner [build-20260312T143000]
 ╰─────╯ iterations: 10 · mode: afk
@@ -841,6 +853,9 @@ Each message gets its own 3-line box. The box is always 7 characters wide (`╭�
 │ sgf │ pn export ok
 ╰─────╯
 ╭─────╮
+│ sgf │ fm export ok
+╰─────╯
+╭─────╮
 │ sgf │ pushing → origin/main...
 ╰─────╯
 ╭─────╮
@@ -852,77 +867,77 @@ Each message gets its own 3-line box. The box is always 7 characters wide (`╭�
 ╭─────╮
 │ sgf │ iterations exhausted [build-20260312T143000]
 ╰─────╯
-```
+\`\`\`
 
 ### Color Scheme
 
 | State | Message Color | When |
 |-------|---------------|------|
 | Action | White | In-progress operations: launching, recovering, pushing, starting daemon |
-| Success | Green | Completed operations: recovery complete, daemon ready, pn export ok, loop complete, pushed |
-| Warning | Yellow | Non-fatal issues: pn export skipped, pn doctor failed, iterations exhausted |
-| Error | Red | Fatal failures: agent exited with error, pn export failed |
+| Success | Green | Completed operations: recovery complete, daemon ready, pn export ok, fm export ok, loop complete, pushed |
+| Warning | Yellow | Non-fatal issues: pn export skipped, fm export skipped, pn doctor failed, iterations exhausted |
+| Error | Red | Fatal failures: agent exited with error, pn export failed, fm export failed |
 | Detail | Dim (gray) | Supplementary info: iterations, mode (below box, no badge) |
 
-The box borders (`╭─────╮`, `│`, `╰─────╯`) are always **dim**. The `sgf` text inside the box is always **bold** (`\x1b[1m sgf \x1b[0m`) — normal text color regardless of message state.
+The box borders (\`╭─────╮\`, \`│\`, \`╰─────╯\`) are always **dim**. The \`sgf\` text inside the box is always **bold** (\`\x1b[1m sgf \x1b[0m\`) — normal text color regardless of message state.
 
 ### Box Construction
 
 The badge box is 3 lines emitted to stderr:
 
-1. **Top**: `dim(╭─────╮)`
-2. **Middle**: `dim(│) bold( sgf ) dim(│)` + space + colored message
-3. **Bottom**: `dim(╰─────╯)` + optional detail text
+1. **Top**: \`dim(╭─────╮)\`
+2. **Middle**: \`dim(│) bold( sgf ) dim(│)\` + space + colored message
+3. **Bottom**: \`dim(╰─────╯)\` + optional detail text
 
-The box is stateless — each semantic output call (`print_action`, `print_success`, etc.) emits its own complete 3-line box. No buffering or grouping.
+The box is stateless — each semantic output call (\`print_action\`, \`print_success\`, etc.) emits its own complete 3-line box. No buffering or grouping.
 
 ### Detail Lines
 
-Detail lines appear on the bottom line of the box, to the right of `╰─────╯`, aligned with the message text on the middle line (8 characters: 7-char box width + 1-space gap). They are rendered in dim gray.
+Detail lines appear on the bottom line of the box, to the right of \`╰─────╯\`, aligned with the message text on the middle line (8 characters: 7-char box width + 1-space gap). They are rendered in dim gray.
 
 Detail lines appear for:
-- **Iteration runner launch**: `iterations: <n> · mode: <afk|interactive>`
-- **Interactive launch**: `mode: interactive`
+- **Iteration runner launch**: \`iterations: <n> · mode: <afk|interactive>\`
+- **Interactive launch**: \`mode: interactive\`
 
 ### NO_COLOR Support
 
-When the `NO_COLOR` environment variable is set, all ANSI codes and box-drawing characters are suppressed. The badge falls back to plain `sgf:` prefix. Detail lines are indented with plain spaces. Message text has no color formatting.
+When the \`NO_COLOR\` environment variable is set, all ANSI codes and box-drawing characters are suppressed. The badge falls back to plain \`sgf:\` prefix. Detail lines are indented with plain spaces. Message text has no color formatting.
 
-```
+\`\`\`
 sgf: launching iteration runner [build-20260312T143000]
      iterations: 30
 sgf: recovery complete
 sgf: agent exited with error [build-20260312T143000]
-```
+\`\`\`
 
 ### style.rs Module
 
-`crates/springfield/src/style.rs` provides styling primitives and semantic output functions. Provides ANSI primitives and sgf-specific badge box and message functions.
+\`crates/springfield/src/style.rs\` provides styling primitives and semantic output functions. Provides ANSI primitives and sgf-specific badge box and message functions.
 
 **ANSI Primitives**:
-- `bold(s)`, `dim(s)`, `green(s)`, `yellow(s)`, `red(s)`, `white(s)`
-- `no_color()` — checks `NO_COLOR` environment variable
-- `strip_ansi(s)` — removes ANSI escape sequences
+- \`bold(s)\`, \`dim(s)\`, \`green(s)\`, \`yellow(s)\`, \`red(s)\`, \`white(s)\`
+- \`no_color()\` — checks \`NO_COLOR\` environment variable
+- \`strip_ansi(s)\` — removes ANSI escape sequences
 
 **Badge Box**:
-- `badge_top()` — returns the top border: `dim(╭─────╮)`
-- `badge_mid()` — returns the middle line badge: `dim(│) bold( sgf ) dim(│)`
-- `badge_bot()` — returns the bottom border: `dim(╰─────╯)`
+- \`badge_top()\` — returns the top border: \`dim(╭─────╮)\`
+- \`badge_mid()\` — returns the middle line badge: \`dim(│) bold( sgf ) dim(│)\`
+- \`badge_bot()\` — returns the bottom border: \`dim(╰─────╯)\`
 
 **Semantic Output** (all write to stderr via 3-line box):
-- `action(msg)` — box + bold white message
-- `success(msg)` — box + bold green message
-- `warning(msg)` — box + bold yellow message
-- `error(msg)` — box + bold red message
-- `detail(msg)` — indented dim message, no box (appended to bottom line of preceding box)
+- \`action(msg)\` — box + bold white message
+- \`success(msg)\` — box + bold green message
+- \`warning(msg)\` — box + bold yellow message
+- \`error(msg)\` — box + bold red message
+- \`detail(msg)\` — indented dim message, no box (appended to bottom line of preceding box)
 
 ### Auto-push Callback
 
-The `vcs_utils::auto_push_if_changed()` callback emits raw messages (e.g., `"New commits detected, pushing..."`, `"push failed (non-fatal): ..."`). The callback in `orchestrate.rs` wraps these with the appropriate styled output function — action for "pushing", warning for "push failed".
+The \`vcs_utils::auto_push_if_changed()\` callback emits raw messages (e.g., \`"New commits detected, pushing..."\`, \`"push failed (non-fatal): ..."\`). The callback in \`orchestrate.rs\` wraps these with the appropriate styled output function — action for "pushing", warning for "push failed".
 
 ### Message Catalog
 
-Every `eprintln\\!("sgf: ...")` and `println\\!(...)` call in the springfield crate is replaced with a styled output call.
+Every \`eprintln\\\!("sgf: ...")\` and \`println\\\!(...)\` call in the springfield crate is replaced with a styled output call.
 
 | Message | Style | Source |
 |---------|-------|--------|
@@ -934,9 +949,12 @@ Every `eprintln\\!("sgf: ...")` and `println\\!(...)` call in the springfield cr
 | starting forma daemon on port {port}... | action | recovery.rs |
 | pensa daemon ready | success | recovery.rs |
 | forma daemon ready | success | recovery.rs |
-| pn export ok | success | orchestrate.rs |
-| pn export failed: {err} | error | orchestrate.rs |
-| pn export skipped (pn not found: {e}) | warning | orchestrate.rs |
+| pn export ok | success | recovery.rs |
+| pn export failed: {err} | error | recovery.rs |
+| pn export skipped (pn not found: {e}) | warning | recovery.rs |
+| fm export ok | success | recovery.rs |
+| fm export failed: {err} | error | recovery.rs |
+| fm export skipped (fm not found: {e}) | warning | recovery.rs |
 | launching interactive session | action | orchestrate.rs |
 | launching iteration runner [{loop_id}] | action | orchestrate.rs |
 | loop complete [{loop_id}] | success | orchestrate.rs |
@@ -985,10 +1003,11 @@ Before launching any loop, `sgf` runs pre-launch checks. The checks vary by stag
 
 1. **Recovery** — clean up stale state from crashed iterations (see Recovery)
 2. **Daemons** — start the pensa and forma daemons if not already running
+3. **Data export** — run `pn export` and `fm export` to sync SQLite → JSONL before the agent starts
 
 After pre-launch checks, automated stages invoke `cl` via the iteration runner; interactive stages call `cl` directly with `--verbose @{prompt_path}`, inheriting stdio.
 
-**`SGF_SKIP_PREFLIGHT`** (env var) — When set, skips daemon startup while still running recovery. This allows two-tier control: the `--skip-preflight` CLI flag disables all pre-launch checks (including recovery), while `SGF_SKIP_PREFLIGHT` disables only the infrastructure checks (daemon). Used by integration tests to exercise recovery logic without requiring a running pensa daemon.
+**`SGF_SKIP_PREFLIGHT`** (env var) — When set, skips daemon startup and data export while still running recovery. This allows two-tier control: the `--skip-preflight` CLI flag disables all pre-launch checks (including recovery), while `SGF_SKIP_PREFLIGHT` disables only the infrastructure checks (daemons, export). Used by integration tests to exercise recovery logic without requiring a running pensa daemon.
 
 ### Daemons
 
@@ -1016,6 +1035,10 @@ The `"forma:"` prefix ensures forma and pensa derive different ports for the sam
 3. Wait for readiness (poll `fm daemon status` with exponential backoff: 50ms initial, doubling up to 800ms cap, 5s total deadline)
 
 Both daemons are started in parallel. Both must be ready before proceeding with loop launch. The daemons run for the duration of the `sgf` session. They stop on SIGTERM or when `sgf` shuts down.
+
+### Data Export
+
+After daemons are ready, `sgf` runs `pn export` and `fm export` to sync each daemon's SQLite database to the committed JSONL files. This ensures the JSONL artifacts reflect the latest state before the agent begins work. Both exports are non-fatal — failures are logged as warnings (`pn export failed`, `fm export failed`) and do not block loop launch. If a binary is not found, the export is skipped with a warning.
 
 ---
 
