@@ -19,6 +19,7 @@ pub const SENTINEL_MAX_DEPTH: usize = 2;
 const DING_SENTINEL: &str = ".iter-ding";
 const MAX_ITERATIONS: u32 = 1000;
 const DEFAULT_ITER_DELAY_MS: u64 = 2000;
+const DEFAULT_POST_RESULT_TIMEOUT_SECS: u64 = 30;
 
 fn iter_delay() -> Duration {
     let ms = std::env::var("SGF_TEST_ITER_DELAY_MS")
@@ -26,6 +27,14 @@ fn iter_delay() -> Duration {
         .and_then(|v| v.parse().ok())
         .unwrap_or(DEFAULT_ITER_DELAY_MS);
     Duration::from_millis(ms)
+}
+
+pub fn default_post_result_timeout() -> Duration {
+    let secs = std::env::var("SGF_POST_RESULT_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_POST_RESULT_TIMEOUT_SECS);
+    Duration::from_secs(secs)
 }
 
 pub type IterationCallback = Box<dyn FnMut(u32, &str)>;

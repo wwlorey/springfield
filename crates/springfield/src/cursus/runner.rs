@@ -3,7 +3,6 @@ use std::fs;
 use std::io;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use chrono::Utc;
 use shutdown::{ShutdownConfig, ShutdownController};
@@ -228,7 +227,7 @@ fn run_iter(inv: &IterInvocation<'_>, controller: &ShutdownController) -> io::Re
         env_vars,
         runner_name: None,
         work_dir: Some(inv.root.to_path_buf()),
-        post_result_timeout: Duration::from_secs(30),
+        post_result_timeout: crate::iter_runner::default_post_result_timeout(),
         on_iteration_complete: None,
     };
 

@@ -113,13 +113,17 @@ fn mock_bin_path() -> &'static str {
 }
 
 fn run_sgf(cmd: &mut Command) -> std::process::Output {
+    run_sgf_timeout(cmd, Duration::from_secs(30))
+}
+
+fn run_sgf_timeout(cmd: &mut Command, timeout: Duration) -> std::process::Output {
     let _permit = SGF_PERMITS
         .acquire_timeout(Duration::from_secs(60))
         .expect("semaphore timed out");
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     ChildGuard::spawn(cmd)
         .expect("spawn sgf")
-        .wait_with_output_timeout(Duration::from_secs(30))
+        .wait_with_output_timeout(timeout)
         .expect("failed to run sgf")
 }
 
@@ -7792,5 +7796,51 @@ fn export_failure_does_not_block_loop() {
     assert!(
         stderr.contains("pn export") || stderr.contains("export"),
         "stderr should contain export failure warning, got: {stderr}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// AFK post-result timeout
+// ---------------------------------------------------------------------------
+
+#[test]
+fn afk_post_result_timeout_kills_hung_agent() {
+    let tmp = setup_test_dir();
+    let prompt = setup_simple_prompt_test(tmp.path());
+
+    let result_json = r#"{"type":"result","result":"Done.","session_id":"s1","usage":{"input_tokens":100,"output_tokens":200}}"#;
+    let mock = create_mock_script(
+        tmp.path(),
+        "mock_agent.sh",
+        &format!("#!/bin/sh\necho '{}'\nsleep 300\n", result_json),
+    );
+
+    let timeout_secs = 3;
+    let start = std::time::Instant::now();
+    let output = run_sgf_timeout(
+        sgf_cmd(tmp.path())
+            .args([prompt, "-a"])
+            .env("SGF_AGENT_COMMAND", &mock)
+            .env("SGF_POST_RESULT_TIMEOUT_SECS", timeout_secs.to_string())
+            .env("RUST_LOG", "springfield=warn")
+            .env_remove("SGF_TEST_NO_SETSID")
+            .stdin(Stdio::null()),
+        Duration::from_secs(30),
+    );
+    let elapsed = start.elapsed();
+
+    assert!(
+        elapsed >= Duration::from_secs(timeout_secs),
+        "should have waited for the timeout period, only took {elapsed:?}"
+    );
+    assert!(
+        elapsed < Duration::from_secs(timeout_secs + 10),
+        "should have killed hung process within reasonable time after timeout, took {elapsed:?}"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("did not exit after result event"),
+        "stderr should contain post-result timeout warning, got:\n{stderr}"
     );
 }
