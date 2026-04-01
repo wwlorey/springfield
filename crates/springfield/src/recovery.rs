@@ -181,6 +181,21 @@ pub fn export_pensa() {
     }
 }
 
+pub fn export_forma() {
+    match Command::new("fm").arg("export").output() {
+        Ok(out) if out.status.success() => {
+            style::print_success("fm export ok");
+        }
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            style::print_error(&format!("fm export failed: {}", stderr.trim()));
+        }
+        Err(e) => {
+            style::print_warning(&format!("fm export skipped (fm not found: {e})"));
+        }
+    }
+}
+
 fn daemon_is_reachable(bin: &str, root: &Path) -> bool {
     Command::new(bin)
         .args(["daemon", "status"])

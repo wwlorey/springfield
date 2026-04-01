@@ -138,6 +138,7 @@ fn run_pre_launch(root: &Path, skip_preflight: bool) {
     }
 
     springfield::recovery::export_pensa();
+    springfield::recovery::export_forma();
 }
 
 fn resolve_command(root: &Path, name: &str) -> Result<cursus::ResolvedCursus, String> {
