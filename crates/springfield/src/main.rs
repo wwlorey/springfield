@@ -163,7 +163,7 @@ fn run_simple_prompt(root: &Path, args: &DynamicArgs, prompt_path: &Path) -> ! {
     let iterations = args.iterations.unwrap_or(1);
     let auto_push = !args.no_push;
 
-    let loop_id = format!("simple-{}", &uuid::Uuid::new_v4().to_string()[..8]);
+    let loop_id = springfield::loop_mgmt::generate_loop_id("simple", None);
 
     let log_file = springfield::loop_mgmt::create_log_file(root, &loop_id).ok();
 
