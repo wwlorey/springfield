@@ -56,19 +56,36 @@ impl ChildGuard {
 
     pub fn wait_with_output_timeout(mut self, timeout: Duration) -> io::Result<Output> {
         let deadline = Instant::now() + timeout;
+
+        #[allow(clippy::zombie_processes)]
+        let mut child = self.child.take().expect("child already consumed");
+
+        let stdout_handle = child.stdout.take().map(|out| {
+            thread::spawn(move || {
+                let mut buf = Vec::new();
+                let mut out = out;
+                let _ = out.read_to_end(&mut buf);
+                buf
+            })
+        });
+        let stderr_handle = child.stderr.take().map(|err| {
+            thread::spawn(move || {
+                let mut buf = Vec::new();
+                let mut err = err;
+                let _ = err.read_to_end(&mut buf);
+                buf
+            })
+        });
+
         loop {
-            match self.try_wait()? {
+            match child.try_wait()? {
                 Some(status) => {
-                    #[allow(clippy::zombie_processes)]
-                    let mut child = self.child.take().expect("child already consumed");
-                    let mut stdout = Vec::new();
-                    let mut stderr = Vec::new();
-                    if let Some(mut out) = child.stdout.take() {
-                        let _ = out.read_to_end(&mut stdout);
-                    }
-                    if let Some(mut err) = child.stderr.take() {
-                        let _ = err.read_to_end(&mut stderr);
-                    }
+                    let stdout = stdout_handle
+                        .map(|h| h.join().unwrap_or_default())
+                        .unwrap_or_default();
+                    let stderr = stderr_handle
+                        .map(|h| h.join().unwrap_or_default())
+                        .unwrap_or_default();
                     return Ok(Output {
                         status,
                         stdout,
@@ -76,6 +93,7 @@ impl ChildGuard {
                     });
                 }
                 None if Instant::now() >= deadline => {
+                    self.child = Some(child);
                     return Err(io::Error::new(
                         io::ErrorKind::TimedOut,
                         format!(

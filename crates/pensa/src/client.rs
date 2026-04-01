@@ -18,7 +18,11 @@ impl Default for Client {
 impl Client {
     pub fn new() -> Self {
         let base_url = Self::resolve_url();
-        let http = HttpClient::new();
+        let http = HttpClient::builder()
+            .connect_timeout(std::time::Duration::from_secs(3))
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .expect("build http client");
         Client { http, base_url }
     }
 
