@@ -7628,3 +7628,169 @@ fn simple_prompt_exhausted_writes_metadata_with_correct_status() {
     let sid2 = iterations[1]["session_id"].as_str().unwrap();
     assert_ne!(sid1, sid2, "each iteration should have a unique session_id");
 }
+
+// ===========================================================================
+// Pre-launch: Daemon lifecycle
+// ===========================================================================
+
+#[test]
+fn daemon_lifecycle_daemons_reachable_and_loop_runs() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let mock_dir = TempDir::new().unwrap();
+    // Mock pn/fm that handle daemon status (exit 0 = reachable) and export
+    create_mock_script(mock_dir.path(), "pn", "#!/bin/sh\nexit 0\n");
+    create_mock_script(mock_dir.path(), "fm", "#!/bin/sh\nexit 0\n");
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        "#!/bin/sh\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
+    );
+    let mock_path = format!(
+        "{}:{}",
+        mock_dir.path().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+
+    let prompt = tmp.path().join("task.md");
+    fs::write(&prompt, "test task").unwrap();
+
+    // Run WITHOUT SGF_SKIP_PREFLIGHT so daemon lifecycle code executes
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["task.md", "-a", "-n", "2"])
+            .env("SGF_AGENT_COMMAND", &mock_agent)
+            .env("PATH", &mock_path)
+            .env_remove("SGF_SKIP_PREFLIGHT"),
+    );
+
+    assert!(
+        output.status.success(),
+        "loop should complete after daemon pre-launch, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+// ===========================================================================
+// Pre-launch: Data export
+// ===========================================================================
+
+#[test]
+fn data_export_runs_pn_and_fm_export_before_loop() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let mock_dir = TempDir::new().unwrap();
+    let marker_dir = TempDir::new().unwrap();
+
+    // Mock pn: writes marker on "export", exits 0 on everything else (including daemon status)
+    create_mock_script(
+        mock_dir.path(),
+        "pn",
+        &format!(
+            "#!/bin/sh\nif [ \"$1\" = \"export\" ]; then touch \"{}/pn_export\"; fi\nexit 0\n",
+            marker_dir.path().display()
+        ),
+    );
+    create_mock_script(
+        mock_dir.path(),
+        "fm",
+        &format!(
+            "#!/bin/sh\nif [ \"$1\" = \"export\" ]; then touch \"{}/fm_export\"; fi\nexit 0\n",
+            marker_dir.path().display()
+        ),
+    );
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        "#!/bin/sh\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
+    );
+    let mock_path = format!(
+        "{}:{}",
+        mock_dir.path().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+
+    let prompt = tmp.path().join("task.md");
+    fs::write(&prompt, "test task").unwrap();
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["task.md", "-a", "-n", "1"])
+            .env("SGF_AGENT_COMMAND", &mock_agent)
+            .env("PATH", &mock_path)
+            .env_remove("SGF_SKIP_PREFLIGHT"),
+    );
+
+    assert!(
+        output.status.success(),
+        "sgf should succeed, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        marker_dir.path().join("pn_export").exists(),
+        "pn export should have been called before loop"
+    );
+    assert!(
+        marker_dir.path().join("fm_export").exists(),
+        "fm export should have been called before loop"
+    );
+}
+
+// ===========================================================================
+// Pre-launch: Export failure non-fatal
+// ===========================================================================
+
+#[test]
+fn export_failure_does_not_block_loop() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let mock_dir = TempDir::new().unwrap();
+
+    // Mock pn: daemon status → exit 0, export → exit 1 with stderr
+    create_mock_script(
+        mock_dir.path(),
+        "pn",
+        "#!/bin/sh\nif [ \"$1\" = \"export\" ]; then echo 'pn export error' >&2; exit 1; fi\nexit 0\n",
+    );
+    create_mock_script(
+        mock_dir.path(),
+        "fm",
+        "#!/bin/sh\nif [ \"$1\" = \"export\" ]; then echo 'fm export error' >&2; exit 1; fi\nexit 0\n",
+    );
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        "#!/bin/sh\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
+    );
+    let mock_path = format!(
+        "{}:{}",
+        mock_dir.path().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+
+    let prompt = tmp.path().join("task.md");
+    fs::write(&prompt, "test task").unwrap();
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["task.md", "-a", "-n", "1"])
+            .env("SGF_AGENT_COMMAND", &mock_agent)
+            .env("PATH", &mock_path)
+            .env_remove("SGF_SKIP_PREFLIGHT"),
+    );
+
+    assert!(
+        output.status.success(),
+        "loop should still complete despite export failures, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("pn export") || stderr.contains("export"),
+        "stderr should contain export failure warning, got: {stderr}"
+    );
+}
