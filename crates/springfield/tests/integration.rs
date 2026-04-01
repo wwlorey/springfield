@@ -1056,6 +1056,297 @@ fn prompts_not_scaffolded_by_init() {
     );
 }
 
+// ===========================================================================
+// Frontend scaffolding integration tests
+// ===========================================================================
+
+/// Build a `sgf_cmd` with a custom mock PATH (instead of the shared MOCK_BINS).
+fn sgf_cmd_with_path(dir: &Path, path: &str) -> Command {
+    let mut cmd = Command::new(sgf_bin());
+    cmd.current_dir(dir);
+    cmd.env("HOME", fake_home());
+    cmd.env("PATH", path);
+    cmd.env("SGF_SKIP_PREFLIGHT", "1");
+    cmd.env("SGF_TEST_NO_SETSID", "1");
+    cmd.env("SGF_TEST_ITER_DELAY_MS", "0");
+    cmd.env_remove("PN_DAEMON");
+    cmd.env_remove("PN_DAEMON_HOST");
+    cmd.env_remove("FM_DAEMON");
+    cmd.env_remove("FM_DAEMON_HOST");
+    cmd
+}
+
+/// Create a mock `pnpm` that creates frontend files when invoked with `create`.
+fn mock_pnpm_that_creates_files(dir: &Path) -> PathBuf {
+    create_mock_script(
+        dir,
+        "pnpm",
+        r#"#!/bin/sh
+if [ "$1" = "--version" ]; then
+    echo "9.0.0"
+    exit 0
+fi
+if [ "$1" = "create" ]; then
+    echo '{"name":"test","version":"0.0.0"}' > "$PWD/package.json"
+    echo 'import { defineConfig } from "vite";' > "$PWD/vite.config.ts"
+    echo 'export default {};' > "$PWD/eslint.config.js"
+    exit 0
+fi
+exit 0
+"#,
+    )
+}
+
+#[test]
+fn init_frontend_scaffolding_runs_by_default() {
+    let tmp = setup_test_dir();
+    let mock_dir = TempDir::new().unwrap();
+    mock_pnpm_that_creates_files(mock_dir.path());
+    create_mock_script(mock_dir.path(), "pn", "#!/bin/sh\nexit 0\n");
+    create_mock_script(mock_dir.path(), "fm", "#!/bin/sh\nexit 0\n");
+    let path = format!(
+        "{}:{}",
+        mock_dir.path().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+
+    let output = run_sgf(sgf_cmd_with_path(tmp.path(), &path).arg("init"));
+    assert!(output.status.success(), "sgf init failed");
+
+    assert!(
+        tmp.path().join("package.json").exists(),
+        "package.json should be created by frontend scaffolding"
+    );
+    assert!(
+        tmp.path().join("vite.config.ts").exists(),
+        "vite.config.ts should be created by frontend scaffolding"
+    );
+    assert!(
+        tmp.path().join("eslint.config.js").exists(),
+        "eslint.config.js should be created by frontend scaffolding"
+    );
+}
+
+#[test]
+fn init_frontend_scaffolding_skipped_with_no_fe() {
+    let tmp = setup_test_dir();
+    let output = run_sgf(sgf_cmd(tmp.path()).args(["init", "--no-fe"]));
+    assert!(output.status.success(), "sgf init --no-fe failed");
+
+    assert!(
+        !tmp.path().join("package.json").exists(),
+        "package.json should NOT be created with --no-fe"
+    );
+    assert!(
+        !tmp.path().join("vite.config.ts").exists(),
+        "vite.config.ts should NOT be created with --no-fe"
+    );
+}
+
+#[test]
+fn init_frontend_skipped_when_package_json_exists() {
+    let tmp = setup_test_dir();
+    let mock_dir = TempDir::new().unwrap();
+    mock_pnpm_that_creates_files(mock_dir.path());
+    create_mock_script(mock_dir.path(), "pn", "#!/bin/sh\nexit 0\n");
+    create_mock_script(mock_dir.path(), "fm", "#!/bin/sh\nexit 0\n");
+    let path = format!(
+        "{}:{}",
+        mock_dir.path().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+
+    let original_content = r#"{"name":"my-project"}"#;
+    fs::write(tmp.path().join("package.json"), original_content).unwrap();
+
+    let output = run_sgf(sgf_cmd_with_path(tmp.path(), &path).arg("init"));
+    assert!(output.status.success(), "sgf init failed");
+
+    let content = fs::read_to_string(tmp.path().join("package.json")).unwrap();
+    assert_eq!(
+        content, original_content,
+        "existing package.json should be preserved"
+    );
+}
+
+#[test]
+fn init_frontend_skipped_when_vite_config_exists() {
+    let tmp = setup_test_dir();
+    let mock_dir = TempDir::new().unwrap();
+    mock_pnpm_that_creates_files(mock_dir.path());
+    create_mock_script(mock_dir.path(), "pn", "#!/bin/sh\nexit 0\n");
+    create_mock_script(mock_dir.path(), "fm", "#!/bin/sh\nexit 0\n");
+    let path = format!(
+        "{}:{}",
+        mock_dir.path().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+
+    fs::write(tmp.path().join("vite.config.ts"), "export default {}").unwrap();
+
+    let output = run_sgf(sgf_cmd_with_path(tmp.path(), &path).arg("init"));
+    assert!(output.status.success(), "sgf init failed");
+
+    assert!(
+        !tmp.path().join("package.json").exists(),
+        "package.json should NOT be created when vite.config.ts exists"
+    );
+    let content = fs::read_to_string(tmp.path().join("vite.config.ts")).unwrap();
+    assert_eq!(
+        content, "export default {}",
+        "existing vite.config.ts should be preserved"
+    );
+}
+
+#[test]
+fn init_frontend_pnpm_not_found_error() {
+    let tmp = setup_test_dir();
+    let mock_dir = TempDir::new().unwrap();
+    create_mock_script(mock_dir.path(), "pn", "#!/bin/sh\nexit 0\n");
+    create_mock_script(mock_dir.path(), "fm", "#!/bin/sh\nexit 0\n");
+    create_mock_script(
+        mock_dir.path(),
+        "git",
+        "#!/bin/sh\nexec /usr/bin/git \"$@\"\n",
+    );
+    let path = mock_dir.path().display().to_string();
+
+    let output = run_sgf(sgf_cmd_with_path(tmp.path(), &path).arg("init"));
+    assert!(
+        !output.status.success(),
+        "sgf init should fail when pnpm is missing"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("pnpm not found"),
+        "error should mention pnpm not found, got: {stderr}"
+    );
+}
+
+#[test]
+fn init_frontend_create_vite_failure_warning() {
+    let tmp = setup_test_dir();
+    let mock_dir = TempDir::new().unwrap();
+    create_mock_script(
+        mock_dir.path(),
+        "pnpm",
+        r#"#!/bin/sh
+if [ "$1" = "--version" ]; then
+    echo "9.0.0"
+    exit 0
+fi
+exit 1
+"#,
+    );
+    create_mock_script(mock_dir.path(), "pn", "#!/bin/sh\nexit 0\n");
+    create_mock_script(mock_dir.path(), "fm", "#!/bin/sh\nexit 0\n");
+    let path = format!(
+        "{}:{}",
+        mock_dir.path().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+
+    let output = run_sgf(sgf_cmd_with_path(tmp.path(), &path).arg("init"));
+    assert!(
+        output.status.success(),
+        "sgf init should still succeed when create-vite fails"
+    );
+
+    assert!(
+        tmp.path().join(".sgf").is_dir(),
+        "SGF infrastructure should still be scaffolded after create-vite failure"
+    );
+}
+
+#[test]
+fn init_force_does_not_rerun_frontend_scaffolding() {
+    let tmp = setup_test_dir();
+
+    static CALL_COUNT: AtomicUsize = AtomicUsize::new(0);
+    let count = CALL_COUNT.fetch_add(1, Ordering::Relaxed);
+    let marker_name = format!("pnpm_invoked_{count}");
+
+    let mock_dir = TempDir::new().unwrap();
+    let marker = mock_dir.path().join(&marker_name);
+    create_mock_script(
+        mock_dir.path(),
+        "pnpm",
+        &format!(
+            r#"#!/bin/sh
+if [ "$1" = "--version" ]; then
+    echo "9.0.0"
+    exit 0
+fi
+if [ "$1" = "create" ]; then
+    echo '{{}}' > "$PWD/package.json"
+    echo 'export default {{}};' > "$PWD/vite.config.ts"
+    echo "invoked" >> "{}"
+    exit 0
+fi
+exit 0
+"#,
+            marker.display()
+        ),
+    );
+    create_mock_script(mock_dir.path(), "pn", "#!/bin/sh\nexit 0\n");
+    create_mock_script(mock_dir.path(), "fm", "#!/bin/sh\nexit 0\n");
+    let path = format!(
+        "{}:{}",
+        mock_dir.path().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+
+    let output = run_sgf(sgf_cmd_with_path(tmp.path(), &path).arg("init"));
+    assert!(output.status.success(), "first init failed");
+    assert!(
+        marker.exists(),
+        "pnpm create should be called on first init"
+    );
+
+    fs::remove_file(&marker).unwrap();
+    git_add_commit(tmp.path(), "after first init");
+
+    let output = run_sgf(sgf_cmd_with_path(tmp.path(), &path).args(["init", "--force"]));
+    assert!(output.status.success(), "init --force failed");
+    assert!(
+        !marker.exists(),
+        "pnpm create should NOT be re-invoked on --force (frontend files already exist)"
+    );
+}
+
+#[test]
+fn init_sandbox_domains_include_npm_registries() {
+    let tmp = setup_test_dir();
+    run_sgf(sgf_cmd(tmp.path()).arg("init"));
+
+    let content = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&content).unwrap();
+    let domains = doc["sandbox"]["network"]["allowedDomains"]
+        .as_array()
+        .expect("allowedDomains should be an array");
+
+    assert!(
+        domains.contains(&serde_json::json!("registry.npmjs.org")),
+        "allowedDomains should include registry.npmjs.org"
+    );
+    assert!(
+        domains.contains(&serde_json::json!("registry.yarnpkg.com")),
+        "allowedDomains should include registry.yarnpkg.com"
+    );
+}
+
+#[test]
+fn init_gitignore_no_sveltekit() {
+    let tmp = setup_test_dir();
+    run_sgf(sgf_cmd(tmp.path()).arg("init"));
+
+    let gitignore = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
+    assert!(
+        !gitignore.contains(".svelte-kit"),
+        ".svelte-kit/ should NOT be in .gitignore"
+    );
+}
+
 #[test]
 fn end_to_end_build_passes_raw_path_and_spec() {
     let tmp = setup_test_dir();
