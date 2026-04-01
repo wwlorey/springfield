@@ -106,6 +106,8 @@ const SANDBOX_ALLOWED_DOMAINS: &[&str] = &[
     "*.githubusercontent.com",
     "crates.io",
     "*.crates.io",
+    "registry.npmjs.org",
+    "registry.yarnpkg.com",
 ];
 
 const PRE_COMMIT_YAML_FULL: &str = "\
