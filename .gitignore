@@ -3,6 +3,9 @@
 **/.pensa/daemon.port
 **/.pensa/daemon.project
 **/.pensa/daemon.url
+**/.forma/daemon.port
+**/.forma/daemon.project
+**/.forma/daemon.url
 .iter-*
 
 # Springfield
