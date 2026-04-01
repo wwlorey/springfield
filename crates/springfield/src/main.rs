@@ -253,13 +253,37 @@ fn run_simple_prompt(root: &Path, args: &DynamicArgs, prompt_path: &Path) -> ! {
         }
     };
 
+    if afk {
+        springfield::style::print_action_detail(
+            &format!("launching iteration runner [{loop_id}]"),
+            &format!("iterations: {iterations} · mode: afk"),
+        );
+    } else {
+        springfield::style::print_action_detail(
+            "launching interactive session",
+            "mode: interactive",
+        );
+    }
+
     let exit_code = springfield::iter_runner::run_iteration_loop(config, &controller);
 
     let status = match exit_code {
-        springfield::iter_runner::IterExitCode::Complete => "completed",
-        springfield::iter_runner::IterExitCode::Exhausted => "exhausted",
-        springfield::iter_runner::IterExitCode::Interrupted => "interrupted",
-        springfield::iter_runner::IterExitCode::Error => "interrupted",
+        springfield::iter_runner::IterExitCode::Complete => {
+            springfield::style::print_success(&format!("loop complete [{loop_id}]"));
+            "completed"
+        }
+        springfield::iter_runner::IterExitCode::Exhausted => {
+            springfield::style::print_warning(&format!("iterations exhausted [{loop_id}]"));
+            "exhausted"
+        }
+        springfield::iter_runner::IterExitCode::Interrupted => {
+            springfield::style::print_warning(&format!("interrupted [{loop_id}]"));
+            "interrupted"
+        }
+        springfield::iter_runner::IterExitCode::Error => {
+            springfield::style::print_error(&format!("agent exited with error [{loop_id}]"));
+            "interrupted"
+        }
     };
     if let Ok(Some(mut meta)) = loop_mgmt::read_session_metadata(root, &loop_id) {
         meta.status = status.to_string();
