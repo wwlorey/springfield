@@ -179,6 +179,22 @@ pub fn print_error_detail(msg: &str, detail: &str) {
     print_box_detail(msg, "1;31", detail);
 }
 
+pub fn detail(msg: &str) -> String {
+    if no_color() {
+        format!("{DETAIL_INDENT_NO_COLOR}{msg}")
+    } else {
+        format!("{} {}", badge_bot(), dim(msg))
+    }
+}
+
+pub fn print_detail(msg: &str) {
+    if no_color() {
+        eprintln!("{DETAIL_INDENT_NO_COLOR}{msg}");
+    } else {
+        eprintln!("{} {}", badge_bot(), dim(msg));
+    }
+}
+
 fn print_box(msg: &str, color_code: &str) {
     if no_color() {
         eprintln!("sgf: {msg}");
@@ -565,5 +581,37 @@ mod tests {
 
     fn format_error_detail(msg: &str, detail: &str, disabled: bool) -> String {
         format_styled_detail(msg, "1;31", detail, disabled)
+    }
+
+    fn format_detail(msg: &str, disabled: bool) -> String {
+        if disabled {
+            format!("     {msg}")
+        } else {
+            format!("{} {}", fmt_badge_bot(false), wrap("2", msg, false))
+        }
+    }
+
+    #[test]
+    fn detail_colored() {
+        let out = format_detail("iterations: 10", false);
+        assert!(out.contains("╰─────╯"));
+        assert!(out.contains("\x1b[2miterations: 10\x1b[0m"));
+    }
+
+    #[test]
+    fn detail_no_color() {
+        let out = format_detail("iterations: 10", true);
+        assert_eq!(out, "     iterations: 10");
+    }
+
+    #[test]
+    fn detail_aligns_with_badge_mid_message() {
+        let mid = format!("{} {}", fmt_badge_mid(false), wrap("1;37", "hello", false));
+        let det = format_detail("info line", false);
+        let mid_stripped = strip_ansi(&mid);
+        let det_stripped = strip_ansi(&det);
+        let msg_start = mid_stripped.chars().position(|c| c == 'h').unwrap();
+        let det_start = det_stripped.chars().position(|c| c == 'i').unwrap();
+        assert_eq!(msg_start, det_start);
     }
 }
