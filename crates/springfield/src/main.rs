@@ -21,6 +21,9 @@ enum Commands {
     Init {
         #[arg(long)]
         force: bool,
+        /// Skip frontend scaffolding (pnpm create vite)
+        #[arg(long)]
+        no_fe: bool,
     },
 
     /// Show available commands with descriptions
@@ -335,9 +338,9 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Init { force } => {
+        Commands::Init { force, no_fe } => {
             let root = std::env::current_dir().expect("failed to get current directory");
-            if let Err(e) = springfield::init::run(&root, force) {
+            if let Err(e) = springfield::init::run(&root, force, no_fe) {
                 springfield::style::print_error(&format!("init: {e}"));
                 std::process::exit(1);
             }

@@ -471,7 +471,42 @@ fn confirm_overwrite(files: &[&str]) -> io::Result<bool> {
     Ok(answer == "y" || answer == "yes")
 }
 
-pub fn run(root: &Path, force: bool) -> io::Result<()> {
+fn scaffold_frontend(root: &Path) -> io::Result<()> {
+    if root.join("package.json").exists() || root.join("vite.config.ts").exists() {
+        return Ok(());
+    }
+
+    let pnpm_check = Command::new("pnpm").arg("--version").output();
+    match pnpm_check {
+        Ok(ref out) if out.status.success() => {}
+        _ => {
+            return Err(io::Error::other(
+                "pnpm not found \u{2014} install pnpm or pass --no-fe",
+            ));
+        }
+    }
+
+    crate::style::print_action("running pnpm create vite@latest . -- --template react-ts");
+
+    let output = Command::new("pnpm")
+        .args(["create", "vite@latest", ".", "--", "--template", "react-ts"])
+        .current_dir(root)
+        .output()?;
+
+    if !output.status.success() {
+        crate::style::print_warning(
+            "pnpm create vite@latest failed \u{2014} run manually: pnpm create vite@latest . -- --template react-ts",
+        );
+    }
+
+    Ok(())
+}
+
+pub fn run(root: &Path, force: bool, no_fe: bool) -> io::Result<()> {
+    if !no_fe {
+        scaffold_frontend(root)?;
+    }
+
     create_directories(root)?;
 
     if force {
@@ -567,7 +602,7 @@ mod tests {
     fn creates_all_directories() {
         let tmp = TempDir::new().unwrap();
         git_init(tmp.path());
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
 
         for dir in DIRECTORIES {
             assert!(tmp.path().join(dir).is_dir(), "directory missing: {dir}");
@@ -578,7 +613,7 @@ mod tests {
     fn creates_all_skeleton_files() {
         let tmp = TempDir::new().unwrap();
         git_init(tmp.path());
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
 
         for sf in SKELETON_FILES {
             let path = tmp.path().join(sf.path);
@@ -592,7 +627,7 @@ mod tests {
     fn agents_md_scaffolded_with_repo_content() {
         let tmp = TempDir::new().unwrap();
         git_init(tmp.path());
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
 
         let content = fs::read_to_string(tmp.path().join("AGENTS.md")).unwrap();
         assert!(!content.is_empty(), "AGENTS.md should not be empty");
@@ -606,7 +641,7 @@ mod tests {
     fn claude_md_is_symlink() {
         let tmp = TempDir::new().unwrap();
         git_init(tmp.path());
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
 
         let claude_md = tmp.path().join("CLAUDE.md");
         let meta = claude_md.symlink_metadata().unwrap();
@@ -626,7 +661,7 @@ mod tests {
     fn cursus_directory_created() {
         let tmp = TempDir::new().unwrap();
         git_init(tmp.path());
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
 
         assert!(
             tmp.path().join(".sgf/cursus").is_dir(),
@@ -638,7 +673,7 @@ mod tests {
     fn forma_directory_created() {
         let tmp = TempDir::new().unwrap();
         git_init(tmp.path());
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
 
         assert!(
             tmp.path().join(".forma").is_dir(),
@@ -650,7 +685,7 @@ mod tests {
     fn specs_directory_not_created() {
         let tmp = TempDir::new().unwrap();
         git_init(tmp.path());
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
 
         assert!(
             !tmp.path().join("specs").exists(),
@@ -662,7 +697,7 @@ mod tests {
     fn no_memento_or_pensa_scaffolded() {
         let tmp = TempDir::new().unwrap();
         git_init(tmp.path());
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
 
         assert!(
             !tmp.path().join(".sgf/MEMENTO.md").exists(),
@@ -678,12 +713,12 @@ mod tests {
     fn does_not_overwrite_existing_skeleton() {
         let tmp = TempDir::new().unwrap();
         git_init(tmp.path());
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
 
         let modified = "custom AGENTS.md";
         fs::write(tmp.path().join("AGENTS.md"), modified).unwrap();
 
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
 
         assert_eq!(
             fs::read_to_string(tmp.path().join("AGENTS.md")).unwrap(),
@@ -704,7 +739,7 @@ mod tests {
     fn idempotent_run() {
         let tmp = TempDir::new().unwrap();
         git_init(tmp.path());
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
 
         let first_run: Vec<(String, String)> = SKELETON_FILES
             .iter()
@@ -716,7 +751,7 @@ mod tests {
             })
             .collect();
 
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
 
         for (path, content) in &first_run {
             let after = fs::read_to_string(tmp.path().join(path)).unwrap();
@@ -728,7 +763,7 @@ mod tests {
     fn prek_hooks_installed() {
         let tmp = TempDir::new().unwrap();
         git_init(tmp.path());
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
 
         assert!(
             tmp.path().join(".git/hooks/pre-commit").exists(),
@@ -742,7 +777,7 @@ mod tests {
     fn gitignore_created_from_scratch() {
         let tmp = TempDir::new().unwrap();
         git_init(tmp.path());
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
 
         let content = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
         for entry in GITIGNORE_ENTRIES {
@@ -760,7 +795,7 @@ mod tests {
         git_init(tmp.path());
         fs::write(tmp.path().join(".gitignore"), "# Custom\nmy-secret.key\n").unwrap();
 
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
 
         let content = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
         assert!(content.contains("my-secret.key"), "custom entry lost");
@@ -776,10 +811,10 @@ mod tests {
     fn gitignore_no_duplicates_on_rerun() {
         let tmp = TempDir::new().unwrap();
         git_init(tmp.path());
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
         let first = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
 
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
         let second = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
 
         assert_eq!(first, second, ".gitignore changed on second run");
@@ -791,7 +826,7 @@ mod tests {
         git_init(tmp.path());
         fs::write(tmp.path().join(".gitignore"), "/target\n.DS_Store\n").unwrap();
 
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
 
         let content = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
         let target_count = content.lines().filter(|l| l.trim() == "/target").count();
@@ -810,7 +845,7 @@ mod tests {
     fn settings_json_created_from_scratch() {
         let tmp = TempDir::new().unwrap();
         git_init(tmp.path());
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
 
         let content = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
         let doc: Value = serde_json::from_str(&content).unwrap();
@@ -850,7 +885,7 @@ mod tests {
         )
         .unwrap();
 
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
 
         let content = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
         let doc: Value = serde_json::from_str(&content).unwrap();
@@ -896,9 +931,9 @@ mod tests {
     fn settings_json_no_duplicates_on_rerun() {
         let tmp = TempDir::new().unwrap();
         git_init(tmp.path());
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
 
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
 
         let content = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
         let doc: Value = serde_json::from_str(&content).unwrap();
@@ -921,7 +956,7 @@ mod tests {
     fn pre_commit_created_from_scratch() {
         let tmp = TempDir::new().unwrap();
         git_init(tmp.path());
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
 
         let content = fs::read_to_string(tmp.path().join(".pre-commit-config.yaml")).unwrap();
         assert!(content.contains("pensa-export"));
@@ -947,7 +982,7 @@ repos:
 ";
         fs::write(tmp.path().join(".pre-commit-config.yaml"), existing).unwrap();
 
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
 
         let content = fs::read_to_string(tmp.path().join(".pre-commit-config.yaml")).unwrap();
         assert!(
@@ -964,10 +999,10 @@ repos:
     fn pre_commit_no_duplicates_on_rerun() {
         let tmp = TempDir::new().unwrap();
         git_init(tmp.path());
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
         let first = fs::read_to_string(tmp.path().join(".pre-commit-config.yaml")).unwrap();
 
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
         let second = fs::read_to_string(tmp.path().join(".pre-commit-config.yaml")).unwrap();
 
         for hook_id in &[
@@ -988,7 +1023,7 @@ repos:
         // pre-commit passes staged filenames causing "unexpected argument" errors.
         let tmp = TempDir::new().unwrap();
         git_init(tmp.path());
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
 
         let content = fs::read_to_string(tmp.path().join(".pre-commit-config.yaml")).unwrap();
         let doc: serde_yaml::Value = serde_yaml::from_str(&content).unwrap();
@@ -1021,7 +1056,7 @@ repos:
         // properties as those from the fresh-template path.
         let tmp_fresh = TempDir::new().unwrap();
         git_init(tmp_fresh.path());
-        run(tmp_fresh.path(), false).unwrap();
+        run(tmp_fresh.path(), false, true).unwrap();
 
         let tmp_merge = TempDir::new().unwrap();
         git_init(tmp_merge.path());
@@ -1031,7 +1066,7 @@ repos:
             "repos:\n  - repo: https://example.com\n    rev: v1\n    hooks:\n      - id: dummy\n",
         )
         .unwrap();
-        run(tmp_merge.path(), false).unwrap();
+        run(tmp_merge.path(), false, true).unwrap();
 
         let fresh: serde_yaml::Value = serde_yaml::from_str(
             &fs::read_to_string(tmp_fresh.path().join(".pre-commit-config.yaml")).unwrap(),
@@ -1074,13 +1109,13 @@ repos:
     fn full_init_idempotent_with_config_files() {
         let tmp = TempDir::new().unwrap();
         git_init(tmp.path());
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
 
         let gitignore1 = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
         let settings1 = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
         let precommit1 = fs::read_to_string(tmp.path().join(".pre-commit-config.yaml")).unwrap();
 
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
 
         let gitignore2 = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
         let settings2 = fs::read_to_string(tmp.path().join(".claude/settings.json")).unwrap();
@@ -1100,7 +1135,7 @@ repos:
     fn backpressure_not_scaffolded() {
         let tmp = TempDir::new().unwrap();
         git_init(tmp.path());
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
 
         assert!(
             !tmp.path().join("BACKPRESSURE.md").exists(),
@@ -1116,7 +1151,7 @@ repos:
     fn prompts_not_scaffolded() {
         let tmp = TempDir::new().unwrap();
         git_init(tmp.path());
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
 
         assert!(
             !tmp.path().join(".sgf/prompts").exists(),
@@ -1128,13 +1163,13 @@ repos:
     fn force_does_not_overwrite_agents_md() {
         let tmp = TempDir::new().unwrap();
         git_init(tmp.path());
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
 
         let agents_path = tmp.path().join("AGENTS.md");
         let custom = "Custom AGENTS.md content\n";
         fs::write(&agents_path, custom).unwrap();
 
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
 
         let content = fs::read_to_string(&agents_path).unwrap();
         assert_eq!(content, custom, "should not overwrite AGENTS.md");
@@ -1193,7 +1228,7 @@ repos:
     fn warns_missing_memento_and_backpressure() {
         let tmp = TempDir::new().unwrap();
         git_init(tmp.path());
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
 
         assert!(
             !tmp.path().join(".sgf/MEMENTO.md").exists(),
@@ -1213,7 +1248,7 @@ repos:
         fs::write(tmp.path().join(".sgf/MEMENTO.md"), "# Memento").unwrap();
         fs::write(tmp.path().join(".sgf/BACKPRESSURE.md"), "# Backpressure").unwrap();
 
-        run(tmp.path(), false).unwrap();
+        run(tmp.path(), false, true).unwrap();
 
         assert!(tmp.path().join(".sgf/MEMENTO.md").exists());
         assert!(tmp.path().join(".sgf/BACKPRESSURE.md").exists());
@@ -1241,5 +1276,124 @@ repos:
                 .len(),
             SANDBOX_ALLOWED_DOMAINS.len()
         );
+    }
+
+    // --- Frontend scaffolding tests ---
+
+    #[test]
+    fn no_fe_flag_skips_frontend_scaffolding() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+        run(tmp.path(), false, true).unwrap();
+
+        assert!(!tmp.path().join("package.json").exists());
+        assert!(!tmp.path().join("vite.config.ts").exists());
+    }
+
+    #[test]
+    fn frontend_skipped_when_package_json_exists() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+        fs::write(tmp.path().join("package.json"), "{}").unwrap();
+
+        scaffold_frontend(tmp.path()).unwrap();
+
+        let content = fs::read_to_string(tmp.path().join("package.json")).unwrap();
+        assert_eq!(content, "{}", "package.json should not be modified");
+    }
+
+    #[test]
+    fn frontend_skipped_when_vite_config_exists() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+        fs::write(tmp.path().join("vite.config.ts"), "export default {}").unwrap();
+
+        scaffold_frontend(tmp.path()).unwrap();
+
+        assert!(!tmp.path().join("package.json").exists());
+    }
+
+    #[test]
+    #[ignore]
+    fn frontend_scaffold_runs_when_pnpm_available() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+
+        let has_pnpm = Command::new("pnpm")
+            .arg("--version")
+            .output()
+            .is_ok_and(|o| o.status.success());
+        if !has_pnpm {
+            return;
+        }
+
+        scaffold_frontend(tmp.path()).unwrap();
+
+        assert!(
+            tmp.path().join("package.json").exists(),
+            "package.json should be created by create-vite"
+        );
+        assert!(
+            tmp.path().join("vite.config.ts").exists(),
+            "vite.config.ts should be created by create-vite"
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn frontend_scaffold_idempotent_after_first_run() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+
+        let has_pnpm = Command::new("pnpm")
+            .arg("--version")
+            .output()
+            .is_ok_and(|o| o.status.success());
+        if !has_pnpm {
+            return;
+        }
+
+        scaffold_frontend(tmp.path()).unwrap();
+        let first_pkg = fs::read_to_string(tmp.path().join("package.json")).unwrap();
+
+        scaffold_frontend(tmp.path()).unwrap();
+        let second_pkg = fs::read_to_string(tmp.path().join("package.json")).unwrap();
+
+        assert_eq!(first_pkg, second_pkg, "package.json changed on second run");
+    }
+
+    #[test]
+    #[ignore]
+    fn force_does_not_rerun_frontend_scaffolding() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+
+        let has_pnpm = Command::new("pnpm")
+            .arg("--version")
+            .output()
+            .is_ok_and(|o| o.status.success());
+        if !has_pnpm {
+            return;
+        }
+
+        run(tmp.path(), false, false).unwrap();
+        let pkg = fs::read_to_string(tmp.path().join("package.json")).unwrap();
+
+        // Commit skeleton so --force doesn't fail on untracked
+        Command::new("git")
+            .args(["add", "-A"])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
+
+        run(tmp.path(), true, false).unwrap();
+        let pkg_after = fs::read_to_string(tmp.path().join("package.json")).unwrap();
+
+        assert_eq!(pkg, pkg_after, "force should not re-run create-vite");
     }
 }
