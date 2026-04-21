@@ -4,57 +4,14 @@ auto_push = true
 
 
 [[iter]]
-name = "gather-preces"
-prompt = "precatur-0-gather-preces.md"
-mode = "afk"
-produces = "preces-json"
-
+name = "gather-refine-and-create"
+prompt = "gather-refine-and-create.md"
+mode = "interactive"
 
 [[iter]]
-name = "discuss-and-interview"
-prompt = "precatur-1-discuss-and-interview.md"
+name = "harden"
+prompt = "spec-harden.md"
 mode = "interactive"
-consumes = ["preces-json"]
 produces = "discuss-and-interview-summary"
-
-
-[[iter]]
-name = "write"
-prompt = "precatur-1-write.md"
-mode = "afk"
-iterations = 1
-consumes = ["discuss-and-interview-summary"]
-produces = "draft-presentation"
-auto_push = true
-
-
-[[iter]]
-name = "review"
-prompt = "precatur-2-review.md"
-mode = "interactive"
-consumes = ["discuss-and-interview-summary", "draft-presentation"]
-next = "approve"
-
-  [iter.transitions]
-  on_revise = "revise"
-
-
-[[iter]]
-name = "revise"
-prompt = "precatur-3-revise.md"
-mode = "afk"
-iterations = 1
-consumes = ["discuss-and-interview-summary", "draft-presentation"]
-produces = "draft-presentation"
-next = "review"
-
-
-[[iter]]
-name = "approve"
-prompt = "precatur-4-approve.md"
-mode = "afk"
-
-
-
-
+iterations = 25
 

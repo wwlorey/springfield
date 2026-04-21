@@ -12,5 +12,4 @@ mode = "interactive"
 name = "harden"
 prompt = "spec-harden.md"
 mode = "interactive"
-produces = "discuss-and-interview-summary"
 iterations = 25
