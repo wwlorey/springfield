@@ -14,7 +14,7 @@ Read the specs marked `draft` and compare them against this quality checklist:
 - **KISS**: Operates under KISS (Keep It Simple Stupid) principles.
 - **User Interface**: All necessary UI elements for each user flow are present and connected to backend functionality. All elements are EXPLICITLY (not implicitly) defined.
 
-Present your findings to the user. Update the specs to fix the obvious problems. Then, surface the more complicated questions/concerns to the user for their input, going one by one through each. For each of these more complicated matters, present 3 recommendations with pros and cons for each. Update the specs based on the user's input.
+Present your findings to the user. Update the specs to fix the obvious problems. Then, surface the more complicated questions/concerns to the user for their input, going one by one through each. For each of these more complicated matters, present 3 recommendations with pros and cons for each, along with your recommendation. Update the specs based on the user's input.
 
 When finished editing the specs:
 - **Export fm and commit your changes**.
