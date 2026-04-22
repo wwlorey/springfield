@@ -1,21 +1,22 @@
 # session-resume Specification
 
-Session resume — persist Claude session IDs and loop config to enable resuming interrupted sessions via sgf resume
+Session resume — persist Claude session IDs and loop config to enable resuming interrupted sessions via --resume flag on any sgf subcommand
 
 | Field | Value |
 |-------|-------|
 | Src | `crates/springfield/` |
-| Status | proven |
+| Status | draft |
 
 ## Overview
 
-Session tracking and resume mechanism for sgf. Persists Claude Code session IDs and loop configuration in JSON sidecar files, enabling users to resume interrupted sessions with `sgf resume`. Cursus uses this mechanism for per-iteration session tracking within pipeline runs.
+Session tracking and resume mechanism for sgf. Persists Claude Code session IDs and loop configuration in JSON sidecar files, enabling users to resume interrupted sessions via `--resume <run-id>` on any sgf subcommand. Cursus uses this mechanism for per-iteration session tracking within pipeline runs.
 
 The feature adds:
 - **Session metadata persistence**: JSON sidecar files in `.sgf/run/{loop_id}.json` storing all iteration session IDs, loop config, and status
 - **Pre-assigned session IDs**: Generate a fresh UUID before each `cl` invocation and pass it via `--session-id <uuid>`, ensuring we always know the session ID without parsing output.
-- **`sgf resume` command**: For cursus runs, resumes from the stalled/interrupted iter (see [cursus spec](cursus.md) Stall Recovery). For non-cursus sessions, picks from a flat list of all iterations across all loops, then resumes the selected session.
-- **Both modes**: Works for interactive and AFK sessions
+- **`--resume <run-id>` flag**: Any sgf subcommand accepts `--resume <run-id>` to resume a stalled or interrupted run. For cursus runs, resumes from the stalled/interrupted iter (see [cursus spec](cursus.md) Run State). For non-cursus sessions, resumes the most recent session.
+- **Resume command on exit**: On any run exit (stall, interrupt, completion, error), sgf prints a copy-pasteable resume command to stderr: `To resume: sgf <command> --resume <run-id>`
+- **Both modes**: Works for interactive, AFK, and programmatic sessions
 
 ## Architecture
 
@@ -24,8 +25,8 @@ Changes are within the `springfield` crate:
 ### springfield (crates/springfield/)
 
 - `loop_mgmt.rs`: Functions for session metadata read/write/list
-- `orchestrate.rs`: Generate session UUID, write metadata after `cl` exits, `sgf resume` command handler
-- `main.rs`: Parse `sgf resume [loop_id]` as a reserved built-in command
+- `orchestrate.rs`: Generate session UUID, write metadata after `cl` exits, resume handler
+- `main.rs`: Parse `--resume <run-id>` flag on all subcommands
 
 ### Session Metadata File
 
@@ -37,15 +38,17 @@ Non-cursus sessions (simple loops, `sgf <file>`):
 
 Co-located with existing `.sgf/run/{loop_id}.pid` files. Gitignored (`.sgf/run/` is already in `.gitignore`).
 
-Cursus sessions use a different layout: `.sgf/run/{run_id}/meta.json` (see [cursus spec](cursus.md) Run State section). The session-resume spec owns the non-cursus metadata format and the `sgf resume` entry point. The cursus spec owns the cursus-specific metadata format and resume logic.
+Cursus sessions use a different layout: `.sgf/run/{run_id}/meta.json` (see [cursus spec](cursus.md) Run State section). The session-resume spec owns the non-cursus metadata format and the `--resume` dispatch logic. The cursus spec owns the cursus-specific metadata format and resume logic.
 
 ### Resume Dispatch (owned by session-resume)
 
-`sgf resume` is the unified entry point. The dispatch logic lives in session-resume:
+`--resume <run-id>` on any sgf subcommand is the unified entry point. The dispatch logic:
 
 1. If the argument matches a `.sgf/run/<id>/meta.json` with a `cursus` field, delegate to cursus resume logic.
-2. Otherwise, treat it as a non-cursus session resume (flat `.sgf/run/{loop_id}.json`).
-3. Without an argument, scan both layouts and present a unified interactive picker (newest first).
+2. Otherwise if `.sgf/run/<id>.json` exists, treat it as a non-cursus session resume.
+3. Otherwise, exit 1: `run not found: <run-id>`.
+
+The former `sgf resume` built-in command is removed. All resume is via `--resume <run-id>` on the original subcommand.
 
 ### Data Flow
 
@@ -64,11 +67,10 @@ sgf                                    cl (claude-wrapper)
  │  [session ends]                      │
  │                                      │
  ├─ update metadata (status: final) ────┤
+ ├─ print resume command to stderr ─────┤
  │                                      │
- ├─ [later] sgf resume ────────────────►│
- ├─ read metadata, show flat list ──────┤
- │  of all iterations                   │
- ├─ user picks one ─────────────────────┤
+ ├─ [later] sgf <cmd> --resume <id> ───►│
+ ├─ read metadata ──────────────────────┤
  ├─ pass --resume <session_id> ─────────┤
 ```
 
@@ -121,10 +123,13 @@ No new external dependencies beyond `uuid`. The `serde` and `serde_json` crates 
 |------|---------|
 | AFK session writes metadata with session_id | Run sgf with mock agent, check `.sgf/run/{loop_id}.json` exists and contains `session_id` |
 | Interactive session writes metadata with session_id | Run sgf with mock agent, check metadata file |
-| `sgf resume <loop_id>` passes `--resume` to cl | Mock agent receives `--resume <session_id>` in args |
-| `sgf resume` with no sessions exits 1 | Exit code 1, stderr contains error |
-| `sgf resume <bad_id>` exits 1 | Exit code 1, stderr contains error |
+| `--resume` passes `--resume` to cl | Mock agent receives `--resume <session_id>` in args |
+| `--resume` with nonexistent run-id exits 1 | Exit code 1, stderr contains "run not found" |
 | Metadata survives interrupted session (Ctrl+C) | Send SIGINT, metadata file still has `session_id` and status `interrupted` |
+| Resume command printed on stall | Stalled run prints `To resume: sgf <cmd> --resume <run-id>` to stderr |
+| Resume command printed on interrupt | Ctrl+C exit prints resume command to stderr |
+| Resume command printed on completion | Completed run prints resume command to stderr |
+| Resume command in programmatic JSON | Piped stdin run includes `resume_command` in `run_complete` event |
 
 ### CLI Verification (manual / scripted)
 
@@ -134,10 +139,8 @@ sgf spec -i
 # Check metadata was written
 cat .sgf/run/spec-*.json
 # Resume it
-sgf resume   # should show picker
-sgf resume spec-20260316T120000   # direct resume
+sgf spec --resume spec-20260316T120000
 ```
-
 
 ## Session Metadata Schema
 
@@ -201,54 +204,40 @@ For AFK mode, The iteration runner reports status directly to sgf.
 
 ## sgf resume Command
 
-### Usage
+### Resume via `--resume <run-id>`
+
+The former `sgf resume [loop-id]` built-in command is removed. Resume is now accessed via `--resume <run-id>` on any sgf subcommand:
 
 ```
-sgf resume [loop_id]
+sgf change --resume change-20260422T150000
+sgf spec --resume spec-20260317T140000
+sgf build --resume build-20260316T162408
 ```
-
-`resume` is a reserved built-in command (alongside `init`, `list`, `logs`).
 
 ### Behavior
 
-**With `loop_id`**:
-1. Read `.sgf/run/{loop_id}.json`
-2. If not found → error, exit 1
-3. Display the iterations for that loop as a numbered list, let user pick one
-4. Launch `cl --resume <session_id> --verbose --dangerously-skip-permissions`
-5. Always resumes in interactive mode (full terminal passthrough), regardless of original mode
+1. Read `.sgf/run/<run-id>/meta.json` (cursus) or `.sgf/run/<run-id>.json` (non-cursus)
+2. If not found → error: `run not found: <run-id>`, exit 1
+3. For cursus runs: delegate to cursus resume logic (restores full pipeline state)
+4. For non-cursus sessions: resume the most recent session via `cl --resume <session_id>`
+5. Always resumes in interactive mode (full terminal passthrough) unless programmatic mode is detected (piped stdin)
 6. Update metadata on exit: `status`, `updated_at`
 
-**Without `loop_id`** (interactive picker):
-1. Scan `.sgf/run/*.json` files
-2. If none found → "No sessions found.", exit 1
-3. Flatten all iterations across all loops into a single list, sorted by `completed_at` descending (newest first)
-4. Display numbered list:
-   ```
-   Recent sessions:
-     1. build-20260316T162408  iter 1   afk          completed    2m ago
-     2. build-20260316T162408  iter 2   afk          completed    2m ago
-     3. spec-20260316T120000   iter 1   interactive  interrupted  1h ago
-   Select session (1-3):
-   ```
-5. Read user input (line from stdin)
-6. Resume selected session using its `session_id`
+### Resume Command Output
 
-### Display Format
+On any run exit (stall, interrupt, completion, error), sgf prints to stderr:
 
-Each line: `{index}. {loop_id}  iter {iteration}  {mode}  {status}  {relative_time}`
+```
+To resume:  sgf change --resume change-20260422T150000
+```
 
-- `relative_time`: humanized from `completed_at` (e.g., "2m ago", "1h ago", "1d ago", "3d ago")
-- Sorted by `completed_at` descending (newest first)
-- Show at most 20 entries
+In programmatic mode, this is included in the `run_complete` or `error` JSON event as `resume_command`.
 
-### Resume Always Interactive
-
-Regardless of the original session's mode (AFK or interactive), `sgf resume` always launches in interactive mode. The user is resuming to interact with the session directly. The session metadata is updated to reflect the new interaction.
+This is printed even on Ctrl+C / Ctrl+D exits, ensuring the user always has a way to get back to where they were.
 
 ### Metadata File Lifecycle
 
-Session metadata files in `.sgf/run/` are never pruned automatically. The directory is gitignored, so files accumulate only on the local machine. The picker's 20-entry display cap prevents UX degradation. Manual cleanup via `rm .sgf/run/*.json` is safe at any time — metadata files are not required for normal operation, only for resume.
+Session metadata files in `.sgf/run/` are never pruned automatically. The directory is gitignored, so files accumulate only on the local machine. Manual cleanup via `rm -rf .sgf/run/*` is safe at any time — metadata files are not required for normal operation, only for resume.
 
 ## Session Handling
 
@@ -289,6 +278,7 @@ The `--resume` flag restores the full session context from Claude Code's session
    - Exit 2 → `status: "exhausted"`
    - Exit 130 → `status: "interrupted"`
    - Other → `status: "interrupted"`
+6. Print resume command to stderr: `To resume: sgf <command> --resume <run-id>`
 
 **Interactive mode** currently calls `cl` directly without a loop_id. This changes:
 - Generate a loop_id for interactive sessions too (reusing `loop_mgmt::generate_loop_id`)
@@ -297,12 +287,12 @@ The `--resume` flag restores the full session context from Claude Code's session
 
 ### main.rs
 
-`resume` is a reserved built-in command (alongside `init`, `list`, `logs`).
+`--resume <run-id>` is a common flag parsed by clap on all subcommands. The `resume` built-in command is removed.
 
 ```rust
-"resume" => {
-    let loop_id = positional_args.first().map(|s| s.as_str());
-    return run_resume(&root, loop_id);
+// --resume flag on all subcommands
+if let Some(run_id) = args.resume {
+    return run_resume(&root, &run_id, &command);
 }
 ```
 

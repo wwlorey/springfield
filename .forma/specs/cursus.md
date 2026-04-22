@@ -5,7 +5,7 @@ Pipeline orchestration — declarative TOML-defined multi-iter workflows with co
 | Field | Value |
 |-------|-------|
 | Src | `crates/springfield/` |
-| Status | proven |
+| Status | draft |
 
 ## Overview
 
@@ -18,6 +18,9 @@ Cursus provides:
 - **Context passing between iters**: Each iter can produce a summary file; subsequent iters consume it via prompt injection
 - **Sentinel-based transitions**: Well-known sentinel files signal success, rejection, revision, or exhaustion — controlling which iter runs next
 - **Stall recovery**: When an iter exhausts its iterations, the pipeline enters a stalled state the user can inspect and resume
+- **Programmatic mode**: When driven by an outer agent (piped stdin), cursus emits structured NDJSON events describing pipeline state — phase starts, turns, transitions, completions, and stalls. The outer agent drives interactive phases turn-by-turn via `--resume <run-id>`. Cursus TOML definitions are unchanged; `mode: "interactive"` means "this phase needs a conversation" regardless of whether a human or outer agent is conversing.
+- **Auto-retry**: Automatic retry on agent process crashes with configurable immediate retries and backoff intervals. Resumes the crashed session automatically.
+- **Structured event protocol**: In programmatic mode, all pipeline state changes are emitted as NDJSON events on stdout, enabling outer agents to track phase progression, make decisions, and drive the pipeline.
 - **Unified command model**: Every `sgf <command>` resolves to a cursus definition, whether it has one iter or many. Single-iter cursus definitions are the standard way to define simple commands
 - **Foundation for evolution**: The TOML format accommodates future trigger types (event-driven daemons, cursus chaining) without structural changes. Only manual triggers are supported initially
 
@@ -112,16 +115,21 @@ Workspace crate dependencies (linked at compile time via springfield):
 | Cursus TOML not found (neither local nor global) | Exit 1: `unknown command: <name>` |
 | Cursus TOML parse error | Exit 1: `failed to parse cursus definition: <path>: <error>` |
 | Validation failure (duplicate iter names, missing transition targets, etc.) | Exit 1: descriptive error at parse time |
+| `[retry]` fields invalid types | Exit 1: descriptive parse error |
 | `consumes` value has no matching `produces` in any iter | Warning at parse time (not an error — the producing iter may not have run yet on first pass) |
 | Prompt file not found for an iter | Exit 1: `prompt not found: <path>` (checked at cursus load time, before execution starts) |
-| Iter exhausts iterations (no sentinel found) | Pipeline enters stalled state. Run metadata updated. User notified with status and options |
+| Iter exhausts iterations (no sentinel found) | Pipeline enters stalled state. Run metadata updated. User notified with status, options, and resume command |
 | Sentinel file `.iter-reject` with no `on_reject` transition defined | Exit 1: `iter '<name>' signaled reject but no on_reject transition is defined` |
 | Sentinel file `.iter-revise` with no `on_revise` transition defined | Exit 1: `iter '<name>' signaled revise but no on_revise transition is defined` |
 | Run directory creation failure | Exit 1: `failed to create run directory: <error>` |
 | Run metadata read/write failure | `tracing::error\!`, continue if possible (non-fatal for execution, fatal for resume) |
 | `produces` file not written by agent | `tracing::warn\!` — continue to next iter. The consuming iter will run without that context. Not fatal because the agent may have communicated through other means (spec updates, pn comments) |
 | Stale run directory from previous crashed run | Detected at startup. Previous run status updated to `interrupted` if still marked `running` |
-| SIGINT/SIGTERM during iter execution | Delegated to sgf/cl signal handling. Pipeline status updated to `interrupted` on exit |
+| SIGINT/SIGTERM during iter execution | Delegated to sgf/cl signal handling. Pipeline status updated to `interrupted` on exit. Resume command printed |
+| Agent process crash (retryable) | Auto-retry triggered: 3 immediate retries, then backoff every 5 minutes for up to 12 hours. Resume crashed session on success. See [springfield spec](springfield.md) Error Handling |
+| Agent process crash (non-retryable) | Startup failure (exit 1 within first seconds). No retry. Error event emitted in programmatic mode |
+| `--resume` with invalid run-id | Exit 1: `run not found: <run-id>` |
+| `--resume` with mismatched cursus name | Exit 1: `run <run-id> belongs to cursus '<name>', not '<requested>'` |
 
 ## Testing
 
@@ -132,10 +140,11 @@ Workspace crate dependencies (linked at compile time via springfield):
 - Parse valid multi-iter cursus definition with transitions (e.g., `spec.toml`)
 - Parse cursus with `produces` and `consumes` fields
 - Parse cursus with `banner` field (true, false, default)
+- Parse cursus with `[retry]` section (all fields, partial fields, defaults)
 - Reject duplicate iter names
 - Reject transition targets that reference non-existent iters
 - Reject `consumes` referencing non-existent `produces` keys
-- Default values: `mode` defaults to `interactive`, `iterations` defaults to 1, `trigger` defaults to `manual`, `auto_push` defaults to false, `banner` defaults to false
+- Default values: `mode` defaults to `interactive`, `iterations` defaults to 1, `trigger` defaults to `manual`, `auto_push` defaults to false, `banner` defaults to false, retry defaults to 3/300/43200
 - Alias validation: reject duplicate aliases, reject aliases that shadow cursus names
 
 #### `cursus/runner.rs`
@@ -163,6 +172,14 @@ Workspace crate dependencies (linked at compile time via springfield):
 - Multiple `consumes` entries are concatenated in order for prompt injection
 - Missing consumed file returns empty string with warning
 
+#### `cursus/events.rs` (new)
+- Each event type serializes to valid JSON with correct `event` field
+- Event ordering matches expected sequence for single-iter, multi-iter, and stall scenarios
+- Events include correct phase, session_id, and run_id fields
+- `turn` event includes `waiting_for_input` field
+- `stall` event includes `actions` array
+- `run_complete` event includes `resume_command`
+
 ### Integration Tests
 
 Binary-level tests using `cargo test -p springfield`. Each test:
@@ -177,10 +194,17 @@ Binary-level tests using `cargo test -p springfield`. Each test:
 | Reject transition | review signals `.iter-reject` | Pipeline jumps back to draft iter |
 | Revise transition | review signals `.iter-revise` | Pipeline jumps to revise, then back to review |
 | Context passing | discuss produces summary, draft consumes it | Summary content appears in draft's system prompt |
-| Stall recovery | draft exhausts iterations | Pipeline enters stalled state, metadata persisted |
-| Resume stalled | Load stalled run, resume | Pipeline continues from stalled iter |
+| Stall recovery | draft exhausts iterations | Pipeline enters stalled state, metadata persisted, resume command printed |
+| Resume stalled | Load stalled run via `--resume` | Pipeline continues from stalled iter |
 | Layered resolution | Local cursus overrides global | Local TOML takes precedence |
 | Banner flag | iter with `banner = true` | Iteration runner displays banner |
+| Programmatic events | Run with piped stdin | NDJSON events emitted in correct order on stdout |
+| Programmatic turn-by-turn | Multi-turn interactive phase | Outer agent drives via stdin/`--resume`, receives turn events |
+| Programmatic stall | Iter exhaustion with piped stdin | `stall` event emitted with actions |
+| Programmatic AFK phase | AFK phase with piped stdin | Phase runs to completion, emits `phase_start` + `phase_complete` events |
+| Retry config parsing | Cursus with `[retry]` section | Config values override defaults |
+| Retry config defaults | Cursus without `[retry]` section | Default values (3/300/43200) used |
+| Resume command on exit | All exit paths | Resume command printed to stderr or included in JSON events |
 
 ## TOML Format
 
@@ -195,6 +219,11 @@ description = "Spec creation and refinement"
 alias = "s"
 trigger = "manual"
 auto_push = true
+
+[retry]
+immediate = 3
+interval_secs = 300
+max_duration_secs = 43200
 ```
 
 | Field | Type | Default | Description |
@@ -203,6 +232,25 @@ auto_push = true
 | `alias` | string | — | Short alias for the command (e.g., `"s"` for spec). Optional |
 | `trigger` | string | `"manual"` | How the cursus is started. Only `"manual"` is supported initially |
 | `auto_push` | bool | `false` | Auto-push after commits (applies to all iters unless overridden) |
+
+### Retry Configuration
+
+The optional `[retry]` table configures auto-retry behavior for agent process failures (API rate limits, network errors, crashes). If omitted, defaults apply.
+
+```toml
+[retry]
+immediate = 3           # immediate retry attempts before backoff (default: 3)
+interval_secs = 300     # backoff interval in seconds (default: 300 = 5 minutes)
+max_duration_secs = 43200  # max total retry duration in seconds (default: 43200 = 12 hours)
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `immediate` | u32 | `3` | Number of immediate retry attempts (no delay) before switching to backoff |
+| `interval_secs` | u64 | `300` | Seconds between backoff retries |
+| `max_duration_secs` | u64 | `43200` | Maximum total time (seconds) to keep retrying. After this, sgf exits with an error |
+
+See [springfield spec](springfield.md) Error Handling for the full retry strategy and failure classification.
 
 ### Iter Definition
 
@@ -259,7 +307,7 @@ consumes = ["draft-presentation"]
 |-------|------|---------|-------------|
 | `name` | string | required | Unique identifier for this iter within the cursus |
 | `prompt` | string | required | Prompt file name, resolved via layered `.sgf/prompts/` lookup |
-| `mode` | `"interactive"` or `"afk"` | `"interactive"` | Execution mode |
+| `mode` | `"interactive"` or `"afk"` | `"interactive"` | Execution mode. In programmatic mode (piped stdin), `"interactive"` iters are driven turn-by-turn by the outer agent; `"afk"` iters run to completion internally |
 | `iterations` | u32 | `1` | Max iterations for this iter (only meaningful for `afk` mode) |
 | `produces` | string | — | Key name for the summary file this iter writes. Stored at `.sgf/run/<run-id>/context/<key>.md` |
 | `consumes` | array of strings | `[]` | Keys of summary files from previous iters, injected into this iter's system prompt |
@@ -312,8 +360,7 @@ Enforced at parse time (before any iter executes):
 4. Aliases must be unique across all cursus definitions in scope
 5. Aliases must not shadow cursus file names
 6. Prompt files must exist (resolved via layered lookup)
-
-
+7. `[retry]` field types must be valid (u32 for `immediate`, u64 for `interval_secs` and `max_duration_secs`)
 
 ## Sentinel Protocol
 
@@ -391,6 +438,192 @@ To track which iter last wrote each key, the cursus runner maintains a mapping o
 The run context directory path is set as an environment variable `SGF_RUN_CONTEXT` so agents can reference it programmatically in prompts. The value is an **absolute path** — e.g., `/home/user/myproject/.sgf/run/<run-id>/context/`. An absolute path is required because the agent process's working directory is not guaranteed to be the repository root (e.g., subprocesses spawned by the agent may change directories), so a relative path would resolve incorrectly.
 
 
+## Structured Events
+
+In programmatic mode (`isatty(stdin) == false` or `--output-format json`), cursus emits structured NDJSON events on stdout. Each line is a self-contained JSON object with an `event` field identifying the event type.
+
+### Event Types
+
+#### `run_start`
+
+Emitted once when the pipeline begins.
+
+```json
+{
+  "event": "run_start",
+  "run_id": "change-20260422T150000",
+  "cursus": "change",
+  "phases": [
+    {"name": "change", "mode": "interactive", "iterations": 1}
+  ]
+}
+```
+
+#### `phase_start`
+
+Emitted when an iter begins execution.
+
+```json
+{
+  "event": "phase_start",
+  "phase": "change",
+  "mode": "interactive",
+  "iteration": 1,
+  "session_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+}
+```
+
+#### `turn`
+
+Emitted after each agent turn in an interactive phase. Contains the agent's response and whether it is waiting for input from the outer agent.
+
+```json
+{
+  "event": "turn",
+  "content": "I've reviewed the codebase. Should I use bcrypt or argon2 for password hashing?",
+  "waiting_for_input": true,
+  "session_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+}
+```
+
+When `waiting_for_input` is true, the sgf process exits and the outer agent should send its response via a new invocation with `--resume <run-id>`. When false, the agent completed its work and sgf continues to post-iter evaluation.
+
+#### `phase_complete`
+
+Emitted when an iter finishes.
+
+```json
+{
+  "event": "phase_complete",
+  "phase": "change",
+  "outcome": "complete",
+  "iterations_used": 1
+}
+```
+
+`outcome` is one of: `complete`, `reject`, `revise`, `exhausted`.
+
+#### `transition`
+
+Emitted between phases when the pipeline advances.
+
+```json
+{
+  "event": "transition",
+  "from_phase": "review",
+  "to_phase": "revise",
+  "reason": "revise"
+}
+```
+
+`reason` is one of: `complete` (normal advance), `reject` (on_reject transition), `revise` (on_revise transition).
+
+#### `context_produced`
+
+Emitted when an iter produces context for downstream iters.
+
+```json
+{
+  "event": "context_produced",
+  "key": "discuss-summary",
+  "phase": "discuss"
+}
+```
+
+#### `context_consumed`
+
+Emitted when an iter consumes context from a previous iter.
+
+```json
+{
+  "event": "context_consumed",
+  "key": "discuss-summary",
+  "from_phase": "discuss"
+}
+```
+
+#### `stall`
+
+Emitted when an iter exhausts its iterations without completing.
+
+```json
+{
+  "event": "stall",
+  "phase": "implement",
+  "iterations_attempted": 5,
+  "actions": ["retry", "skip", "abort"]
+}
+```
+
+The outer agent should respond with one of the listed actions as plain text input via `--resume`.
+
+#### `retry`
+
+Emitted when auto-retry is triggered for a failed agent process.
+
+```json
+{
+  "event": "retry",
+  "attempt": 4,
+  "reason": "process_crash",
+  "next_retry_secs": 300
+}
+```
+
+#### `run_complete`
+
+Emitted when the pipeline finishes (successfully or not).
+
+```json
+{
+  "event": "run_complete",
+  "status": "completed",
+  "run_id": "change-20260422T150000",
+  "resume_command": "sgf change --resume change-20260422T150000"
+}
+```
+
+`status` is one of: `completed`, `stalled`, `interrupted`, `error`.
+
+#### `error`
+
+Emitted on fatal errors.
+
+```json
+{
+  "event": "error",
+  "message": "prompt not found: change.md",
+  "fatal": true,
+  "phase": "change"
+}
+```
+
+### Event Ordering
+
+A typical programmatic session produces events in this order:
+
+```
+run_start
+  phase_start (phase A)
+    context_consumed (if applicable)
+    turn (waiting_for_input: true)
+    # outer agent resumes with response
+    turn (waiting_for_input: false)
+  phase_complete
+  context_produced (if applicable)
+  transition
+  phase_start (phase B)
+    ...
+  phase_complete
+run_complete
+```
+
+For AFK phases, no `turn` events are emitted — the phase runs to completion internally and the outer agent sees `phase_start` → `phase_complete`.
+
+### Terminal Mode
+
+In terminal mode (human at keyboard), these events are not emitted. The existing console output (badge boxes, banners, iteration headers) continues to work as before.
+
 ## Run State
 
 Each cursus execution creates a run, tracked by metadata in `.sgf/run/`.
@@ -460,6 +693,25 @@ Each cursus execution creates a run, tracked by metadata in `.sgf/run/`.
 | `stalled` | An iter exhausted its iterations without completing |
 | `interrupted` | Pipeline was interrupted by signal (SIGINT/SIGTERM) |
 
+### Resume via `--resume <run-id>`
+
+Any sgf subcommand accepts `--resume <run-id>` to resume a stalled or interrupted pipeline. The former `sgf resume` built-in command is removed.
+
+When `--resume <run-id>` is provided:
+1. Load `meta.json` from the run directory
+2. Restore full pipeline state: current iter, iteration count, accumulated context, context producers
+3. For stalled runs (interactive mode): present options — Retry, Skip, or Abort
+4. For stalled runs (programmatic mode): emit a `stall` event and wait for input
+5. Continue the pipeline from the restored point
+
+On any run exit (stall, interrupt, completion, error), sgf prints a copy-pasteable resume command:
+
+```
+To resume:  sgf change --resume change-20260422T150000
+```
+
+This is printed to stderr in terminal mode and included in structured events in programmatic mode.
+
 ### Stall Recovery
 
 When a pipeline enters the `stalled` state:
@@ -472,12 +724,12 @@ When a pipeline enters the `stalled` state:
    │  Iter:      draft                                 │
    │  Reason:    Iterations exhausted (10/10)          │
    │                                                   │
-   │  To resume: sgf resume spec-20260317T140000       │
+   │  To resume: sgf spec --resume spec-20260317T140000│
    ╰───────────────────────────────────────────────────╯
    ```
 3. The runner exits with code 2
 
-When the user runs `sgf resume <run-id>`:
+When the user resumes with `sgf spec --resume spec-20260317T140000`:
 1. Load `meta.json` from the run directory
 2. Present the stalled state: which iter stalled, how many iterations were used, what context was accumulated
 3. Offer options:
@@ -488,9 +740,10 @@ When the user runs `sgf resume <run-id>`:
 
 ### Resume Integration
 
-`sgf resume` supports both cursus run resumes and legacy session resumes:
-- If the argument matches a `.sgf/run/<id>/meta.json` with cursus metadata, it's a cursus resume
-- Otherwise, fall back to the session-resume behavior (see [session-resume spec](session-resume.md))
+`--resume <run-id>` dispatches based on the run directory structure:
+- If `.sgf/run/<run-id>/meta.json` exists with a `cursus` field → cursus resume (restore full pipeline state)
+- If `.sgf/run/<run-id>.json` exists → non-cursus session resume (see [session-resume spec](session-resume.md))
+- Otherwise → error: "run not found: <run-id>"
 
 ## Iter Execution
 
@@ -641,7 +894,7 @@ Additional mechanisms needed for daemon mode:
 ## Related Specifications
 
 - [claude-wrapper](claude-wrapper.md) — Agent wrapper — layered .sgf/ context injection, cl binary
-- [session-resume](session-resume.md) — Session resume — persist Claude session IDs and loop config to enable resuming interrupted sessions via sgf resume
+- [session-resume](session-resume.md) — Session resume — persist Claude session IDs and loop config to enable resuming interrupted sessions via --resume flag on any sgf subcommand
 - [shutdown](shutdown.md) — Shared graceful shutdown — double-press Ctrl+C/Ctrl+D detection with confirmation prompts
 - [springfield](springfield.md) — CLI entry point — scaffolding, prompt delivery, iteration runner, loop orchestration, recovery, and daemon lifecycle
 - [vcs-utils](vcs-utils.md) — Shared VCS utilities — git HEAD detection, auto-push

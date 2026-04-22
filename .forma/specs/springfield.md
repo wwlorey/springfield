@@ -5,7 +5,7 @@ CLI entry point — scaffolding, prompt delivery, iteration runner, loop orchest
 | Field | Value |
 |-------|-------|
 | Src | `crates/springfield/` |
-| Status | proven |
+| Status | draft |
 
 ## Overview
 
@@ -17,6 +17,8 @@ CLI entry point for Springfield. All developer interaction goes through this bin
 - **Cursus orchestration**: Parse cursus TOML definitions, execute multi-iter pipelines with sentinel-based transitions, context passing, and stall recovery (see [cursus spec](cursus.md))
 - **Simple prompt mode**: `sgf <file>` runs a prompt file as a simple iteration loop (no cursus TOML needed)
 - **Iteration runner**: Direct `cl` invocation with NDJSON formatting, completion detection, terminal settings preservation, and git auto-push — absorbed from the former `ralph` crate
+- **Programmatic mode**: When stdin is not a TTY (piped from an outer agent), sgf automatically switches to programmatic mode — emitting structured NDJSON events on stdout and accepting plain text input on stdin. Enables outer agents to drive cursus pipelines turn-by-turn. Explicit override via `--output-format json`.
+- **Auto-retry**: Automatic retry on agent process crashes (API failures, rate limits, network errors) with configurable immediate retries and backoff intervals. Resumes the crashed session automatically.
 - **Loop orchestration**: Launch iteration loops with the correct flags, manage PID files, tee logs
 - **Recovery**: Pre-launch cleanup of dirty state from crashed iterations
 - **Daemon lifecycle**: Start the pensa and forma daemons before launching loops
@@ -187,7 +189,7 @@ Note: `cl` (claude-wrapper), `pn` (pensa), and `fm` (forma) are all invoked as c
 ### Exit Codes
 
 | Code | Meaning | sgf response |
-|------|---------|----|
+|------|---------|---|
 | `0` | Sentinel found (`.iter-complete`) — loop completed | Log success, clean up |
 | `1` | Error (bad args, missing prompt, etc.) | Log error, alert developer |
 | `2` | Iterations exhausted — may have remaining work | Developer decides: re-launch or stop |
@@ -214,9 +216,63 @@ Note: `cl` (claude-wrapper), `pn` (pensa), and `fm` (forma) are all invoked as c
 - **`pn doctor --fix` failure**: Warning only — supplementary, not critical for state consistency.
 - **Daemon startup failure**: Fatal — loop cannot proceed without pensa/forma daemons. 5-second deadline with exponential backoff.
 
-### Claude Code Crashes and Push Failures
+### Auto-Retry on Agent Process Failure
 
-Claude Code crashes and push failures are handled as warnings — they do not produce distinct exit codes. The iteration runner logs the failure and continues to the next iteration without cleanup. The next iteration's agent inherits whatever state exists and proceeds via forward correction. Stale claims and dirty working trees accumulate within a run and are cleared by sgf's pre-launch recovery before the next run.
+When the `cl` process fails mid-execution (API rate limit, usage limit, network error, OOM, unexpected crash), sgf automatically retries the failed invocation. This applies to all modes: interactive, AFK, and programmatic.
+
+#### Failure Classification
+
+Retryable failures are distinguished from non-retryable ones using exit code/signal analysis plus a duration heuristic:
+
+| Failure | Retryable | Detection |
+|---------|-----------|-----------|
+| API rate limit / usage limit | Yes | Non-zero exit after sustained execution |
+| Network error | Yes | Non-zero exit after sustained execution |
+| OOM / crash (signal) | Yes | Process killed by signal (SIGSEGV, SIGKILL, etc.) |
+| User Ctrl+C / Ctrl+D | No | SIGINT detected by shutdown controller |
+| Bad arguments / config error | No | Exit code 1 within first few seconds of startup |
+
+The **duration heuristic** acts as a safety net: if the process ran for less than a few seconds before failing with exit code 1, it is treated as a non-retryable startup error (bad args, missing prompt, config issue). If it ran longer, the failure is treated as retryable (the agent was working and something went wrong mid-execution).
+
+#### Retry Strategy
+
+1. **Immediate retries**: Up to 3 attempts with no delay between them
+2. **Backoff retries**: If all immediate retries fail, retry every 5 minutes
+3. **Maximum duration**: 12 hours total from the first failure. After 12 hours of failed retries, sgf exits with an error.
+4. **On success**: Resume the crashed session via `cl --resume <session_id>`. The agent picks up the conversation where it left off — no context is lost.
+
+#### Configuration
+
+Retry behavior is configurable per-cursus in the TOML definition (see [cursus spec](cursus.md) TOML Format):
+
+```toml
+[retry]
+immediate = 3           # immediate retry attempts (default: 3)
+interval_secs = 300     # backoff interval in seconds (default: 300)
+max_duration_secs = 43200  # max total retry duration in seconds (default: 43200 = 12 hours)
+```
+
+If the `[retry]` section is omitted, the defaults above apply.
+
+#### Retry State
+
+Retry state is purely in-process — it does not persist across sgf restarts. If sgf itself is killed during the retry window, the retry loop dies with it. The run can still be resumed manually via `--resume <run-id>`.
+
+#### Notifications
+
+During retries, sgf emits status messages:
+- **Terminal mode**: Badge box messages (e.g., `retrying in 5m (attempt 4/147)...`)
+- **Programmatic mode**: Structured `retry` events in the NDJSON stream
+
+### Resume Command on Exit
+
+On any run exit — stall, interrupt, completion, or error — sgf prints a copy-pasteable resume command:
+
+```
+To resume:  sgf change --resume change-20260422T150000
+```
+
+This is printed even on Ctrl+C / Ctrl+D exits. In programmatic mode, this information is included in the `run_complete` or `error` event.
 
 ## Testing
 
@@ -244,7 +300,7 @@ Springfield is tested via integration tests that exercise the full CLI. All inte
 | Cursus | TOML parsing and validation | Duplicate iter names, missing transitions → exit 1 |
 | Cursus | Sentinel transitions | `.iter-complete`, `.iter-reject`, `.iter-revise` trigger correct next iter |
 | Cursus | Context passing | `produces` files written to run dir; `consumes` files injected into prompt |
-| Cursus | Stall recovery | Iter exhaustion → stalled state → `sgf resume` works |
+| Cursus | Stall recovery | Iter exhaustion → stalled state → `--resume` works |
 | Pre-launch | Recovery | Stale `.pid` files cleaned up; stale run metadata marked interrupted |
 | Pre-launch | Daemon lifecycle | Daemons start, become ready, survive across iterations |
 | Pre-launch | Data export | pn export and fm export run after daemons, before loop |
@@ -261,6 +317,27 @@ Springfield is tested via integration tests that exercise the full CLI. All inte
 | Logs | `sgf logs <loop-id>` | Tails the correct log file |
 | Logs | Missing log file | Exits 1 with error message |
 | Flags | `-a` and `-i` mutual exclusion | Passing both exits 1 with error message |
+| Programmatic | isatty detection | Piped stdin triggers programmatic mode (NDJSON events on stdout) |
+| Programmatic | `--output-format json` flag | Explicit flag triggers programmatic mode even with TTY stdin |
+| Programmatic | Structured events emitted | `run_start`, `phase_start`, `turn`, `phase_complete`, `run_complete` events in correct order |
+| Programmatic | Turn-by-turn driving | Outer agent sends message via stdin, receives structured JSON response, resumes with `--resume` |
+| Programmatic | AFK phases in programmatic mode | AFK phases run to completion, emit phase events, no input needed |
+| Programmatic | Stall event | Iter exhaustion emits `stall` event with phase info and available actions |
+| Programmatic | Resume command on exit | All exit paths (stall, interrupt, complete, error) print resume command |
+| Resume | `--resume <run-id>` on subcommand | Restores full cursus state (phase, iteration, context) and continues |
+| Resume | `--resume` with invalid run-id | Exits 1 with "run not found" error |
+| Resume | Resume interrupted run | Resumes from interruption point |
+| Resume | Resume stalled run (interactive) | Offers Retry/Skip/Abort options |
+| Resume | Resume stalled run (programmatic) | Emits stall event, waits for input |
+| Auto-retry | Retryable failure detection | Non-zero exit after sustained execution triggers retry |
+| Auto-retry | Non-retryable failure detection | Exit code 1 within first seconds treated as config error, no retry |
+| Auto-retry | Signal-killed process | Process killed by signal (SIGSEGV) triggers retry |
+| Auto-retry | User interrupt not retried | SIGINT/SIGTERM detected by shutdown controller does not trigger retry |
+| Auto-retry | Immediate retries | Up to 3 immediate retries before backoff |
+| Auto-retry | Backoff interval | After 3 immediate failures, retries every 5 minutes |
+| Auto-retry | Max duration | Retries stop after 12 hours, exits with error |
+| Auto-retry | Session resume on success | Successful retry uses `--resume <session_id>` to continue crashed session |
+| Auto-retry | Custom config | Cursus TOML `[retry]` section overrides defaults |
 
 ### Test infrastructure
 
@@ -269,23 +346,21 @@ Springfield is tested via integration tests that exercise the full CLI. All inte
 - **Automatic preflight skip** — `sgf_cmd()` injects `SGF_SKIP_PREFLIGHT=1` and mock `PATH` by default
 - **Mock pnpm** — Frontend scaffolding tests use a mock `pnpm` binary that creates expected files (package.json, vite.config.ts, etc.) without network access. Tests verify that `sgf init` invokes `pnpm create vite@latest . -- --template react-ts` with the correct arguments and handles success/failure appropriately.
 
-
 ## CLI Commands
 
 ```
-sgf <command> [-a | -i] [-n N] [--no-push] [--skip-preflight]   — run a cursus pipeline
+sgf <command> [-a | -i] [-n N] [--no-push] [--skip-preflight] [--output-format json] [--resume <run-id>]   — run a cursus pipeline
 sgf <file>                                                       — run a prompt file as a simple iteration loop
 sgf init [--force] [--no-fe]                                     — scaffold a new project
 sgf list                                                         — show available commands with descriptions
 sgf logs <loop-id>                                               — tail a running loop's output
-sgf resume [loop-id]                                             — resume a stalled/interrupted cursus run
 ```
 
 Where `<command>` resolves to a cursus TOML pipeline definition. Commands can also be invoked by alias (e.g., `sgf b` for `sgf build` if `alias = "b"` is configured in the cursus TOML).
 
 ### Command Resolution
 
-1. Check if `<command>` matches a reserved built-in (`init`, `list`, `logs`, `resume`). If so, run the built-in.
+1. Check if `<command>` matches a reserved built-in (`init`, `list`, `logs`). If so, run the built-in.
 2. Check if the argument resolves to an existing file path. If so, run it as a simple iteration loop (see [Simple Prompt Mode](#simple-prompt-mode)).
 3. Check if `./.sgf/cursus/<command>.toml` exists (local override). If so, parse and run the cursus.
 4. Check if `~/.sgf/cursus/<command>.toml` exists (global default). If so, parse and run the cursus.
@@ -308,6 +383,56 @@ Behavior:
 - Supports `-a`/`-i`, `-n`, `--no-push` flags
 - No context injection via `consumes` — keep simple mode simple. `cl` still injects MEMENTO/BACKPRESSURE independently.
 - Exit codes: 0 (`.iter-complete` found), 2 (iterations exhausted), 130 (interrupted)
+
+### Resume via `--resume <run-id>`
+
+Any sgf subcommand accepts `--resume <run-id>` to resume a stalled or interrupted run:
+
+```bash
+sgf change --resume change-20260422T150000
+sgf spec --resume spec-20260317T140000
+```
+
+Behavior:
+1. Load `.sgf/run/<run-id>/meta.json` (for cursus runs) or `.sgf/run/<run-id>.json` (for non-cursus sessions)
+2. Restore full pipeline state: current phase, iteration count, accumulated context
+3. Continue execution from the stalled/interrupted point
+4. For stalled runs, offers options: Retry, Skip, or Abort (interactive mode). In programmatic mode, emits a stall event and waits for input.
+
+On any run exit (stall, interrupt, completion, error), sgf prints a copy-pasteable resume command:
+
+```
+To resume:  sgf change --resume change-20260422T150000
+```
+
+This appears in both terminal output (for humans) and as a structured JSON event (for outer agents in programmatic mode).
+
+The former `sgf resume` built-in command is removed. All resume functionality is accessed via `--resume <run-id>` on the original subcommand.
+
+### Programmatic Mode
+
+When stdin is not a TTY (`isatty(stdin) == false`), sgf automatically switches to programmatic mode. This can also be forced explicitly with `--output-format json`.
+
+In programmatic mode:
+- **Output**: Structured NDJSON events on stdout (see [cursus spec](cursus.md) Structured Events section)
+- **Input**: Plain text on stdin — the same thing a human would type. Passed through to the inner `cl` session.
+- **Execution model**: Each invocation runs until it needs input (interactive phase waiting for response) or completes (AFK phase finished, pipeline done). The outer agent reads the JSON output, decides what to respond, and sends the next message via a new invocation with `--resume <run-id>`.
+
+The outer agent drives sgf turn-by-turn:
+
+```bash
+# Turn 1: start pipeline
+echo "add login validation" | sgf change
+# → JSON: {run_id, phase_start, turn with agent response, waiting_for_input}
+
+# Turn 2: respond to agent
+echo "yes, use bcrypt" | sgf change --resume change-20260422T150000
+# → JSON: {turn with agent response, phase_complete, run_complete}
+```
+
+Cursus TOML files are unchanged. `mode: "interactive"` means "this phase needs a conversation" — whether the conversant is a human (terminal) or an outer agent (piped stdin) is determined at runtime by `isatty(stdin)`.
+
+AFK phases run to completion internally in both modes. The outer agent receives status events but does not need to send input during AFK phases.
 
 ### Reserved Built-in: `list`
 
@@ -335,18 +460,7 @@ Built-ins:
   init         Scaffold a new project
   list         Show available commands
   logs         Tail a running loop's output
-  resume       Resume a stalled/interrupted run
 ```
-
-### Reserved Built-in: `resume`
-
-```
-sgf resume [loop-id]
-```
-
-Resume a stalled or interrupted cursus run. With `loop-id`: loads `.sgf/run/{loop-id}/meta.json` and continues from the stalled/interrupted iter. Without `loop-id`: displays an interactive picker showing resumable runs (stalled and interrupted, newest first), the user selects one to resume. For stalled runs, offers options to retry, skip, or abort. See [cursus spec](cursus.md) Stall Recovery.
-
-Falls back to legacy session-resume behavior for non-cursus sessions (see [session-resume spec](session-resume.md)).
 
 ### Common Flags
 
@@ -357,6 +471,8 @@ Falls back to legacy session-resume behavior for non-cursus sessions (see [sessi
 | `--no-push` | `false` | Disable auto-push after commits (overrides `auto_push` on all iters) |
 | `-n` / `--iterations` | from cursus TOML | Number of iterations (overrides `iterations` on all iters) |
 | `--skip-preflight` | `false` | Disable all pre-launch checks including recovery and daemon startup |
+| `--output-format` | — | Output format. `json` enables programmatic mode with structured NDJSON events on stdout. Auto-detected when stdin is not a TTY. |
+| `--resume <run-id>` | — | Resume a stalled or interrupted run. Restores full pipeline state (phase, iteration, context) and continues execution. |
 
 `-a` and `-i` are mutually exclusive — passing both is an error (exit 1 with a clear message). When neither is passed, the default comes from the cursus TOML iter definition (or `interactive` for simple prompt mode).
 
@@ -371,10 +487,13 @@ sgf verify -a                  # force AFK verify
 sgf issues-log                 # interactive bug reporting
 sgf doc                        # interactive doc triage
 sgf list                       # show available commands
-sgf resume                     # interactive picker for stalled/interrupted runs
-sgf resume spec-20260317T140000  # resume specific cursus run
+sgf change --resume change-20260422T150000  # resume specific run
 sgf my-task.md -a -n 5         # simple prompt mode
 sgf init --no-fe               # scaffold without frontend (backend-only project)
+
+# Programmatic mode (outer agent driving sgf):
+echo "add login validation" | sgf change
+echo "yes, proceed" | sgf change --resume change-20260422T150000
 ```
 
 ## sgf init
@@ -650,13 +769,35 @@ cl \
 
 Spawns via `ChildGuard::spawn()` (which calls `setpgid(0, 0)` in `pre_exec` for process group isolation) with piped stdout, `Stdio::null()` for stdin, and inherited stderr. Stdout is read line-by-line via `BufRead`, parsed as NDJSON, and formatted with ANSI-styled output.
 
+**Programmatic mode** (piped stdin or `--output-format json`):
+
+```
+cl \
+  --verbose \
+  --print \
+  --output-format json \
+  --dangerously-skip-permissions \
+  [--session-id <uuid>]           # always (fresh UUID per invocation)
+  [--resume <session_id>]         # when resuming a previous turn
+  [--append-system-prompt '<consumed context>']
+  @<PROMPT_FILE>                   # only on first turn (not on --resume)
+```
+
+Spawns with piped stdout and piped stdin (the outer agent's message is written to stdin). The `cl` process runs one turn: it reads the input, the inner agent processes it and responds, then `cl` exits. sgf captures the JSON output, wraps it with cursus metadata (current phase, iteration, session_id), and emits structured NDJSON events on its own stdout.
+
+Programmatic mode is activated when:
+1. `isatty(stdin) == false` (stdin is piped — automatic detection), OR
+2. `--output-format json` is passed explicitly
+
+On `--resume`, the outer agent's stdin message is passed as input to the resumed conversation. The prompt file is not re-sent (the conversation already has it from the first turn).
+
 ### Post-Result Timeout (AFK Mode)
 
 In AFK mode, after the agent emits a result event (NDJSON `result` or `usage` message), sgf starts a 30-second countdown. If the agent process does not exit within 30 seconds, sgf kills it via the `ChildGuard` (which calls `kill_process_group()`). This prevents hung agent processes from blocking the iteration loop indefinitely.
 
 The timeout is stored in `IterRunnerConfig.post_result_timeout` (default: `Duration::from_secs(30)`). The timer starts on whichever event arrives first — `result` or `usage`. A single successful check resets nothing; the timeout is one-shot per invocation.
 
-This timeout only applies to AFK mode. Interactive mode inherits stdio and has no NDJSON parsing, so there is no result event to trigger the countdown.
+This timeout only applies to AFK mode. Interactive mode inherits stdio and has no NDJSON parsing, so there is no result event to trigger the countdown. Programmatic mode uses a similar timeout mechanism.
 
 ### Execution Model
 
@@ -664,14 +805,17 @@ This timeout only applies to AFK mode. Interactive mode inherits stdio and has n
 |------|-----------|-------------|
 | `interactive` | `cl` directly | Full terminal passthrough; calls `cl --verbose --dangerously-skip-permissions [--session-id UUID] [--append-system-prompt ...] @{prompt_path}`, inheriting stdio |
 | `afk` | `cl` via iteration runner | Autonomous execution; `cl` invoked with `--dangerously-skip-permissions`, NDJSON stream formatting |
+| `programmatic` | `cl` via programmatic runner | Turn-by-turn agent-driven execution; `cl` invoked with `--output-format json`, structured NDJSON events emitted on stdout |
 
 **Interactive mode**: Calls `cl` directly with `--dangerously-skip-permissions`. No PID file, no log tee. Generates a loop_id and writes session metadata to `.sgf/run/{loop_id}.json` for resume capability. `cl` handles context file injection (MEMENTO, BACKPRESSURE). When `auto_push` is true, auto-pushes after the session if HEAD changed. Passes `--session-id <uuid>` to `cl` for session tracking.
 
 **AFK mode**: Calls `cl` directly via the iteration runner. PID file, log tee, and loop ID are managed by sgf. Session metadata (`.sgf/run/{loop_id}.json`) is written before spawn and updated on exit.
 
+**Programmatic mode**: Calls `cl` with `--output-format json` and piped stdin/stdout. Each invocation runs one turn: sgf sends the outer agent's message as stdin, captures the JSON response, wraps it with cursus metadata, and emits structured NDJSON events on stdout. The outer agent reads these events and decides whether to send another message (via a new `sgf --resume <run-id>` invocation) or stop. Session metadata and run state are persisted between invocations so `--resume` can restore the full pipeline state.
+
 #### Session Metadata
 
-For both modes, sgf generates a fresh session UUID before each `cl` invocation and writes session metadata to `.sgf/run/{loop_id}.json`. The metadata includes the session ID, loop config, and status. On exit, the status is updated based on exit code (`completed`, `interrupted`, `exhausted`). See [session-resume spec](session-resume.md) for the full schema.
+For all modes, sgf generates a fresh session UUID before each `cl` invocation and writes session metadata. The metadata includes the session ID, loop config, and status. On exit, the status is updated based on exit code (`completed`, `interrupted`, `exhausted`). See [session-resume spec](session-resume.md) for the full schema.
 
 #### Auto-push for interactive commands
 
@@ -692,11 +836,13 @@ Interrupt handling uses the shared `shutdown` crate's `ShutdownController` (see 
 
 **Non-AFK mode** (`sgf build`, `sgf verify`, etc.): sgf spawns `cl` **without** `setsid()` — `cl` and the agent stay in sgf's process group, receiving terminal signals naturally and retaining full terminal access. The controller is created with `monitor_stdin: false` — stdin belongs to the child for user interaction with Claude. Only double Ctrl+C works for shutdown; Ctrl+D goes to Claude as normal input. Both sgf and the child receive SIGINT on Ctrl+C; sgf's handler prints the confirmation prompt while Claude handles the signal with its own logic.
 
+**Programmatic mode**: sgf spawns `cl` with piped stdin and stdout. The controller is created with `monitor_stdin: false` — stdin is managed by the outer agent's piped input. Ctrl+C/Ctrl+D are not applicable (no terminal). SIGTERM triggers immediate shutdown.
+
 **Interactive stages** (`sgf spec`, `sgf issues log`): Same as non-AFK — no `setsid()`, `monitor_stdin: false`. The user types directly into Claude.
 
 Signal handlers are registered just before spawning the child — during pre-launch checks, daemon startup, and other phases before handler registration, default signal behavior applies (single SIGINT exits).
 
-Claude Code crashes and push failures are handled as warnings — they do not produce distinct exit codes. The iteration runner logs the failure and continues to the next iteration without cleanup. The next iteration's agent inherits whatever state exists and proceeds via forward correction. Stale claims and dirty working trees accumulate within a run and are cleared by sgf's pre-launch recovery before the next run.
+Agent process failures trigger auto-retry (see Error Handling). Retryable failures resume the crashed session via `cl --resume <session_id>`.
 
 ### Completion Sentinel
 
@@ -720,15 +866,17 @@ For each iteration `i` in `1..=iterations`:
    - **Resume handling**: If `--resume` is provided from the CLI, it only applies on the first invocation.
    - Interactive: start notification watcher thread, `.status()` with inherited stdio, stop watcher thread
    - AFK: `ChildGuard::spawn()` with piped stdout, read lines via reader thread + channel through `format_line()`
+   - Programmatic: spawn with piped stdin/stdout, write outer agent's message to stdin, read JSON response, emit structured NDJSON events
 5. Restore terminal settings (`tcsetattr`)
 6. If interrupted: log warning, exit 130
-7. Search for `.iter-complete` recursively (depth <= 2): if found, delete it, print completion banner, auto-push, exit 0
-8. Print "Iteration N complete, continuing..."
-9. Sleep 2 seconds (interruptible, polled in 100ms increments)
-10. If interrupted: log warning, exit 130
-11. If `auto_push`: call `vcs_utils::auto_push_if_changed()`
+7. If agent process failed (retryable): trigger auto-retry (see Error Handling)
+8. Search for `.iter-complete` recursively (depth <= 2): if found, delete it, print completion banner, auto-push, exit 0
+9. Print "Iteration N complete, continuing..."
+10. Sleep 2 seconds (interruptible, polled in 100ms increments)
+11. If interrupted: log warning, exit 130
+12. If `auto_push`: call `vcs_utils::auto_push_if_changed()`
 
-After loop: search for and delete sentinel files (depth <= 2), print max iterations banner, exit 2.
+After loop: search for and delete sentinel files (depth <= 2), print max iterations banner, print resume command, exit 2.
 
 ### Iteration Clamping
 
@@ -737,7 +885,6 @@ Iterations are clamped to a hard limit of 1000. If a higher value is provided (v
 ### Inter-Iteration Sleep
 
 A 2-second sleep between iterations allows git operations to settle and prevents rapid-fire agent invocations. The sleep is interruptible — polled in 100ms increments, checking the shutdown controller between polls.
-
 
 ## NDJSON Stream Format
 
