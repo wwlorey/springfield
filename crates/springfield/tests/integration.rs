@@ -7916,6 +7916,364 @@ fn cursus_default_retry_config_when_section_omitted() {
 }
 
 // ===========================================================================
+// Auto-retry behavior (binary-level)
+// ===========================================================================
+
+#[test]
+#[ignore]
+fn retry_retryable_failure_triggers_retry() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    write_cursus_toml(
+        tmp.path(),
+        "build",
+        concat!(
+            "description = \"Build\"\n",
+            "alias = \"b\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[retry]\n",
+            "immediate = 3\n",
+            "interval_secs = 60\n",
+            "max_duration_secs = 120\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+        ),
+    );
+    fs::create_dir_all(tmp.path().join(".sgf/prompts")).unwrap();
+    fs::write(tmp.path().join(".sgf/prompts/build.md"), "build prompt\n").unwrap();
+    git_add_commit(tmp.path(), "add prompt");
+
+    // Mock agent: first run sleeps 6s (past STARTUP_ERROR_THRESHOLD=5s) then exits 1;
+    // second run succeeds by touching .iter-complete.
+    let mock_dir = TempDir::new().unwrap();
+    let state_file = mock_dir.path().join("state");
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        &format!(
+            concat!(
+                "#!/bin/sh\n",
+                "if [ -f \"{}\" ]; then\n",
+                "  touch \"${{PWD}}/.iter-complete\"\n",
+                "  exit 0\n",
+                "fi\n",
+                "touch \"{}\"\n",
+                "sleep 6\n",
+                "exit 1\n",
+            ),
+            state_file.display(),
+            state_file.display()
+        ),
+    );
+
+    let output = run_sgf_timeout(
+        sgf_cmd(tmp.path())
+            .args(["build", "-a"])
+            .env("SGF_AGENT_COMMAND", &mock_agent)
+            .stdin(Stdio::null()),
+        Duration::from_secs(30),
+    );
+
+    assert!(
+        output.status.success(),
+        "retryable failure (exit 1 after 6s) should trigger retry and succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("retrying immediately"),
+        "should see retry message in stderr, got:\n{stderr}"
+    );
+}
+
+#[test]
+#[ignore]
+fn retry_non_retryable_fast_exit_does_not_retry() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    write_cursus_toml(
+        tmp.path(),
+        "build",
+        concat!(
+            "description = \"Build\"\n",
+            "alias = \"b\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[retry]\n",
+            "immediate = 3\n",
+            "interval_secs = 60\n",
+            "max_duration_secs = 120\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+            "limit = 1\n",
+        ),
+    );
+    fs::create_dir_all(tmp.path().join(".sgf/prompts")).unwrap();
+    fs::write(tmp.path().join(".sgf/prompts/build.md"), "build prompt\n").unwrap();
+    git_add_commit(tmp.path(), "add prompt");
+
+    // Mock agent: exits 1 immediately (within STARTUP_ERROR_THRESHOLD=5s) — not retryable.
+    let mock_dir = TempDir::new().unwrap();
+    let mock_agent = create_mock_script(mock_dir.path(), "mock_agent.sh", "#!/bin/sh\nexit 1\n");
+
+    let output = run_sgf_timeout(
+        sgf_cmd(tmp.path())
+            .args(["build", "-a"])
+            .env("SGF_AGENT_COMMAND", &mock_agent)
+            .stdin(Stdio::null()),
+        Duration::from_secs(15),
+    );
+
+    assert!(
+        !output.status.success(),
+        "fast exit (< 5s) should NOT be retried and should fail"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("retrying"),
+        "should NOT see any retry message for fast exit, got:\n{stderr}"
+    );
+}
+
+#[test]
+#[ignore]
+fn retry_signal_killed_process_triggers_retry() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    write_cursus_toml(
+        tmp.path(),
+        "build",
+        concat!(
+            "description = \"Build\"\n",
+            "alias = \"b\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[retry]\n",
+            "immediate = 3\n",
+            "interval_secs = 60\n",
+            "max_duration_secs = 120\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+        ),
+    );
+    fs::create_dir_all(tmp.path().join(".sgf/prompts")).unwrap();
+    fs::write(tmp.path().join(".sgf/prompts/build.md"), "build prompt\n").unwrap();
+    git_add_commit(tmp.path(), "add prompt");
+
+    // Mock agent: first run kills itself with SIGKILL (exit_code=None → retryable);
+    // second run succeeds.
+    let mock_dir = TempDir::new().unwrap();
+    let state_file = mock_dir.path().join("state");
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        &format!(
+            concat!(
+                "#!/bin/sh\n",
+                "if [ -f \"{}\" ]; then\n",
+                "  touch \"${{PWD}}/.iter-complete\"\n",
+                "  exit 0\n",
+                "fi\n",
+                "touch \"{}\"\n",
+                "kill -9 $$\n",
+            ),
+            state_file.display(),
+            state_file.display()
+        ),
+    );
+
+    let output = run_sgf_timeout(
+        sgf_cmd(tmp.path())
+            .args(["build", "-a"])
+            .env("SGF_AGENT_COMMAND", &mock_agent)
+            .stdin(Stdio::null()),
+        Duration::from_secs(30),
+    );
+
+    assert!(
+        output.status.success(),
+        "signal-killed process (SIGKILL) should trigger retry and succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("retrying"),
+        "should see retry message after signal kill, got:\n{stderr}"
+    );
+}
+
+#[test]
+#[ignore]
+fn retry_exit_130_does_not_retry() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    write_cursus_toml(
+        tmp.path(),
+        "build",
+        concat!(
+            "description = \"Build\"\n",
+            "alias = \"b\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[retry]\n",
+            "immediate = 3\n",
+            "interval_secs = 60\n",
+            "max_duration_secs = 120\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+            "limit = 1\n",
+        ),
+    );
+    fs::create_dir_all(tmp.path().join(".sgf/prompts")).unwrap();
+    fs::write(tmp.path().join(".sgf/prompts/build.md"), "build prompt\n").unwrap();
+    git_add_commit(tmp.path(), "add prompt");
+
+    // Mock agent: sleeps past threshold then exits 130 (SIGINT convention) — not retryable.
+    let mock_dir = TempDir::new().unwrap();
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        "#!/bin/sh\nsleep 6\nexit 130\n",
+    );
+
+    let output = run_sgf_timeout(
+        sgf_cmd(tmp.path())
+            .args(["build", "-a"])
+            .env("SGF_AGENT_COMMAND", &mock_agent)
+            .stdin(Stdio::null()),
+        Duration::from_secs(30),
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("retrying"),
+        "exit 130 (SIGINT) should NOT trigger retry, got:\n{stderr}"
+    );
+}
+
+#[test]
+#[ignore]
+fn retry_immediate_retries_exhaust_before_backoff() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    // immediate=2, interval=1 → first 2 retries are immediate, 3rd is backoff (1s wait)
+    write_cursus_toml(
+        tmp.path(),
+        "build",
+        concat!(
+            "description = \"Build\"\n",
+            "alias = \"b\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[retry]\n",
+            "immediate = 2\n",
+            "interval_secs = 1\n",
+            "max_duration_secs = 300\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+        ),
+    );
+    fs::create_dir_all(tmp.path().join(".sgf/prompts")).unwrap();
+    fs::write(tmp.path().join(".sgf/prompts/build.md"), "build prompt\n").unwrap();
+    git_add_commit(tmp.path(), "add prompt");
+
+    // Mock agent: fails (sleep 6 + exit 1) for first 3 calls, succeeds on 4th.
+    // Call 1 = original run (fails), call 2 = attempt 1 (immediate, fails),
+    // call 3 = attempt 2 (immediate, fails), call 4 = attempt 3 (backoff, succeeds).
+    let mock_dir = TempDir::new().unwrap();
+    let counter_file = mock_dir.path().join("counter");
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        &format!(
+            concat!(
+                "#!/bin/sh\n",
+                "COUNTER_FILE=\"{}\"\n",
+                "if [ ! -f \"$COUNTER_FILE\" ]; then\n",
+                "  echo 1 > \"$COUNTER_FILE\"\n",
+                "  sleep 6\n",
+                "  exit 1\n",
+                "fi\n",
+                "COUNT=$(cat \"$COUNTER_FILE\")\n",
+                "COUNT=$((COUNT + 1))\n",
+                "echo $COUNT > \"$COUNTER_FILE\"\n",
+                "if [ $COUNT -le 3 ]; then\n",
+                "  sleep 6\n",
+                "  exit 1\n",
+                "fi\n",
+                "touch \"${{PWD}}/.iter-complete\"\n",
+                "exit 0\n",
+            ),
+            counter_file.display()
+        ),
+    );
+
+    let output = run_sgf_timeout(
+        sgf_cmd(tmp.path())
+            .args(["build", "-a"])
+            .env("SGF_AGENT_COMMAND", &mock_agent)
+            .stdin(Stdio::null()),
+        Duration::from_secs(60),
+    );
+
+    assert!(
+        output.status.success(),
+        "should succeed after exhausting immediate retries: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // max_attempts = 2 + 300/1 = 302
+    // Attempt 1 should be immediate, attempt 2 should be immediate,
+    // attempt 3 should be backoff (interval_secs=1 → "retrying in 0m")
+    assert!(
+        stderr.contains("retrying immediately (attempt 1/302)"),
+        "first retry should be immediate, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("retrying immediately (attempt 2/302)"),
+        "second retry should be immediate, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("attempt 3/302)"),
+        "third retry should exist as backoff attempt, got:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("retrying immediately (attempt 3/302)"),
+        "third retry should NOT be immediate (should be backoff), got:\n{stderr}"
+    );
+}
+
+// ===========================================================================
 // Cursus: programmatic NDJSON event emission (binary-level)
 // ===========================================================================
 
