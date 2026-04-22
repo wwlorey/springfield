@@ -4,7 +4,7 @@ Agent wrapper that injects layered `.sgf/` context into every Claude Code invoca
 
 ## What it does
 
-`cl` resolves context files (`MEMENTO.md`, `BACKPRESSURE.md`) from a two-tier lookup (project-local `./.sgf/` then global `~/.sgf/`), constructs a `--append-system-prompt` argument with `study @<file>` directives, and execs `claude-wrapper-secret` with the injected context plus all passthrough arguments.
+`cl` resolves context files (`MEMENTO.md`, `BACKPRESSURE.md`) from a two-tier lookup (project-local `./.sgf/` then global `~/.sgf/`), and `LOOKBOOK.html` from the repo root (no layered fallback). It constructs a `--append-system-prompt` argument with `study @<file>` directives and execs `claude-wrapper-secret` with the injected context plus all passthrough arguments.
 
 ## Installation
 
@@ -24,12 +24,14 @@ All arguments are forwarded to `claude-wrapper-secret`. If context files are fou
 
 ### Context file resolution
 
-For each context file, `cl` checks:
+For `MEMENTO.md` and `BACKPRESSURE.md`, `cl` checks:
 
 1. `./.sgf/<file>` (project-local override)
 2. `~/.sgf/<file>` (global default)
 
 The first existing path wins. If neither exists, the file is skipped with a warning to stderr.
+
+`LOOKBOOK.html` is resolved from the repo root (`./LOOKBOOK.html`) with no layered fallback. If missing, a note (not a warning) is printed to stderr and the file is skipped. When present, it appears last in the resolved file list.
 
 ### Downstream binary
 
@@ -38,6 +40,6 @@ The first existing path wins. If neither exists, the file is skipped with a warn
 ## Design goals
 
 - **Single entry point**: All Claude Code invocations go through `cl`
-- **Layered config**: Project-local `.sgf/` overrides global `~/.sgf/` per file
+- **Layered config**: Project-local `.sgf/` overrides global `~/.sgf/` for `.sgf/` files; `LOOKBOOK.html` uses repo-root-only resolution
 - **Opaque downstream**: `cl` knows nothing about what `claude-wrapper-secret` does
 - **Testable**: Context resolution is a pure function; the binary never calls `claude` directly
