@@ -342,6 +342,15 @@ pub enum ResumeAction {
     Abort,
 }
 
+pub fn parse_resume_action(input: &str) -> Option<ResumeAction> {
+    match input.trim() {
+        "retry" => Some(ResumeAction::Retry),
+        "skip" => Some(ResumeAction::Skip),
+        "abort" => Some(ResumeAction::Abort),
+        _ => None,
+    }
+}
+
 fn format_context_line(context_producers: &HashMap<String, String>) -> Option<String> {
     if context_producers.is_empty() {
         return None;
@@ -817,9 +826,32 @@ pub fn resume_cursus(root: &Path, run_id: &str) -> io::Result<i32> {
         );
     }
 
-    let action = prompt_resume_action(&metadata)?;
-
     let programmatic = !std::io::stdin().is_terminal();
+
+    let action = if programmatic && metadata.status == RunStatus::Stalled {
+        events::emit_event(&Event::Stall {
+            iter: metadata.current_iter.clone(),
+            iterations_attempted: def.iters[current_index].iterations,
+            actions: vec!["retry".to_string(), "skip".to_string(), "abort".to_string()],
+        });
+
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        match parse_resume_action(&input) {
+            Some(action) => action,
+            None => {
+                let msg = format!("unrecognized action: {}", input.trim());
+                events::emit_event(&Event::Error {
+                    message: msg.clone(),
+                    fatal: true,
+                    iter: Some(metadata.current_iter.clone()),
+                });
+                return Err(io::Error::new(io::ErrorKind::InvalidInput, msg));
+            }
+        }
+    } else {
+        prompt_resume_action(&metadata)?
+    };
 
     let config = CursusConfig {
         spec: metadata.spec.clone(),
@@ -827,9 +859,9 @@ pub fn resume_cursus(root: &Path, run_id: &str) -> io::Result<i32> {
         no_push: false,
         agent_command: None,
         skip_preflight: true,
-        monitor_stdin_override: None,
+        monitor_stdin_override: if programmatic { Some(false) } else { None },
         programmatic,
-        output_format_json: false,
+        output_format_json: programmatic,
     };
 
     match action {
@@ -837,15 +869,25 @@ pub fn resume_cursus(root: &Path, run_id: &str) -> io::Result<i32> {
             metadata.status = RunStatus::Interrupted;
             metadata.touch();
             state::write_metadata(root, &metadata)?;
-            style::print_warning(&format!("run aborted [{run_id}]"));
+            if programmatic {
+                events::emit_event(&Event::RunComplete {
+                    status: "interrupted".to_string(),
+                    run_id: metadata.run_id.clone(),
+                    resume_command: format!("sgf {cursus_name} --resume {}", metadata.run_id),
+                });
+            } else {
+                style::print_warning(&format!("run aborted [{run_id}]"));
+            }
             Ok(1)
         }
         ResumeAction::Retry => {
             state::write_pid_file(root, run_id)?;
-            style::print_action(&format!(
-                "retrying iter '{}' [{run_id}]",
-                metadata.current_iter
-            ));
+            if !programmatic {
+                style::print_action(&format!(
+                    "retrying iter '{}' [{run_id}]",
+                    metadata.current_iter
+                ));
+            }
             run_cursus_loop(
                 root,
                 &cursus_name,
@@ -862,17 +904,27 @@ pub fn resume_cursus(root: &Path, run_id: &str) -> io::Result<i32> {
                 metadata.status = RunStatus::Completed;
                 metadata.touch();
                 state::write_metadata(root, &metadata)?;
-                style::print_success(&format!(
-                    "cursus complete [{cursus_name}] (skipped final iter)"
-                ));
+                if programmatic {
+                    events::emit_event(&Event::RunComplete {
+                        status: "completed".to_string(),
+                        run_id: metadata.run_id.clone(),
+                        resume_command: format!("sgf {cursus_name} --resume {}", metadata.run_id),
+                    });
+                } else {
+                    style::print_success(&format!(
+                        "cursus complete [{cursus_name}] (skipped final iter)"
+                    ));
+                }
                 return Ok(0);
             }
 
             state::write_pid_file(root, run_id)?;
-            style::print_action(&format!(
-                "skipping to iter '{}' [{run_id}]",
-                def.iters[next_index].name
-            ));
+            if !programmatic {
+                style::print_action(&format!(
+                    "skipping to iter '{}' [{run_id}]",
+                    def.iters[next_index].name
+                ));
+            }
             run_cursus_loop(
                 root,
                 &cursus_name,
@@ -2924,5 +2976,206 @@ exit 1
 
         let err = resume_cursus(root, run_id).unwrap_err();
         assert!(err.to_string().contains("not resumable"));
+    }
+
+    #[test]
+    fn parse_resume_action_retry() {
+        assert_eq!(parse_resume_action("retry"), Some(ResumeAction::Retry));
+    }
+
+    #[test]
+    fn parse_resume_action_skip() {
+        assert_eq!(parse_resume_action("skip"), Some(ResumeAction::Skip));
+    }
+
+    #[test]
+    fn parse_resume_action_abort() {
+        assert_eq!(parse_resume_action("abort"), Some(ResumeAction::Abort));
+    }
+
+    #[test]
+    fn parse_resume_action_with_whitespace() {
+        assert_eq!(
+            parse_resume_action("  retry  \n"),
+            Some(ResumeAction::Retry)
+        );
+        assert_eq!(parse_resume_action("skip\n"), Some(ResumeAction::Skip));
+        assert_eq!(parse_resume_action("\tabort\t"), Some(ResumeAction::Abort));
+    }
+
+    #[test]
+    fn parse_resume_action_unrecognized() {
+        assert_eq!(parse_resume_action("invalid"), None);
+        assert_eq!(parse_resume_action(""), None);
+        assert_eq!(parse_resume_action("RETRY"), None);
+        assert_eq!(parse_resume_action("1"), None);
+    }
+
+    #[test]
+    fn programmatic_abort_sets_interrupted_status() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_cursus_project(root, &["build.md"]);
+
+        let mock_agent = mock_script(root, "mock_agent.sh", "#!/bin/sh\nexit 2\n");
+
+        let def = make_cursus_def(
+            vec![make_iter("build", Mode::Afk, 5, None, None, None)],
+            false,
+        );
+
+        let run_id = "build-20260422T150000";
+        state::create_run_dir(root, run_id).unwrap();
+
+        let mut metadata = RunMetadata {
+            run_id: run_id.to_string(),
+            cursus: "build".to_string(),
+            status: RunStatus::Stalled,
+            current_iter: "build".to_string(),
+            current_iter_index: 0,
+            iters_completed: vec![],
+            spec: None,
+            mode_override: None,
+            context_producers: HashMap::new(),
+            current_session_id: None,
+            created_at: "2026-04-22T15:00:00Z".to_string(),
+            updated_at: "2026-04-22T15:05:00Z".to_string(),
+        };
+        state::write_metadata(root, &metadata).unwrap();
+
+        let config = CursusConfig {
+            spec: None,
+            mode_override: None,
+            no_push: true,
+            agent_command: Some(mock_agent.clone()),
+            skip_preflight: true,
+            monitor_stdin_override: Some(false),
+            programmatic: true,
+            output_format_json: true,
+        };
+
+        metadata.status = RunStatus::Interrupted;
+        metadata.touch();
+        state::write_metadata(root, &metadata).unwrap();
+
+        let meta = state::read_metadata(root, run_id).unwrap().unwrap();
+        assert_eq!(meta.status, RunStatus::Interrupted);
+    }
+
+    #[test]
+    fn programmatic_retry_reruns_stalled_iter() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_cursus_project(root, &["build.md"]);
+
+        let mock_agent = mock_script(
+            root,
+            "mock_agent.sh",
+            &format!(
+                "#!/bin/sh\ntouch \"{}/.iter-complete\"\nexit 0\n",
+                root.display()
+            ),
+        );
+
+        let def = make_cursus_def(
+            vec![make_iter("build", Mode::Afk, 5, None, None, None)],
+            false,
+        );
+
+        let run_id = "build-20260422T150000";
+        state::create_run_dir(root, run_id).unwrap();
+        state::write_pid_file(root, run_id).unwrap();
+
+        let mut metadata = RunMetadata {
+            run_id: run_id.to_string(),
+            cursus: "build".to_string(),
+            status: RunStatus::Stalled,
+            current_iter: "build".to_string(),
+            current_iter_index: 0,
+            iters_completed: vec![],
+            spec: None,
+            mode_override: None,
+            context_producers: HashMap::new(),
+            current_session_id: None,
+            created_at: "2026-04-22T15:00:00Z".to_string(),
+            updated_at: "2026-04-22T15:05:00Z".to_string(),
+        };
+
+        let config = CursusConfig {
+            spec: None,
+            mode_override: None,
+            no_push: true,
+            agent_command: Some(mock_agent),
+            skip_preflight: true,
+            monitor_stdin_override: Some(false),
+            programmatic: true,
+            output_format_json: true,
+        };
+
+        let exit_code =
+            run_cursus_loop(root, "build", &def, &config, &mut metadata, 0, None).unwrap();
+        assert_eq!(exit_code, 0);
+        assert_eq!(metadata.status, RunStatus::Completed);
+    }
+
+    #[test]
+    fn programmatic_skip_advances_to_next_iter() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_cursus_project(root, &["draft.md", "review.md"]);
+
+        let mock_agent = mock_script(
+            root,
+            "mock_agent.sh",
+            &format!(
+                "#!/bin/sh\ntouch \"{}/.iter-complete\"\nexit 0\n",
+                root.display()
+            ),
+        );
+
+        let def = make_cursus_def(
+            vec![
+                make_iter("draft", Mode::Afk, 5, None, None, None),
+                make_iter("review", Mode::Afk, 1, None, None, None),
+            ],
+            false,
+        );
+
+        let run_id = "spec-20260422T150000";
+        state::create_run_dir(root, run_id).unwrap();
+        state::write_pid_file(root, run_id).unwrap();
+
+        let mut metadata = RunMetadata {
+            run_id: run_id.to_string(),
+            cursus: "spec".to_string(),
+            status: RunStatus::Stalled,
+            current_iter: "draft".to_string(),
+            current_iter_index: 0,
+            iters_completed: vec![],
+            spec: None,
+            mode_override: None,
+            context_producers: HashMap::new(),
+            current_session_id: None,
+            created_at: "2026-04-22T15:00:00Z".to_string(),
+            updated_at: "2026-04-22T15:05:00Z".to_string(),
+        };
+
+        let config = CursusConfig {
+            spec: None,
+            mode_override: None,
+            no_push: true,
+            agent_command: Some(mock_agent),
+            skip_preflight: true,
+            monitor_stdin_override: Some(false),
+            programmatic: true,
+            output_format_json: true,
+        };
+
+        let exit_code =
+            run_cursus_loop(root, "spec", &def, &config, &mut metadata, 1, None).unwrap();
+        assert_eq!(exit_code, 0);
+        assert_eq!(metadata.status, RunStatus::Completed);
+        assert_eq!(metadata.iters_completed.len(), 1);
+        assert_eq!(metadata.iters_completed[0].name, "review");
     }
 }

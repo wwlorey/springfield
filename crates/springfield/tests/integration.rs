@@ -4776,11 +4776,11 @@ fn cursus_multi_iter_resume_stalled_run() {
     )
     .expect("failed to spawn sgf pipeline --resume");
 
-    // Write "2" (skip) to stdin
+    // Write "skip" to stdin (programmatic mode accepts action words)
     {
         use std::io::Write;
         let stdin = guard.child_mut().stdin.as_mut().unwrap();
-        stdin.write_all(b"2\n").unwrap();
+        stdin.write_all(b"skip\n").unwrap();
     }
 
     let resume_output = guard
