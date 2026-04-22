@@ -20,6 +20,7 @@ const DING_SENTINEL: &str = ".iter-ding";
 const MAX_ITERATIONS: u32 = 1000;
 const DEFAULT_ITER_DELAY_MS: u64 = 2000;
 const DEFAULT_POST_RESULT_TIMEOUT_SECS: u64 = 30;
+const STARTUP_ERROR_THRESHOLD: Duration = Duration::from_secs(5);
 
 fn iter_delay() -> Duration {
     let ms = std::env::var("SGF_TEST_ITER_DELAY_MS")
@@ -44,6 +45,10 @@ pub struct ProgrammaticResult {
 }
 
 pub type IterationCallback = Box<dyn FnMut(u32, &str)>;
+
+/// Callback invoked when a retry attempt is about to be made.
+/// Arguments: (attempt_number, reason, next_retry_delay_secs).
+pub type RetryCallback = Box<dyn FnMut(u32, &str, u64)>;
 
 pub struct IterRunnerConfig {
     pub afk: bool,
@@ -72,6 +77,19 @@ pub struct IterRunnerConfig {
     pub stdin_input: Option<String>,
     /// Called after each iteration completes with (iteration_number, session_id).
     pub on_iteration_complete: Option<IterationCallback>,
+    /// Number of immediate retry attempts (no delay) before switching to backoff.
+    pub retry_immediate: u32,
+    /// Seconds between backoff retries.
+    pub retry_interval_secs: u64,
+    /// Maximum total time (seconds) to keep retrying before giving up.
+    pub retry_max_duration_secs: u64,
+    /// Called when a retry attempt is about to be made.
+    pub on_retry: Option<RetryCallback>,
+}
+
+struct AgentExitStatus {
+    exit_code: Option<i32>,
+    killed_by_timeout: bool,
 }
 
 /// Exit codes returned by the iteration loop.
@@ -225,7 +243,7 @@ fn run_interactive(
     controller: &ShutdownController,
     iteration: u32,
     session_id: &str,
-) {
+) -> AgentExitStatus {
     let stop = Arc::new(AtomicBool::new(false));
     let stop_clone = stop.clone();
     let watcher = thread::spawn(move || ding_watcher(&stop_clone));
@@ -266,9 +284,14 @@ fn run_interactive(
             warn!(error = %e, "failed to spawn command");
             stop.store(true, Ordering::Relaxed);
             let _ = watcher.join();
-            return;
+            return AgentExitStatus {
+                exit_code: None,
+                killed_by_timeout: false,
+            };
         }
     };
+
+    let mut exit_code = None;
 
     loop {
         if controller.poll() == ShutdownStatus::Shutdown {
@@ -279,9 +302,10 @@ fn run_interactive(
 
         match child.try_wait() {
             Ok(Some(status)) => {
+                exit_code = status.code();
                 if !status.success() {
                     warn!(
-                        status = status.code().unwrap_or(-1),
+                        status = exit_code.unwrap_or(-1),
                         "command exited with non-zero status"
                     );
                 }
@@ -299,6 +323,10 @@ fn run_interactive(
 
     stop.store(true, Ordering::Relaxed);
     let _ = watcher.join();
+    AgentExitStatus {
+        exit_code,
+        killed_by_timeout: false,
+    }
 }
 
 fn run_afk(
@@ -309,7 +337,7 @@ fn run_afk(
     tee: &TeeWriter,
     iteration: u32,
     session_id: &str,
-) {
+) -> AgentExitStatus {
     let skip_setsid = std::env::var("SGF_TEST_NO_SETSID").is_ok();
     let setsid_hook = move || unsafe {
         if !skip_setsid {
@@ -358,7 +386,10 @@ fn run_afk(
         Ok(c) => c,
         Err(e) => {
             warn!(error = %e, "failed to spawn command");
-            return;
+            return AgentExitStatus {
+                exit_code: None,
+                killed_by_timeout: false,
+            };
         }
     };
 
@@ -366,7 +397,10 @@ fn run_afk(
         Some(s) => s,
         None => {
             warn!("failed to capture stdout");
-            return;
+            return AgentExitStatus {
+                exit_code: None,
+                killed_by_timeout: false,
+            };
         }
     };
 
@@ -384,13 +418,17 @@ fn run_afk(
     let child_pid = child.id();
     let mut result_received_at: Option<std::time::Instant> = None;
     let post_result_timeout = config.post_result_timeout;
+    let mut killed_by_timeout = false;
 
     loop {
         if controller.poll() == ShutdownStatus::Shutdown {
             kill_process_group(child_pid, Duration::from_millis(200));
             let _ = child.wait();
             let _ = reader_handle.join();
-            return;
+            return AgentExitStatus {
+                exit_code: None,
+                killed_by_timeout: false,
+            };
         }
 
         if let Some(received_at) = result_received_at
@@ -400,6 +438,7 @@ fn run_afk(
                 elapsed_secs = received_at.elapsed().as_secs(),
                 "agent process did not exit after result event, killing"
             );
+            killed_by_timeout = true;
             break;
         }
 
@@ -453,10 +492,18 @@ fn run_afk(
     }
 
     kill_process_group(child_pid, Duration::from_millis(200));
-    if let Err(e) = child.wait() {
-        warn!(error = %e, "error waiting for child process");
-    }
+    let exit_code = match child.wait() {
+        Ok(status) => status.code(),
+        Err(e) => {
+            warn!(error = %e, "error waiting for child process");
+            None
+        }
+    };
     let _ = reader_handle.join();
+    AgentExitStatus {
+        exit_code,
+        killed_by_timeout,
+    }
 }
 
 pub fn run_programmatic(
@@ -600,6 +647,119 @@ fn print_startup_banner(
 /// This is the core iteration loop. It handles:
 /// - TeeWriter (dual stdout + log file output)
 /// - Stdout reader thread (AFK mode NDJSON parsing)
+fn is_retryable_process_failure(status: &AgentExitStatus, elapsed: Duration) -> bool {
+    if status.killed_by_timeout {
+        return false;
+    }
+    let code = match status.exit_code {
+        Some(0) => return false,
+        Some(c) => c,
+        None => return true, // killed by signal (SIGSEGV, SIGKILL, etc.)
+    };
+    if code == 130 {
+        return false;
+    }
+    if elapsed < STARTUP_ERROR_THRESHOLD {
+        return false;
+    }
+    true
+}
+
+fn run_agent_with_retry(
+    agent_cmd: &str,
+    config: &mut IterRunnerConfig,
+    is_file: bool,
+    controller: &ShutdownController,
+    tee: &Arc<TeeWriter>,
+    iteration: u32,
+    session_id: &str,
+) {
+    let start = std::time::Instant::now();
+    let status = if config.afk {
+        run_afk(
+            agent_cmd, config, is_file, controller, tee, iteration, session_id,
+        )
+    } else {
+        run_interactive(
+            agent_cmd, config, is_file, controller, iteration, session_id,
+        )
+    };
+    let elapsed = start.elapsed();
+
+    if !is_retryable_process_failure(&status, elapsed) {
+        return;
+    }
+
+    let first_failure = std::time::Instant::now();
+    let max_duration = Duration::from_secs(config.retry_max_duration_secs);
+    let mut attempt: u32 = 0;
+
+    loop {
+        attempt += 1;
+
+        if first_failure.elapsed() >= max_duration {
+            warn!(
+                total_secs = first_failure.elapsed().as_secs(),
+                "retry duration exceeded, giving up"
+            );
+            return;
+        }
+
+        if controller.poll() == ShutdownStatus::Shutdown {
+            return;
+        }
+
+        let in_backoff = attempt > config.retry_immediate;
+        let next_retry_secs = if in_backoff {
+            config.retry_interval_secs
+        } else {
+            0
+        };
+
+        if let Some(ref mut cb) = config.on_retry {
+            cb(attempt, "process_failure", next_retry_secs);
+        }
+
+        let msg = if in_backoff {
+            format!(
+                "retrying in {}m (attempt {})...",
+                config.retry_interval_secs / 60,
+                attempt
+            )
+        } else {
+            format!("retrying immediately (attempt {})...", attempt)
+        };
+        tee.writeln(&style::dim(&msg));
+
+        if in_backoff {
+            let interval = Duration::from_secs(config.retry_interval_secs);
+            let tick = Duration::from_millis(500);
+            let mut waited = Duration::ZERO;
+            while waited < interval {
+                if controller.poll() == ShutdownStatus::Shutdown {
+                    return;
+                }
+                thread::sleep(tick);
+                waited += tick;
+            }
+        }
+
+        config.resume = Some(session_id.to_string());
+
+        let start = std::time::Instant::now();
+        let retry_status = if config.afk {
+            run_afk(agent_cmd, config, is_file, controller, tee, 1, session_id)
+        } else {
+            run_interactive(agent_cmd, config, is_file, controller, 1, session_id)
+        };
+        let retry_elapsed = start.elapsed();
+
+        if !is_retryable_process_failure(&retry_status, retry_elapsed) {
+            return;
+        }
+    }
+}
+
 /// - Notification watcher (.iter-ding)
 /// - Terminal settings save/restore (tcgetattr/tcsetattr)
 /// - Agent-in-PATH check
@@ -649,7 +809,11 @@ pub fn run_iteration_loop(
         print_startup_banner(&config, iterations, is_file, &agent_cmd, &tee);
     }
 
-    let root = config.work_dir.as_deref().unwrap_or_else(|| Path::new("."));
+    let root = config
+        .work_dir
+        .clone()
+        .unwrap_or_else(|| PathBuf::from("."));
+    let root = root.as_path();
 
     remove_sentinel_from(root);
     let _ = fs::remove_file(root.join(DING_SENTINEL));
@@ -681,26 +845,15 @@ pub fn run_iteration_loop(
 
         let head_before = vcs_utils::git_head();
 
-        if config.afk {
-            run_afk(
-                &agent_cmd,
-                &config,
-                is_file,
-                controller,
-                &tee,
-                i,
-                &iter_session_id,
-            );
-        } else {
-            run_interactive(
-                &agent_cmd,
-                &config,
-                is_file,
-                controller,
-                i,
-                &iter_session_id,
-            );
-        }
+        run_agent_with_retry(
+            &agent_cmd,
+            &mut config,
+            is_file,
+            controller,
+            &tee,
+            i,
+            &iter_session_id,
+        );
 
         if let Some(ref termios) = saved_termios {
             restore_terminal_settings(termios);
@@ -940,6 +1093,10 @@ mod tests {
             post_result_timeout: Duration::from_secs(30),
             stdin_input: None,
             on_iteration_complete: None,
+            retry_immediate: 3,
+            retry_interval_secs: 300,
+            retry_max_duration_secs: 43200,
+            on_retry: None,
         }
     }
 
@@ -1263,5 +1420,112 @@ fi
         let result = run_programmatic(&script, &config, false, &controller, 1, "test-sid").unwrap();
 
         assert_eq!(result.content, "hello_world");
+    }
+
+    fn exit(code: Option<i32>) -> AgentExitStatus {
+        AgentExitStatus {
+            exit_code: code,
+            killed_by_timeout: false,
+        }
+    }
+
+    #[test]
+    fn retryable_nonzero_after_threshold() {
+        assert!(is_retryable_process_failure(
+            &exit(Some(1)),
+            Duration::from_secs(10)
+        ));
+        assert!(is_retryable_process_failure(
+            &exit(Some(2)),
+            Duration::from_secs(60)
+        ));
+        assert!(is_retryable_process_failure(
+            &exit(Some(137)),
+            Duration::from_secs(10)
+        ));
+    }
+
+    #[test]
+    fn not_retryable_success() {
+        assert!(!is_retryable_process_failure(
+            &exit(Some(0)),
+            Duration::from_secs(0)
+        ));
+        assert!(!is_retryable_process_failure(
+            &exit(Some(0)),
+            Duration::from_secs(100)
+        ));
+    }
+
+    #[test]
+    fn not_retryable_interrupted() {
+        assert!(!is_retryable_process_failure(
+            &exit(Some(130)),
+            Duration::from_secs(0)
+        ));
+        assert!(!is_retryable_process_failure(
+            &exit(Some(130)),
+            Duration::from_secs(100)
+        ));
+    }
+
+    #[test]
+    fn not_retryable_fast_exit() {
+        assert!(!is_retryable_process_failure(
+            &exit(Some(1)),
+            Duration::from_secs(0)
+        ));
+        assert!(!is_retryable_process_failure(
+            &exit(Some(1)),
+            Duration::from_secs(1)
+        ));
+        assert!(!is_retryable_process_failure(
+            &exit(Some(2)),
+            Duration::from_secs(4)
+        ));
+        assert!(!is_retryable_process_failure(
+            &exit(Some(137)),
+            Duration::from_secs(3)
+        ));
+    }
+
+    #[test]
+    fn retryable_after_threshold() {
+        assert!(is_retryable_process_failure(
+            &exit(Some(1)),
+            Duration::from_secs(5)
+        ));
+        assert!(is_retryable_process_failure(
+            &exit(Some(1)),
+            Duration::from_secs(6)
+        ));
+        assert!(is_retryable_process_failure(
+            &exit(Some(2)),
+            Duration::from_secs(10)
+        ));
+    }
+
+    #[test]
+    fn retryable_signal_kill() {
+        assert!(is_retryable_process_failure(
+            &exit(None),
+            Duration::from_millis(0)
+        ));
+        assert!(is_retryable_process_failure(
+            &exit(None),
+            Duration::from_secs(10)
+        ));
+    }
+
+    #[test]
+    fn not_retryable_timeout_kill() {
+        let status = AgentExitStatus {
+            exit_code: None,
+            killed_by_timeout: true,
+        };
+        assert!(!is_retryable_process_failure(
+            &status,
+            Duration::from_secs(10)
+        ));
     }
 }

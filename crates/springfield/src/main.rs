@@ -260,6 +260,10 @@ fn run_simple_prompt(root: &Path, args: &DynamicArgs, prompt_path: &Path) -> ! {
         post_result_timeout: springfield::iter_runner::default_post_result_timeout(),
         stdin_input: None,
         on_iteration_complete: Some(on_iteration_complete),
+        retry_immediate: 3,
+        retry_interval_secs: 300,
+        retry_max_duration_secs: 43200,
+        on_retry: None,
     };
 
     let is_tty = args.output_format.is_none()

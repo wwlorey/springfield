@@ -1,17 +1,16 @@
+use chrono::Utc;
+use shutdown::{ShutdownConfig, ShutdownController};
 use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::io::{IsTerminal, Read as _};
 use std::path::{Path, PathBuf};
-
-use chrono::Utc;
-use shutdown::{ShutdownConfig, ShutdownController};
 use uuid::Uuid;
 
 use crate::cursus::context;
 use crate::cursus::events::{self, Event, IterSummary};
 use crate::cursus::state::{self, CompletedIter, RunMetadata, RunStatus};
-use crate::cursus::toml::{CursusDefinition, IterDefinition, Mode};
+use crate::cursus::toml::{CursusDefinition, IterDefinition, Mode, RetryConfig};
 use crate::iter_runner::{self, IterExitCode, IterRunnerConfig};
 use crate::loop_mgmt;
 use crate::style;
@@ -193,7 +192,25 @@ struct IterInvocation<'a> {
     effective_mode: &'a Mode,
 }
 
-fn run_iter(inv: &IterInvocation<'_>, controller: &ShutdownController) -> io::Result<i32> {
+fn build_retry_callback(programmatic: bool) -> Option<iter_runner::RetryCallback> {
+    if programmatic {
+        Some(Box::new(move |attempt, reason, next_retry_secs| {
+            events::emit_event(&Event::Retry {
+                attempt,
+                reason: reason.to_string(),
+                next_retry_secs,
+            });
+        }))
+    } else {
+        None
+    }
+}
+
+fn run_iter(
+    inv: &IterInvocation<'_>,
+    retry_config: &RetryConfig,
+    controller: &ShutdownController,
+) -> io::Result<i32> {
     let agent_cmd = resolve_agent_command(inv.config);
 
     let mut prompt_files = Vec::new();
@@ -233,6 +250,10 @@ fn run_iter(inv: &IterInvocation<'_>, controller: &ShutdownController) -> io::Re
         post_result_timeout: crate::iter_runner::default_post_result_timeout(),
         stdin_input: None,
         on_iteration_complete: None,
+        retry_immediate: retry_config.immediate,
+        retry_interval_secs: retry_config.interval_secs,
+        retry_max_duration_secs: retry_config.max_duration_secs,
+        on_retry: build_retry_callback(inv.config.programmatic),
     };
 
     let exit_code = iter_runner::run_iteration_loop(iter_config, controller);
@@ -247,6 +268,7 @@ fn run_iter(inv: &IterInvocation<'_>, controller: &ShutdownController) -> io::Re
 
 fn run_programmatic_turn(
     inv: &IterInvocation<'_>,
+    retry_config: &RetryConfig,
     resume_session_id: Option<&str>,
     resume_input: Option<&str>,
 ) -> io::Result<iter_runner::ProgrammaticResult> {
@@ -292,6 +314,10 @@ fn run_programmatic_turn(
         post_result_timeout: crate::iter_runner::default_post_result_timeout(),
         stdin_input: resume_input.map(|s| s.to_string()),
         on_iteration_complete: None,
+        retry_immediate: retry_config.immediate,
+        retry_interval_secs: retry_config.interval_secs,
+        retry_max_duration_secs: retry_config.max_duration_secs,
+        on_retry: build_retry_callback(inv.config.programmatic),
     };
 
     iter_runner::run_programmatic(
@@ -531,9 +557,14 @@ fn run_cursus_loop(
             let is_resume_turn = resume_input.is_some() && metadata.current_session_id.is_some();
             let turn_result = if is_resume_turn {
                 let input = resume_input.take().unwrap();
-                run_programmatic_turn(&inv, metadata.current_session_id.as_deref(), Some(&input))?
+                run_programmatic_turn(
+                    &inv,
+                    &def.retry,
+                    metadata.current_session_id.as_deref(),
+                    Some(&input),
+                )?
             } else {
-                run_programmatic_turn(&inv, None, None)?
+                run_programmatic_turn(&inv, &def.retry, None, None)?
             };
 
             let waiting_for_input = !has_any_sentinel(root) && turn_result.exit_code == 0;
@@ -567,7 +598,7 @@ fn run_cursus_loop(
                 None
             };
 
-            let exit_code = run_iter(&inv, &controller)?;
+            let exit_code = run_iter(&inv, &def.retry, &controller)?;
 
             if let Some(ref before) = head_before {
                 vcs_utils::auto_push_if_changed(before, |msg| {
@@ -3178,5 +3209,145 @@ exit 1
         assert_eq!(metadata.status, RunStatus::Completed);
         assert_eq!(metadata.iters_completed.len(), 1);
         assert_eq!(metadata.iters_completed[0].name, "review");
+    }
+
+    #[test]
+    fn run_cursus_retry_on_process_kill() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_cursus_project(root, &["build.md"]);
+
+        let attempt_file = root.join("attempt_count");
+        fs::write(&attempt_file, "0").unwrap();
+
+        let mock_agent = mock_script(
+            root,
+            "mock_agent.sh",
+            &format!(
+                r#"#!/bin/bash
+COUNT=$(cat "{attempt_file}")
+COUNT=$((COUNT + 1))
+echo "$COUNT" > "{attempt_file}"
+if [ "$COUNT" -lt 3 ]; then
+    kill -9 $$
+fi
+touch "$(dirname "$0")/.iter-complete"
+"#,
+                attempt_file = attempt_file.display()
+            ),
+        );
+
+        let def = CursusDefinition {
+            description: "retry test".to_string(),
+            alias: None,
+            trigger: "manual".to_string(),
+            auto_push: false,
+            retry: RetryConfig {
+                immediate: 5,
+                interval_secs: 1,
+                max_duration_secs: 120,
+            },
+            iters: vec![make_iter("build", Mode::Afk, 1, None, None, None)],
+        };
+
+        let config = CursusConfig {
+            spec: None,
+            mode_override: None,
+            no_push: true,
+            agent_command: Some(mock_agent),
+            skip_preflight: true,
+            monitor_stdin_override: Some(false),
+            programmatic: false,
+            output_format_json: false,
+        };
+
+        let exit_code = run_cursus(root, "test", &def, &config).unwrap();
+        assert_eq!(exit_code, 0);
+        let count: u32 = fs::read_to_string(&attempt_file)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        assert!(count >= 3, "expected at least 3 attempts, got {count}");
+    }
+
+    #[test]
+    fn run_cursus_no_retry_on_startup_error() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_cursus_project(root, &["build.md"]);
+
+        let attempt_file = root.join("attempt_count");
+        fs::write(&attempt_file, "0").unwrap();
+
+        let mock_agent = mock_script(
+            root,
+            "mock_agent.sh",
+            &format!(
+                r#"#!/bin/bash
+COUNT=$(cat "{attempt_file}")
+COUNT=$((COUNT + 1))
+echo "$COUNT" > "{attempt_file}"
+exit 1
+"#,
+                attempt_file = attempt_file.display()
+            ),
+        );
+
+        let def = CursusDefinition {
+            description: "no retry test".to_string(),
+            alias: None,
+            trigger: "manual".to_string(),
+            auto_push: false,
+            retry: RetryConfig {
+                immediate: 3,
+                interval_secs: 1,
+                max_duration_secs: 120,
+            },
+            iters: vec![make_iter("build", Mode::Afk, 1, None, None, None)],
+        };
+
+        let config = CursusConfig {
+            spec: None,
+            mode_override: None,
+            no_push: true,
+            agent_command: Some(mock_agent),
+            skip_preflight: true,
+            monitor_stdin_override: Some(false),
+            programmatic: false,
+            output_format_json: false,
+        };
+
+        let exit_code = run_cursus(root, "test", &def, &config).unwrap();
+        assert_ne!(exit_code, 0);
+        let count: u32 = fs::read_to_string(&attempt_file)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        assert_eq!(count, 1, "startup errors should not retry");
+    }
+
+    #[test]
+    fn run_cursus_retry_config_passed_through() {
+        let def = make_cursus_def(
+            vec![make_iter("build", Mode::Afk, 1, None, None, None)],
+            false,
+        );
+        assert_eq!(def.retry.immediate, 3);
+        assert_eq!(def.retry.interval_secs, 300);
+        assert_eq!(def.retry.max_duration_secs, 43200);
+
+        let custom_def = CursusDefinition {
+            retry: RetryConfig {
+                immediate: 5,
+                interval_secs: 600,
+                max_duration_secs: 86400,
+            },
+            ..def
+        };
+        assert_eq!(custom_def.retry.immediate, 5);
+        assert_eq!(custom_def.retry.interval_secs, 600);
+        assert_eq!(custom_def.retry.max_duration_secs, 86400);
     }
 }
