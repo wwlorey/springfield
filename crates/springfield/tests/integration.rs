@@ -2818,6 +2818,7 @@ fn exit_0_uses_success_styling() {
             .args(["build", "auth", "-a"])
             .env("SGF_AGENT_COMMAND", &mock_agent)
             .env("PATH", &mock_path_with_cl)
+            .env("SGF_FORCE_TERMINAL", "1")
             .env_remove("NO_COLOR")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -2876,6 +2877,7 @@ fn exit_1_uses_error_styling() {
             .args(["build", "auth", "-a"])
             .env("SGF_AGENT_COMMAND", &mock_agent)
             .env("PATH", &mock_path_with_cl)
+            .env("SGF_FORCE_TERMINAL", "1")
             .env_remove("NO_COLOR")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -2930,6 +2932,7 @@ fn exit_2_uses_warning_styling() {
             .args(["build", "-a"])
             .env("SGF_AGENT_COMMAND", &mock_agent)
             .env("PATH", &mock_path_with_cl)
+            .env("SGF_FORCE_TERMINAL", "1")
             .env_remove("NO_COLOR")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -2991,6 +2994,7 @@ fn no_color_exit_messages_use_plain_prefix() {
             .args(["build", "auth", "-a"])
             .env("SGF_AGENT_COMMAND", &mock_agent_0)
             .env("PATH", &mock_path_with_cl)
+            .env("SGF_FORCE_TERMINAL", "1")
             .env("NO_COLOR", "1")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -3017,6 +3021,7 @@ fn no_color_exit_messages_use_plain_prefix() {
             .args(["build", "auth", "-a"])
             .env("SGF_AGENT_COMMAND", &mock_agent_1)
             .env("PATH", &mock_path_with_cl)
+            .env("SGF_FORCE_TERMINAL", "1")
             .env("NO_COLOR", "1")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -3039,6 +3044,7 @@ fn no_color_exit_messages_use_plain_prefix() {
             .args(["build", "auth", "-a"])
             .env("SGF_AGENT_COMMAND", &mock_agent_2)
             .env("PATH", &mock_path_with_cl)
+            .env("SGF_FORCE_TERMINAL", "1")
             .env("NO_COLOR", "1")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -4655,7 +4661,8 @@ fn cursus_multi_iter_stall_recovery() {
     let output = run_sgf(
         sgf_cmd(tmp.path())
             .args(["pipeline", "-a"])
-            .env("SGF_AGENT_COMMAND", &mock_agent),
+            .env("SGF_AGENT_COMMAND", &mock_agent)
+            .env("SGF_FORCE_TERMINAL", "1"),
     );
 
     assert_eq!(

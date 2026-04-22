@@ -425,8 +425,10 @@ fn run_cursus_dispatch(root: &Path, args: &DynamicArgs, resolved: cursus::Resolv
         }
     }
 
-    let programmatic = args.output_format.as_deref() == Some("json")
-        || !std::io::IsTerminal::is_terminal(&std::io::stdin());
+    let is_tty = std::env::var("SGF_FORCE_TERMINAL")
+        .map(|v| v == "1")
+        .unwrap_or_else(|_| std::io::IsTerminal::is_terminal(&std::io::stdin()));
+    let programmatic = args.output_format.as_deref() == Some("json") || !is_tty;
 
     let output_format_json = args.output_format.as_deref() == Some("json");
 
