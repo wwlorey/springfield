@@ -187,7 +187,6 @@ Specifications are the **source of truth** for all code. They are managed exclus
 | `fm where` | Print JSONL and DB directory paths |
 
 
-
 ## IMPORTANT
 
 - **Use relative paths—from the repo root—for file operations, not absolute paths.**
@@ -195,6 +194,10 @@ Specifications are the **source of truth** for all code. They are managed exclus
   * Read the logs in `./.sgf/logs` to help formulate your answer.
 - **ALWAYS use `pn`** for anything having to do with BUGS and/or ISSUES.
   * NEVER USE GITHUB (`gh`).
+
+### Editing `.claude/settings.json`
+
+- Anytime you edit the Claude configuration settings, always edit the version that lives in `~/Repos/dotfiles/.claude` (not in `~/`).
 
 ### Session Start
 
