@@ -46,15 +46,14 @@ prek install
 
 ### Usage
 
-Commands are either **built-ins** or **cursus pipelines**. Built-in commands (`init`, `list`, `logs`, `resume`) are resolved first; everything else maps to a cursus `.toml` file in `.sgf/cursus/`. You can also pass a prompt file directly.
+Commands are either **built-ins** or **cursus pipelines**. Built-in commands (`init`, `list`, `logs`) are resolved first; everything else maps to a cursus `.toml` file in `.sgf/cursus/`. You can also pass a prompt file directly.
 
 ```sh
 sgf <command>               # run a cursus pipeline defined in .sgf/cursus/<command>.toml
 sgf <command> -a            # run in AFK mode (unattended)
 sgf list                    # show available cursus commands and built-ins
 sgf logs <loop-id>          # tail a running loop's output
-sgf resume                  # resume a previous session or stalled cursus run
-sgf resume <loop-id>        # resume a specific run by ID
+sgf <command> --resume <id> # resume a previous run by ID
 sgf my-task.md              # run a prompt file as a simple iteration loop
 sgf my-task.md -a -n 5      # prompt file with AFK and 5 iterations
 ```
@@ -64,6 +63,7 @@ CLI flags apply to all iters in a cursus:
 - `-i` — force interactive mode on all iters
 - `-n <count>` — override iteration count on all iters
 - `--no-push` — disable auto-push on all iters
+- `--resume <run-id>` — resume a previous run by ID
 - `--skip-preflight` — disable all pre-launch checks including recovery and daemon startup
 
 ### Cursus Pipelines

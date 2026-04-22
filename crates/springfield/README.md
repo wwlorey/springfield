@@ -5,22 +5,17 @@ CLI entry point for [Springfield](../../README.md). All developer interaction go
 ## Commands
 
 ```
-sgf <command> [spec] [-a | -i] [-n N] [--no-push]   — run a cursus pipeline
-sgf init [--force]                                    — scaffold a new project
-sgf resume [run-id]                                   — resume a stalled/interrupted run
-sgf logs <loop-id>                                    — tail a running loop's output
-sgf list                                              — show available commands
+sgf <command> [spec] [-a | -i] [-n N] [--no-push] [--resume <run-id>]  — run a cursus pipeline
+sgf init [--force]                                                      — scaffold a new project
+sgf logs <loop-id>                                                      — tail a running loop's output
+sgf list                                                                — show available commands
 ```
-
-### `sgf resume`
-
-Resumes a previously interrupted or completed session. Without arguments, presents an interactive picker showing recent sessions (cursus runs first, then legacy sessions). With a `run-id`, resumes that specific run directly. Resume always launches in interactive mode regardless of the original session's mode. Also supports cursus-specific stall recovery.
 
 ### Command Resolution
 
 `sgf <command>` resolves via cursus pipeline definitions. Resolution order:
 
-1. Reserved built-ins: `init`, `list`, `logs`, `resume`, `status`
+1. Reserved built-ins: `init`, `list`, `logs`
 2. `./.sgf/cursus/<command>.toml` (project-local override)
 3. `~/.sgf/cursus/<command>.toml` (global default)
 4. Alias match across all resolved cursus definitions
@@ -34,6 +29,7 @@ Resumes a previously interrupted or completed session. Without arguments, presen
 | `-i` / `--interactive` | per-iter config | Interactive mode (mutually exclusive with `-a`) |
 | `-n` / `--iterations` | per-iter config | Number of iterations |
 | `--no-push` | per-iter config | Disable auto-push after commits |
+| `--resume <run-id>` | — | Resume a previous run by ID |
 
 CLI flags override cursus TOML values for all iters in a run.
 
