@@ -246,6 +246,116 @@ fn multiple_append_system_prompt_coexist() {
 }
 
 #[test]
+fn lookbook_appears_in_append_system_prompt_when_present() {
+    let workdir = TempDir::new().unwrap();
+    let cwd = workdir.path();
+
+    fs::create_dir_all(cwd.join(".sgf")).unwrap();
+    fs::write(cwd.join(".sgf/MEMENTO.md"), "m").unwrap();
+    fs::write(cwd.join("LOOKBOOK.html"), "<html>lookbook</html>").unwrap();
+
+    let mock_dir = TempDir::new().unwrap();
+    create_mock_secret(mock_dir.path());
+    let output_file = mock_dir.path().join("output.txt");
+
+    let result = run_cl(
+        Command::new(cl_binary())
+            .current_dir(cwd)
+            .env("HOME", cwd.to_str().unwrap())
+            .env("PATH", prepend_to_path(mock_dir.path()))
+            .env("CL_TEST_OUTPUT", &output_file),
+    );
+
+    assert!(
+        result.status.success(),
+        "cl failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let output = fs::read_to_string(&output_file).unwrap();
+    assert!(output.contains("LOOKBOOK.html"));
+}
+
+#[test]
+fn lookbook_absent_does_not_cause_error() {
+    let workdir = TempDir::new().unwrap();
+    let cwd = workdir.path();
+
+    fs::create_dir_all(cwd.join(".sgf")).unwrap();
+    fs::write(cwd.join(".sgf/MEMENTO.md"), "m").unwrap();
+
+    let mock_dir = TempDir::new().unwrap();
+    create_mock_secret(mock_dir.path());
+    let output_file = mock_dir.path().join("output.txt");
+
+    let result = run_cl(
+        Command::new(cl_binary())
+            .current_dir(cwd)
+            .env("HOME", cwd.to_str().unwrap())
+            .env("PATH", prepend_to_path(mock_dir.path()))
+            .env("CL_TEST_OUTPUT", &output_file),
+    );
+
+    assert!(result.status.success());
+
+    let output = fs::read_to_string(&output_file).unwrap();
+    assert!(!output.contains("LOOKBOOK.html"));
+    assert!(output.contains("MEMENTO.md"));
+}
+
+#[test]
+fn lookbook_appears_last_in_study_string() {
+    let workdir = TempDir::new().unwrap();
+    let cwd = workdir.path();
+
+    fs::create_dir_all(cwd.join(".sgf")).unwrap();
+    fs::write(cwd.join(".sgf/MEMENTO.md"), "m").unwrap();
+    fs::write(cwd.join(".sgf/BACKPRESSURE.md"), "b").unwrap();
+    fs::write(cwd.join("LOOKBOOK.html"), "lb").unwrap();
+
+    let mock_dir = TempDir::new().unwrap();
+    create_mock_secret(mock_dir.path());
+    let output_file = mock_dir.path().join("output.txt");
+
+    let result = run_cl(
+        Command::new(cl_binary())
+            .current_dir(cwd)
+            .env("HOME", cwd.to_str().unwrap())
+            .env("PATH", prepend_to_path(mock_dir.path()))
+            .env("CL_TEST_OUTPUT", &output_file),
+    );
+
+    assert!(
+        result.status.success(),
+        "cl failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let output = fs::read_to_string(&output_file).unwrap();
+    let study_line = output
+        .lines()
+        .find(|l| l.contains("study @"))
+        .expect("should have study line");
+
+    let memento_pos = study_line.find("MEMENTO.md").expect("MEMENTO.md in study");
+    let bp_pos = study_line
+        .find("BACKPRESSURE.md")
+        .expect("BACKPRESSURE.md in study");
+    let lb_pos = study_line
+        .find("LOOKBOOK.html")
+        .expect("LOOKBOOK.html in study");
+
+    assert!(
+        lb_pos > memento_pos,
+        "LOOKBOOK.html should appear after MEMENTO.md"
+    );
+    assert!(
+        lb_pos > bp_pos,
+        "LOOKBOOK.html should appear after BACKPRESSURE.md"
+    );
+}
+
+#[test]
 fn exits_1_when_downstream_binary_missing() {
     let workdir = TempDir::new().unwrap();
 

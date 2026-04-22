@@ -21,6 +21,13 @@ pub fn resolve_context_files(cwd: &Path, home: Option<&Path>) -> Vec<String> {
         eprintln!("warning: {filename} not found in .sgf/ (local or global), skipping");
     }
 
+    let lookbook = cwd.join("LOOKBOOK.html");
+    if lookbook.exists() {
+        files.push(lookbook.to_string_lossy().into_owned());
+    } else {
+        eprintln!("note: LOOKBOOK.html not found at repo root, skipping");
+    }
+
     files
 }
 
@@ -126,6 +133,63 @@ mod tests {
             !result.iter().any(|f| f.contains("BACKPRESSURE.md")),
             "global BACKPRESSURE.md should not be resolved when home is None"
         );
+    }
+
+    #[test]
+    fn lookbook_present_at_repo_root_included_last() {
+        let (cwd_dir, home_dir) = setup();
+        let cwd = cwd_dir.path();
+        let home = home_dir.path();
+
+        fs::create_dir_all(cwd.join(".sgf")).unwrap();
+        fs::write(cwd.join(".sgf/MEMENTO.md"), "m").unwrap();
+        fs::write(cwd.join(".sgf/BACKPRESSURE.md"), "b").unwrap();
+        fs::write(cwd.join("LOOKBOOK.html"), "<html>lookbook</html>").unwrap();
+
+        let result = resolve_context_files(cwd, Some(home));
+        assert_eq!(result.len(), 3);
+        assert!(result[2].contains("LOOKBOOK.html"));
+    }
+
+    #[test]
+    fn lookbook_absent_skipped() {
+        let (cwd_dir, home_dir) = setup();
+        let cwd = cwd_dir.path();
+        let home = home_dir.path();
+
+        fs::create_dir_all(cwd.join(".sgf")).unwrap();
+        fs::write(cwd.join(".sgf/MEMENTO.md"), "m").unwrap();
+
+        let result = resolve_context_files(cwd, Some(home));
+        assert!(!result.iter().any(|f| f.contains("LOOKBOOK.html")));
+    }
+
+    #[test]
+    fn lookbook_ordering_always_after_layered_files() {
+        let (cwd_dir, home_dir) = setup();
+        let cwd = cwd_dir.path();
+        let home = home_dir.path();
+
+        fs::create_dir_all(cwd.join(".sgf")).unwrap();
+        fs::write(cwd.join(".sgf/MEMENTO.md"), "m").unwrap();
+        fs::write(cwd.join(".sgf/BACKPRESSURE.md"), "b").unwrap();
+        fs::write(cwd.join("LOOKBOOK.html"), "lb").unwrap();
+
+        let result = resolve_context_files(cwd, Some(home));
+        let memento_pos = result
+            .iter()
+            .position(|f| f.contains("MEMENTO.md"))
+            .unwrap();
+        let bp_pos = result
+            .iter()
+            .position(|f| f.contains("BACKPRESSURE.md"))
+            .unwrap();
+        let lb_pos = result
+            .iter()
+            .position(|f| f.contains("LOOKBOOK.html"))
+            .unwrap();
+        assert!(lb_pos > memento_pos);
+        assert!(lb_pos > bp_pos);
     }
 
     #[test]
