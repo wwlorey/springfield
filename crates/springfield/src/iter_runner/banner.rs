@@ -1,4 +1,4 @@
-use super::style;
+use crate::style;
 
 const MIN_WIDTH: usize = 40;
 

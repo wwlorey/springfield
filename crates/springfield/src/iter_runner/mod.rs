@@ -1,6 +1,5 @@
 pub mod banner;
 pub mod format;
-pub mod style;
 
 use shutdown::{ShutdownController, ShutdownStatus, kill_process_group};
 use std::fs;
@@ -14,7 +13,7 @@ use std::thread;
 use std::time::Duration;
 use tracing::{info, warn};
 
-use crate::style as badge;
+use crate::style;
 
 pub const SENTINEL: &str = ".iter-complete";
 pub const SENTINEL_MAX_DEPTH: usize = 2;
@@ -718,7 +717,7 @@ fn run_agent_with_retry(
                 total_secs = first_failure.elapsed().as_secs(),
                 "retry duration exceeded, giving up"
             );
-            badge::print_error("retry duration exceeded, giving up");
+            style::print_error("retry duration exceeded, giving up");
             return;
         }
 
@@ -750,7 +749,7 @@ fn run_agent_with_retry(
                 attempt, max_attempts
             )
         };
-        badge::print_warning(&msg);
+        style::print_warning(&msg);
 
         if in_backoff {
             let interval = Duration::from_secs(config.retry_interval_secs);
