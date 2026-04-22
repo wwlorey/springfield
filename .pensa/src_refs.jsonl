@@ -264,15 +264,9 @@
 {"id":"pn-a7894df8","issue_id":"pn-67ba322a","path":"crates/springfield/src/cursus/runner.rs","reason":"Update render_stall_banner format string and unit tests","created_at":"2026-04-22T18:10:03Z"}
 {"id":"pn-ed359e7b","issue_id":"pn-863fd021","path":"crates/springfield/tests/integration.rs","reason":"Add integration tests for --resume flag dispatch paths","created_at":"2026-04-22T18:10:12Z"}
 {"id":"pn-37e68958","issue_id":"pn-374aaa67","path":"crates/springfield/tests/integration.rs","reason":"Add integration tests for resume command stderr output on all exit types","created_at":"2026-04-22T18:10:19Z"}
-{"id":"pn-1782fe81","issue_id":"pn-a446c8b0","path":"crates/springfield/src/main.rs","reason":"DynamicArgs struct and parse_dynamic_args need --resume field","created_at":"2026-04-22T18:16:54Z"}
-{"id":"pn-656bb03c","issue_id":"pn-062a148d","path":"crates/springfield/src/main.rs","reason":"Remove Commands::Resume variant and resume dispatch","created_at":"2026-04-22T18:17:01Z"}
-{"id":"pn-508479c1","issue_id":"pn-389d1083","path":"crates/springfield/src/cursus/toml.rs","reason":"Add RetryConfig struct and [retry] table parsing","created_at":"2026-04-22T18:17:06Z"}
-{"id":"pn-8962eeb1","issue_id":"pn-cfa02c54","path":"crates/springfield/src/cursus/runner.rs","reason":"Update stall banner and exit paths to use correct resume format","created_at":"2026-04-22T18:17:08Z"}
-{"id":"pn-94acfc15","issue_id":"pn-cfa02c54","path":"crates/springfield/src/iter_runner/mod.rs","reason":"Add resume message on all exit paths for simple prompt mode","created_at":"2026-04-22T18:17:08Z"}
 {"id":"pn-0632c062","issue_id":"pn-f4754d7d","path":"crates/springfield/src/iter_runner/mod.rs","reason":"Add retry logic to run_iteration_loop and run_afk","created_at":"2026-04-22T18:17:15Z"}
 {"id":"pn-86bbb3dc","issue_id":"pn-f4754d7d","path":"crates/springfield/src/cursus/runner.rs","reason":"Integrate retry config from cursus TOML into iter invocation","created_at":"2026-04-22T18:17:15Z"}
 {"id":"pn-be156040","issue_id":"pn-e28f17fe","path":"crates/springfield/src/main.rs","reason":"Add --output-format flag to DynamicArgs and parse_dynamic_args","created_at":"2026-04-22T18:17:26Z"}
-{"id":"pn-a2f5adeb","issue_id":"pn-23b750c6","path":"crates/springfield/src/cursus/events.rs","reason":"New file: structured NDJSON event types for programmatic mode","created_at":"2026-04-22T18:17:33Z"}
 {"id":"pn-db54e7bd","issue_id":"pn-0dcff324","path":"crates/springfield/src/iter_runner/mod.rs","reason":"Add run_programmatic() for programmatic agent invocation","created_at":"2026-04-22T18:17:42Z"}
 {"id":"pn-51bceada","issue_id":"pn-0dcff324","path":"crates/springfield/src/cursus/runner.rs","reason":"Emit structured events and handle programmatic mode in cursus loop","created_at":"2026-04-22T18:17:42Z"}
 {"id":"pn-2c62078d","issue_id":"pn-aca11299","path":"crates/springfield/src/style.rs","reason":"Primary style module to be extended","created_at":"2026-04-22T18:17:46Z"}
@@ -282,3 +276,8 @@
 {"id":"pn-a73dfb02","issue_id":"pn-64260eb0","path":"crates/springfield/tests/integration.rs","reason":"Add --resume integration test cases","created_at":"2026-04-22T18:18:01Z"}
 {"id":"pn-af422a38","issue_id":"pn-0e092d8f","path":"crates/springfield/tests/integration.rs","reason":"Add auto-retry integration test cases","created_at":"2026-04-22T18:18:08Z"}
 {"id":"pn-c2840f28","issue_id":"pn-250f9d24","path":"crates/springfield/tests/integration.rs","reason":"Add programmatic mode integration test cases","created_at":"2026-04-22T18:18:14Z"}
+{"id":"pn-4c855c78","issue_id":"pn-b6ff26a6","path":"crates/springfield/src/cursus/runner.rs","reason":"Add stale run scanning before cursus execution starts","created_at":"2026-04-22T18:29:49Z"}
+{"id":"pn-3c19aceb","issue_id":"pn-b6ff26a6","path":"crates/springfield/src/cursus/state.rs","reason":"Add stale detection helper that checks meta.json status and PID liveness","created_at":"2026-04-22T18:29:49Z"}
+{"id":"pn-70370fd9","issue_id":"pn-dd738abe","path":"crates/springfield/src/main.rs","reason":"Add clamping in parse_dynamic_args() for -n flag","created_at":"2026-04-22T18:30:06Z"}
+{"id":"pn-51131a30","issue_id":"pn-dd738abe","path":"crates/springfield/src/cursus/toml.rs","reason":"Add clamping in cursus TOML validation for iterations field","created_at":"2026-04-22T18:30:06Z"}
+{"id":"pn-3b7eb3f8","issue_id":"pn-dd738abe","path":"crates/springfield/src/iter_runner/mod.rs","reason":"Add MAX_ITERATIONS constant and clamping in run_iteration_loop","created_at":"2026-04-22T18:30:06Z"}
