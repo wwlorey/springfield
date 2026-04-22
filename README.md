@@ -115,7 +115,7 @@ springfield/
 
 **`forma`** (binary: `fm`) — Specification management. Stores specs with typed sections, cross-references, and status tracking. Uses SQLite locally with JSONL export for git portability. The `.forma/` directory holds the database, JSONL exports, and generated markdown.
 
-**`claude-wrapper`** (binary: `cl`) — Agent wrapper that injects layered `.sgf/` context into every Claude Code invocation. Resolves context files from a two-tier lookup (project-local `./.sgf/` then global `~/.sgf/`), constructs `--append-system-prompt` arguments, and execs `claude-wrapper-secret` (see [Install](#install)).
+**`claude-wrapper`** (binary: `cl`) — Agent wrapper that injects layered `.sgf/` context into every Claude Code invocation. Resolves context files from a two-tier lookup (project-local `./.sgf/` then global `~/.sgf/`) and resolves `LOOKBOOK.html` from the repo root (no layered fallback; note severity when missing). Constructs `--append-system-prompt` arguments and execs `claude-wrapper-secret` (see [Install](#install)).
 
 **`shutdown`** — Shared graceful shutdown utilities: `ShutdownController`, `ChildGuard` (RAII child process guard), `ProcessSemaphore`, and `kill_process_group`.
 
