@@ -253,3 +253,14 @@
 {"id":"pn-15b380aa","issue_id":"pn-4903ca58","path":"crates/springfield/tests/","reason":"Add integration tests for programmatic interactive and resume flows","created_at":"2026-04-22T18:05:59Z"}
 {"id":"pn-886a6947","issue_id":"pn-9207f626","path":"crates/springfield/tests/","reason":"Add integration tests for retry config","created_at":"2026-04-22T18:06:00Z"}
 {"id":"pn-cf81778d","issue_id":"pn-7278f206","path":"crates/springfield/tests/","reason":"Add integration test for resume command on exit paths","created_at":"2026-04-22T18:06:00Z"}
+{"id":"pn-7a915fa5","issue_id":"pn-96aabd91","path":"crates/springfield/src/main.rs","reason":"Add resume field to DynamicArgs struct and parse --resume in parse_dynamic_args()","created_at":"2026-04-22T18:09:20Z"}
+{"id":"pn-115f4b02","issue_id":"pn-c7502544","path":"crates/springfield/src/main.rs","reason":"Add resume dispatch logic at the top of run_dynamic() before resolve_command()","created_at":"2026-04-22T18:09:33Z"}
+{"id":"pn-fc3e2786","issue_id":"pn-c7502544","path":"crates/springfield/src/orchestrate.rs","reason":"run_resume function used for non-cursus session resume path","created_at":"2026-04-22T18:09:33Z"}
+{"id":"pn-2d6ddce1","issue_id":"pn-c7502544","path":"crates/springfield/src/cursus/runner.rs","reason":"resume_cursus function used for cursus resume path","created_at":"2026-04-22T18:09:33Z"}
+{"id":"pn-a151aef8","issue_id":"pn-c7502544","path":"crates/springfield/src/cursus/state.rs","reason":"read_metadata function used to detect cursus runs","created_at":"2026-04-22T18:09:33Z"}
+{"id":"pn-baffc7cf","issue_id":"pn-153e004d","path":"crates/springfield/src/main.rs","reason":"Remove Resume variant from Commands enum, remove resume from builtins list, remove Commands::Resume match arm","created_at":"2026-04-22T18:09:41Z"}
+{"id":"pn-09bf0742","issue_id":"pn-7040f3b3","path":"crates/springfield/src/main.rs","reason":"Add resume command stderr print in run_simple_prompt() before process::exit","created_at":"2026-04-22T18:09:52Z"}
+{"id":"pn-43700878","issue_id":"pn-7040f3b3","path":"crates/springfield/src/cursus/runner.rs","reason":"Update stall banner format from 'sgf resume' to 'sgf <command> --resume', add resume print to completion/interrupt/error exits","created_at":"2026-04-22T18:09:52Z"}
+{"id":"pn-a7894df8","issue_id":"pn-67ba322a","path":"crates/springfield/src/cursus/runner.rs","reason":"Update render_stall_banner format string and unit tests","created_at":"2026-04-22T18:10:03Z"}
+{"id":"pn-ed359e7b","issue_id":"pn-863fd021","path":"crates/springfield/tests/integration.rs","reason":"Add integration tests for --resume flag dispatch paths","created_at":"2026-04-22T18:10:12Z"}
+{"id":"pn-37e68958","issue_id":"pn-374aaa67","path":"crates/springfield/tests/integration.rs","reason":"Add integration tests for resume command stderr output on all exit types","created_at":"2026-04-22T18:10:19Z"}

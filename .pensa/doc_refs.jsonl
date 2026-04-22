@@ -47,3 +47,5 @@
 {"id":"pn-aeba35d3","issue_id":"pn-a0c5689a","path":"crates/claude-wrapper/README.md","reason":"Update to document LOOKBOOK.html repo-root resolution behavior","created_at":"2026-04-22T16:34:00Z"}
 {"id":"pn-c54c07d3","issue_id":"pn-88b42069","path":"README.md","reason":"Update claude-wrapper architecture description (line 118) to mention LOOKBOOK.html repo-root resolution","created_at":"2026-04-22T16:39:15Z"}
 {"id":"pn-f3aa679c","issue_id":"pn-acdf1e01","path":"README.md","reason":"Update with cursus TOML format, events protocol, and programmatic mode documentation","created_at":"2026-04-22T18:06:01Z"}
+{"id":"pn-84445ba9","issue_id":"pn-66f3e860","path":"crates/springfield/README.md","reason":"Update Session Resume section to document --resume <run-id> flag syntax","created_at":"2026-04-22T18:10:30Z"}
+{"id":"pn-286738cb","issue_id":"pn-66f3e860","path":"README.md","reason":"Update any top-level docs referencing sgf resume command","created_at":"2026-04-22T18:10:30Z"}
