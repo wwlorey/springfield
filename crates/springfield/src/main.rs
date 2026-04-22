@@ -303,6 +303,8 @@ fn run_simple_prompt(root: &Path, args: &DynamicArgs, prompt_path: &Path) -> ! {
         }
     }
 
+    eprintln!("To resume: sgf {} --resume {}", args.command, loop_id);
+
     std::process::exit(exit_code as i32);
 }
 

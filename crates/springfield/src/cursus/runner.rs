@@ -256,7 +256,7 @@ fn render_stall_banner(
         format!("Iter:      {iter_name}"),
         format!("Reason:    Iterations exhausted ({iterations}/{iterations})"),
         String::new(),
-        format!("To resume: sgf resume {run_id}"),
+        format!("To resume: sgf {cursus_name} --resume {run_id}"),
     ];
     render_box_styled("Cursus STALLED", &lines, |s| style::yellow(&style::bold(s)))
 }
@@ -469,14 +469,15 @@ fn run_cursus_loop(
             metadata.touch();
             let _ = state::write_metadata(root, metadata);
             state::remove_pid_file(root, &metadata.run_id);
-            emit_if_programmatic(
-                config,
-                &Event::RunComplete {
+            if config.programmatic {
+                events::emit_event(&Event::RunComplete {
                     status: "interrupted".to_string(),
                     run_id: metadata.run_id.clone(),
                     resume_command: format!("sgf {cursus_name} --resume {}", metadata.run_id),
-                },
-            );
+                });
+            } else {
+                eprintln!("To resume: sgf {cursus_name} --resume {}", metadata.run_id);
+            }
             return Ok(130);
         }
 
@@ -560,19 +561,18 @@ fn run_cursus_loop(
                     metadata.status = RunStatus::Completed;
                     metadata.touch();
                     state::write_metadata(root, metadata)?;
-                    emit_if_programmatic(
-                        config,
-                        &Event::RunComplete {
+                    if config.programmatic {
+                        events::emit_event(&Event::RunComplete {
                             status: "completed".to_string(),
                             run_id: metadata.run_id.clone(),
                             resume_command: format!(
                                 "sgf {cursus_name} --resume {}",
                                 metadata.run_id
                             ),
-                        },
-                    );
-                    if !config.programmatic {
+                        });
+                    } else {
                         style::print_success(&format!("cursus complete [{cursus_name}]"));
+                        eprintln!("To resume: sgf {cursus_name} --resume {}", metadata.run_id);
                     }
                     state::remove_pid_file(root, &metadata.run_id);
                     break 0;
@@ -2001,7 +2001,7 @@ prompt = "build.md"
         assert!(stripped.contains("Cursus:    spec"));
         assert!(stripped.contains("Iter:      draft"));
         assert!(stripped.contains("Reason:    Iterations exhausted (10/10)"));
-        assert!(stripped.contains("To resume: sgf resume spec-20260317T140000"));
+        assert!(stripped.contains("To resume: sgf spec --resume spec-20260317T140000"));
     }
 
     #[test]
