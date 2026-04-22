@@ -42,6 +42,13 @@ crates/claude-wrapper/
 
 No async runtime. No clap (no flag parsing — all args are passthrough).
 
+### Dev Dependencies
+
+| Crate | Purpose |
+|-------|---------|
+| `tempfile` (3) | Temporary directories for test isolation |
+| `shutdown` (workspace) | `ChildGuard` for subprocess lifecycle, `ProcessSemaphore` for concurrency throttling in integration tests |
+
 ## Error Handling
 
 | Scenario | Behavior |
@@ -77,6 +84,7 @@ No async runtime. No clap (no flag parsing — all args are passthrough).
 - Multiple `--append-system-prompt` args coexist (one from `cl`, one from caller)
 - LOOKBOOK.html appears in `--append-system-prompt` when present at repo root
 - LOOKBOOK.html absent does not cause error or affect other context files
+- LOOKBOOK.html appears last in the study string within `--append-system-prompt` (after MEMENTO.md and BACKPRESSURE.md)
 
 ## Design Goals
 
@@ -107,7 +115,7 @@ The first existing path wins. If neither exists, the file is skipped with a warn
 
 ### Repo-Root Context Files
 
-Checked at the repo root with no layered lookup and no global fallback.
+Checked at `cwd` with no layered lookup and no global fallback. `cl` assumes `cwd` is the repo root — it does not perform git-root detection. This is correct because `cl` is always invoked by `sgf`, which sets `cwd` to the project root.
 
 | File | Path | Required | Purpose |
 |------|------|----------|---------|
@@ -158,3 +166,7 @@ Binary name `cl` is set via `[[bin]]` in `Cargo.toml`:
 name = "cl"
 path = "src/main.rs"
 ```
+
+## Related Specifications
+
+- [shutdown](shutdown.md) — Shared graceful shutdown — double-press Ctrl+C/Ctrl+D detection with confirmation prompts
