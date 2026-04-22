@@ -2,7 +2,7 @@
 
 ## Phase I
 
-Let's have a discussion and you can interview me about what I want to build.
+Let's have a discussion and you can interview me about what I want to build. (Only ask questions to which you can't figure out the answer yourself.)
 
 Read the pertinent spec(s) sections that are involved in these changes as they come up in our conversation so you have the proper context for what we're talking about.
 
