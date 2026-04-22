@@ -107,11 +107,18 @@ fn parse_dynamic_args(args: Vec<OsString>) -> Result<DynamicArgs, String> {
                 if i >= rest.len() {
                     return Err("--iterations requires a value".to_string());
                 }
-                iterations = Some(
-                    rest[i]
-                        .parse::<u32>()
-                        .map_err(|_| format!("invalid iteration count: {}", rest[i]))?,
-                );
+                let mut n = rest[i]
+                    .parse::<u32>()
+                    .map_err(|_| format!("invalid iteration count: {}", rest[i]))?;
+                if n > springfield::iter_runner::MAX_ITERATIONS {
+                    tracing::warn!(
+                        requested = n,
+                        max = springfield::iter_runner::MAX_ITERATIONS,
+                        "clamping -n to hard limit"
+                    );
+                    n = springfield::iter_runner::MAX_ITERATIONS;
+                }
+                iterations = Some(n);
             }
             arg if arg.starts_with('-') => {
                 return Err(format!("unknown flag: {arg}"));
@@ -406,6 +413,8 @@ fn run_cursus_dispatch(root: &Path, args: &DynamicArgs, resolved: cursus::Resolv
         }
     }
 
+    cursus::toml::clamp_iterations(&mut def);
+
     if args.no_push {
         def.auto_push = false;
         for iter in &mut def.iters {
@@ -667,6 +676,27 @@ mod tests {
         let args = vec![os("build"), os("-n"), os("abc")];
         let err = parse_dynamic_args(args).unwrap_err();
         assert!(err.contains("invalid iteration count"));
+    }
+
+    #[test]
+    fn parse_iterations_clamped_to_max() {
+        let args = vec![os("build"), os("-n"), os("1500")];
+        let parsed = parse_dynamic_args(args).unwrap();
+        assert_eq!(parsed.iterations, Some(1000));
+    }
+
+    #[test]
+    fn parse_iterations_at_max_unchanged() {
+        let args = vec![os("build"), os("-n"), os("1000")];
+        let parsed = parse_dynamic_args(args).unwrap();
+        assert_eq!(parsed.iterations, Some(1000));
+    }
+
+    #[test]
+    fn parse_iterations_below_max_unchanged() {
+        let args = vec![os("build"), os("-n"), os("500")];
+        let parsed = parse_dynamic_args(args).unwrap();
+        assert_eq!(parsed.iterations, Some(500));
     }
 
     #[test]

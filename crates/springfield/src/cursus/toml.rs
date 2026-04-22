@@ -115,6 +115,21 @@ pub fn parse_file(path: &Path) -> Result<CursusDefinition, io::Error> {
     })
 }
 
+pub fn clamp_iterations(def: &mut CursusDefinition) {
+    use crate::iter_runner::MAX_ITERATIONS;
+    for iter in &mut def.iters {
+        if iter.iterations > MAX_ITERATIONS {
+            tracing::warn!(
+                iter = %iter.name,
+                requested = iter.iterations,
+                max = MAX_ITERATIONS,
+                "clamping iter iterations to hard limit"
+            );
+            iter.iterations = MAX_ITERATIONS;
+        }
+    }
+}
+
 pub fn validate(def: &CursusDefinition) -> Result<(), io::Error> {
     let mut seen_names = HashSet::new();
     let mut produces_keys = HashSet::new();
@@ -589,6 +604,70 @@ auto_push = false
         defs.insert("build".to_string(), make_def("Build", Some("b"), "b"));
         defs.insert("test".to_string(), make_def("Test", Some("t"), "t"));
         assert!(validate_aliases(&defs).is_ok());
+    }
+
+    #[test]
+    fn clamp_iterations_above_max() {
+        let mut def = make_def("Test", None, "build");
+        def.iters[0].iterations = 2000;
+        clamp_iterations(&mut def);
+        assert_eq!(def.iters[0].iterations, 1000);
+    }
+
+    #[test]
+    fn clamp_iterations_at_max_unchanged() {
+        let mut def = make_def("Test", None, "build");
+        def.iters[0].iterations = 1000;
+        clamp_iterations(&mut def);
+        assert_eq!(def.iters[0].iterations, 1000);
+    }
+
+    #[test]
+    fn clamp_iterations_below_max_unchanged() {
+        let mut def = make_def("Test", None, "build");
+        def.iters[0].iterations = 500;
+        clamp_iterations(&mut def);
+        assert_eq!(def.iters[0].iterations, 500);
+    }
+
+    #[test]
+    fn clamp_iterations_multiple_iters() {
+        let mut def = CursusDefinition {
+            description: "Multi".to_string(),
+            alias: None,
+            trigger: "manual".to_string(),
+            auto_push: false,
+            retry: RetryConfig::default(),
+            iters: vec![
+                IterDefinition {
+                    name: "a".to_string(),
+                    prompt: "a.md".to_string(),
+                    mode: Mode::default(),
+                    iterations: 1500,
+                    produces: None,
+                    consumes: vec![],
+                    auto_push: None,
+                    next: None,
+                    banner: false,
+                    transitions: Transitions::default(),
+                },
+                IterDefinition {
+                    name: "b".to_string(),
+                    prompt: "b.md".to_string(),
+                    mode: Mode::default(),
+                    iterations: 30,
+                    produces: None,
+                    consumes: vec![],
+                    auto_push: None,
+                    next: None,
+                    banner: false,
+                    transitions: Transitions::default(),
+                },
+            ],
+        };
+        clamp_iterations(&mut def);
+        assert_eq!(def.iters[0].iterations, 1000);
+        assert_eq!(def.iters[1].iterations, 30);
     }
 
     #[test]

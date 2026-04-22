@@ -19,7 +19,7 @@ use crate::style as badge;
 pub const SENTINEL: &str = ".iter-complete";
 pub const SENTINEL_MAX_DEPTH: usize = 2;
 const DING_SENTINEL: &str = ".iter-ding";
-const MAX_ITERATIONS: u32 = 1000;
+pub const MAX_ITERATIONS: u32 = 1000;
 const DEFAULT_ITER_DELAY_MS: u64 = 2000;
 const DEFAULT_POST_RESULT_TIMEOUT_SECS: u64 = 30;
 const STARTUP_ERROR_THRESHOLD: Duration = Duration::from_secs(5);
