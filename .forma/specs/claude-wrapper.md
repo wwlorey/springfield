@@ -5,12 +5,13 @@ Agent wrapper — layered .sgf/ context injection, cl binary
 | Field | Value |
 |-------|-------|
 | Src | `crates/claude-wrapper/` |
-| Status | proven |
+| Status | draft |
 
 ## Overview
 
 `cl` provides:
 - **Context resolution**: Resolve MEMENTO.md and BACKPRESSURE.md using layered `.sgf/` lookup (local → global)
+- **Lookbook resolution**: Resolve LOOKBOOK.html from the repo root (no layered lookup)
 - **Study injection**: Build `--append-system-prompt "study @<file>;..."` from resolved context files
 - **Transparent forwarding**: Pass all arguments through to `claude-wrapper-secret` (opaque downstream binary)
 
@@ -46,6 +47,7 @@ No async runtime. No clap (no flag parsing — all args are passthrough).
 | Scenario | Behavior |
 |----------|----------|
 | Context file missing (both tiers) | Warning to stderr, skip the file |
+| LOOKBOOK.html missing (repo root) | Note to stderr, skip the file |
 | `claude-wrapper-secret` not in PATH | Error to stderr, exit 1 |
 | `claude-wrapper-secret` exists but is not executable | Error to stderr, exit 1 (OS returns permission denied on exec) |
 | Home directory unresolvable | Warning to stderr, skip global lookups |
@@ -60,6 +62,9 @@ No async runtime. No clap (no flag parsing — all args are passthrough).
 - Both missing → skipped, not in result
 - All files missing → empty result
 - Mixed: some local, some global → correct per-file resolution
+- LOOKBOOK.html present at repo root → included last in results
+- LOOKBOOK.html absent → skipped, not in result
+- LOOKBOOK.html ordering: always after MEMENTO.md and BACKPRESSURE.md
 
 ### Integration Tests (`tests/integration.rs`)
 
@@ -70,6 +75,8 @@ No async runtime. No clap (no flag parsing — all args are passthrough).
 - Missing context files are skipped (no error exit)
 - Passthrough args are forwarded unchanged
 - Multiple `--append-system-prompt` args coexist (one from `cl`, one from caller)
+- LOOKBOOK.html appears in `--append-system-prompt` when present at repo root
+- LOOKBOOK.html absent does not cause error or affect other context files
 
 ## Design Goals
 
@@ -81,6 +88,8 @@ No async runtime. No clap (no flag parsing — all args are passthrough).
 ## Context File Resolution
 
 `cl` resolves context files on every invocation.
+
+### Layered Context Files
 
 Uses a two-tier lookup: check the local project directory first, then fall back to the global home directory.
 
@@ -96,13 +105,23 @@ The first existing path wins. If neither exists, the file is skipped with a warn
 | MEMENTO.md | `./.sgf/MEMENTO.md` | `~/.sgf/MEMENTO.md` | No (warn if missing) |
 | BACKPRESSURE.md | `./.sgf/BACKPRESSURE.md` | `~/.sgf/BACKPRESSURE.md` | No (warn if missing) |
 
+### Repo-Root Context Files
+
+Checked at the repo root with no layered lookup and no global fallback.
+
+| File | Path | Required | Purpose |
+|------|------|----------|---------|
+| LOOKBOOK.html | `./LOOKBOOK.html` | No (note if missing) | FE visual design and component source of truth |
+
+If the file does not exist, a brief note is printed to stderr and the file is skipped. This uses "note" severity rather than "warning" because the file is naturally optional (many repos will not have one).
+
 ### Resolution Function
 
 ```rust
-pub fn resolve_context_files(cwd: &Path, home: &Path) -> Vec<String>;
+pub fn resolve_context_files(cwd: &Path, home: Option<&Path>) -> Vec<String>;
 ```
 
-Pure function. Returns a list of absolute file paths.
+Pure function. Returns a list of absolute file paths. Layered context files are resolved first, followed by repo-root context files. LOOKBOOK.html is always last in the returned list.
 
 ## Argument Construction
 
@@ -110,9 +129,11 @@ Pure function. Returns a list of absolute file paths.
 
 ```
 claude-wrapper-secret \
-  --append-system-prompt 'study @<resolved-memento>;study @<resolved-backpressure>' \
+  --append-system-prompt 'study @<resolved-memento>;study @<resolved-backpressure>;study @<resolved-lookbook>' \
   [all original args passed to cl]
 ```
+
+LOOKBOOK.html is always last in the study string.
 
 If no context files resolve, the `--append-system-prompt` argument is omitted entirely.
 
