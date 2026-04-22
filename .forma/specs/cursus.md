@@ -124,7 +124,7 @@ Workspace crate dependencies (linked at compile time via springfield):
 | Run directory creation failure | Exit 1: `failed to create run directory: <error>` |
 | Run metadata read/write failure | `tracing::error\!`, continue if possible (non-fatal for execution, fatal for resume) |
 | `produces` file not written by agent | `tracing::warn\!` — continue to next iter. The consuming iter will run without that context. Not fatal because the agent may have communicated through other means (spec updates, pn comments) |
-| Stale run directory from previous crashed run | Detected at startup. Previous run status updated to `interrupted` if still marked `running` |
+| Stale run directory from previous crashed run | Detected at cursus startup: scan `.sgf/run/*/meta.json` for entries with `status: running`, check if PID file (`.sgf/run/<run-id>/<run-id>.pid`) exists and process is alive via `kill -0`. If PID is stale (process dead), update `meta.json` status to `interrupted`. This is separate from the non-cursus PID scan in springfield recovery (which handles flat `.sgf/run/*.pid` files) |
 | SIGINT/SIGTERM during iter execution | Delegated to sgf/cl signal handling. Pipeline status updated to `interrupted` on exit. Resume command printed |
 | Agent process crash (retryable) | Auto-retry triggered: 3 immediate retries, then backoff every 5 minutes for up to 12 hours. Resume crashed session on success. See [springfield spec](springfield.md) Error Handling |
 | Agent process crash (non-retryable) | Startup failure (exit 1 within first seconds). No retry. Error event emitted in programmatic mode |
@@ -346,7 +346,7 @@ auto_push = true
 [[iter]]
 name = "build"
 prompt = "build.md"
-mode = "interactive"
+mode = "afk"
 iterations = 30
 banner = true
 ```
@@ -361,6 +361,7 @@ Enforced at parse time (before any iter executes):
 5. Aliases must not shadow cursus file names
 6. Prompt files must exist (resolved via layered lookup)
 7. `[retry]` field types must be valid (u32 for `immediate`, u64 for `interval_secs` and `max_duration_secs`)
+8. `iterations > 1` on an interactive iter emits a warning at parse time (interactive iters always run a single `cl` session regardless of `iterations` value)
 
 ## Sentinel Protocol
 
@@ -701,7 +702,7 @@ When a cursus run is resumed:
 1. Load `meta.json` from the run directory
 2. Restore full pipeline state: current iter, iteration count, accumulated context, context producers
 3. For stalled runs (interactive mode): present options — Retry, Skip, or Abort
-4. For stalled runs (programmatic mode): emit a `stall` event and wait for input
+4. For stalled runs (programmatic mode): emit a `stall` event with available actions. On the next `--resume` invocation, the first line of stdin is parsed as an action: `retry` (re-run the stalled iter with the same iteration count), `skip` (advance to the next iter), `abort` (mark the run as `interrupted` and exit). Unrecognized actions emit an `error` event and exit 1
 5. Continue the pipeline from the restored point
 
 On any run exit (stall, interrupt, completion, error), sgf prints a copy-pasteable resume command:
@@ -751,7 +752,7 @@ Each iter in a cursus pipeline follows this execution sequence:
 
 ### Invocation
 
-5. **Invoke `cl`** — delegate to sgf's iteration runner (AFK), direct `cl` call (interactive), or programmatic runner (piped stdin). The mode is determined by the iter's `mode` field, potentially overridden by `-a`/`-i` CLI flags. See [springfield spec](springfield.md) Agent Invocation for flag details.
+5. **Invoke `cl`** — delegate to sgf's iteration runner (AFK), direct `cl` call (interactive), or programmatic runner (piped stdin). The effective mode is determined by: `mode_override` (from CLI `-a`/`-i`) if set, else the iter's `mode` field. See [springfield spec](springfield.md) Agent Invocation for flag details.
 6. **For AFK iters** — run the iteration loop (up to `iterations` count). After each `cl` invocation, proceed to Post-Iter Evaluation. If the evaluation does not produce a transition, continue to the next iteration.
 7. **For interactive iters** — run a single `cl` session (default `iterations = 1`). Proceed to Post-Iter Evaluation on exit.
 
@@ -887,4 +888,5 @@ Additional mechanisms needed for daemon mode:
 - [session-resume](session-resume.md) — Session resume — persist Claude session IDs and loop config to enable resuming interrupted sessions via --resume flag on any sgf subcommand
 - [shutdown](shutdown.md) — Shared graceful shutdown — double-press Ctrl+C/Ctrl+D detection with confirmation prompts
 - [springfield](springfield.md) — CLI entry point — scaffolding, prompt delivery, iteration runner, loop orchestration, recovery, and daemon lifecycle
+- [test-harness](test-harness.md) — Cross-crate integration test harness — concurrency control, process lifecycle guards, mock infrastructure, and environment isolation
 - [vcs-utils](vcs-utils.md) — Shared VCS utilities — git HEAD detection, auto-push

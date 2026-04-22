@@ -208,7 +208,7 @@ Session metadata files in `.sgf/run/` are never pruned automatically. The direct
 | `iterations` | array | List of iteration records, each with `iteration` (1-based index), `session_id` (UUID), and `completed_at` (ISO 8601 timestamp) |
 | `stage` | string | Prompt stage name (e.g., `spec`, `build`, `verify`) |
 | `spec` | string (optional) | Forma spec stem associated with this session, if any |
-| `cursus` | string (optional) | Cursus name if this session was launched via a cursus pipeline. Used by `sgf resume` dispatch to distinguish cursus runs (delegate to cursus resume) from non-cursus sessions (flat picker). `null` for simple prompt mode (`sgf <file>`) and for non-cursus single-iter commands |
+| `cursus` | string (optional) | Cursus name if this session was launched via a cursus pipeline. Used by `--resume <run-id>` dispatch to distinguish cursus runs (delegate to cursus resume) from non-cursus sessions. `null` for simple prompt mode (`sgf <file>`) and for non-cursus single-iter commands |
 | `mode` | string | `"interactive"` or `"afk"` |
 | `prompt` | string | Resolved prompt file path |
 | `iterations_total` | u32 | Total iterations configured |
@@ -329,4 +329,5 @@ pub fn list_session_metadata(root: &Path) -> io::Result<Vec<SessionMetadata>>;
 
 ## Related Specifications
 
+- [claude-wrapper](claude-wrapper.md) — Agent wrapper — layered .sgf/ context injection, cl binary
 - [springfield](springfield.md) — CLI entry point — scaffolding, prompt delivery, iteration runner, loop orchestration, recovery, and daemon lifecycle

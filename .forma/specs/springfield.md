@@ -150,7 +150,7 @@ Key components:
 
 **`~/.sgf/prompts/`** — Default prompts for all projects. Synced from the springfield repo via `just install`. To override a prompt for a specific project, create `./.sgf/prompts/<name>.md` — that file takes precedence for that project only.
 
-**`.sgf/run/{loop_id}.json`** — Session metadata file. Contains `session_id` (UUID), loop config (`mode`, `prompt`, `iterations_completed`, `iterations_total`), and `status` (`running`, `completed`, `interrupted`, `exhausted`). Written before spawning cl and updated on exit. Enables `sgf resume` to restart previous sessions. See [session-resume spec](session-resume.md) for the full schema.
+**`.sgf/run/{loop_id}.json`** — Session metadata file. Contains `session_id` (UUID), loop config (`mode`, `prompt`, `iterations_completed`, `iterations_total`), and `status` (`running`, `completed`, `interrupted`, `exhausted`). Written before spawning cl and updated on exit. Enables `--resume <run-id>` to restart previous sessions. See [session-resume spec](session-resume.md) for the full schema.
 
 **`.sgf/` and `.claude/` protection** — Both `.sgf/` and `.claude/` are protected from agent modification via Claude deny settings. `sgf init` scaffolds these rules. `.sgf/` protection prevents agents from modifying local overrides and reference files. `.claude/` protection prevents agents from weakening sandbox configuration or deny rules.
 
@@ -700,13 +700,23 @@ All entries are always added regardless of what exists in the directory. If an e
 
 ### --force
 
-`sgf init --force` overwrites skeleton files with built-in defaults, **except `AGENTS.md`** which is never overwritten. `--force` does not re-run create-vite — it only affects SGF skeleton files.
+`sgf init --force` overwrites skeleton files with built-in defaults. `--force` does not re-run create-vite — it only affects SGF infrastructure files.
+
+| File | `--force` behavior |
+|------|--------------------|
+| `.pre-commit-config.yaml` | Rebuilt from scratch (existing hooks replaced with built-in defaults) |
+| `.claude/settings.json` | Deny rules and sandbox settings merged additively (same as normal init) |
+| `.gitignore` | Entries re-appended if missing (same as normal init) |
+| `CLAUDE.md` | Symlink recreated only if missing or broken |
+| `AGENTS.md` | Never overwritten (user-authored content) |
+| `.sgf/`, `.pensa/`, `.forma/` directories | Created if missing (never deleted) |
+| Frontend files (`package.json`, etc.) | Not touched — `--force` never re-runs create-vite |
 
 Safety checks:
 - Fails if any target file has uncommitted changes or is untracked by git.
 - Lists files to be overwritten and requires `y` confirmation before proceeding.
 
-Config merges (`.gitignore`, `.claude/settings.json`, `.pre-commit-config.yaml`) are unaffected by `--force` — they always use additive merge logic.
+Config merges (`.gitignore`, `.claude/settings.json`) are unaffected by `--force` — they always use additive merge logic.
 
 ### --no-fe
 

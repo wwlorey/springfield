@@ -3,8 +3,10 @@
 {"from_stem":"cursus","to_stem":"session-resume"}
 {"from_stem":"cursus","to_stem":"shutdown"}
 {"from_stem":"cursus","to_stem":"springfield"}
+{"from_stem":"cursus","to_stem":"test-harness"}
 {"from_stem":"cursus","to_stem":"vcs-utils"}
 {"from_stem":"pensa","to_stem":"forma"}
+{"from_stem":"session-resume","to_stem":"claude-wrapper"}
 {"from_stem":"session-resume","to_stem":"springfield"}
 {"from_stem":"springfield","to_stem":"claude-wrapper"}
 {"from_stem":"springfield","to_stem":"forma"}
