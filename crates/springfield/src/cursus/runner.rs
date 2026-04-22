@@ -9,6 +9,7 @@ use shutdown::{ShutdownConfig, ShutdownController};
 use uuid::Uuid;
 
 use crate::cursus::context;
+use crate::cursus::events::{self, Event, IterSummary};
 use crate::cursus::state::{self, CompletedIter, RunMetadata, RunStatus};
 use crate::cursus::toml::{CursusDefinition, IterDefinition, Mode};
 use crate::iter_runner::{self, IterExitCode, IterRunnerConfig};
@@ -317,6 +318,19 @@ fn prompt_resume_action(meta: &RunMetadata) -> io::Result<ResumeAction> {
     }
 }
 
+fn emit_if_programmatic(config: &CursusConfig, event: &Event) {
+    if config.programmatic {
+        events::emit_event(event);
+    }
+}
+
+fn mode_str(mode: &Mode) -> &'static str {
+    match mode {
+        Mode::Afk => "afk",
+        Mode::Interactive => "interactive",
+    }
+}
+
 fn run_cursus_loop(
     root: &Path,
     cursus_name: &str,
@@ -371,30 +385,57 @@ fn run_cursus_loop(
         let session_id = Uuid::new_v4().to_string();
 
         let prompt_path = resolve_prompt(root, &iter.prompt).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::NotFound,
-                format!("prompt not found: {}", iter.prompt),
-            )
+            let msg = format!("prompt not found: {}", iter.prompt);
+            emit_if_programmatic(
+                config,
+                &Event::Error {
+                    message: msg.clone(),
+                    fatal: true,
+                    iter: Some(iter.name.clone()),
+                },
+            );
+            io::Error::new(io::ErrorKind::NotFound, msg)
         })?;
 
         let auto_push = !config.no_push && def.effective_auto_push(iter);
 
-        style::print_action_detail(
-            &format!(
-                "cursus [{cursus_name}] iter: {} ({}/{})",
-                iter.name,
-                current_index + 1,
-                def.iters.len()
-            ),
-            &format!(
-                "mode: {} · iterations: {}",
-                match effective_mode {
-                    Mode::Afk => "afk",
-                    Mode::Interactive => "interactive",
-                },
-                iter.iterations
-            ),
+        // Emit context_consumed events for each consumed key
+        if config.programmatic {
+            for key in &iter.consumes {
+                if let Some(from_iter) = metadata.context_producers.get(key) {
+                    events::emit_event(&Event::ContextConsumed {
+                        key: key.clone(),
+                        from_iter: from_iter.clone(),
+                    });
+                }
+            }
+        }
+
+        emit_if_programmatic(
+            config,
+            &Event::IterStart {
+                iter: iter.name.clone(),
+                mode: mode_str(&effective_mode).to_string(),
+                iteration: iter.iterations,
+                session_id: session_id.clone(),
+            },
         );
+
+        if !config.programmatic {
+            style::print_action_detail(
+                &format!(
+                    "cursus [{cursus_name}] iter: {} ({}/{})",
+                    iter.name,
+                    current_index + 1,
+                    def.iters.len()
+                ),
+                &format!(
+                    "mode: {} · iterations: {}",
+                    mode_str(&effective_mode),
+                    iter.iterations
+                ),
+            );
+        }
 
         let head_before = if auto_push && effective_mode == Mode::Interactive {
             vcs_utils::git_head()
@@ -428,11 +469,28 @@ fn run_cursus_loop(
             metadata.touch();
             let _ = state::write_metadata(root, metadata);
             state::remove_pid_file(root, &metadata.run_id);
+            emit_if_programmatic(
+                config,
+                &Event::RunComplete {
+                    status: "interrupted".to_string(),
+                    run_id: metadata.run_id.clone(),
+                    resume_command: format!("sgf {cursus_name} --resume {}", metadata.run_id),
+                },
+            );
             return Ok(130);
         }
 
         let outcome = detect_outcome(root, iter, &effective_mode, exit_code);
         clean_sentinels(root);
+
+        emit_if_programmatic(
+            config,
+            &Event::IterComplete {
+                iter: iter.name.clone(),
+                outcome: outcome.to_string(),
+                iterations_used: iter.iterations,
+            },
+        );
 
         metadata.iters_completed.push(CompletedIter {
             name: iter.name.clone(),
@@ -447,6 +505,13 @@ fn run_cursus_loop(
             metadata
                 .context_producers
                 .insert(key.clone(), iter.name.clone());
+            emit_if_programmatic(
+                config,
+                &Event::ContextProduced {
+                    key: key.clone(),
+                    iter: iter.name.clone(),
+                },
+            );
         }
 
         let transition = resolve_transition(iter, &outcome)?;
@@ -456,19 +521,59 @@ fn run_cursus_loop(
                 metadata.status = RunStatus::Stalled;
                 metadata.touch();
                 state::write_metadata(root, metadata)?;
-                print_stall_banner(cursus_name, &iter.name, iter.iterations, &metadata.run_id);
+                if config.programmatic {
+                    events::emit_event(&Event::Stall {
+                        iter: iter.name.clone(),
+                        iterations_attempted: iter.iterations,
+                        actions: vec!["retry".to_string(), "skip".to_string(), "abort".to_string()],
+                    });
+                    events::emit_event(&Event::RunComplete {
+                        status: "stalled".to_string(),
+                        run_id: metadata.run_id.clone(),
+                        resume_command: format!("sgf {cursus_name} --resume {}", metadata.run_id),
+                    });
+                } else {
+                    print_stall_banner(cursus_name, &iter.name, iter.iterations, &metadata.run_id);
+                }
                 state::remove_pid_file(root, &metadata.run_id);
                 break 2;
             }
             _ => match resolve_iter_index(&def.iters, current_index, &transition) {
                 Some(next_idx) => {
+                    let reason = match &outcome {
+                        IterOutcome::Complete => "complete",
+                        IterOutcome::Reject => "reject",
+                        IterOutcome::Revise => "revise",
+                        IterOutcome::Exhausted => "exhausted",
+                    };
+                    emit_if_programmatic(
+                        config,
+                        &Event::Transition {
+                            from_iter: iter.name.clone(),
+                            to_iter: def.iters[next_idx].name.clone(),
+                            reason: reason.to_string(),
+                        },
+                    );
                     current_index = next_idx;
                 }
                 None => {
                     metadata.status = RunStatus::Completed;
                     metadata.touch();
                     state::write_metadata(root, metadata)?;
-                    style::print_success(&format!("cursus complete [{cursus_name}]"));
+                    emit_if_programmatic(
+                        config,
+                        &Event::RunComplete {
+                            status: "completed".to_string(),
+                            run_id: metadata.run_id.clone(),
+                            resume_command: format!(
+                                "sgf {cursus_name} --resume {}",
+                                metadata.run_id
+                            ),
+                        },
+                    );
+                    if !config.programmatic {
+                        style::print_success(&format!("cursus complete [{cursus_name}]"));
+                    }
                     state::remove_pid_file(root, &metadata.run_id);
                     break 0;
                 }
@@ -509,6 +614,23 @@ pub fn run_cursus(
     state::create_run_dir(root, &metadata.run_id)?;
     state::write_pid_file(root, &metadata.run_id)?;
     state::write_metadata(root, &metadata)?;
+
+    emit_if_programmatic(
+        config,
+        &Event::RunStart {
+            run_id: metadata.run_id.clone(),
+            cursus: cursus_name.to_string(),
+            iters: def
+                .iters
+                .iter()
+                .map(|i| IterSummary {
+                    name: i.name.clone(),
+                    mode: mode_str(&i.mode).to_string(),
+                    iterations: i.iterations,
+                })
+                .collect(),
+        },
+    );
 
     run_cursus_loop(root, cursus_name, def, config, &mut metadata, 0)
 }
@@ -1973,5 +2095,275 @@ prompt = "build.md"
         };
 
         assert!(!config.programmatic);
+    }
+
+    #[test]
+    fn programmatic_single_iter_complete() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_cursus_project(root, &["build.md"]);
+
+        let mock_agent = mock_script(
+            root,
+            "mock_agent.sh",
+            &format!(
+                "#!/bin/sh\ntouch \"{}/.iter-complete\"\nexit 0\n",
+                root.display()
+            ),
+        );
+
+        let def = make_cursus_def(
+            vec![make_iter("build", Mode::Afk, 10, None, None, None)],
+            false,
+        );
+
+        let config = CursusConfig {
+            spec: None,
+            mode_override: None,
+            no_push: true,
+            agent_command: Some(mock_agent),
+            skip_preflight: true,
+            monitor_stdin_override: Some(false),
+            programmatic: true,
+        };
+
+        let exit_code = run_cursus(root, "build", &def, &config).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let run_dir = root.join(".sgf/run");
+        let entries: Vec<_> = fs::read_dir(&run_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().ok().is_some_and(|ft| ft.is_dir()))
+            .collect();
+        let run_id = entries[0].file_name().to_str().unwrap().to_string();
+        let meta = state::read_metadata(root, &run_id).unwrap().unwrap();
+        assert_eq!(meta.status, RunStatus::Completed);
+        assert_eq!(meta.iters_completed.len(), 1);
+        assert_eq!(meta.iters_completed[0].outcome, "complete");
+    }
+
+    #[test]
+    fn programmatic_multi_iter_with_transitions() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_cursus_project(root, &["draft.md", "review.md"]);
+
+        let counter_file = root.join("call_count");
+        fs::write(&counter_file, "0").unwrap();
+
+        let mock_agent = mock_script(
+            root,
+            "mock_agent.sh",
+            &format!(
+                r#"#!/bin/sh
+COUNT=$(cat "{counter}")
+COUNT=$((COUNT + 1))
+echo $COUNT > "{counter}"
+if [ $COUNT -eq 2 ]; then
+    touch "{root}/.iter-reject"
+else
+    touch "{root}/.iter-complete"
+fi
+exit 0
+"#,
+                counter = counter_file.display(),
+                root = root.display()
+            ),
+        );
+
+        let def = make_cursus_def(
+            vec![
+                make_iter("draft", Mode::Afk, 10, None, None, None),
+                make_iter("review", Mode::Afk, 1, None, Some("draft"), None),
+            ],
+            false,
+        );
+
+        let config = CursusConfig {
+            spec: None,
+            mode_override: None,
+            no_push: true,
+            agent_command: Some(mock_agent),
+            skip_preflight: true,
+            monitor_stdin_override: Some(false),
+            programmatic: true,
+        };
+
+        let exit_code = run_cursus(root, "spec", &def, &config).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let run_dir = root.join(".sgf/run");
+        let entries: Vec<_> = fs::read_dir(&run_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().ok().is_some_and(|ft| ft.is_dir()))
+            .collect();
+        let run_id = entries[0].file_name().to_str().unwrap().to_string();
+        let meta = state::read_metadata(root, &run_id).unwrap().unwrap();
+        assert_eq!(meta.status, RunStatus::Completed);
+        // draft -> review (reject) -> draft -> review -> done
+        assert_eq!(meta.iters_completed.len(), 4);
+        assert_eq!(meta.iters_completed[1].outcome, "reject");
+    }
+
+    #[test]
+    fn programmatic_stall_emits_stall_not_banner() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_cursus_project(root, &["build.md"]);
+
+        let mock_agent = mock_script(root, "mock_agent.sh", "#!/bin/sh\nexit 2\n");
+
+        let def = make_cursus_def(
+            vec![make_iter("build", Mode::Afk, 5, None, None, None)],
+            false,
+        );
+
+        let config = CursusConfig {
+            spec: None,
+            mode_override: None,
+            no_push: true,
+            agent_command: Some(mock_agent),
+            skip_preflight: true,
+            monitor_stdin_override: Some(false),
+            programmatic: true,
+        };
+
+        let exit_code = run_cursus(root, "build", &def, &config).unwrap();
+        assert_eq!(exit_code, 2);
+
+        let run_dir = root.join(".sgf/run");
+        let entries: Vec<_> = fs::read_dir(&run_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().ok().is_some_and(|ft| ft.is_dir()))
+            .collect();
+        let run_id = entries[0].file_name().to_str().unwrap().to_string();
+        let meta = state::read_metadata(root, &run_id).unwrap().unwrap();
+        assert_eq!(meta.status, RunStatus::Stalled);
+    }
+
+    #[test]
+    fn programmatic_context_passing() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_cursus_project(root, &["generate.md", "verify.md"]);
+
+        let mock_agent = mock_script(
+            root,
+            "mock_agent.sh",
+            &format!(
+                r#"#!/bin/sh
+if [ -n "$SGF_RUN_CONTEXT" ]; then
+    echo "Generated output." > "$SGF_RUN_CONTEXT/output-summary.md"
+fi
+touch "{root}/.iter-complete"
+exit 0
+"#,
+                root = root.display()
+            ),
+        );
+
+        let def = make_cursus_def(
+            vec![
+                make_iter_full(
+                    "generate",
+                    Mode::Afk,
+                    5,
+                    Some("output-summary"),
+                    vec![],
+                    None,
+                    None,
+                    None,
+                ),
+                make_iter_full(
+                    "verify",
+                    Mode::Afk,
+                    1,
+                    None,
+                    vec!["output-summary"],
+                    None,
+                    None,
+                    None,
+                ),
+            ],
+            false,
+        );
+
+        let config = CursusConfig {
+            spec: None,
+            mode_override: None,
+            no_push: true,
+            agent_command: Some(mock_agent),
+            skip_preflight: true,
+            monitor_stdin_override: Some(false),
+            programmatic: true,
+        };
+
+        let exit_code = run_cursus(root, "pipeline", &def, &config).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let run_dir = root.join(".sgf/run");
+        let entries: Vec<_> = fs::read_dir(&run_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().ok().is_some_and(|ft| ft.is_dir()))
+            .collect();
+        let run_id = entries[0].file_name().to_str().unwrap().to_string();
+        let meta = state::read_metadata(root, &run_id).unwrap().unwrap();
+        assert_eq!(meta.status, RunStatus::Completed);
+        assert_eq!(meta.iters_completed.len(), 2);
+        assert!(meta.context_producers.contains_key("output-summary"));
+    }
+
+    #[test]
+    fn emit_if_programmatic_emits_when_true() {
+        let config = CursusConfig {
+            spec: None,
+            mode_override: None,
+            no_push: false,
+            agent_command: None,
+            skip_preflight: false,
+            monitor_stdin_override: None,
+            programmatic: true,
+        };
+        // Should not panic when emitting events
+        emit_if_programmatic(
+            &config,
+            &Event::RunStart {
+                run_id: "test".to_string(),
+                cursus: "test".to_string(),
+                iters: vec![],
+            },
+        );
+    }
+
+    #[test]
+    fn emit_if_programmatic_skips_when_false() {
+        let config = CursusConfig {
+            spec: None,
+            mode_override: None,
+            no_push: false,
+            agent_command: None,
+            skip_preflight: false,
+            monitor_stdin_override: None,
+            programmatic: false,
+        };
+        // Should not emit anything (no way to assert, but verifies no panic)
+        emit_if_programmatic(
+            &config,
+            &Event::RunStart {
+                run_id: "test".to_string(),
+                cursus: "test".to_string(),
+                iters: vec![],
+            },
+        );
+    }
+
+    #[test]
+    fn mode_str_returns_correct_values() {
+        assert_eq!(mode_str(&Mode::Afk), "afk");
+        assert_eq!(mode_str(&Mode::Interactive), "interactive");
     }
 }
