@@ -18,9 +18,9 @@ Cursus provides:
 - **Context passing between iters**: Each iter can produce a summary file; subsequent iters consume it via prompt injection
 - **Sentinel-based transitions**: Well-known sentinel files signal success, rejection, revision, or exhaustion — controlling which iter runs next
 - **Stall recovery**: When an iter exhausts its iterations, the pipeline enters a stalled state the user can inspect and resume
-- **Programmatic mode**: When driven by an outer agent (piped stdin), cursus emits structured NDJSON events describing pipeline state — phase starts, turns, transitions, completions, and stalls. The outer agent drives interactive phases turn-by-turn via `--resume <run-id>`. Cursus TOML definitions are unchanged; `mode: "interactive"` means "this phase needs a conversation" regardless of whether a human or outer agent is conversing.
+- **Programmatic mode**: When driven by an outer agent (piped stdin), cursus emits structured NDJSON events describing pipeline state — iter starts, turns, transitions, completions, and stalls. The outer agent drives interactive iters turn-by-turn via `--resume <run-id>`. Cursus TOML definitions are unchanged; `mode: "interactive"` means "this iter needs a conversation" regardless of whether a human or outer agent is conversing.
 - **Auto-retry**: Automatic retry on agent process crashes with configurable immediate retries and backoff intervals. Resumes the crashed session automatically.
-- **Structured event protocol**: In programmatic mode, all pipeline state changes are emitted as NDJSON events on stdout, enabling outer agents to track phase progression, make decisions, and drive the pipeline.
+- **Structured event protocol**: In programmatic mode, all pipeline state changes are emitted as NDJSON events on stdout, enabling outer agents to track iter progression, make decisions, and drive the pipeline.
 - **Unified command model**: Every `sgf <command>` resolves to a cursus definition, whether it has one iter or many. Single-iter cursus definitions are the standard way to define simple commands
 - **Foundation for evolution**: The TOML format accommodates future trigger types (event-driven daemons, cursus chaining) without structural changes. Only manual triggers are supported initially
 
@@ -175,7 +175,7 @@ Workspace crate dependencies (linked at compile time via springfield):
 #### `cursus/events.rs` (new)
 - Each event type serializes to valid JSON with correct `event` field
 - Event ordering matches expected sequence for single-iter, multi-iter, and stall scenarios
-- Events include correct phase, session_id, and run_id fields
+- Events include correct iter, session_id, and run_id fields
 - `turn` event includes `waiting_for_input` field
 - `stall` event includes `actions` array
 - `run_complete` event includes `resume_command`
@@ -199,9 +199,9 @@ Binary-level tests using `cargo test -p springfield`. Each test:
 | Layered resolution | Local cursus overrides global | Local TOML takes precedence |
 | Banner flag | iter with `banner = true` | Iteration runner displays banner |
 | Programmatic events | Run with piped stdin | NDJSON events emitted in correct order on stdout |
-| Programmatic turn-by-turn | Multi-turn interactive phase | Outer agent drives via stdin/`--resume`, receives turn events |
+| Programmatic turn-by-turn | Multi-turn interactive iter | Outer agent drives via stdin/`--resume`, receives turn events |
 | Programmatic stall | Iter exhaustion with piped stdin | `stall` event emitted with actions |
-| Programmatic AFK phase | AFK phase with piped stdin | Phase runs to completion, emits `phase_start` + `phase_complete` events |
+| Programmatic AFK iter | AFK iter with piped stdin | Iter runs to completion, emits `iter_start` + `iter_complete` events |
 | Retry config parsing | Cursus with `[retry]` section | Config values override defaults |
 | Retry config defaults | Cursus without `[retry]` section | Default values (3/300/43200) used |
 | Resume command on exit | All exit paths | Resume command printed to stderr or included in JSON events |
@@ -453,20 +453,20 @@ Emitted once when the pipeline begins.
   "event": "run_start",
   "run_id": "change-20260422T150000",
   "cursus": "change",
-  "phases": [
+  "iters": [
     {"name": "change", "mode": "interactive", "iterations": 1}
   ]
 }
 ```
 
-#### `phase_start`
+#### `iter_start`
 
 Emitted when an iter begins execution.
 
 ```json
 {
-  "event": "phase_start",
-  "phase": "change",
+  "event": "iter_start",
+  "iter": "change",
   "mode": "interactive",
   "iteration": 1,
   "session_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
@@ -475,7 +475,7 @@ Emitted when an iter begins execution.
 
 #### `turn`
 
-Emitted after each agent turn in an interactive phase. Contains the agent's response and whether it is waiting for input from the outer agent.
+Emitted after each agent turn in an interactive iter. Contains the agent's response and whether it is waiting for input from the outer agent.
 
 ```json
 {
@@ -488,14 +488,14 @@ Emitted after each agent turn in an interactive phase. Contains the agent's resp
 
 When `waiting_for_input` is true, the sgf process exits and the outer agent should send its response via a new invocation with `--resume <run-id>`. When false, the agent completed its work and sgf continues to post-iter evaluation.
 
-#### `phase_complete`
+#### `iter_complete`
 
 Emitted when an iter finishes.
 
 ```json
 {
-  "event": "phase_complete",
-  "phase": "change",
+  "event": "iter_complete",
+  "iter": "change",
   "outcome": "complete",
   "iterations_used": 1
 }
@@ -505,13 +505,13 @@ Emitted when an iter finishes.
 
 #### `transition`
 
-Emitted between phases when the pipeline advances.
+Emitted between iters when the pipeline advances.
 
 ```json
 {
   "event": "transition",
-  "from_phase": "review",
-  "to_phase": "revise",
+  "from_iter": "review",
+  "to_iter": "revise",
   "reason": "revise"
 }
 ```
@@ -526,7 +526,7 @@ Emitted when an iter produces context for downstream iters.
 {
   "event": "context_produced",
   "key": "discuss-summary",
-  "phase": "discuss"
+  "iter": "discuss"
 }
 ```
 
@@ -538,7 +538,7 @@ Emitted when an iter consumes context from a previous iter.
 {
   "event": "context_consumed",
   "key": "discuss-summary",
-  "from_phase": "discuss"
+  "from_iter": "discuss"
 }
 ```
 
@@ -549,7 +549,7 @@ Emitted when an iter exhausts its iterations without completing.
 ```json
 {
   "event": "stall",
-  "phase": "implement",
+  "iter": "implement",
   "iterations_attempted": 5,
   "actions": ["retry", "skip", "abort"]
 }
@@ -594,7 +594,7 @@ Emitted on fatal errors.
   "event": "error",
   "message": "prompt not found: change.md",
   "fatal": true,
-  "phase": "change"
+  "iter": "change"
 }
 ```
 
@@ -604,21 +604,21 @@ A typical programmatic session produces events in this order:
 
 ```
 run_start
-  phase_start (phase A)
+  iter_start (iter A)
     context_consumed (if applicable)
     turn (waiting_for_input: true)
     # outer agent resumes with response
     turn (waiting_for_input: false)
-  phase_complete
+  iter_complete
   context_produced (if applicable)
   transition
-  phase_start (phase B)
+  iter_start (iter B)
     ...
-  phase_complete
+  iter_complete
 run_complete
 ```
 
-For AFK phases, no `turn` events are emitted — the phase runs to completion internally and the outer agent sees `phase_start` → `phase_complete`.
+For AFK iters, no `turn` events are emitted — the iter runs to completion internally and the outer agent sees `iter_start` → `iter_complete`.
 
 ### Terminal Mode
 
@@ -740,6 +740,40 @@ When the user resumes with `sgf spec --resume spec-20260317T140000`:
 
 ## Iter Execution
 
+Each iter in a cursus pipeline follows this execution sequence:
+
+### Pre-Iter Setup
+
+1. **Resolve prompt file** — look up `prompt` via layered `.sgf/prompts/` resolution (local → global). Prompt resolution happens at cursus load time, before any iter executes.
+2. **Prepare consumed context** — if `consumes` is defined, read each key from `.sgf/run/<run-id>/context/<key>.md`, concatenate with headers (see Context Passing), and build the `--append-system-prompt` argument.
+3. **Ensure context directory** — create `.sgf/run/<run-id>/context/` if it does not exist.
+4. **Generate session UUID** — `Uuid::new_v4()` for the `--session-id` flag.
+
+### Invocation
+
+5. **Invoke `cl`** — delegate to sgf's iteration runner (AFK), direct `cl` call (interactive), or programmatic runner (piped stdin). The mode is determined by the iter's `mode` field, potentially overridden by `-a`/`-i` CLI flags. See [springfield spec](springfield.md) Agent Invocation for flag details.
+6. **For AFK iters** — run the iteration loop (up to `iterations` count). After each `cl` invocation, proceed to Post-Iter Evaluation. If the evaluation does not produce a transition, continue to the next iteration.
+7. **For interactive iters** — run a single `cl` session (default `iterations = 1`). Proceed to Post-Iter Evaluation on exit.
+
+### Post-Iter Evaluation
+
+8. **Check sentinel files** — in priority order: `.iter-complete` > `.iter-reject` > `.iter-revise` > none. Delete all detected sentinels after reading.
+9. **Update context producers** — if the iter defines `produces` and the file exists at `.sgf/run/<run-id>/context/<key>.md`, update `context_producers` mapping in `meta.json`.
+10. **Update run metadata** — append an iteration record to `iters_completed` in `meta.json` with session_id, timestamp, and outcome.
+
+### Transition Resolution
+
+11. **`.iter-complete` found** — if this is the final iter, mark pipeline `completed` and exit. Otherwise advance to the next iter in sequence (or to the `next` override if defined).
+12. **`.iter-reject` found** — follow `on_reject` transition. Error if no `on_reject` is defined.
+13. **`.iter-revise` found** — follow `on_revise` transition. Error if no `on_revise` is defined.
+14. **No sentinel, iterations remaining** — continue to next iteration of the same iter (AFK only).
+15. **No sentinel, iterations exhausted (AFK)** — pipeline enters stalled state.
+16. **No sentinel, interactive iter with `iterations = 1`** — treated as `.iter-complete` (implicit approval).
+
+### Between Iters
+
+17. **Emit transition event** (programmatic mode) — `transition` event with `from_iter`, `to_iter`, `reason`.
+18. **Continue** — loop back to Pre-Iter Setup for the next iter.
 
 ## Command Resolution Changes
 

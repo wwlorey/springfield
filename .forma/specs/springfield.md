@@ -254,6 +254,8 @@ max_duration_secs = 43200  # max total retry duration in seconds (default: 43200
 
 If the `[retry]` section is omitted, the defaults above apply.
 
+Simple prompt mode (`sgf <file>`) uses the same defaults. Retry behavior is not configurable in simple prompt mode — users who need custom retry settings should create a cursus TOML.
+
 #### Retry State
 
 Retry state is purely in-process — it does not persist across sgf restarts. If sgf itself is killed during the retry window, the retry loop dies with it. The run can still be resumed manually via `--resume <run-id>`.
@@ -319,12 +321,12 @@ Springfield is tested via integration tests that exercise the full CLI. All inte
 | Flags | `-a` and `-i` mutual exclusion | Passing both exits 1 with error message |
 | Programmatic | isatty detection | Piped stdin triggers programmatic mode (NDJSON events on stdout) |
 | Programmatic | `--output-format json` flag | Explicit flag triggers programmatic mode even with TTY stdin |
-| Programmatic | Structured events emitted | `run_start`, `phase_start`, `turn`, `phase_complete`, `run_complete` events in correct order |
+| Programmatic | Structured events emitted | `run_start`, `iter_start`, `turn`, `iter_complete`, `run_complete` events in correct order |
 | Programmatic | Turn-by-turn driving | Outer agent sends message via stdin, receives structured JSON response, resumes with `--resume` |
-| Programmatic | AFK phases in programmatic mode | AFK phases run to completion, emit phase events, no input needed |
-| Programmatic | Stall event | Iter exhaustion emits `stall` event with phase info and available actions |
+| Programmatic | AFK iters in programmatic mode | AFK iters run to completion, emit iter events, no input needed |
+| Programmatic | Stall event | Iter exhaustion emits `stall` event with iter info and available actions |
 | Programmatic | Resume command on exit | All exit paths (stall, interrupt, complete, error) print resume command |
-| Resume | `--resume <run-id>` on subcommand | Restores full cursus state (phase, iteration, context) and continues |
+| Resume | `--resume <run-id>` on subcommand | Restores full cursus state (iter, iteration, context) and continues |
 | Resume | `--resume` with invalid run-id | Exits 1 with "run not found" error |
 | Resume | Resume interrupted run | Resumes from interruption point |
 | Resume | Resume stalled run (interactive) | Offers Retry/Skip/Abort options |
@@ -395,7 +397,7 @@ sgf spec --resume spec-20260317T140000
 
 Behavior:
 1. Load `.sgf/run/<run-id>/meta.json` (for cursus runs) or `.sgf/run/<run-id>.json` (for non-cursus sessions)
-2. Restore full pipeline state: current phase, iteration count, accumulated context
+2. Restore full pipeline state: current iter, iteration count, accumulated context
 3. Continue execution from the stalled/interrupted point
 4. For stalled runs, offers options: Retry, Skip, or Abort (interactive mode). In programmatic mode, emits a stall event and waits for input.
 
@@ -416,23 +418,23 @@ When stdin is not a TTY (`isatty(stdin) == false`), sgf automatically switches t
 In programmatic mode:
 - **Output**: Structured NDJSON events on stdout (see [cursus spec](cursus.md) Structured Events section)
 - **Input**: Plain text on stdin — the same thing a human would type. Passed through to the inner `cl` session.
-- **Execution model**: Each invocation runs until it needs input (interactive phase waiting for response) or completes (AFK phase finished, pipeline done). The outer agent reads the JSON output, decides what to respond, and sends the next message via a new invocation with `--resume <run-id>`.
+- **Execution model**: Each invocation runs until it needs input (interactive iter waiting for response) or completes (AFK iter finished, pipeline done). The outer agent reads the JSON output, decides what to respond, and sends the next message via a new invocation with `--resume <run-id>`.
 
 The outer agent drives sgf turn-by-turn:
 
 ```bash
 # Turn 1: start pipeline
 echo "add login validation" | sgf change
-# → JSON: {run_id, phase_start, turn with agent response, waiting_for_input}
+# → JSON: {run_id, iter_start, turn with agent response, waiting_for_input}
 
 # Turn 2: respond to agent
 echo "yes, use bcrypt" | sgf change --resume change-20260422T150000
-# → JSON: {turn with agent response, phase_complete, run_complete}
+# → JSON: {turn with agent response, iter_complete, run_complete}
 ```
 
-Cursus TOML files are unchanged. `mode: "interactive"` means "this phase needs a conversation" — whether the conversant is a human (terminal) or an outer agent (piped stdin) is determined at runtime by `isatty(stdin)`.
+Cursus TOML files are unchanged. `mode: "interactive"` means "this iter needs a conversation" — whether the conversant is a human (terminal) or an outer agent (piped stdin) is determined at runtime by `isatty(stdin)`.
 
-AFK phases run to completion internally in both modes. The outer agent receives status events but does not need to send input during AFK phases.
+AFK iters run to completion internally in both modes. The outer agent receives status events but does not need to send input during AFK iters.
 
 ### Reserved Built-in: `list`
 
@@ -472,7 +474,7 @@ Built-ins:
 | `-n` / `--iterations` | from cursus TOML | Number of iterations (overrides `iterations` on all iters) |
 | `--skip-preflight` | `false` | Disable all pre-launch checks including recovery and daemon startup |
 | `--output-format` | — | Output format. `json` enables programmatic mode with structured NDJSON events on stdout. Auto-detected when stdin is not a TTY. |
-| `--resume <run-id>` | — | Resume a stalled or interrupted run. Restores full pipeline state (phase, iteration, context) and continues execution. |
+| `--resume <run-id>` | — | Resume a stalled or interrupted run. Restores full pipeline state (iter, iteration, context) and continues execution. |
 
 `-a` and `-i` are mutually exclusive — passing both is an error (exit 1 with a clear message). When neither is passed, the default comes from the cursus TOML iter definition (or `interactive` for simple prompt mode).
 
@@ -783,7 +785,7 @@ cl \
   @<PROMPT_FILE>                   # only on first turn (not on --resume)
 ```
 
-Spawns with piped stdout and piped stdin (the outer agent's message is written to stdin). The `cl` process runs one turn: it reads the input, the inner agent processes it and responds, then `cl` exits. sgf captures the JSON output, wraps it with cursus metadata (current phase, iteration, session_id), and emits structured NDJSON events on its own stdout.
+Spawns with piped stdout and piped stdin (the outer agent's message is written to stdin). The `cl` process runs one turn: it reads the input, the inner agent processes it and responds, then `cl` exits. sgf captures the JSON output, wraps it with cursus metadata (current iter, iteration, session_id), and emits structured NDJSON events on its own stdout.
 
 Programmatic mode is activated when:
 1. `isatty(stdin) == false` (stdin is piped — automatic detection), OR
@@ -840,7 +842,7 @@ Interrupt handling uses the shared `shutdown` crate's `ShutdownController` (see 
 
 **Interactive stages** (`sgf spec`, `sgf issues log`): Same as non-AFK — no `setsid()`, `monitor_stdin: false`. The user types directly into Claude.
 
-Signal handlers are registered just before spawning the child — during pre-launch checks, daemon startup, and other phases before handler registration, default signal behavior applies (single SIGINT exits).
+Signal handlers are registered just before spawning the child — during pre-launch checks, daemon startup, and other steps before handler registration, default signal behavior applies (single SIGINT exits).
 
 Agent process failures trigger auto-retry (see Error Handling). Retryable failures resume the crashed session via `cl --resume <session_id>`.
 
