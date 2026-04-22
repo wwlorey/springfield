@@ -3918,6 +3918,155 @@ fn resume_multi_iteration_picks_selected_session() {
     );
 }
 
+#[test]
+fn resume_cursus_run_id_delegates_to_cursus_resume() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    // Create a cursus TOML definition that the resume logic can resolve
+    let cursus_dir = tmp.path().join(".sgf/cursus");
+    fs::create_dir_all(&cursus_dir).unwrap();
+    fs::write(
+        cursus_dir.join("mypipe.toml"),
+        concat!(
+            "description = \"Dispatch test\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"step1\"\n",
+            "prompt = \"step1.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"step2\"\n",
+            "prompt = \"step2.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+        ),
+    )
+    .unwrap();
+
+    let prompts_dir = tmp.path().join(".sgf/prompts");
+    fs::create_dir_all(&prompts_dir).unwrap();
+    fs::write(prompts_dir.join("step1.md"), "step1 prompt\n").unwrap();
+    fs::write(prompts_dir.join("step2.md"), "step2 prompt\n").unwrap();
+    git_add_commit(tmp.path(), "add dispatch test cursus");
+
+    // Pre-seed cursus metadata at .sgf/run/<run_id>/meta.json with stalled status
+    let run_id = "mypipe-20260316T150000";
+    let run_meta_dir = tmp.path().join(".sgf/run").join(run_id);
+    fs::create_dir_all(&run_meta_dir).unwrap();
+    let cursus_meta = serde_json::json!({
+        "run_id": run_id,
+        "cursus": "mypipe",
+        "status": "stalled",
+        "current_iter": "step2",
+        "current_iter_index": 1,
+        "iters_completed": [
+            {
+                "name": "step1",
+                "session_id": "aaaaaaaa-1111-1111-1111-111111111111",
+                "completed_at": "2026-03-16T15:02:30Z",
+                "outcome": "complete"
+            }
+        ],
+        "spec": null,
+        "mode_override": null,
+        "context_producers": {},
+        "current_session_id": "bbbbbbbb-2222-2222-2222-222222222222",
+        "created_at": "2026-03-16T15:00:00Z",
+        "updated_at": "2026-03-16T15:05:30Z"
+    });
+    fs::write(
+        run_meta_dir.join("meta.json"),
+        serde_json::to_string_pretty(&cursus_meta).unwrap(),
+    )
+    .unwrap();
+
+    // Mock agent that completes step2
+    let mock_dir = TempDir::new().unwrap();
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        "#!/bin/sh\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
+    );
+
+    // Resume via --resume on a subcommand — should dispatch to cursus resume
+    let _permit = SGF_PERMITS
+        .acquire_timeout(Duration::from_secs(60))
+        .expect("semaphore timed out");
+    let mut guard = ChildGuard::spawn(
+        sgf_cmd(tmp.path())
+            .args(["mypipe", "--resume", run_id])
+            .env("SGF_AGENT_COMMAND", &mock_agent)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("failed to spawn sgf --resume for cursus");
+
+    // Cursus resume with stalled status prompts for action; send "retry"
+    {
+        use std::io::Write;
+        let stdin = guard.child_mut().stdin.as_mut().unwrap();
+        stdin.write_all(b"retry\n").unwrap();
+    }
+
+    let output = guard
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("failed to wait for sgf --resume cursus");
+    drop(_permit);
+
+    // Verify the dispatch delegated to cursus resume (metadata updated)
+    let meta = read_run_metadata(tmp.path());
+    assert_eq!(
+        meta["cursus"].as_str().unwrap(),
+        "mypipe",
+        "cursus name should be preserved in metadata"
+    );
+    assert_eq!(
+        meta["status"].as_str().unwrap(),
+        "completed",
+        "run should complete after resuming step2, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let completed = meta["iters_completed"].as_array().unwrap();
+    assert!(
+        completed.iter().any(|c| c["name"] == "step1"),
+        "step1 should be in completed iters"
+    );
+}
+
+#[test]
+fn resume_corrupt_metadata_exits_1() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    // Pre-seed a corrupt (invalid JSON) non-cursus metadata file
+    let loop_id = "build-auth-20260316T160000";
+    let run_dir = tmp.path().join(".sgf/run");
+    fs::create_dir_all(&run_dir).unwrap();
+    fs::write(
+        run_dir.join(format!("{loop_id}.json")),
+        "this is not valid json{{{",
+    )
+    .unwrap();
+
+    let output = run_sgf(sgf_cmd(tmp.path()).args(["build", "--resume", loop_id]));
+
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "sgf --resume with corrupt metadata should exit 1"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("corrupt") || stderr.contains("Session metadata not found"),
+        "stderr should mention corruption, got: {stderr}"
+    );
+}
+
 // ===========================================================================
 // Cursus: single-iter integration (binary-level)
 // ===========================================================================
