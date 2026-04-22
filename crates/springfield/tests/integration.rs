@@ -7714,3 +7714,203 @@ fn afk_post_result_timeout_kills_hung_agent() {
         "stderr should contain post-result timeout warning, got:\n{stderr}"
     );
 }
+
+// ===========================================================================
+// Retry config parsing and defaults (cursus)
+// ===========================================================================
+
+#[test]
+fn cursus_custom_retry_config_parses_and_runs() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        "#!/bin/sh\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
+    );
+
+    write_cursus_toml(
+        tmp.path(),
+        "build",
+        concat!(
+            "description = \"Build\"\n",
+            "alias = \"b\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[retry]\n",
+            "immediate = 5\n",
+            "interval_secs = 600\n",
+            "max_duration_secs = 86400\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+        ),
+    );
+    fs::create_dir_all(tmp.path().join(".sgf/prompts")).unwrap();
+    fs::write(tmp.path().join(".sgf/prompts/build.md"), "build prompt\n").unwrap();
+    git_add_commit(tmp.path(), "add prompt");
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "-a"])
+            .env("SGF_AGENT_COMMAND", &mock_agent)
+            .stdin(Stdio::null()),
+    );
+
+    assert!(
+        output.status.success(),
+        "cursus with custom [retry] should run successfully: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+#[ignore]
+fn cursus_custom_retry_config_overrides_defaults_during_execution() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    // immediate=2, interval=60, max_duration=120 → max_attempts = 2 + 120/60 = 4
+    write_cursus_toml(
+        tmp.path(),
+        "build",
+        concat!(
+            "description = \"Build\"\n",
+            "alias = \"b\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[retry]\n",
+            "immediate = 2\n",
+            "interval_secs = 60\n",
+            "max_duration_secs = 120\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+        ),
+    );
+    fs::create_dir_all(tmp.path().join(".sgf/prompts")).unwrap();
+    fs::write(tmp.path().join(".sgf/prompts/build.md"), "build prompt\n").unwrap();
+    git_add_commit(tmp.path(), "add prompt");
+
+    // Mock agent: first call sleeps 6s (past STARTUP_ERROR_THRESHOLD) then fails;
+    // second call succeeds.
+    let mock_dir = TempDir::new().unwrap();
+    let state_file = mock_dir.path().join("state");
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        &format!(
+            concat!(
+                "#!/bin/sh\n",
+                "if [ -f \"{}\" ]; then\n",
+                "  touch \"${{PWD}}/.iter-complete\"\n",
+                "  exit 0\n",
+                "fi\n",
+                "touch \"{}\"\n",
+                "sleep 6\n",
+                "exit 1\n",
+            ),
+            state_file.display(),
+            state_file.display()
+        ),
+    );
+
+    let output = run_sgf_timeout(
+        sgf_cmd(tmp.path())
+            .args(["build", "-a"])
+            .env("SGF_AGENT_COMMAND", &mock_agent)
+            .stdin(Stdio::null()),
+        Duration::from_secs(30),
+    );
+
+    assert!(
+        output.status.success(),
+        "cursus should succeed after retry: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // Custom config: immediate=2, interval=60, max_duration=120 → max_attempts=4
+    assert!(
+        stderr.contains("attempt 1/4"),
+        "retry message should reflect custom config (max_attempts=4), got stderr:\n{stderr}"
+    );
+}
+
+#[test]
+#[ignore]
+fn cursus_default_retry_config_when_section_omitted() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    // No [retry] section — defaults apply: immediate=3, interval=300, max_duration=43200
+    write_cursus_toml(
+        tmp.path(),
+        "build",
+        concat!(
+            "description = \"Build\"\n",
+            "alias = \"b\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+        ),
+    );
+    fs::create_dir_all(tmp.path().join(".sgf/prompts")).unwrap();
+    fs::write(tmp.path().join(".sgf/prompts/build.md"), "build prompt\n").unwrap();
+    git_add_commit(tmp.path(), "add prompt");
+
+    // Mock agent: first call sleeps 6s then fails; second call succeeds.
+    let mock_dir = TempDir::new().unwrap();
+    let state_file = mock_dir.path().join("state");
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        &format!(
+            concat!(
+                "#!/bin/sh\n",
+                "if [ -f \"{}\" ]; then\n",
+                "  touch \"${{PWD}}/.iter-complete\"\n",
+                "  exit 0\n",
+                "fi\n",
+                "touch \"{}\"\n",
+                "sleep 6\n",
+                "exit 1\n",
+            ),
+            state_file.display(),
+            state_file.display()
+        ),
+    );
+
+    let output = run_sgf_timeout(
+        sgf_cmd(tmp.path())
+            .args(["build", "-a"])
+            .env("SGF_AGENT_COMMAND", &mock_agent)
+            .stdin(Stdio::null()),
+        Duration::from_secs(30),
+    );
+
+    assert!(
+        output.status.success(),
+        "cursus should succeed after retry: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    // Default config: immediate=3, interval=300, max_duration=43200 → max_attempts=147
+    assert!(
+        stderr.contains("attempt 1/147"),
+        "retry message should reflect default config (max_attempts=147), got stderr:\n{stderr}"
+    );
+}
