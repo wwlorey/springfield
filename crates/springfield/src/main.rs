@@ -54,6 +54,7 @@ struct DynamicArgs {
     iterations: Option<u32>,
     no_push: bool,
     skip_preflight: bool,
+    resume: Option<String>,
 }
 
 fn parse_dynamic_args(args: Vec<OsString>) -> Result<DynamicArgs, String> {
@@ -78,6 +79,7 @@ fn parse_dynamic_args(args: Vec<OsString>) -> Result<DynamicArgs, String> {
     let mut iterations = None;
     let mut no_push = false;
     let mut skip_preflight = false;
+    let mut resume = None;
 
     let mut i = 0;
     while i < rest.len() {
@@ -86,6 +88,13 @@ fn parse_dynamic_args(args: Vec<OsString>) -> Result<DynamicArgs, String> {
             "-i" | "--interactive" => interactive = true,
             "--no-push" => no_push = true,
             "--skip-preflight" => skip_preflight = true,
+            "--resume" => {
+                i += 1;
+                if i >= rest.len() {
+                    return Err("--resume requires a value".to_string());
+                }
+                resume = Some(rest[i].clone());
+            }
             "-n" | "--iterations" => {
                 i += 1;
                 if i >= rest.len() {
@@ -113,6 +122,12 @@ fn parse_dynamic_args(args: Vec<OsString>) -> Result<DynamicArgs, String> {
     if afk && interactive {
         return Err("-a/--afk and -i/--interactive are mutually exclusive".to_string());
     }
+    if resume.is_some() && afk {
+        return Err("--resume and -a/--afk are mutually exclusive".to_string());
+    }
+    if resume.is_some() && interactive {
+        return Err("--resume and -i/--interactive are mutually exclusive".to_string());
+    }
 
     Ok(DynamicArgs {
         command,
@@ -122,6 +137,7 @@ fn parse_dynamic_args(args: Vec<OsString>) -> Result<DynamicArgs, String> {
         iterations,
         no_push,
         skip_preflight,
+        resume,
     })
 }
 
@@ -296,8 +312,46 @@ fn run_simple_prompt(root: &Path, args: &DynamicArgs, prompt_path: &Path) -> ! {
     std::process::exit(exit_code as i32);
 }
 
+fn run_resume_dispatch(root: &Path, run_id: &str) -> ! {
+    if let Ok(Some(_)) = cursus::state::read_metadata(root, run_id) {
+        match cursus::runner::resume_cursus(root, run_id) {
+            Ok(code) => std::process::exit(code),
+            Err(e) => {
+                springfield::style::print_error(&format!("resume: {e}"));
+                std::process::exit(1);
+            }
+        }
+    }
+
+    match springfield::loop_mgmt::read_session_metadata(root, run_id) {
+        Ok(Some(_)) => {
+            match springfield::orchestrate::run_resume(root, Some(run_id)) {
+                Ok(code) => std::process::exit(code),
+                Err(e) => {
+                    springfield::style::print_error(&format!("resume: {e}"));
+                    std::process::exit(1);
+                }
+            }
+        }
+        Ok(None) => {
+            springfield::style::print_error(&format!("run not found: {run_id}"));
+            std::process::exit(1);
+        }
+        Err(e) => {
+            springfield::style::print_error(&format!(
+                "Session metadata not found or corrupt for {run_id}: {e}"
+            ));
+            std::process::exit(1);
+        }
+    }
+}
+
 fn run_dynamic(args: DynamicArgs) -> ! {
     let root = std::env::current_dir().expect("failed to get current directory");
+
+    if let Some(ref run_id) = args.resume {
+        run_resume_dispatch(&root, run_id);
+    }
 
     let candidate = Path::new(&args.command);
     if candidate.exists() && candidate.is_file() {
@@ -542,6 +596,7 @@ mod tests {
         assert!(parsed.iterations.is_none());
         assert!(!parsed.no_push);
         assert!(!parsed.skip_preflight);
+        assert!(parsed.resume.is_none());
     }
 
     #[test]
@@ -667,6 +722,37 @@ mod tests {
         let args = vec![os("build"), os("auth"), os("extra")];
         let err = parse_dynamic_args(args).unwrap_err();
         assert!(err.contains("unexpected argument"));
+    }
+
+    #[test]
+    fn parse_resume_with_value() {
+        let args = vec![os("build"), os("--resume"), os("build-20260422T150000")];
+        let parsed = parse_dynamic_args(args).unwrap();
+        assert_eq!(parsed.resume.as_deref(), Some("build-20260422T150000"));
+        assert_eq!(parsed.command, "build");
+        assert!(!parsed.afk);
+        assert!(!parsed.interactive);
+    }
+
+    #[test]
+    fn parse_resume_missing_value() {
+        let args = vec![os("build"), os("--resume")];
+        let err = parse_dynamic_args(args).unwrap_err();
+        assert!(err.contains("--resume requires a value"));
+    }
+
+    #[test]
+    fn parse_resume_with_afk_error() {
+        let args = vec![os("build"), os("--resume"), os("run-123"), os("-a")];
+        let err = parse_dynamic_args(args).unwrap_err();
+        assert!(err.contains("--resume and -a/--afk are mutually exclusive"));
+    }
+
+    #[test]
+    fn parse_resume_with_interactive_error() {
+        let args = vec![os("build"), os("--resume"), os("run-123"), os("-i")];
+        let err = parse_dynamic_args(args).unwrap_err();
+        assert!(err.contains("--resume and -i/--interactive are mutually exclusive"));
     }
 
     const SIMPLE_CURSUS: &str = r#"
