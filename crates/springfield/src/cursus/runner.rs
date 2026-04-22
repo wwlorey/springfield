@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::fs;
 use std::io;
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Read as _};
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
 use chrono::Utc;
 use shutdown::{ShutdownConfig, ShutdownController};
@@ -28,6 +29,7 @@ pub struct CursusConfig {
     pub skip_preflight: bool,
     pub monitor_stdin_override: Option<bool>,
     pub programmatic: bool,
+    pub output_format_json: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -243,6 +245,90 @@ fn run_iter(inv: &IterInvocation<'_>, controller: &ShutdownController) -> io::Re
     })
 }
 
+struct ProgrammaticTurnResult {
+    content: String,
+    session_id: String,
+    exit_code: i32,
+}
+
+fn run_programmatic_turn(
+    inv: &IterInvocation<'_>,
+    resume_session_id: Option<&str>,
+    resume_input: Option<&str>,
+) -> io::Result<ProgrammaticTurnResult> {
+    let agent_cmd = resolve_agent_command(inv.config);
+
+    let mut cmd = Command::new(&agent_cmd);
+    cmd.args([
+        "--verbose",
+        "--print",
+        "--output-format",
+        "json",
+        "--dangerously-skip-permissions",
+        "--settings",
+        r#"{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}"#,
+    ]);
+
+    let mut prompt_files = Vec::new();
+    if !inv.consumed_content.is_empty() {
+        let ctx_file = context::context_file_path(inv.root, inv.run_id, "_consumed");
+        fs::write(&ctx_file, inv.consumed_content)?;
+        prompt_files.push(ctx_file.to_string_lossy().to_string());
+    }
+    for f in &prompt_files {
+        cmd.args(["--append-system-prompt", &format!("@{f}")]);
+    }
+
+    let (ctx_env_name, ctx_env_val) = context::context_env_var(inv.run_id);
+    let abs_ctx_val = inv.root.join(&ctx_env_val).to_string_lossy().to_string();
+    cmd.env("SGF_MANAGED", "1");
+    cmd.env(&ctx_env_name, &abs_ctx_val);
+    if std::env::var("SGF_TEST_NO_SETSID").is_ok() {
+        cmd.env("SGF_TEST_NO_SETSID", "1");
+    }
+
+    if let Some(sid) = resume_session_id {
+        cmd.args(["--resume", sid]);
+        if let Some(input) = resume_input {
+            cmd.arg(input);
+        }
+    } else {
+        cmd.args(["--session-id", inv.session_id]);
+        let prompt_arg = format!("@{}", inv.prompt_path.display());
+        cmd.arg(&prompt_arg);
+    }
+
+    cmd.stdin(Stdio::null());
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::inherit());
+
+    let output = cmd.output()?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let exit_code = output.status.code().unwrap_or(1);
+
+    let (content, session_id) =
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&stdout) {
+            let content = parsed["result"].as_str().unwrap_or("").to_string();
+            let sid = parsed["session_id"].as_str().unwrap_or("").to_string();
+            (content, sid)
+        } else {
+            tracing::warn!("failed to parse cl JSON output");
+            (stdout.clone(), String::new())
+        };
+
+    Ok(ProgrammaticTurnResult {
+        content,
+        session_id,
+        exit_code,
+    })
+}
+
+fn has_any_sentinel(root: &Path) -> bool {
+    SENTINELS
+        .iter()
+        .any(|name| find_sentinel(root, name, SENTINEL_MAX_DEPTH).is_some())
+}
+
 fn render_stall_banner(
     cursus_name: &str,
     iter_name: &str,
@@ -338,9 +424,11 @@ fn run_cursus_loop(
     config: &CursusConfig,
     metadata: &mut RunMetadata,
     start_index: usize,
+    resume_input: Option<String>,
 ) -> io::Result<i32> {
     let mut current_index = start_index;
     let mut ready_signaled = false;
+    let mut resume_input = resume_input;
 
     let exit_code = loop {
         let iter = &def.iters[current_index];
@@ -437,32 +525,68 @@ fn run_cursus_loop(
             );
         }
 
-        let head_before = if auto_push && effective_mode == Mode::Interactive {
-            vcs_utils::git_head()
-        } else {
-            None
+        let inv = IterInvocation {
+            root,
+            run_id: &metadata.run_id,
+            iter,
+            config,
+            session_id: &session_id,
+            prompt_path: &prompt_path,
+            consumed_content: &consumed_content,
+            auto_push,
+            effective_mode: &effective_mode,
         };
 
-        let exit_code = run_iter(
-            &IterInvocation {
-                root,
-                run_id: &metadata.run_id,
-                iter,
-                config,
-                session_id: &session_id,
-                prompt_path: &prompt_path,
-                consumed_content: &consumed_content,
-                auto_push,
-                effective_mode: &effective_mode,
-            },
-            &controller,
-        )?;
+        let exit_code = if config.output_format_json && effective_mode == Mode::Interactive {
+            let is_resume_turn = resume_input.is_some() && metadata.current_session_id.is_some();
+            let turn_result = if is_resume_turn {
+                let input = resume_input.take().unwrap();
+                run_programmatic_turn(&inv, metadata.current_session_id.as_deref(), Some(&input))?
+            } else {
+                run_programmatic_turn(&inv, None, None)?
+            };
 
-        if let Some(ref before) = head_before {
-            vcs_utils::auto_push_if_changed(before, |msg| {
-                style::print_action(msg);
+            let waiting_for_input = !has_any_sentinel(root) && turn_result.exit_code == 0;
+
+            events::emit_event(&Event::Turn {
+                content: turn_result.content,
+                waiting_for_input,
+                session_id: turn_result.session_id.clone(),
             });
-        }
+
+            if waiting_for_input {
+                metadata.current_session_id = Some(turn_result.session_id);
+                metadata.status = RunStatus::WaitingForInput;
+                metadata.touch();
+                state::write_metadata(root, metadata)?;
+                events::emit_event(&Event::RunComplete {
+                    status: "waiting_for_input".to_string(),
+                    run_id: metadata.run_id.clone(),
+                    resume_command: format!("sgf {cursus_name} --resume {}", metadata.run_id),
+                });
+                state::remove_pid_file(root, &metadata.run_id);
+                return Ok(0);
+            }
+
+            metadata.current_session_id = None;
+            turn_result.exit_code
+        } else {
+            let head_before = if auto_push && effective_mode == Mode::Interactive {
+                vcs_utils::git_head()
+            } else {
+                None
+            };
+
+            let exit_code = run_iter(&inv, &controller)?;
+
+            if let Some(ref before) = head_before {
+                vcs_utils::auto_push_if_changed(before, |msg| {
+                    style::print_action(msg);
+                });
+            }
+
+            exit_code
+        };
 
         if exit_code == 130 {
             metadata.status = RunStatus::Interrupted;
@@ -632,7 +756,7 @@ pub fn run_cursus(
         },
     );
 
-    run_cursus_loop(root, cursus_name, def, config, &mut metadata, 0)
+    run_cursus_loop(root, cursus_name, def, config, &mut metadata, 0, None)
 }
 
 pub fn resume_cursus(root: &Path, run_id: &str) -> io::Result<i32> {
@@ -642,7 +766,10 @@ pub fn resume_cursus(root: &Path, run_id: &str) -> io::Result<i32> {
         io::Error::new(io::ErrorKind::NotFound, format!("run not found: {run_id}"))
     })?;
 
-    if metadata.status != RunStatus::Stalled && metadata.status != RunStatus::Interrupted {
+    if !matches!(
+        metadata.status,
+        RunStatus::Stalled | RunStatus::Interrupted | RunStatus::WaitingForInput
+    ) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             format!(
@@ -661,7 +788,7 @@ pub fn resume_cursus(root: &Path, run_id: &str) -> io::Result<i32> {
 
     let def = &resolved.definition;
 
-    let stalled_index = def
+    let current_index = def
         .iters
         .iter()
         .position(|i| i.name == metadata.current_iter)
@@ -675,14 +802,41 @@ pub fn resume_cursus(root: &Path, run_id: &str) -> io::Result<i32> {
             )
         })?;
 
-    let action = prompt_resume_action(&metadata)?;
-
     let cursus_name = metadata.cursus.clone();
 
     let mode_override = metadata.mode_override.as_deref().map(|m| match m {
         "afk" => Mode::Afk,
         _ => Mode::Interactive,
     });
+
+    if metadata.status == RunStatus::WaitingForInput {
+        let mut input = String::new();
+        io::stdin().read_to_string(&mut input)?;
+
+        let config = CursusConfig {
+            spec: metadata.spec.clone(),
+            mode_override,
+            no_push: false,
+            agent_command: None,
+            skip_preflight: true,
+            monitor_stdin_override: Some(false),
+            programmatic: true,
+            output_format_json: true,
+        };
+
+        state::write_pid_file(root, run_id)?;
+        return run_cursus_loop(
+            root,
+            &cursus_name,
+            def,
+            &config,
+            &mut metadata,
+            current_index,
+            Some(input),
+        );
+    }
+
+    let action = prompt_resume_action(&metadata)?;
 
     let programmatic = !std::io::stdin().is_terminal();
 
@@ -694,6 +848,7 @@ pub fn resume_cursus(root: &Path, run_id: &str) -> io::Result<i32> {
         skip_preflight: true,
         monitor_stdin_override: None,
         programmatic,
+        output_format_json: false,
     };
 
     match action {
@@ -716,11 +871,12 @@ pub fn resume_cursus(root: &Path, run_id: &str) -> io::Result<i32> {
                 def,
                 &config,
                 &mut metadata,
-                stalled_index,
+                current_index,
+                None,
             )
         }
         ResumeAction::Skip => {
-            let next_index = stalled_index + 1;
+            let next_index = current_index + 1;
             if next_index >= def.iters.len() {
                 metadata.status = RunStatus::Completed;
                 metadata.touch();
@@ -736,7 +892,15 @@ pub fn resume_cursus(root: &Path, run_id: &str) -> io::Result<i32> {
                 "skipping to iter '{}' [{run_id}]",
                 def.iters[next_index].name
             ));
-            run_cursus_loop(root, &cursus_name, def, &config, &mut metadata, next_index)
+            run_cursus_loop(
+                root,
+                &cursus_name,
+                def,
+                &config,
+                &mut metadata,
+                next_index,
+                None,
+            )
         }
     }
 }
@@ -1154,6 +1318,7 @@ mod tests {
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
+            output_format_json: false,
         };
 
         let exit_code = run_cursus(root, "build", &def, &config).unwrap();
@@ -1199,6 +1364,7 @@ mod tests {
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
+            output_format_json: false,
         };
 
         let exit_code = run_cursus(root, "build", &def, &config).unwrap();
@@ -1248,6 +1414,7 @@ mod tests {
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
+            output_format_json: false,
         };
 
         let exit_code = run_cursus(root, "spec", &def, &config).unwrap();
@@ -1315,6 +1482,7 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
+            output_format_json: false,
         };
 
         let exit_code = run_cursus(root, "spec", &def, &config).unwrap();
@@ -1394,6 +1562,7 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
+            output_format_json: false,
         };
 
         let exit_code = run_cursus(root, "spec", &def, &config).unwrap();
@@ -1479,6 +1648,7 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
+            output_format_json: false,
         };
 
         let exit_code = run_cursus(root, "pipeline", &def, &config).unwrap();
@@ -1542,6 +1712,7 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
+            output_format_json: false,
         };
 
         let exit_code = run_cursus(root, "build", &def, &config).unwrap();
@@ -1583,6 +1754,7 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
+            output_format_json: false,
         };
 
         let exit_code = run_cursus(root, "build", &def, &config).unwrap();
@@ -1627,6 +1799,7 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
+            output_format_json: false,
         };
 
         run_cursus(root, "build", &def, &config).unwrap();
@@ -1659,6 +1832,7 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: None,
             programmatic: false,
+            output_format_json: false,
         };
 
         let err = run_cursus(root, "empty", &def, &config).unwrap_err();
@@ -1710,6 +1884,7 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
+            output_format_json: false,
         };
 
         let exit_code = run_cursus(root, "spec", &def, &config).unwrap();
@@ -1775,6 +1950,7 @@ exit 0
                 spec: None,
                 mode_override: None,
                 context_producers: HashMap::new(),
+                current_session_id: None,
                 created_at: "2026-03-17T14:00:00Z".to_string(),
                 updated_at: "2026-03-17T14:05:00Z".to_string(),
             },
@@ -1803,6 +1979,7 @@ exit 0
                 spec: None,
                 mode_override: None,
                 context_producers: HashMap::new(),
+                current_session_id: None,
                 created_at: "2026-03-17T14:00:00Z".to_string(),
                 updated_at: "2026-03-17T14:05:00Z".to_string(),
             },
@@ -1832,6 +2009,7 @@ exit 0
                 spec: None,
                 mode_override: None,
                 context_producers: HashMap::new(),
+                current_session_id: None,
                 created_at: "2026-03-17T14:00:00Z".to_string(),
                 updated_at: "2026-03-17T14:05:00Z".to_string(),
             },
@@ -1886,6 +2064,7 @@ prompt = "build.md"
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
+            output_format_json: false,
         };
 
         let run_id = "spec-20260317T140000";
@@ -1907,11 +2086,13 @@ prompt = "build.md"
             spec: None,
             mode_override: None,
             context_producers: HashMap::new(),
+            current_session_id: None,
             created_at: "2026-03-17T14:00:00Z".to_string(),
             updated_at: "2026-03-17T14:10:00Z".to_string(),
         };
 
-        let exit_code = run_cursus_loop(root, "spec", &def, &config, &mut metadata, 1).unwrap();
+        let exit_code =
+            run_cursus_loop(root, "spec", &def, &config, &mut metadata, 1, None).unwrap();
         assert_eq!(exit_code, 0);
 
         assert_eq!(metadata.status, RunStatus::Completed);
@@ -1953,6 +2134,7 @@ prompt = "build.md"
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
+            output_format_json: false,
         };
 
         let run_id = "spec-20260317T140000";
@@ -1969,12 +2151,14 @@ prompt = "build.md"
             spec: None,
             mode_override: None,
             context_producers: HashMap::new(),
+            current_session_id: None,
             created_at: "2026-03-17T14:00:00Z".to_string(),
             updated_at: "2026-03-17T14:10:00Z".to_string(),
         };
 
         // Skip stalled "draft" iter, resume from "review" (index 1)
-        let exit_code = run_cursus_loop(root, "spec", &def, &config, &mut metadata, 1).unwrap();
+        let exit_code =
+            run_cursus_loop(root, "spec", &def, &config, &mut metadata, 1, None).unwrap();
         assert_eq!(exit_code, 0);
 
         assert_eq!(metadata.status, RunStatus::Completed);
@@ -2074,6 +2258,7 @@ prompt = "build.md"
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
+            output_format_json: true,
         };
 
         assert!(config.programmatic);
@@ -2092,6 +2277,7 @@ prompt = "build.md"
             skip_preflight: false,
             monitor_stdin_override: None,
             programmatic: false,
+            output_format_json: false,
         };
 
         assert!(!config.programmatic);
@@ -2125,6 +2311,7 @@ prompt = "build.md"
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
+            output_format_json: false,
         };
 
         let exit_code = run_cursus(root, "build", &def, &config).unwrap();
@@ -2188,6 +2375,7 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
+            output_format_json: false,
         };
 
         let exit_code = run_cursus(root, "spec", &def, &config).unwrap();
@@ -2228,6 +2416,7 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
+            output_format_json: false,
         };
 
         let exit_code = run_cursus(root, "build", &def, &config).unwrap();
@@ -2299,6 +2488,7 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
+            output_format_json: false,
         };
 
         let exit_code = run_cursus(root, "pipeline", &def, &config).unwrap();
@@ -2327,6 +2517,7 @@ exit 0
             skip_preflight: false,
             monitor_stdin_override: None,
             programmatic: true,
+            output_format_json: true,
         };
         // Should not panic when emitting events
         emit_if_programmatic(
@@ -2349,6 +2540,7 @@ exit 0
             skip_preflight: false,
             monitor_stdin_override: None,
             programmatic: false,
+            output_format_json: false,
         };
         // Should not emit anything (no way to assert, but verifies no panic)
         emit_if_programmatic(
@@ -2365,5 +2557,391 @@ exit 0
     fn mode_str_returns_correct_values() {
         assert_eq!(mode_str(&Mode::Afk), "afk");
         assert_eq!(mode_str(&Mode::Interactive), "interactive");
+    }
+
+    #[test]
+    fn has_any_sentinel_detects_sentinels() {
+        let tmp = TempDir::new().unwrap();
+        assert!(!has_any_sentinel(tmp.path()));
+
+        fs::write(tmp.path().join(".iter-complete"), "").unwrap();
+        assert!(has_any_sentinel(tmp.path()));
+    }
+
+    #[test]
+    fn programmatic_interactive_with_sentinel_completes() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_cursus_project(root, &["chat.md"]);
+
+        let mock_agent = mock_script(
+            root,
+            "mock_agent.sh",
+            &format!(
+                r#"#!/bin/sh
+touch "{root}/.iter-complete"
+echo '{{"type":"result","result":"Done with the task.","session_id":"sess-abc"}}'
+exit 0
+"#,
+                root = root.display()
+            ),
+        );
+
+        let def = make_cursus_def(
+            vec![make_iter("chat", Mode::Interactive, 1, None, None, None)],
+            false,
+        );
+
+        let config = CursusConfig {
+            spec: None,
+            mode_override: None,
+            no_push: true,
+            agent_command: Some(mock_agent),
+            skip_preflight: true,
+            monitor_stdin_override: Some(false),
+            programmatic: true,
+            output_format_json: true,
+        };
+
+        let exit_code = run_cursus(root, "chat", &def, &config).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let run_dir = root.join(".sgf/run");
+        let entries: Vec<_> = fs::read_dir(&run_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().ok().is_some_and(|ft| ft.is_dir()))
+            .collect();
+        let run_id = entries[0].file_name().to_str().unwrap().to_string();
+        let meta = state::read_metadata(root, &run_id).unwrap().unwrap();
+        assert_eq!(meta.status, RunStatus::Completed);
+        assert!(meta.current_session_id.is_none());
+    }
+
+    #[test]
+    fn programmatic_interactive_without_sentinel_waits_for_input() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_cursus_project(root, &["chat.md"]);
+
+        let mock_agent = mock_script(
+            root,
+            "mock_agent.sh",
+            r#"#!/bin/sh
+echo '{"type":"result","result":"What should I do next?","session_id":"sess-xyz"}'
+exit 0
+"#,
+        );
+
+        let def = make_cursus_def(
+            vec![make_iter("chat", Mode::Interactive, 1, None, None, None)],
+            false,
+        );
+
+        let config = CursusConfig {
+            spec: None,
+            mode_override: None,
+            no_push: true,
+            agent_command: Some(mock_agent),
+            skip_preflight: true,
+            monitor_stdin_override: Some(false),
+            programmatic: true,
+            output_format_json: true,
+        };
+
+        let exit_code = run_cursus(root, "chat", &def, &config).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let run_dir = root.join(".sgf/run");
+        let entries: Vec<_> = fs::read_dir(&run_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().ok().is_some_and(|ft| ft.is_dir()))
+            .collect();
+        let run_id = entries[0].file_name().to_str().unwrap().to_string();
+        let meta = state::read_metadata(root, &run_id).unwrap().unwrap();
+        assert_eq!(meta.status, RunStatus::WaitingForInput);
+        assert_eq!(meta.current_session_id.as_deref(), Some("sess-xyz"));
+        assert_eq!(meta.current_iter, "chat");
+    }
+
+    #[test]
+    fn programmatic_afk_iter_no_turn_events() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_cursus_project(root, &["build.md"]);
+
+        let mock_agent = mock_script(
+            root,
+            "mock_agent.sh",
+            &format!(
+                "#!/bin/sh\ntouch \"{}/.iter-complete\"\nexit 0\n",
+                root.display()
+            ),
+        );
+
+        let def = make_cursus_def(
+            vec![make_iter("build", Mode::Afk, 10, None, None, None)],
+            false,
+        );
+
+        let config = CursusConfig {
+            spec: None,
+            mode_override: None,
+            no_push: true,
+            agent_command: Some(mock_agent),
+            skip_preflight: true,
+            monitor_stdin_override: Some(false),
+            programmatic: true,
+            output_format_json: false,
+        };
+
+        let exit_code = run_cursus(root, "build", &def, &config).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let run_dir = root.join(".sgf/run");
+        let entries: Vec<_> = fs::read_dir(&run_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().ok().is_some_and(|ft| ft.is_dir()))
+            .collect();
+        let run_id = entries[0].file_name().to_str().unwrap().to_string();
+        let meta = state::read_metadata(root, &run_id).unwrap().unwrap();
+        assert_eq!(meta.status, RunStatus::Completed);
+        assert!(meta.current_session_id.is_none());
+    }
+
+    #[test]
+    fn programmatic_interactive_resume_with_sentinel_completes() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_cursus_project(root, &["chat.md"]);
+
+        let counter_file = root.join("call_count");
+        fs::write(&counter_file, "0").unwrap();
+
+        let mock_agent = mock_script(
+            root,
+            "mock_agent.sh",
+            &format!(
+                r#"#!/bin/sh
+COUNT=$(cat "{counter}")
+COUNT=$((COUNT + 1))
+echo $COUNT > "{counter}"
+if [ $COUNT -eq 2 ]; then
+    touch "{root}/.iter-complete"
+    echo '{{"type":"result","result":"All done!","session_id":"sess-resume"}}'
+else
+    echo '{{"type":"result","result":"What next?","session_id":"sess-first"}}'
+fi
+exit 0
+"#,
+                counter = counter_file.display(),
+                root = root.display()
+            ),
+        );
+
+        let def = make_cursus_def(
+            vec![make_iter("chat", Mode::Interactive, 1, None, None, None)],
+            false,
+        );
+
+        let config = CursusConfig {
+            spec: None,
+            mode_override: None,
+            no_push: true,
+            agent_command: Some(mock_agent.clone()),
+            skip_preflight: true,
+            monitor_stdin_override: Some(false),
+            programmatic: true,
+            output_format_json: true,
+        };
+
+        // First run: should get WaitingForInput
+        let exit_code = run_cursus(root, "chat", &def, &config).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let run_dir = root.join(".sgf/run");
+        let entries: Vec<_> = fs::read_dir(&run_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().ok().is_some_and(|ft| ft.is_dir()))
+            .collect();
+        let run_id = entries[0].file_name().to_str().unwrap().to_string();
+        let meta = state::read_metadata(root, &run_id).unwrap().unwrap();
+        assert_eq!(meta.status, RunStatus::WaitingForInput);
+        assert_eq!(meta.current_session_id.as_deref(), Some("sess-first"));
+
+        // Resume with input — agent creates sentinel this time
+        let resume_config = CursusConfig {
+            spec: None,
+            mode_override: None,
+            no_push: true,
+            agent_command: Some(mock_agent),
+            skip_preflight: true,
+            monitor_stdin_override: Some(false),
+            programmatic: true,
+            output_format_json: true,
+        };
+
+        state::write_pid_file(root, &run_id).unwrap();
+        let mut metadata = state::read_metadata(root, &run_id).unwrap().unwrap();
+        let exit_code = run_cursus_loop(
+            root,
+            "chat",
+            &def,
+            &resume_config,
+            &mut metadata,
+            0,
+            Some("Please finish up".to_string()),
+        )
+        .unwrap();
+        assert_eq!(exit_code, 0);
+
+        let meta = state::read_metadata(root, &run_id).unwrap().unwrap();
+        assert_eq!(meta.status, RunStatus::Completed);
+        assert!(meta.current_session_id.is_none());
+    }
+
+    #[test]
+    fn programmatic_interactive_multi_iter_with_waiting() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_cursus_project(root, &["discuss.md", "build.md"]);
+
+        // discuss is interactive (will wait for input on first call)
+        // build is AFK (runs to completion)
+        let counter_file = root.join("call_count");
+        fs::write(&counter_file, "0").unwrap();
+
+        let mock_agent = mock_script(
+            root,
+            "mock_agent.sh",
+            &format!(
+                r#"#!/bin/sh
+COUNT=$(cat "{counter}")
+COUNT=$((COUNT + 1))
+echo $COUNT > "{counter}"
+touch "{root}/.iter-complete"
+echo '{{"type":"result","result":"Turn done","session_id":"sess-'"$COUNT"'"}}'
+exit 0
+"#,
+                counter = counter_file.display(),
+                root = root.display()
+            ),
+        );
+
+        let def = make_cursus_def(
+            vec![
+                make_iter("discuss", Mode::Interactive, 1, None, None, None),
+                make_iter("build", Mode::Afk, 1, None, None, None),
+            ],
+            false,
+        );
+
+        let config = CursusConfig {
+            spec: None,
+            mode_override: None,
+            no_push: true,
+            agent_command: Some(mock_agent),
+            skip_preflight: true,
+            monitor_stdin_override: Some(false),
+            programmatic: true,
+            output_format_json: true,
+        };
+
+        // Both iters complete because the mock always creates .iter-complete
+        let exit_code = run_cursus(root, "pipeline", &def, &config).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let run_dir = root.join(".sgf/run");
+        let entries: Vec<_> = fs::read_dir(&run_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().ok().is_some_and(|ft| ft.is_dir()))
+            .collect();
+        let run_id = entries[0].file_name().to_str().unwrap().to_string();
+        let meta = state::read_metadata(root, &run_id).unwrap().unwrap();
+        assert_eq!(meta.status, RunStatus::Completed);
+        assert_eq!(meta.iters_completed.len(), 2);
+        assert_eq!(meta.iters_completed[0].name, "discuss");
+        assert_eq!(meta.iters_completed[1].name, "build");
+    }
+
+    #[test]
+    fn programmatic_interactive_nonzero_exit_not_waiting() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_cursus_project(root, &["chat.md"]);
+
+        let mock_agent = mock_script(
+            root,
+            "mock_agent.sh",
+            r#"#!/bin/sh
+echo '{"type":"result","result":"Error occurred","session_id":"sess-err"}'
+exit 1
+"#,
+        );
+
+        let def = make_cursus_def(
+            vec![make_iter("chat", Mode::Interactive, 1, None, None, None)],
+            false,
+        );
+
+        let config = CursusConfig {
+            spec: None,
+            mode_override: None,
+            no_push: true,
+            agent_command: Some(mock_agent),
+            skip_preflight: true,
+            monitor_stdin_override: Some(false),
+            programmatic: true,
+            output_format_json: true,
+        };
+
+        let exit_code = run_cursus(root, "chat", &def, &config).unwrap();
+        // Non-zero exit → Turn event with waiting_for_input: false
+        // Then detect_outcome: interactive + iterations <= 1 → Complete (implicit approval)
+        // Pipeline completes since this is the only iter
+        assert_eq!(exit_code, 0);
+
+        let run_dir = root.join(".sgf/run");
+        let entries: Vec<_> = fs::read_dir(&run_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().ok().is_some_and(|ft| ft.is_dir()))
+            .collect();
+        let run_id = entries[0].file_name().to_str().unwrap().to_string();
+        let meta = state::read_metadata(root, &run_id).unwrap().unwrap();
+        assert_eq!(meta.status, RunStatus::Completed);
+    }
+
+    #[test]
+    fn resume_cursus_completed_still_not_resumable() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let run_id = "build-20260317T140000";
+        state::create_run_dir(root, run_id).unwrap();
+        state::write_metadata(
+            root,
+            &RunMetadata {
+                run_id: run_id.to_string(),
+                cursus: "build".to_string(),
+                status: RunStatus::Completed,
+                current_iter: "build".to_string(),
+                current_iter_index: 0,
+                iters_completed: Vec::new(),
+                spec: None,
+                mode_override: None,
+                context_producers: HashMap::new(),
+                current_session_id: None,
+                created_at: "2026-03-17T14:00:00Z".to_string(),
+                updated_at: "2026-03-17T14:05:00Z".to_string(),
+            },
+        )
+        .unwrap();
+
+        let err = resume_cursus(root, run_id).unwrap_err();
+        assert!(err.to_string().contains("not resumable"));
     }
 }

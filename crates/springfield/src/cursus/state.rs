@@ -7,12 +7,13 @@ use chrono::{Local, Utc};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum RunStatus {
     Running,
     Completed,
     Stalled,
     Interrupted,
+    WaitingForInput,
 }
 
 impl std::fmt::Display for RunStatus {
@@ -22,6 +23,7 @@ impl std::fmt::Display for RunStatus {
             Self::Completed => write!(f, "completed"),
             Self::Stalled => write!(f, "stalled"),
             Self::Interrupted => write!(f, "interrupted"),
+            Self::WaitingForInput => write!(f, "waiting_for_input"),
         }
     }
 }
@@ -46,6 +48,8 @@ pub struct RunMetadata {
     pub mode_override: Option<String>,
     #[serde(default)]
     pub context_producers: HashMap<String, String>,
+    #[serde(default)]
+    pub current_session_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -69,6 +73,7 @@ impl RunMetadata {
             spec: spec.map(|s| s.to_string()),
             mode_override: mode_override.map(|m| m.to_string()),
             context_producers: HashMap::new(),
+            current_session_id: None,
             created_at: now.clone(),
             updated_at: now,
         }
@@ -184,7 +189,10 @@ pub fn find_resumable_runs(root: &Path) -> io::Result<Vec<RunMetadata>> {
             continue;
         }
         if let Some(meta) = read_metadata(root, &run_id)?
-            && (meta.status == RunStatus::Stalled || meta.status == RunStatus::Interrupted)
+            && matches!(
+                meta.status,
+                RunStatus::Stalled | RunStatus::Interrupted | RunStatus::WaitingForInput
+            )
         {
             runs.push(meta);
         }
@@ -272,6 +280,7 @@ mod tests {
             spec: Some("auth".to_string()),
             mode_override: None,
             context_producers: HashMap::new(),
+            current_session_id: None,
             created_at: "2026-03-17T14:00:00Z".to_string(),
             updated_at: "2026-03-17T14:10:00Z".to_string(),
         };
@@ -309,6 +318,7 @@ mod tests {
             spec: None,
             mode_override: None,
             context_producers: HashMap::new(),
+            current_session_id: None,
             created_at: "2026-03-17T14:00:00Z".to_string(),
             updated_at: "2026-03-17T14:00:00Z".to_string(),
         };
@@ -383,6 +393,7 @@ mod tests {
             spec: None,
             mode_override: None,
             context_producers: HashMap::new(),
+            current_session_id: None,
             created_at: "2026-03-17T14:00:00Z".to_string(),
             updated_at: "2026-03-17T14:00:00Z".to_string(),
         };
@@ -409,6 +420,7 @@ mod tests {
             spec: None,
             mode_override: None,
             context_producers: HashMap::new(),
+            current_session_id: None,
             created_at: "2026-03-17T14:00:00Z".to_string(),
             updated_at: "2026-03-17T14:00:00Z".to_string(),
         };
@@ -436,6 +448,7 @@ mod tests {
             spec: None,
             mode_override: None,
             context_producers: HashMap::new(),
+            current_session_id: None,
             created_at: "2026-03-17T14:00:00Z".to_string(),
             updated_at: "2026-03-17T14:00:00Z".to_string(),
         };
@@ -461,6 +474,7 @@ mod tests {
             spec: None,
             mode_override: None,
             context_producers: HashMap::new(),
+            current_session_id: None,
             created_at: "2026-03-17T14:00:00Z".to_string(),
             updated_at: "2026-03-17T14:00:00Z".to_string(),
         };
@@ -493,6 +507,7 @@ mod tests {
             spec: None,
             mode_override: None,
             context_producers: HashMap::new(),
+            current_session_id: None,
             created_at: "2026-03-17T14:00:00Z".to_string(),
             updated_at: "2026-03-17T14:00:00Z".to_string(),
         };
@@ -512,6 +527,7 @@ mod tests {
             spec: None,
             mode_override: None,
             context_producers: HashMap::new(),
+            current_session_id: None,
             created_at: "2026-03-17T15:00:00Z".to_string(),
             updated_at: "2026-03-17T15:00:00Z".to_string(),
         };
@@ -558,6 +574,7 @@ mod tests {
             spec: None,
             mode_override: None,
             context_producers: HashMap::new(),
+            current_session_id: None,
             created_at: "2026-03-17T14:00:00Z".to_string(),
             updated_at: "2026-03-17T14:00:00Z".to_string(),
         };
@@ -574,6 +591,7 @@ mod tests {
         assert_eq!(RunStatus::Completed.to_string(), "completed");
         assert_eq!(RunStatus::Stalled.to_string(), "stalled");
         assert_eq!(RunStatus::Interrupted.to_string(), "interrupted");
+        assert_eq!(RunStatus::WaitingForInput.to_string(), "waiting_for_input");
     }
 
     #[test]
@@ -582,6 +600,69 @@ mod tests {
         assert_eq!(json, "\"stalled\"");
         let back: RunStatus = serde_json::from_str(&json).unwrap();
         assert_eq!(back, RunStatus::Stalled);
+    }
+
+    #[test]
+    fn status_serde_waiting_for_input() {
+        let json = serde_json::to_string(&RunStatus::WaitingForInput).unwrap();
+        assert_eq!(json, "\"waiting_for_input\"");
+        let back: RunStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, RunStatus::WaitingForInput);
+    }
+
+    #[test]
+    fn current_session_id_roundtrip() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let run_id = "test-20260317T140000";
+
+        create_run_dir(root, run_id).unwrap();
+        let meta = RunMetadata {
+            run_id: run_id.to_string(),
+            cursus: "test".to_string(),
+            status: RunStatus::WaitingForInput,
+            current_iter: "build".to_string(),
+            current_iter_index: 0,
+            iters_completed: Vec::new(),
+            spec: None,
+            mode_override: None,
+            context_producers: HashMap::new(),
+            current_session_id: Some("sess-abc123".to_string()),
+            created_at: "2026-03-17T14:00:00Z".to_string(),
+            updated_at: "2026-03-17T14:00:00Z".to_string(),
+        };
+        write_metadata(root, &meta).unwrap();
+
+        let read_back = read_metadata(root, run_id).unwrap().unwrap();
+        assert_eq!(read_back.status, RunStatus::WaitingForInput);
+        assert_eq!(read_back.current_session_id.as_deref(), Some("sess-abc123"));
+    }
+
+    #[test]
+    fn current_session_id_backward_compat() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let run_id = "old-20260317T140000";
+
+        let dir = run_dir(root, run_id);
+        fs::create_dir_all(&dir).unwrap();
+        let json = r#"{
+            "run_id": "old-20260317T140000",
+            "cursus": "build",
+            "status": "running",
+            "current_iter": "build",
+            "current_iter_index": 0,
+            "iters_completed": [],
+            "spec": null,
+            "mode_override": null,
+            "created_at": "2026-03-17T14:00:00Z",
+            "updated_at": "2026-03-17T14:00:00Z"
+        }"#;
+        fs::write(meta_path(root, run_id), json).unwrap();
+
+        let read_back = read_metadata(root, run_id).unwrap().unwrap();
+        assert!(read_back.current_session_id.is_none());
+        assert!(read_back.context_producers.is_empty());
     }
 
     #[test]
@@ -609,6 +690,7 @@ mod tests {
                 spec: None,
                 mode_override: None,
                 context_producers: HashMap::new(),
+                current_session_id: None,
                 created_at: "2026-03-17T14:00:00Z".to_string(),
                 updated_at: "2026-03-17T14:10:00Z".to_string(),
             },
@@ -629,6 +711,7 @@ mod tests {
                 spec: None,
                 mode_override: None,
                 context_producers: HashMap::new(),
+                current_session_id: None,
                 created_at: "2026-03-17T15:00:00Z".to_string(),
                 updated_at: "2026-03-17T15:05:00Z".to_string(),
             },
@@ -649,6 +732,7 @@ mod tests {
                 spec: None,
                 mode_override: None,
                 context_producers: HashMap::new(),
+                current_session_id: None,
                 created_at: "2026-03-17T16:00:00Z".to_string(),
                 updated_at: "2026-03-17T16:05:00Z".to_string(),
             },
@@ -669,17 +753,40 @@ mod tests {
                 spec: None,
                 mode_override: None,
                 context_producers: HashMap::new(),
+                current_session_id: None,
                 created_at: "2026-03-17T17:00:00Z".to_string(),
                 updated_at: "2026-03-17T17:05:00Z".to_string(),
             },
         )
         .unwrap();
 
+        let waiting_id = "wait-20260317T180000";
+        create_run_dir(root, waiting_id).unwrap();
+        write_metadata(
+            root,
+            &RunMetadata {
+                run_id: waiting_id.to_string(),
+                cursus: "wait".to_string(),
+                status: RunStatus::WaitingForInput,
+                current_iter: "discuss".to_string(),
+                current_iter_index: 0,
+                iters_completed: Vec::new(),
+                spec: None,
+                mode_override: None,
+                context_producers: HashMap::new(),
+                current_session_id: Some("sess-1".to_string()),
+                created_at: "2026-03-17T18:00:00Z".to_string(),
+                updated_at: "2026-03-17T18:05:00Z".to_string(),
+            },
+        )
+        .unwrap();
+
         let runs = find_resumable_runs(root).unwrap();
-        assert_eq!(runs.len(), 2);
+        assert_eq!(runs.len(), 3);
         let run_ids: Vec<&str> = runs.iter().map(|r| r.run_id.as_str()).collect();
         assert!(run_ids.contains(&stalled_id));
         assert!(run_ids.contains(&interrupted_id));
+        assert!(run_ids.contains(&waiting_id));
         assert!(!run_ids.contains(&completed_id));
         assert!(!run_ids.contains(&running_id));
     }
@@ -710,6 +817,7 @@ mod tests {
                 spec: None,
                 mode_override: None,
                 context_producers: HashMap::new(),
+                current_session_id: None,
                 created_at: "2026-03-17T10:00:00Z".to_string(),
                 updated_at: "2026-03-17T10:05:00Z".to_string(),
             },
@@ -730,6 +838,7 @@ mod tests {
                 spec: None,
                 mode_override: None,
                 context_producers: HashMap::new(),
+                current_session_id: None,
                 created_at: "2026-03-17T20:00:00Z".to_string(),
                 updated_at: "2026-03-17T20:05:00Z".to_string(),
             },
@@ -764,6 +873,7 @@ mod tests {
             spec: Some("auth".to_string()),
             mode_override: None,
             context_producers: HashMap::new(),
+            current_session_id: None,
             created_at: "2026-03-17T14:00:00Z".to_string(),
             updated_at: "2026-03-17T14:10:00Z".to_string(),
         };
@@ -797,6 +907,7 @@ mod tests {
             spec: None,
             mode_override: None,
             context_producers: producers.clone(),
+            current_session_id: None,
             created_at: "2026-03-17T14:00:00Z".to_string(),
             updated_at: "2026-03-17T14:10:00Z".to_string(),
         };
