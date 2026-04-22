@@ -57,3 +57,10 @@ E2E tests run against the dev server (web/Tauri) or web export (mobile) with a m
 - **E2E test single file:** `run_playwright` with `file: "<path>"` param (e.g., `file: "e2e/settings.test.ts"`)
 
 These MCP tools accept optional `cwd` (relative to project root) and `timeout_secs` (default 300, max 600).
+
+### Component Stories (Ladle)
+
+Component isolation and visual development environment. Renders real React components outside of Tauri — fast reload, no backend required. Stories are co-located with components as `*.stories.tsx` files.
+
+- **Dev server:** `pnpm run storybook`
+- **Build (CI):** `pnpm run storybook:build` (include in full backpressure — catches broken stories)
