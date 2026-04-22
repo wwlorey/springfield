@@ -9850,3 +9850,485 @@ fn simple_prompt_interrupt_prints_resume_command() {
         "interrupted simple prompt run should print resume command, got stderr:\n{stderr}"
     );
 }
+
+// ===========================================================================
+// Programmatic mode: resume_command in run_complete across all exit types
+// ===========================================================================
+
+#[test]
+fn cursus_programmatic_stalled_run_complete_has_resume_command_and_run_id() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let cursus_dir = tmp.path().join(".sgf/cursus");
+    fs::create_dir_all(&cursus_dir).unwrap();
+    fs::write(
+        cursus_dir.join("build.toml"),
+        concat!(
+            "description = \"Stall resume_command test\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+        ),
+    )
+    .unwrap();
+
+    let prompts_dir = tmp.path().join(".sgf/prompts");
+    fs::create_dir_all(&prompts_dir).unwrap();
+    fs::write(prompts_dir.join("build.md"), "Build prompt\n").unwrap();
+    git_add_commit(tmp.path(), "add stall resume_command cursus");
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_agent = create_mock_script(mock_dir.path(), "mock_agent.sh", "#!/bin/sh\nexit 1\n");
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "-a", "--output-format", "json"])
+            .env("SGF_AGENT_COMMAND", &mock_agent),
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "should exit 2 (stalled): {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let events = parse_ndjson_events(&output.stdout);
+
+    let run_start = events
+        .iter()
+        .find(|e| e["event"] == "run_start")
+        .expect("should emit run_start");
+    let run_id = run_start["run_id"].as_str().unwrap();
+    assert!(
+        run_id.starts_with("build-"),
+        "run_id should start with cursus name, got: {run_id}"
+    );
+
+    let rc = events
+        .iter()
+        .find(|e| e["event"] == "run_complete")
+        .expect("should emit run_complete");
+    assert_eq!(rc["status"], "stalled");
+    assert_eq!(
+        rc["run_id"].as_str().unwrap(),
+        run_id,
+        "run_complete run_id should match run_start run_id"
+    );
+    let resume_cmd = rc["resume_command"].as_str().unwrap();
+    assert!(
+        resume_cmd.contains("--resume"),
+        "stalled run_complete should include --resume in resume_command, got: {resume_cmd}"
+    );
+    assert!(
+        resume_cmd.contains(run_id),
+        "resume_command should contain run_id, got: {resume_cmd}"
+    );
+}
+
+#[test]
+fn cursus_programmatic_interrupted_run_complete_has_resume_command() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let cursus_dir = tmp.path().join(".sgf/cursus");
+    fs::create_dir_all(&cursus_dir).unwrap();
+    fs::write(
+        cursus_dir.join("build.toml"),
+        concat!(
+            "description = \"Interrupt resume_command test\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 5\n",
+        ),
+    )
+    .unwrap();
+
+    let prompts_dir = tmp.path().join(".sgf/prompts");
+    fs::create_dir_all(&prompts_dir).unwrap();
+    fs::write(prompts_dir.join("build.md"), "Build prompt\n").unwrap();
+    git_add_commit(tmp.path(), "add interrupt resume_command cursus");
+
+    let mock_dir = TempDir::new().unwrap();
+    let ready_file = mock_dir.path().join("agent_ready");
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent_slow.sh",
+        &format!(
+            "#!/bin/bash\ntrap '' INT\ntouch \"{}\"\nfor i in $(seq 1 50); do sleep 0.1; done\nexit 2\n",
+            ready_file.display()
+        ),
+    );
+
+    let _permit = SGF_PERMITS
+        .acquire_timeout(Duration::from_secs(60))
+        .expect("semaphore timed out");
+
+    let guard = ChildGuard::spawn(
+        sgf_cmd(tmp.path())
+            .args(["build", "-a", "--output-format", "json"])
+            .env("SGF_AGENT_COMMAND", &mock_agent)
+            .env("SGF_READY_FILE", &ready_file)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn sgf");
+
+    let pid = nix::unistd::Pid::from_raw(guard.id() as i32);
+
+    wait_for_ready(&ready_file);
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send first SIGINT");
+    std::thread::sleep(Duration::from_millis(200));
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send second SIGINT");
+
+    let output = guard
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("wait for sgf");
+    drop(_permit);
+
+    assert_eq!(
+        output.status.code(),
+        Some(130),
+        "should exit 130 on double Ctrl+C"
+    );
+
+    let events = parse_ndjson_events(&output.stdout);
+
+    let run_start = events
+        .iter()
+        .find(|e| e["event"] == "run_start")
+        .expect("should emit run_start on interrupt");
+    let run_id = run_start["run_id"].as_str().unwrap();
+
+    let rc = events
+        .iter()
+        .find(|e| e["event"] == "run_complete")
+        .expect("should emit run_complete on interrupt");
+    assert_eq!(
+        rc["status"], "interrupted",
+        "interrupted run should have status 'interrupted'"
+    );
+    assert_eq!(
+        rc["run_id"].as_str().unwrap(),
+        run_id,
+        "run_complete run_id should match run_start run_id"
+    );
+    let resume_cmd = rc["resume_command"].as_str().unwrap();
+    assert!(
+        resume_cmd.contains("--resume"),
+        "interrupted run_complete should include --resume in resume_command, got: {resume_cmd}"
+    );
+    assert!(
+        resume_cmd.contains(run_id),
+        "resume_command should contain run_id, got: {resume_cmd}"
+    );
+}
+
+#[test]
+fn cursus_programmatic_piped_stdin_run_complete_has_resume_command() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let cursus_dir = tmp.path().join(".sgf/cursus");
+    fs::create_dir_all(&cursus_dir).unwrap();
+    fs::write(
+        cursus_dir.join("build.toml"),
+        concat!(
+            "description = \"Piped stdin resume_command test\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 3\n",
+        ),
+    )
+    .unwrap();
+
+    let prompts_dir = tmp.path().join(".sgf/prompts");
+    fs::create_dir_all(&prompts_dir).unwrap();
+    fs::write(prompts_dir.join("build.md"), "Build prompt\n").unwrap();
+    git_add_commit(tmp.path(), "add piped stdin resume_command cursus");
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        "#!/bin/sh\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
+    );
+
+    let _permit = SGF_PERMITS
+        .acquire_timeout(Duration::from_secs(60))
+        .expect("semaphore timed out");
+    let mut guard = ChildGuard::spawn(
+        sgf_cmd(tmp.path())
+            .args(["build", "-a"])
+            .env("SGF_AGENT_COMMAND", &mock_agent)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn sgf with piped stdin");
+
+    drop(guard.child_mut().stdin.take());
+
+    let output = guard
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("failed to wait for sgf");
+    drop(_permit);
+
+    assert!(
+        output.status.success(),
+        "piped stdin should exit 0: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let events = parse_ndjson_events(&output.stdout);
+
+    let run_start = events
+        .iter()
+        .find(|e| e["event"] == "run_start")
+        .expect("piped stdin should emit run_start");
+    let run_id = run_start["run_id"].as_str().unwrap();
+    assert!(
+        run_id.starts_with("build-"),
+        "run_id should start with cursus name, got: {run_id}"
+    );
+
+    let rc = events
+        .iter()
+        .find(|e| e["event"] == "run_complete")
+        .expect("piped stdin should emit run_complete");
+    assert_eq!(rc["status"], "completed");
+    assert_eq!(
+        rc["run_id"].as_str().unwrap(),
+        run_id,
+        "run_complete run_id should match run_start run_id"
+    );
+    let resume_cmd = rc["resume_command"].as_str().unwrap();
+    assert!(
+        resume_cmd.contains("--resume"),
+        "piped stdin run_complete should include --resume in resume_command, got: {resume_cmd}"
+    );
+    assert!(
+        resume_cmd.contains(run_id),
+        "resume_command should contain run_id, got: {resume_cmd}"
+    );
+}
+
+#[test]
+fn cursus_programmatic_event_structure_validates_all_fields() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let cursus_dir = tmp.path().join(".sgf/cursus");
+    fs::create_dir_all(&cursus_dir).unwrap();
+    fs::write(
+        cursus_dir.join("pipeline.toml"),
+        concat!(
+            "description = \"Full event structure validation\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"gather\"\n",
+            "prompt = \"gather.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 2\n",
+            "produces = \"gathered-data\"\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"process\"\n",
+            "prompt = \"process.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 3\n",
+            "consumes = [\"gathered-data\"]\n",
+        ),
+    )
+    .unwrap();
+
+    let prompts_dir = tmp.path().join(".sgf/prompts");
+    fs::create_dir_all(&prompts_dir).unwrap();
+    fs::write(prompts_dir.join("gather.md"), "Gather data\n").unwrap();
+    fs::write(prompts_dir.join("process.md"), "Process data\n").unwrap();
+    git_add_commit(tmp.path(), "add event structure cursus");
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        concat!(
+            "#!/bin/sh\n",
+            "PROMPT=\"${@: -1}\"\n",
+            "if echo \"$PROMPT\" | grep -q 'gather.md'; then\n",
+            "  mkdir -p \"$SGF_RUN_CONTEXT\"\n",
+            "  echo 'data' > \"$SGF_RUN_CONTEXT/gathered-data.md\"\n",
+            "fi\n",
+            "touch \"${PWD}/.iter-complete\"\n",
+            "exit 0\n",
+        ),
+    );
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["pipeline", "-a", "--output-format", "json"])
+            .env("SGF_AGENT_COMMAND", &mock_agent),
+    );
+
+    assert!(
+        output.status.success(),
+        "event structure test should exit 0: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let events = parse_ndjson_events(&output.stdout);
+    let types = event_types(&events);
+
+    // --- run_start: validate all required fields ---
+    let rs = &events[0];
+    assert_eq!(rs["event"], "run_start");
+    assert!(
+        rs["run_id"].is_string(),
+        "run_start must have string run_id"
+    );
+    assert_eq!(rs["cursus"], "pipeline");
+    let iters_arr = rs["iters"].as_array().unwrap();
+    assert_eq!(iters_arr.len(), 2, "run_start should list 2 iters");
+    assert_eq!(iters_arr[0]["name"], "gather");
+    assert_eq!(iters_arr[0]["mode"], "afk");
+    assert_eq!(iters_arr[0]["iterations"], 2);
+    assert_eq!(iters_arr[1]["name"], "process");
+    assert_eq!(iters_arr[1]["mode"], "afk");
+    assert_eq!(iters_arr[1]["iterations"], 3);
+
+    // --- iter_start: validate all fields for gather ---
+    let is_gather = events
+        .iter()
+        .find(|e| e["event"] == "iter_start" && e["iter"] == "gather")
+        .unwrap();
+    assert_eq!(is_gather["mode"], "afk");
+    assert_eq!(is_gather["iteration"], 2);
+    assert!(
+        is_gather["session_id"].is_string(),
+        "iter_start must have string session_id"
+    );
+
+    // --- iter_complete: validate all fields for gather ---
+    let ic_gather = events
+        .iter()
+        .find(|e| e["event"] == "iter_complete" && e["iter"] == "gather")
+        .unwrap();
+    assert_eq!(ic_gather["outcome"], "complete");
+    assert_eq!(ic_gather["iterations_used"], 2);
+
+    // --- context_produced: validate all fields ---
+    let cp = events
+        .iter()
+        .find(|e| e["event"] == "context_produced")
+        .unwrap();
+    assert_eq!(cp["key"], "gathered-data");
+    assert_eq!(cp["iter"], "gather");
+
+    // --- context_consumed: validate all fields ---
+    let cc = events
+        .iter()
+        .find(|e| e["event"] == "context_consumed")
+        .unwrap();
+    assert_eq!(cc["key"], "gathered-data");
+    assert_eq!(cc["from_iter"], "gather");
+
+    // --- transition: validate all fields ---
+    let tr = events.iter().find(|e| e["event"] == "transition").unwrap();
+    assert_eq!(tr["from_iter"], "gather");
+    assert_eq!(tr["to_iter"], "process");
+    assert_eq!(tr["reason"], "complete");
+
+    // --- iter_start for process: validate consumes context is set up ---
+    let is_process = events
+        .iter()
+        .find(|e| e["event"] == "iter_start" && e["iter"] == "process")
+        .unwrap();
+    assert_eq!(is_process["mode"], "afk");
+    assert_eq!(is_process["iteration"], 3);
+
+    // --- iter_complete for process ---
+    let ic_process = events
+        .iter()
+        .find(|e| e["event"] == "iter_complete" && e["iter"] == "process")
+        .unwrap();
+    assert_eq!(ic_process["outcome"], "complete");
+
+    // --- run_complete: validate all fields ---
+    let rc = events.last().unwrap();
+    assert_eq!(rc["event"], "run_complete");
+    assert_eq!(rc["status"], "completed");
+    let run_id = rs["run_id"].as_str().unwrap();
+    assert_eq!(
+        rc["run_id"].as_str().unwrap(),
+        run_id,
+        "run_complete run_id must match run_start run_id"
+    );
+    let resume_cmd = rc["resume_command"].as_str().unwrap();
+    assert!(
+        resume_cmd.contains("--resume"),
+        "resume_command must contain --resume"
+    );
+    assert!(
+        resume_cmd.contains(run_id),
+        "resume_command must contain the run_id"
+    );
+
+    // --- Verify no unexpected event types (only known events) ---
+    let known = [
+        "run_start",
+        "iter_start",
+        "iter_complete",
+        "transition",
+        "context_produced",
+        "context_consumed",
+        "run_complete",
+    ];
+    for t in &types {
+        assert!(
+            known.contains(t),
+            "unexpected event type '{t}' in happy-path multi-iter run, got: {types:?}"
+        );
+    }
+
+    // --- Ordering: context_consumed before process iter_start ---
+    let consumed_pos = events
+        .iter()
+        .position(|e| e["event"] == "context_consumed")
+        .unwrap();
+    let process_start_pos = events
+        .iter()
+        .position(|e| e["event"] == "iter_start" && e["iter"] == "process")
+        .unwrap();
+    assert!(
+        consumed_pos < process_start_pos,
+        "context_consumed must precede process iter_start"
+    );
+
+    // --- Ordering: context_produced after gather iter_complete ---
+    let produced_pos = events
+        .iter()
+        .position(|e| e["event"] == "context_produced")
+        .unwrap();
+    let gather_complete_pos = events
+        .iter()
+        .position(|e| e["event"] == "iter_complete" && e["iter"] == "gather")
+        .unwrap();
+    assert!(
+        produced_pos > gather_complete_pos,
+        "context_produced must follow gather iter_complete"
+    );
+}
