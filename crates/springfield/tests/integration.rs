@@ -8823,3 +8823,560 @@ fn cursus_programmatic_context_produced_and_consumed_events() {
         "context_consumed should come before process's iter_start"
     );
 }
+
+// ===========================================================================
+// Cursus: programmatic turn-by-turn and stall resume (binary-level)
+// ===========================================================================
+
+#[test]
+fn cursus_programmatic_turn_by_turn_interactive_iter() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let cursus_dir = tmp.path().join(".sgf/cursus");
+    fs::create_dir_all(&cursus_dir).unwrap();
+    fs::write(
+        cursus_dir.join("chat.toml"),
+        concat!(
+            "description = \"Turn-by-turn test\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"chat\"\n",
+            "prompt = \"chat.md\"\n",
+            "mode = \"interactive\"\n",
+            "iterations = 1\n",
+        ),
+    )
+    .unwrap();
+
+    let prompts_dir = tmp.path().join(".sgf/prompts");
+    fs::create_dir_all(&prompts_dir).unwrap();
+    fs::write(prompts_dir.join("chat.md"), "chat prompt\n").unwrap();
+    git_add_commit(tmp.path(), "add turn-by-turn cursus");
+
+    // Mock agent: outputs JSON with result/session_id, exits 0, no sentinel
+    // -> waiting_for_input should be true on first turn
+    let mock_dir = TempDir::new().unwrap();
+    let invocation_count_file = mock_dir.path().join("count.txt");
+    fs::write(&invocation_count_file, "0").unwrap();
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        &format!(
+            concat!(
+                "#!/bin/sh\n",
+                "COUNT=$(cat \"{count}\")\n",
+                "COUNT=$((COUNT + 1))\n",
+                "echo $COUNT > \"{count}\"\n",
+                "if [ $COUNT -ge 2 ]; then\n",
+                "  touch \"${{PWD}}/.iter-complete\"\n",
+                "  echo '{{\"result\": \"Done! Task complete.\", \"session_id\": \"sess-final\"}}'\n",
+                "else\n",
+                "  echo '{{\"result\": \"What should I do next?\", \"session_id\": \"sess-001\"}}'\n",
+                "fi\n",
+                "exit 0\n",
+            ),
+            count = invocation_count_file.display(),
+        ),
+    );
+
+    // --- Turn 1: initial invocation with piped stdin ---
+    let _permit = SGF_PERMITS
+        .acquire_timeout(Duration::from_secs(60))
+        .expect("semaphore timed out");
+    let mut guard = ChildGuard::spawn(
+        sgf_cmd(tmp.path())
+            .args(["chat", "--output-format", "json"])
+            .env("SGF_AGENT_COMMAND", &mock_agent)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn sgf chat");
+
+    // Close stdin immediately — programmatic mode triggered by --output-format json
+    drop(guard.child_mut().stdin.take());
+
+    let output1 = guard
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("failed to wait for sgf chat turn 1");
+    drop(_permit);
+
+    assert!(
+        output1.status.success(),
+        "turn 1 should exit 0 (waiting_for_input): {}",
+        String::from_utf8_lossy(&output1.stderr)
+    );
+
+    let events1 = parse_ndjson_events(&output1.stdout);
+    let types1 = event_types(&events1);
+
+    // Should have: run_start, iter_start, turn, run_complete
+    assert_eq!(types1[0], "run_start", "first event should be run_start");
+    assert!(
+        types1.contains(&"iter_start"),
+        "should emit iter_start: {types1:?}"
+    );
+    assert!(
+        types1.contains(&"turn"),
+        "should emit turn event: {types1:?}"
+    );
+
+    // Validate the turn event
+    let turn_event = events1.iter().find(|e| e["event"] == "turn").unwrap();
+    assert_eq!(
+        turn_event["waiting_for_input"], true,
+        "first turn should have waiting_for_input=true"
+    );
+    assert!(
+        turn_event["content"]
+            .as_str()
+            .unwrap()
+            .contains("What should I do next?"),
+        "turn content should contain agent response"
+    );
+    assert!(
+        turn_event["session_id"].as_str().is_some(),
+        "turn should include session_id"
+    );
+
+    // run_complete should have status "waiting_for_input"
+    let rc = events1
+        .iter()
+        .find(|e| e["event"] == "run_complete")
+        .unwrap();
+    assert_eq!(
+        rc["status"], "waiting_for_input",
+        "run_complete should have status waiting_for_input"
+    );
+    let resume_cmd = rc["resume_command"].as_str().unwrap();
+    assert!(
+        resume_cmd.contains("--resume"),
+        "resume_command should contain --resume"
+    );
+
+    // Extract run_id for resume
+    let run_id = get_run_id(tmp.path());
+
+    // Verify metadata shows WaitingForInput
+    let meta1 = read_run_metadata(tmp.path());
+    assert_eq!(
+        meta1["status"].as_str().unwrap(),
+        "waiting_for_input",
+        "metadata status should be waiting_for_input"
+    );
+
+    // --- Turn 2: resume with input, agent creates .iter-complete ---
+    let _permit2 = SGF_PERMITS
+        .acquire_timeout(Duration::from_secs(60))
+        .expect("semaphore timed out");
+    let mut guard2 = ChildGuard::spawn(
+        sgf_cmd(tmp.path())
+            .args(["chat", "--resume", &run_id])
+            .env("SGF_AGENT_COMMAND", &mock_agent)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn sgf chat --resume");
+
+    {
+        use std::io::Write;
+        let stdin = guard2.child_mut().stdin.as_mut().unwrap();
+        stdin.write_all(b"Please finish the task.\n").unwrap();
+    }
+    drop(guard2.child_mut().stdin.take());
+
+    let output2 = guard2
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("failed to wait for sgf chat turn 2");
+    drop(_permit2);
+
+    assert!(
+        output2.status.success(),
+        "turn 2 should exit 0 (completed): {}",
+        String::from_utf8_lossy(&output2.stderr)
+    );
+
+    let events2 = parse_ndjson_events(&output2.stdout);
+    let types2 = event_types(&events2);
+
+    // Should have a turn event with waiting_for_input=false (agent created sentinel)
+    let turn_event2 = events2.iter().find(|e| e["event"] == "turn");
+    assert!(
+        turn_event2.is_some(),
+        "resume should emit turn event: {types2:?}"
+    );
+    assert_eq!(
+        turn_event2.unwrap()["waiting_for_input"],
+        false,
+        "second turn should have waiting_for_input=false (sentinel created)"
+    );
+
+    // Should have iter_complete and run_complete
+    assert!(
+        types2.contains(&"iter_complete"),
+        "should emit iter_complete after sentinel: {types2:?}"
+    );
+    let rc2 = events2
+        .iter()
+        .find(|e| e["event"] == "run_complete")
+        .unwrap();
+    assert_eq!(
+        rc2["status"], "completed",
+        "final run_complete should be completed"
+    );
+
+    // Verify metadata shows completed
+    let meta2 = read_run_metadata(tmp.path());
+    assert_eq!(
+        meta2["status"].as_str().unwrap(),
+        "completed",
+        "metadata status should be completed after second turn"
+    );
+}
+
+#[test]
+fn cursus_programmatic_stall_resume_retry() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let cursus_dir = tmp.path().join(".sgf/cursus");
+    fs::create_dir_all(&cursus_dir).unwrap();
+    fs::write(
+        cursus_dir.join("pipeline.toml"),
+        concat!(
+            "description = \"Stall resume test\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"discuss\"\n",
+            "prompt = \"discuss.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"draft\"\n",
+            "prompt = \"draft.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+        ),
+    )
+    .unwrap();
+
+    let prompts_dir = tmp.path().join(".sgf/prompts");
+    fs::create_dir_all(&prompts_dir).unwrap();
+    fs::write(prompts_dir.join("discuss.md"), "discuss prompt\n").unwrap();
+    fs::write(prompts_dir.join("draft.md"), "draft prompt\n").unwrap();
+    git_add_commit(tmp.path(), "add stall resume cursus");
+
+    // First run: discuss completes, draft stalls (no sentinel, exit 2)
+    let mock_dir = TempDir::new().unwrap();
+    let mock_agent_stall = create_mock_script(
+        mock_dir.path(),
+        "mock_agent_stall.sh",
+        concat!(
+            "#!/bin/sh\n",
+            "PROMPT=\"${@: -1}\"\n",
+            "if echo \"$PROMPT\" | grep -q 'discuss.md'; then\n",
+            "  touch \"${PWD}/.iter-complete\"\n",
+            "  exit 0\n",
+            "fi\n",
+            "exit 2\n",
+        ),
+    );
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["pipeline", "-a", "--output-format", "json"])
+            .env("SGF_AGENT_COMMAND", &mock_agent_stall),
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "should stall (exit 2): {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Verify stall event was emitted
+    let stall_events = parse_ndjson_events(&output.stdout);
+    let stall_event = stall_events
+        .iter()
+        .find(|e| e["event"] == "stall")
+        .expect("should emit stall event in initial run");
+    assert_eq!(stall_event["iter"], "draft");
+
+    let run_id = get_run_id(tmp.path());
+
+    // --- Resume with "retry": re-run stalled iter, this time it completes ---
+    let mock_agent_complete = create_mock_script(
+        mock_dir.path(),
+        "mock_agent_complete.sh",
+        "#!/bin/sh\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
+    );
+
+    let _permit = SGF_PERMITS
+        .acquire_timeout(Duration::from_secs(60))
+        .expect("semaphore timed out");
+    let mut guard = ChildGuard::spawn(
+        sgf_cmd(tmp.path())
+            .args(["pipeline", "--resume", &run_id])
+            .env("SGF_AGENT_COMMAND", &mock_agent_complete)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn resume with retry");
+
+    {
+        use std::io::Write;
+        let stdin = guard.child_mut().stdin.as_mut().unwrap();
+        stdin.write_all(b"retry\n").unwrap();
+    }
+    drop(guard.child_mut().stdin.take());
+
+    let resume_output = guard
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("failed to wait for resume");
+    drop(_permit);
+
+    assert!(
+        resume_output.status.success(),
+        "resume with retry should exit 0: {}",
+        String::from_utf8_lossy(&resume_output.stderr)
+    );
+
+    // Verify programmatic events from resume
+    let resume_events = parse_ndjson_events(&resume_output.stdout);
+    let resume_types = event_types(&resume_events);
+
+    // Should emit stall event (re-emitted on resume), then iter events, then run_complete
+    assert!(
+        resume_types.contains(&"stall"),
+        "resume should emit stall event before action: {resume_types:?}"
+    );
+
+    // run_complete should show completed
+    let rc = resume_events
+        .iter()
+        .find(|e| e["event"] == "run_complete")
+        .expect("should emit run_complete");
+    assert_eq!(rc["status"], "completed", "retry should complete the run");
+
+    // Verify metadata
+    let meta = read_run_metadata(tmp.path());
+    assert_eq!(meta["status"].as_str().unwrap(), "completed");
+}
+
+#[test]
+fn cursus_programmatic_stall_resume_skip() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let cursus_dir = tmp.path().join(".sgf/cursus");
+    fs::create_dir_all(&cursus_dir).unwrap();
+    fs::write(
+        cursus_dir.join("pipeline.toml"),
+        concat!(
+            "description = \"Stall skip test\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"gather\"\n",
+            "prompt = \"gather.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"process\"\n",
+            "prompt = \"process.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"finalize\"\n",
+            "prompt = \"finalize.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+        ),
+    )
+    .unwrap();
+
+    let prompts_dir = tmp.path().join(".sgf/prompts");
+    fs::create_dir_all(&prompts_dir).unwrap();
+    fs::write(prompts_dir.join("gather.md"), "gather prompt\n").unwrap();
+    fs::write(prompts_dir.join("process.md"), "process prompt\n").unwrap();
+    fs::write(prompts_dir.join("finalize.md"), "finalize prompt\n").unwrap();
+    git_add_commit(tmp.path(), "add stall skip cursus");
+
+    // First run: gather completes, process stalls
+    let mock_dir = TempDir::new().unwrap();
+    let mock_agent_stall = create_mock_script(
+        mock_dir.path(),
+        "mock_agent_stall.sh",
+        concat!(
+            "#!/bin/sh\n",
+            "PROMPT=\"${@: -1}\"\n",
+            "if echo \"$PROMPT\" | grep -q 'gather.md'; then\n",
+            "  touch \"${PWD}/.iter-complete\"\n",
+            "  exit 0\n",
+            "fi\n",
+            "exit 2\n",
+        ),
+    );
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["pipeline", "-a", "--output-format", "json"])
+            .env("SGF_AGENT_COMMAND", &mock_agent_stall),
+    );
+
+    assert_eq!(output.status.code(), Some(2), "should stall");
+    let run_id = get_run_id(tmp.path());
+
+    // Resume with "skip": should advance to finalize
+    let mock_agent_complete = create_mock_script(
+        mock_dir.path(),
+        "mock_agent_complete.sh",
+        "#!/bin/sh\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
+    );
+
+    let _permit = SGF_PERMITS
+        .acquire_timeout(Duration::from_secs(60))
+        .expect("semaphore timed out");
+    let mut guard = ChildGuard::spawn(
+        sgf_cmd(tmp.path())
+            .args(["pipeline", "--resume", &run_id])
+            .env("SGF_AGENT_COMMAND", &mock_agent_complete)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn resume with skip");
+
+    {
+        use std::io::Write;
+        let stdin = guard.child_mut().stdin.as_mut().unwrap();
+        stdin.write_all(b"skip\n").unwrap();
+    }
+    drop(guard.child_mut().stdin.take());
+
+    let resume_output = guard
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("failed to wait for resume skip");
+    drop(_permit);
+
+    assert!(
+        resume_output.status.success(),
+        "resume with skip should exit 0: {}",
+        String::from_utf8_lossy(&resume_output.stderr)
+    );
+
+    // Verify completed
+    let resume_events = parse_ndjson_events(&resume_output.stdout);
+    let rc = resume_events
+        .iter()
+        .find(|e| e["event"] == "run_complete")
+        .expect("should emit run_complete");
+    assert_eq!(rc["status"], "completed", "skip should complete the run");
+
+    let meta = read_run_metadata(tmp.path());
+    assert_eq!(meta["status"].as_str().unwrap(), "completed");
+}
+
+#[test]
+fn cursus_programmatic_stall_resume_abort() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let cursus_dir = tmp.path().join(".sgf/cursus");
+    fs::create_dir_all(&cursus_dir).unwrap();
+    fs::write(
+        cursus_dir.join("pipeline.toml"),
+        concat!(
+            "description = \"Stall abort test\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"work\"\n",
+            "prompt = \"work.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+        ),
+    )
+    .unwrap();
+
+    let prompts_dir = tmp.path().join(".sgf/prompts");
+    fs::create_dir_all(&prompts_dir).unwrap();
+    fs::write(prompts_dir.join("work.md"), "work prompt\n").unwrap();
+    git_add_commit(tmp.path(), "add stall abort cursus");
+
+    // Run: work stalls
+    let mock_dir = TempDir::new().unwrap();
+    let mock_agent_stall = create_mock_script(
+        mock_dir.path(),
+        "mock_agent_stall.sh",
+        "#!/bin/sh\nexit 2\n",
+    );
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["pipeline", "-a", "--output-format", "json"])
+            .env("SGF_AGENT_COMMAND", &mock_agent_stall),
+    );
+
+    assert_eq!(output.status.code(), Some(2), "should stall");
+    let run_id = get_run_id(tmp.path());
+
+    // Resume with "abort"
+    let _permit = SGF_PERMITS
+        .acquire_timeout(Duration::from_secs(60))
+        .expect("semaphore timed out");
+    let mut guard = ChildGuard::spawn(
+        sgf_cmd(tmp.path())
+            .args(["pipeline", "--resume", &run_id])
+            .env("SGF_AGENT_COMMAND", &mock_agent_stall)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn resume with abort");
+
+    {
+        use std::io::Write;
+        let stdin = guard.child_mut().stdin.as_mut().unwrap();
+        stdin.write_all(b"abort\n").unwrap();
+    }
+    drop(guard.child_mut().stdin.take());
+
+    let resume_output = guard
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("failed to wait for resume abort");
+    drop(_permit);
+
+    // Abort should exit with non-zero
+    assert!(
+        !resume_output.status.success(),
+        "resume with abort should exit non-zero"
+    );
+
+    // Verify interrupted status
+    let resume_events = parse_ndjson_events(&resume_output.stdout);
+    let rc = resume_events
+        .iter()
+        .find(|e| e["event"] == "run_complete")
+        .expect("should emit run_complete on abort");
+    assert_eq!(
+        rc["status"], "interrupted",
+        "abort should produce interrupted status"
+    );
+
+    let meta = read_run_metadata(tmp.path());
+    assert_eq!(
+        meta["status"].as_str().unwrap(),
+        "interrupted",
+        "metadata should be interrupted after abort"
+    );
+}
