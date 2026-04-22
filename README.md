@@ -64,6 +64,7 @@ CLI flags apply to all iters in a cursus:
 - `-n <count>` — override iteration count on all iters
 - `--no-push` — disable auto-push on all iters
 - `--resume <run-id>` — resume a previous run by ID
+- `--output-format json` — force programmatic mode (structured NDJSON events on stdout)
 - `--skip-preflight` — disable all pre-launch checks including recovery and daemon startup
 
 ### Cursus Pipelines
@@ -77,6 +78,11 @@ description = "Example pipeline"
 alias = "x"
 auto_push = true
 
+[retry]
+immediate = 3           # immediate retry attempts before backoff (default: 3)
+interval_secs = 300     # backoff interval in seconds (default: 300)
+max_duration_secs = 43200  # max total retry duration (default: 43200 = 12h)
+
 [[iter]]
 name = "do-work"
 prompt = "my-prompt.md"    # resolved from .sgf/prompts/
@@ -84,7 +90,78 @@ mode = "interactive"       # "interactive" (default) or "afk"
 iterations = 30            # max iterations (default: 1)
 ```
 
-Multi-iter pipelines support `produces`/`consumes` for context passing between stages, `[iter.transitions]` for conditional branching (e.g., reviewer reject → redraft), and sentinel-based completion detection.
+Multi-iter pipelines support `produces`/`consumes` for context passing between stages, `[iter.transitions]` for conditional branching (e.g., reviewer reject → redraft), sentinel-based completion detection, and configurable retry behavior via the `[retry]` table.
+
+### Resuming Runs
+
+Any sgf subcommand accepts `--resume <run-id>` to resume a stalled or interrupted run:
+
+```sh
+sgf change --resume change-20260422T150000
+sgf spec --resume spec-20260317T140000
+```
+
+On any run exit (stall, interrupt, completion, error), sgf prints a copy-pasteable resume command:
+
+```
+To resume:  sgf change --resume change-20260422T150000
+```
+
+For cursus runs, resume restores full pipeline state (current iter, iteration count, accumulated context) and continues from the stalled/interrupted point. For stalled runs, the user is offered Retry, Skip, or Abort options.
+
+### Auto-Retry
+
+When an agent process crashes mid-execution (API rate limit, network error, OOM), sgf automatically retries the failed invocation and resumes the crashed session. This applies to all modes: interactive, AFK, and programmatic.
+
+Retry strategy:
+1. **Immediate retries** — up to 3 attempts with no delay
+2. **Backoff retries** — if immediate retries fail, retry every 5 minutes
+3. **Maximum duration** — 12 hours total; after that, sgf exits with an error
+4. **Session continuity** — on success, the crashed session is resumed via `cl --resume <session_id>` with no context loss
+
+Non-retryable failures (bad arguments, missing prompt) are detected by a duration heuristic: if the process exits within the first few seconds, it is treated as a startup error.
+
+Retry defaults can be overridden per-cursus via the `[retry]` table in the TOML definition.
+
+### Programmatic Mode
+
+When stdin is not a TTY (piped from an outer agent), sgf automatically switches to programmatic mode. This can also be forced explicitly with `--output-format json`.
+
+In programmatic mode:
+- **Output**: Structured NDJSON events on stdout
+- **Input**: Plain text on stdin, passed through to the inner `cl` session
+
+The outer agent drives sgf turn-by-turn:
+
+```sh
+# Turn 1: start pipeline
+echo "add login validation" | sgf change
+# → NDJSON: run_start, iter_start, turn (with agent response)
+
+# Turn 2: respond to agent
+echo "yes, use bcrypt" | sgf change --resume change-20260422T150000
+# → NDJSON: turn, iter_complete, run_complete
+```
+
+AFK iters run to completion internally in both modes. The outer agent receives status events but does not need to send input during AFK iters.
+
+#### Structured NDJSON Events
+
+Each line is a self-contained JSON object with an `event` field:
+
+| Event | Description |
+|-------|-------------|
+| `run_start` | Pipeline begins — includes `run_id`, `cursus` name, iter list |
+| `iter_start` | Iter begins — includes `iter` name, `mode`, `session_id` |
+| `turn` | Agent turn in interactive iter — includes `content`, `waiting_for_input` |
+| `iter_complete` | Iter finishes — includes `outcome` (`complete`, `reject`, `revise`, `exhausted`) |
+| `transition` | Pipeline advances between iters — includes `from_iter`, `to_iter`, `reason` |
+| `context_produced` | Iter writes a summary file for downstream iters |
+| `context_consumed` | Iter reads context from a previous iter |
+| `stall` | Iter exhausted iterations — includes available `actions` (`retry`, `skip`, `abort`) |
+| `retry` | Auto-retry triggered — includes `attempt` number and `next_retry_secs` |
+| `run_complete` | Pipeline finishes — includes `status`, `resume_command` |
+| `error` | Fatal error — includes `message` |
 
 ### Development
 
