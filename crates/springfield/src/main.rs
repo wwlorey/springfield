@@ -49,6 +49,7 @@ struct DynamicArgs {
     no_push: bool,
     skip_preflight: bool,
     resume: Option<String>,
+    output_format: Option<String>,
 }
 
 fn parse_dynamic_args(args: Vec<OsString>) -> Result<DynamicArgs, String> {
@@ -74,6 +75,7 @@ fn parse_dynamic_args(args: Vec<OsString>) -> Result<DynamicArgs, String> {
     let mut no_push = false;
     let mut skip_preflight = false;
     let mut resume = None;
+    let mut output_format = None;
 
     let mut i = 0;
     while i < rest.len() {
@@ -88,6 +90,17 @@ fn parse_dynamic_args(args: Vec<OsString>) -> Result<DynamicArgs, String> {
                     return Err("--resume requires a value".to_string());
                 }
                 resume = Some(rest[i].clone());
+            }
+            "--output-format" => {
+                i += 1;
+                if i >= rest.len() {
+                    return Err("--output-format requires a value".to_string());
+                }
+                let val = rest[i].clone();
+                if val != "json" {
+                    return Err(format!("unsupported output format: {val}"));
+                }
+                output_format = Some(val);
             }
             "-n" | "--iterations" => {
                 i += 1;
@@ -132,6 +145,7 @@ fn parse_dynamic_args(args: Vec<OsString>) -> Result<DynamicArgs, String> {
         no_push,
         skip_preflight,
         resume,
+        output_format,
     })
 }
 
@@ -247,9 +261,10 @@ fn run_simple_prompt(root: &Path, args: &DynamicArgs, prompt_path: &Path) -> ! {
         on_iteration_complete: Some(on_iteration_complete),
     };
 
-    let is_tty = std::env::var("SGF_FORCE_TERMINAL")
-        .map(|v| v == "1")
-        .unwrap_or_else(|_| std::io::IsTerminal::is_terminal(&std::io::stdin()));
+    let is_tty = args.output_format.is_none()
+        && std::env::var("SGF_FORCE_TERMINAL")
+            .map(|v| v == "1")
+            .unwrap_or_else(|_| std::io::IsTerminal::is_terminal(&std::io::stdin()));
     let monitor_stdin = afk && is_tty;
     tracing::debug!(monitor_stdin, afk, is_tty, "simple prompt shutdown config");
     let controller = match ShutdownController::new(ShutdownConfig {
@@ -409,7 +424,8 @@ fn run_cursus_dispatch(root: &Path, args: &DynamicArgs, resolved: cursus::Resolv
         }
     }
 
-    let programmatic = !std::io::IsTerminal::is_terminal(&std::io::stdin());
+    let programmatic = args.output_format.as_deref() == Some("json")
+        || !std::io::IsTerminal::is_terminal(&std::io::stdin());
 
     let config = cursus::runner::CursusConfig {
         spec: args.spec.clone(),
@@ -522,6 +538,7 @@ mod tests {
         assert!(!parsed.no_push);
         assert!(!parsed.skip_preflight);
         assert!(parsed.resume.is_none());
+        assert!(parsed.output_format.is_none());
     }
 
     #[test]
@@ -678,6 +695,50 @@ mod tests {
         let args = vec![os("build"), os("--resume"), os("run-123"), os("-i")];
         let err = parse_dynamic_args(args).unwrap_err();
         assert!(err.contains("--resume and -i/--interactive are mutually exclusive"));
+    }
+
+    #[test]
+    fn parse_output_format_json() {
+        let args = vec![os("build"), os("--output-format"), os("json")];
+        let parsed = parse_dynamic_args(args).unwrap();
+        assert_eq!(parsed.output_format.as_deref(), Some("json"));
+    }
+
+    #[test]
+    fn parse_output_format_missing_value() {
+        let args = vec![os("build"), os("--output-format")];
+        let err = parse_dynamic_args(args).unwrap_err();
+        assert!(err.contains("--output-format requires a value"));
+    }
+
+    #[test]
+    fn parse_output_format_unsupported_value() {
+        let args = vec![os("build"), os("--output-format"), os("xml")];
+        let err = parse_dynamic_args(args).unwrap_err();
+        assert!(err.contains("unsupported output format: xml"));
+    }
+
+    #[test]
+    fn parse_output_format_default_none() {
+        let args = vec![os("build")];
+        let parsed = parse_dynamic_args(args).unwrap();
+        assert!(parsed.output_format.is_none());
+    }
+
+    #[test]
+    fn parse_output_format_with_other_flags() {
+        let args = vec![
+            os("build"),
+            os("-a"),
+            os("-n"),
+            os("10"),
+            os("--output-format"),
+            os("json"),
+        ];
+        let parsed = parse_dynamic_args(args).unwrap();
+        assert_eq!(parsed.output_format.as_deref(), Some("json"));
+        assert!(parsed.afk);
+        assert_eq!(parsed.iterations, Some(10));
     }
 
     const SIMPLE_CURSUS: &str = r#"
