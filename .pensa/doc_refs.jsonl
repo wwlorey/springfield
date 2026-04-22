@@ -44,3 +44,4 @@
 {"id":"pn-46836ba5","issue_id":"pn-b3ada460","path":"README.md","reason":"Lines 3, 7, 12: 'ralph loops' terminology should be 'agent loops' to match current codebase conventions","created_at":"2026-03-28T21:08:13Z"}
 {"id":"pn-ec88c42e","issue_id":"pn-36572bb6","path":".forma/specs/springfield.md","reason":"Loop ID Format section defines the required pattern","created_at":"2026-04-01T15:59:19Z"}
 {"id":"pn-165fdf99","issue_id":"pn-f17978c8","path":".forma/specs/springfield.md","reason":"sgf init section defines the .gitignore entries","created_at":"2026-04-01T15:59:20Z"}
+{"id":"pn-aeba35d3","issue_id":"pn-a0c5689a","path":"crates/claude-wrapper/README.md","reason":"Update to document LOOKBOOK.html repo-root resolution behavior","created_at":"2026-04-22T16:34:00Z"}

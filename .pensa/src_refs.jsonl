@@ -232,3 +232,7 @@
 {"id":"pn-4485ab22","issue_id":"pn-36572bb6","path":"crates/springfield/src/main.rs","reason":"Line 162: loop_id uses UUID format instead of generate_loop_id()","created_at":"2026-04-01T15:59:16Z"}
 {"id":"pn-4cea8e9e","issue_id":"pn-36572bb6","path":"crates/springfield/src/loop_mgmt.rs","reason":"generate_loop_id() function already implements the correct timestamp format","created_at":"2026-04-01T15:59:17Z"}
 {"id":"pn-372d1159","issue_id":"pn-f17978c8","path":".gitignore","reason":"Missing forma daemon entries; .svelte-kit/ should also be removed here","created_at":"2026-04-01T15:59:18Z"}
+{"id":"pn-be48d62e","issue_id":"pn-88567982","path":"crates/claude-wrapper/src/resolve.rs","reason":"Add LOOKBOOK.html check at cwd root (no layered lookup), ensure it is last in returned vec, use note severity for missing","created_at":"2026-04-22T16:33:46Z"}
+{"id":"pn-d7200948","issue_id":"pn-88567982","path":"crates/claude-wrapper/src/main.rs","reason":"LOOKBOOK.html will appear in the study string via existing --append-system-prompt construction; verify no changes needed","created_at":"2026-04-22T16:33:46Z"}
+{"id":"pn-3f328f30","issue_id":"pn-500c6eb8","path":"crates/claude-wrapper/src/resolve.rs","reason":"Add unit tests in the existing mod tests block for LOOKBOOK.html resolution","created_at":"2026-04-22T16:33:58Z"}
+{"id":"pn-634bb186","issue_id":"pn-839a7fcd","path":"crates/claude-wrapper/tests/integration.rs","reason":"Add integration tests for LOOKBOOK.html in --append-system-prompt, absence handling, and ordering","created_at":"2026-04-22T16:33:59Z"}

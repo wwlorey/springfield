@@ -1,4 +1,4 @@
-{"stem":"claude-wrapper","src":"crates/claude-wrapper/","purpose":"Agent wrapper — layered .sgf/ context injection, cl binary","status":"stable","created_at":"2026-03-16T17:37:31Z","updated_at":"2026-04-22T16:30:16Z"}
+{"stem":"claude-wrapper","src":"crates/claude-wrapper/","purpose":"Agent wrapper — layered .sgf/ context injection, cl binary","status":"proven","created_at":"2026-03-16T17:37:31Z","updated_at":"2026-04-22T16:34:06Z"}
 {"stem":"cursus","src":"crates/springfield/","purpose":"Pipeline orchestration — declarative TOML-defined multi-iter workflows with context passing, sentinel-based transitions, and stall recovery","status":"proven","created_at":"2026-03-17T20:33:51Z","updated_at":"2026-03-28T20:39:43Z"}
 {"stem":"forma","src":"crates/forma/","purpose":"Specification management — forma daemon and fm CLI","status":"proven","created_at":"2026-03-16T17:40:12Z","updated_at":"2026-03-28T20:47:15Z"}
 {"stem":"pensa","src":"crates/pensa/","purpose":"Agent persistent memory — SQLite-backed issue/task tracker with pn CLI","status":"proven","created_at":"2026-03-16T17:36:24Z","updated_at":"2026-03-28T20:51:52Z"}
