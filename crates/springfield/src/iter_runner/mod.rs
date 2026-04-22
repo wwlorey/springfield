@@ -14,6 +14,8 @@ use std::thread;
 use std::time::Duration;
 use tracing::{info, warn};
 
+use crate::style as badge;
+
 pub const SENTINEL: &str = ".iter-complete";
 pub const SENTINEL_MAX_DEPTH: usize = 2;
 const DING_SENTINEL: &str = ".iter-ding";
@@ -665,6 +667,15 @@ fn is_retryable_process_failure(status: &AgentExitStatus, elapsed: Duration) -> 
     true
 }
 
+fn estimate_max_attempts(immediate: u32, interval_secs: u64, max_duration_secs: u64) -> u32 {
+    immediate
+        + if interval_secs > 0 {
+            (max_duration_secs / interval_secs) as u32
+        } else {
+            0
+        }
+}
+
 fn run_agent_with_retry(
     agent_cmd: &str,
     config: &mut IterRunnerConfig,
@@ -692,6 +703,11 @@ fn run_agent_with_retry(
 
     let first_failure = std::time::Instant::now();
     let max_duration = Duration::from_secs(config.retry_max_duration_secs);
+    let max_attempts = estimate_max_attempts(
+        config.retry_immediate,
+        config.retry_interval_secs,
+        config.retry_max_duration_secs,
+    );
     let mut attempt: u32 = 0;
 
     loop {
@@ -702,6 +718,7 @@ fn run_agent_with_retry(
                 total_secs = first_failure.elapsed().as_secs(),
                 "retry duration exceeded, giving up"
             );
+            badge::print_error("retry duration exceeded, giving up");
             return;
         }
 
@@ -722,14 +739,18 @@ fn run_agent_with_retry(
 
         let msg = if in_backoff {
             format!(
-                "retrying in {}m (attempt {})...",
+                "retrying in {}m (attempt {}/{})...",
                 config.retry_interval_secs / 60,
-                attempt
+                attempt,
+                max_attempts
             )
         } else {
-            format!("retrying immediately (attempt {})...", attempt)
+            format!(
+                "retrying immediately (attempt {}/{})...",
+                attempt, max_attempts
+            )
         };
-        tee.writeln(&style::dim(&msg));
+        badge::print_warning(&msg);
 
         if in_backoff {
             let interval = Duration::from_secs(config.retry_interval_secs);
@@ -1527,5 +1548,77 @@ fi
             &status,
             Duration::from_secs(10)
         ));
+    }
+
+    #[test]
+    fn estimate_max_attempts_default_config() {
+        // 3 immediate + 43200/300 = 3 + 144 = 147
+        assert_eq!(estimate_max_attempts(3, 300, 43200), 147);
+    }
+
+    #[test]
+    fn estimate_max_attempts_custom_config() {
+        // 5 immediate + 86400/600 = 5 + 144 = 149
+        assert_eq!(estimate_max_attempts(5, 600, 86400), 149);
+    }
+
+    #[test]
+    fn estimate_max_attempts_zero_interval() {
+        assert_eq!(estimate_max_attempts(3, 0, 43200), 3);
+    }
+
+    #[test]
+    fn estimate_max_attempts_zero_immediate() {
+        assert_eq!(estimate_max_attempts(0, 300, 43200), 144);
+    }
+
+    #[test]
+    fn estimate_max_attempts_zero_duration() {
+        assert_eq!(estimate_max_attempts(3, 300, 0), 3);
+    }
+
+    #[test]
+    fn retry_callback_receives_attempt_count() {
+        let dir = tempfile::tempdir().unwrap();
+        // Script sleeps 6s (past STARTUP_ERROR_THRESHOLD) then exits 1 (retryable)
+        // Second run exits 0 (success)
+        let state_file = dir.path().join("state");
+        let script = mock_script(
+            dir.path(),
+            "retry_cb.sh",
+            &format!(
+                "#!/bin/sh\nif [ -f \"{}\" ]; then exit 0; fi\ntouch \"{}\"\nsleep 6\nexit 1\n",
+                state_file.display(),
+                state_file.display()
+            ),
+        );
+
+        let recorded = Arc::new(Mutex::new(Vec::new()));
+        let recorded_clone = recorded.clone();
+
+        let mut config = make_config(dir.path(), script);
+        config.retry_immediate = 3;
+        config.retry_interval_secs = 300;
+        config.retry_max_duration_secs = 43200;
+        config.on_retry = Some(Box::new(move |attempt, reason, next_retry_secs| {
+            recorded_clone
+                .lock()
+                .unwrap()
+                .push((attempt, reason.to_string(), next_retry_secs));
+        }));
+
+        let controller = ShutdownController::new(ShutdownConfig {
+            monitor_stdin: false,
+            ..Default::default()
+        })
+        .unwrap();
+
+        let _exit_code = run_iteration_loop(config, &controller);
+
+        let calls = recorded.lock().unwrap();
+        assert_eq!(calls.len(), 1, "should have retried once");
+        assert_eq!(calls[0].0, 1, "first retry attempt");
+        assert_eq!(calls[0].1, "process_failure");
+        assert_eq!(calls[0].2, 0, "immediate retry has 0 delay");
     }
 }
