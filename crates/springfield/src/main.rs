@@ -369,6 +369,8 @@ fn run_cursus_dispatch(root: &Path, args: &DynamicArgs, resolved: cursus::Resolv
         }
     }
 
+    let programmatic = !std::io::IsTerminal::is_terminal(&std::io::stdin());
+
     let config = cursus::runner::CursusConfig {
         spec: args.spec.clone(),
         mode_override,
@@ -376,6 +378,7 @@ fn run_cursus_dispatch(root: &Path, args: &DynamicArgs, resolved: cursus::Resolv
         agent_command: None,
         skip_preflight: args.skip_preflight,
         monitor_stdin_override: None,
+        programmatic,
     };
 
     match cursus::runner::run_cursus(root, &resolved.name, &def, &config) {

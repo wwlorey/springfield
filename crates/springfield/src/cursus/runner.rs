@@ -26,6 +26,7 @@ pub struct CursusConfig {
     pub agent_command: Option<String>,
     pub skip_preflight: bool,
     pub monitor_stdin_override: Option<bool>,
+    pub programmatic: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -561,6 +562,8 @@ pub fn resume_cursus(root: &Path, run_id: &str) -> io::Result<i32> {
         _ => Mode::Interactive,
     });
 
+    let programmatic = !std::io::stdin().is_terminal();
+
     let config = CursusConfig {
         spec: metadata.spec.clone(),
         mode_override,
@@ -568,6 +571,7 @@ pub fn resume_cursus(root: &Path, run_id: &str) -> io::Result<i32> {
         agent_command: None,
         skip_preflight: true,
         monitor_stdin_override: None,
+        programmatic,
     };
 
     match action {
@@ -1027,6 +1031,7 @@ mod tests {
             agent_command: Some(mock_agent),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
+            programmatic: false,
         };
 
         let exit_code = run_cursus(root, "build", &def, &config).unwrap();
@@ -1071,6 +1076,7 @@ mod tests {
             agent_command: Some(mock_agent),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
+            programmatic: false,
         };
 
         let exit_code = run_cursus(root, "build", &def, &config).unwrap();
@@ -1119,6 +1125,7 @@ mod tests {
             agent_command: Some(mock_agent),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
+            programmatic: false,
         };
 
         let exit_code = run_cursus(root, "spec", &def, &config).unwrap();
@@ -1185,6 +1192,7 @@ exit 0
             agent_command: Some(mock_agent),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
+            programmatic: false,
         };
 
         let exit_code = run_cursus(root, "spec", &def, &config).unwrap();
@@ -1263,6 +1271,7 @@ exit 0
             agent_command: Some(mock_agent),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
+            programmatic: false,
         };
 
         let exit_code = run_cursus(root, "spec", &def, &config).unwrap();
@@ -1347,6 +1356,7 @@ exit 0
             agent_command: Some(mock_agent),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
+            programmatic: false,
         };
 
         let exit_code = run_cursus(root, "pipeline", &def, &config).unwrap();
@@ -1409,6 +1419,7 @@ exit 0
             agent_command: Some(mock),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
+            programmatic: false,
         };
 
         let exit_code = run_cursus(root, "build", &def, &config).unwrap();
@@ -1449,6 +1460,7 @@ exit 0
             agent_command: Some(mock),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
+            programmatic: false,
         };
 
         let exit_code = run_cursus(root, "build", &def, &config).unwrap();
@@ -1492,6 +1504,7 @@ exit 0
             agent_command: Some(mock_agent),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
+            programmatic: false,
         };
 
         run_cursus(root, "build", &def, &config).unwrap();
@@ -1523,6 +1536,7 @@ exit 0
             agent_command: None,
             skip_preflight: true,
             monitor_stdin_override: None,
+            programmatic: false,
         };
 
         let err = run_cursus(root, "empty", &def, &config).unwrap_err();
@@ -1573,6 +1587,7 @@ exit 0
             agent_command: Some(mock_agent),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
+            programmatic: false,
         };
 
         let exit_code = run_cursus(root, "spec", &def, &config).unwrap();
@@ -1748,6 +1763,7 @@ prompt = "build.md"
             agent_command: Some(mock_agent),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
+            programmatic: false,
         };
 
         let run_id = "spec-20260317T140000";
@@ -1814,6 +1830,7 @@ prompt = "build.md"
             agent_command: Some(mock_agent),
             skip_preflight: true,
             monitor_stdin_override: Some(false),
+            programmatic: false,
         };
 
         let run_id = "spec-20260317T140000";
@@ -1905,5 +1922,56 @@ prompt = "build.md"
             format_context_line(&producers),
             Some("  context: build-log, spec-output, test-plan".to_string())
         );
+    }
+
+    #[test]
+    fn cursus_config_programmatic_field_propagates() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_cursus_project(root, &["build.md"]);
+
+        let mock_agent = mock_script(
+            root,
+            "mock_agent.sh",
+            &format!(
+                "#!/bin/sh\ntouch \"{}/.iter-complete\"\nexit 0\n",
+                root.display()
+            ),
+        );
+
+        let def = make_cursus_def(
+            vec![make_iter("build", Mode::Afk, 1, None, None, None)],
+            false,
+        );
+
+        let config = CursusConfig {
+            spec: None,
+            mode_override: None,
+            no_push: true,
+            agent_command: Some(mock_agent),
+            skip_preflight: true,
+            monitor_stdin_override: Some(false),
+            programmatic: true,
+        };
+
+        assert!(config.programmatic);
+
+        let exit_code = run_cursus(root, "build", &def, &config).unwrap();
+        assert_eq!(exit_code, 0);
+    }
+
+    #[test]
+    fn cursus_config_programmatic_defaults_false() {
+        let config = CursusConfig {
+            spec: None,
+            mode_override: None,
+            no_push: false,
+            agent_command: None,
+            skip_preflight: false,
+            monitor_stdin_override: None,
+            programmatic: false,
+        };
+
+        assert!(!config.programmatic);
     }
 }
