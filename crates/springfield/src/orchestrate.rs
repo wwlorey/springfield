@@ -158,83 +158,44 @@ fn print_entries(entries: &[DisplayEntry]) {
     }
 }
 
-pub fn run_resume(root: &Path, loop_id: Option<&str>) -> io::Result<i32> {
-    if let Some(id) = loop_id {
-        let meta = loop_mgmt::read_session_metadata(root, id)?;
-        let m = match meta {
-            Some(m) => m,
-            None => {
-                return Err(io::Error::new(
-                    io::ErrorKind::NotFound,
-                    format!("Session not found: {id}"),
-                ));
-            }
-        };
-
-        if m.iterations.is_empty() {
+pub fn run_resume(root: &Path, loop_id: &str) -> io::Result<i32> {
+    let meta = loop_mgmt::read_session_metadata(root, loop_id)?;
+    let m = match meta {
+        Some(m) => m,
+        None => {
             return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("No iterations found for session: {id}"),
+                io::ErrorKind::NotFound,
+                format!("Session not found: {loop_id}"),
             ));
         }
+    };
 
-        if m.iterations.len() == 1 {
-            return run_resume_session(root, &m, &m.iterations[0].session_id);
-        }
-
-        let entries: Vec<DisplayEntry> = m
-            .iterations
-            .iter()
-            .map(|it| DisplayEntry {
-                meta: &m,
-                iteration: it,
-            })
-            .collect();
-
-        print_entries(&entries);
-
-        match prompt_and_select(entries.len())? {
-            Some(choice) => {
-                let selected = &entries[choice - 1];
-                return run_resume_session(root, &m, &selected.iteration.session_id);
-            }
-            None => return Ok(0),
-        }
-    }
-
-    let sessions = loop_mgmt::list_session_metadata(root)?;
-    if sessions.is_empty() {
+    if m.iterations.is_empty() {
         return Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            "No sessions found.",
+            io::ErrorKind::InvalidData,
+            format!("No iterations found for session: {loop_id}"),
         ));
     }
 
-    let mut entries: Vec<DisplayEntry> = Vec::new();
-    for s in &sessions {
-        for it in &s.iterations {
-            entries.push(DisplayEntry {
-                meta: s,
-                iteration: it,
-            });
-        }
+    if m.iterations.len() == 1 {
+        return run_resume_session(root, &m, &m.iterations[0].session_id);
     }
-    entries.sort_by(|a, b| b.iteration.completed_at.cmp(&a.iteration.completed_at));
-    entries.truncate(20);
 
-    if entries.is_empty() {
-        return Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            "No sessions found.",
-        ));
-    }
+    let entries: Vec<DisplayEntry> = m
+        .iterations
+        .iter()
+        .map(|it| DisplayEntry {
+            meta: &m,
+            iteration: it,
+        })
+        .collect();
 
     print_entries(&entries);
 
     match prompt_and_select(entries.len())? {
         Some(choice) => {
             let selected = &entries[choice - 1];
-            run_resume_session(root, selected.meta, &selected.iteration.session_id)
+            run_resume_session(root, &m, &selected.iteration.session_id)
         }
         None => Ok(0),
     }
@@ -302,23 +263,12 @@ mod tests {
     }
 
     #[test]
-    fn resume_no_sessions_returns_error() {
-        let tmp = TempDir::new().unwrap();
-        let root = tmp.path();
-        fs::create_dir_all(root.join(".sgf/run")).unwrap();
-
-        let err = run_resume(root, None).unwrap_err();
-        assert_eq!(err.kind(), io::ErrorKind::NotFound);
-        assert!(err.to_string().contains("No sessions found"));
-    }
-
-    #[test]
     fn resume_unknown_loop_id_returns_error() {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
         fs::create_dir_all(root.join(".sgf/run")).unwrap();
 
-        let err = run_resume(root, Some("nonexistent-id")).unwrap_err();
+        let err = run_resume(root, "nonexistent-id").unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::NotFound);
         assert!(
             err.to_string()
@@ -374,7 +324,7 @@ mod tests {
         let cl_path = root.join("cl");
         fs::rename(&mock_cl, &cl_path).unwrap();
 
-        let result = run_resume(root, Some("build-auth-20260316T120000"));
+        let result = run_resume(root, "build-auth-20260316T120000");
 
         unsafe { std::env::set_var("PATH", &original_path) };
 
@@ -422,7 +372,7 @@ mod tests {
         };
         loop_mgmt::write_session_metadata(root, &meta).unwrap();
 
-        let err = run_resume(root, Some("build-auth-20260316T120000")).unwrap_err();
+        let err = run_resume(root, "build-auth-20260316T120000").unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::InvalidData);
         assert!(
             err.to_string().contains("No iterations found"),

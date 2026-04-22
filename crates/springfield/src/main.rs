@@ -341,7 +341,7 @@ fn resume_dispatch(root: &Path, run_id: &str) -> std::io::Result<i32> {
     }
 
     match springfield::loop_mgmt::read_session_metadata(root, run_id) {
-        Ok(Some(_)) => springfield::orchestrate::run_resume(root, Some(run_id)),
+        Ok(Some(_)) => springfield::orchestrate::run_resume(root, run_id),
         Ok(None) => Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
             format!("run not found: {run_id}"),
