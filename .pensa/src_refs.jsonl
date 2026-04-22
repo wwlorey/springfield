@@ -236,3 +236,20 @@
 {"id":"pn-d7200948","issue_id":"pn-88567982","path":"crates/claude-wrapper/src/main.rs","reason":"LOOKBOOK.html will appear in the study string via existing --append-system-prompt construction; verify no changes needed","created_at":"2026-04-22T16:33:46Z"}
 {"id":"pn-3f328f30","issue_id":"pn-500c6eb8","path":"crates/claude-wrapper/src/resolve.rs","reason":"Add unit tests in the existing mod tests block for LOOKBOOK.html resolution","created_at":"2026-04-22T16:33:58Z"}
 {"id":"pn-634bb186","issue_id":"pn-839a7fcd","path":"crates/claude-wrapper/tests/integration.rs","reason":"Add integration tests for LOOKBOOK.html in --append-system-prompt, absence handling, and ordering","created_at":"2026-04-22T16:33:59Z"}
+{"id":"pn-5628a8f7","issue_id":"pn-2fe83696","path":"crates/springfield/src/cursus/toml.rs","reason":"Add RetryConfig struct, retry field to CursusDefinition, validation, and unit tests","created_at":"2026-04-22T18:04:29Z"}
+{"id":"pn-41cc4d4d","issue_id":"pn-c9d8b059","path":"crates/springfield/src/cursus/toml.rs","reason":"Add warning in validate() for interactive iters with iterations > 1","created_at":"2026-04-22T18:04:35Z"}
+{"id":"pn-e345ef07","issue_id":"pn-b9ccf8f2","path":"crates/springfield/src/cursus/mod.rs","reason":"Add pub mod events to module declaration","created_at":"2026-04-22T18:04:44Z"}
+{"id":"pn-58a84828","issue_id":"pn-b9ccf8f2","path":"crates/springfield/src/cursus/","reason":"Create new events.rs file with event type definitions","created_at":"2026-04-22T18:04:44Z"}
+{"id":"pn-b167b171","issue_id":"pn-1f7b03f6","path":"crates/springfield/src/cursus/runner.rs","reason":"Add event emission calls throughout run_cursus and run_cursus_loop","created_at":"2026-04-22T18:04:50Z"}
+{"id":"pn-ce3c876e","issue_id":"pn-1f7b03f6","path":"crates/springfield/src/cursus/events.rs","reason":"Use event types from this module","created_at":"2026-04-22T18:04:51Z"}
+{"id":"pn-e4c2d9bc","issue_id":"pn-c0c4d676","path":"crates/springfield/src/cursus/runner.rs","reason":"Modify run_iter for programmatic interactive mode with turn-by-turn execution","created_at":"2026-04-22T18:04:53Z"}
+{"id":"pn-b20a99ea","issue_id":"pn-c0c4d676","path":"crates/springfield/src/cursus/state.rs","reason":"Track session_id for resume across turns","created_at":"2026-04-22T18:04:53Z"}
+{"id":"pn-fe2d5d0b","issue_id":"pn-7f8e7e8b","path":"crates/springfield/src/cursus/runner.rs","reason":"Add programmatic path in resume_cursus with stdin action parsing","created_at":"2026-04-22T18:04:53Z"}
+{"id":"pn-35e7524c","issue_id":"pn-f7f5000c","path":"crates/springfield/src/cursus/runner.rs","reason":"Add programmatic mode flag to CursusConfig, detect isatty(stdin)","created_at":"2026-04-22T18:04:54Z"}
+{"id":"pn-bebcf4f7","issue_id":"pn-f7f5000c","path":"crates/springfield/src/main.rs","reason":"Pass --output-format flag through to CursusConfig","created_at":"2026-04-22T18:04:54Z"}
+{"id":"pn-518229c3","issue_id":"pn-acd0fa8b","path":"crates/springfield/src/cursus/runner.rs","reason":"Pass RetryConfig through to run_iter, emit retry events","created_at":"2026-04-22T18:04:54Z"}
+{"id":"pn-3fa9ed55","issue_id":"pn-acd0fa8b","path":"crates/springfield/src/cursus/toml.rs","reason":"Source of RetryConfig struct","created_at":"2026-04-22T18:04:55Z"}
+{"id":"pn-5f8be7bf","issue_id":"pn-d7691b6a","path":"crates/springfield/tests/","reason":"Add new integration test file or extend existing cursus tests","created_at":"2026-04-22T18:05:59Z"}
+{"id":"pn-15b380aa","issue_id":"pn-4903ca58","path":"crates/springfield/tests/","reason":"Add integration tests for programmatic interactive and resume flows","created_at":"2026-04-22T18:05:59Z"}
+{"id":"pn-886a6947","issue_id":"pn-9207f626","path":"crates/springfield/tests/","reason":"Add integration tests for retry config","created_at":"2026-04-22T18:06:00Z"}
+{"id":"pn-cf81778d","issue_id":"pn-7278f206","path":"crates/springfield/tests/","reason":"Add integration test for resume command on exit paths","created_at":"2026-04-22T18:06:00Z"}
