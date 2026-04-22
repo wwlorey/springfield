@@ -7914,3 +7914,554 @@ fn cursus_default_retry_config_when_section_omitted() {
         "retry message should reflect default config (max_attempts=147), got stderr:\n{stderr}"
     );
 }
+
+// ===========================================================================
+// Cursus: programmatic NDJSON event emission (binary-level)
+// ===========================================================================
+
+fn parse_ndjson_events(stdout: &[u8]) -> Vec<serde_json::Value> {
+    let text = String::from_utf8_lossy(stdout);
+    text.lines()
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect()
+}
+
+fn event_types(events: &[serde_json::Value]) -> Vec<&str> {
+    events.iter().filter_map(|e| e["event"].as_str()).collect()
+}
+
+#[test]
+fn cursus_programmatic_single_iter_afk_event_ordering() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let cursus_dir = tmp.path().join(".sgf/cursus");
+    fs::create_dir_all(&cursus_dir).unwrap();
+    fs::write(
+        cursus_dir.join("build.toml"),
+        concat!(
+            "description = \"Single iter event test\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 5\n",
+        ),
+    )
+    .unwrap();
+
+    let prompts_dir = tmp.path().join(".sgf/prompts");
+    fs::create_dir_all(&prompts_dir).unwrap();
+    fs::write(prompts_dir.join("build.md"), "Build prompt\n").unwrap();
+    git_add_commit(tmp.path(), "add cursus and prompt");
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        "#!/bin/sh\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
+    );
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "-a", "--output-format", "json"])
+            .env("SGF_AGENT_COMMAND", &mock_agent),
+    );
+
+    assert!(
+        output.status.success(),
+        "should exit 0: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let events = parse_ndjson_events(&output.stdout);
+    let types = event_types(&events);
+
+    assert!(
+        types.len() >= 4,
+        "should emit at least 4 events, got {}: {types:?}",
+        types.len()
+    );
+    assert_eq!(types[0], "run_start", "first event should be run_start");
+    assert_eq!(types[1], "iter_start", "second event should be iter_start");
+
+    // iter_complete and run_complete should appear in order (possibly with other events between)
+    let iter_complete_pos = types.iter().position(|&t| t == "iter_complete");
+    let run_complete_pos = types.iter().position(|&t| t == "run_complete");
+    assert!(
+        iter_complete_pos.is_some(),
+        "should emit iter_complete, got: {types:?}"
+    );
+    assert!(
+        run_complete_pos.is_some(),
+        "should emit run_complete, got: {types:?}"
+    );
+    assert!(
+        iter_complete_pos.unwrap() < run_complete_pos.unwrap(),
+        "iter_complete should come before run_complete"
+    );
+
+    // Validate run_start content
+    let run_start = &events[0];
+    assert_eq!(run_start["cursus"], "build");
+    assert!(
+        run_start["run_id"].as_str().unwrap().starts_with("build-"),
+        "run_id should start with cursus name"
+    );
+    let iters = run_start["iters"].as_array().unwrap();
+    assert_eq!(iters.len(), 1);
+    assert_eq!(iters[0]["name"], "build");
+    assert_eq!(iters[0]["mode"], "afk");
+    assert_eq!(iters[0]["iterations"], 5);
+
+    // Validate iter_start content
+    let iter_start = &events[1];
+    assert_eq!(iter_start["iter"], "build");
+    assert_eq!(iter_start["mode"], "afk");
+    assert_eq!(iter_start["iteration"], 5);
+    assert!(
+        iter_start["session_id"].as_str().is_some(),
+        "iter_start should include session_id"
+    );
+
+    // Validate iter_complete content
+    let ic = &events[iter_complete_pos.unwrap()];
+    assert_eq!(ic["iter"], "build");
+    assert_eq!(ic["outcome"], "complete");
+    assert_eq!(ic["iterations_used"], 5);
+
+    // Validate run_complete content
+    let rc = &events[run_complete_pos.unwrap()];
+    assert_eq!(rc["status"], "completed");
+    assert!(rc["resume_command"].as_str().unwrap().contains("--resume"));
+
+    // No turn events should be emitted for AFK iters
+    assert!(
+        !types.contains(&"turn"),
+        "AFK iter should not emit turn events, got: {types:?}"
+    );
+}
+
+#[test]
+fn cursus_programmatic_multi_iter_transition_events() {
+    let tmp = setup_multi_iter_test();
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        concat!(
+            "#!/bin/sh\n",
+            "PROMPT=\"${@: -1}\"\n",
+            "mkdir -p \"$SGF_RUN_CONTEXT\" 2>/dev/null\n",
+            "if echo \"$PROMPT\" | grep -q 'discuss.md'; then\n",
+            "  echo 'summary' > \"$SGF_RUN_CONTEXT/discuss-summary.md\"\n",
+            "fi\n",
+            "if echo \"$PROMPT\" | grep -q 'draft.md'; then\n",
+            "  echo 'draft' > \"$SGF_RUN_CONTEXT/draft-presentation.md\"\n",
+            "fi\n",
+            "touch \"${PWD}/.iter-complete\"\n",
+            "exit 0\n",
+        ),
+    );
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["pipeline", "-a", "--output-format", "json"])
+            .env("SGF_AGENT_COMMAND", &mock_agent),
+    );
+
+    assert!(
+        output.status.success(),
+        "multi-iter should exit 0: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let events = parse_ndjson_events(&output.stdout);
+    let types = event_types(&events);
+
+    // Should have: run_start, then for each iter: iter_start, iter_complete, context_produced(?),
+    // transition, ... and finally run_complete
+    assert_eq!(types[0], "run_start");
+
+    // Collect transition events
+    let transitions: Vec<&serde_json::Value> = events
+        .iter()
+        .filter(|e| e["event"] == "transition")
+        .collect();
+
+    // Pipeline: discuss -> draft -> review -> approve (4 iters, 3 transitions)
+    assert_eq!(
+        transitions.len(),
+        3,
+        "should have 3 transitions for 4-iter happy path, got: {types:?}"
+    );
+
+    assert_eq!(transitions[0]["from_iter"], "discuss");
+    assert_eq!(transitions[0]["to_iter"], "draft");
+    assert_eq!(transitions[0]["reason"], "complete");
+
+    assert_eq!(transitions[1]["from_iter"], "draft");
+    assert_eq!(transitions[1]["to_iter"], "review");
+    assert_eq!(transitions[1]["reason"], "complete");
+
+    // review has next = "approve", so the transition should be review -> approve
+    assert_eq!(transitions[2]["from_iter"], "review");
+    assert_eq!(transitions[2]["to_iter"], "approve");
+    assert_eq!(transitions[2]["reason"], "complete");
+
+    // Validate iter_start events match the expected iter sequence
+    let iter_starts: Vec<&str> = events
+        .iter()
+        .filter(|e| e["event"] == "iter_start")
+        .filter_map(|e| e["iter"].as_str())
+        .collect();
+    assert_eq!(
+        iter_starts,
+        vec!["discuss", "draft", "review", "approve"],
+        "iter_start events should match expected sequence"
+    );
+
+    // Validate iter_complete events match the expected iter sequence
+    let iter_completes: Vec<&str> = events
+        .iter()
+        .filter(|e| e["event"] == "iter_complete")
+        .filter_map(|e| e["iter"].as_str())
+        .collect();
+    assert_eq!(
+        iter_completes,
+        vec!["discuss", "draft", "review", "approve"],
+        "iter_complete events should match expected sequence"
+    );
+
+    // run_complete should be last
+    assert_eq!(
+        types.last().unwrap(),
+        &"run_complete",
+        "run_complete should be the last event"
+    );
+    let rc = events.last().unwrap();
+    assert_eq!(rc["status"], "completed");
+}
+
+#[test]
+fn cursus_programmatic_stall_emits_stall_event() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let cursus_dir = tmp.path().join(".sgf/cursus");
+    fs::create_dir_all(&cursus_dir).unwrap();
+    fs::write(
+        cursus_dir.join("pipeline.toml"),
+        concat!(
+            "description = \"Stall event test\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"discuss\"\n",
+            "prompt = \"discuss.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"draft\"\n",
+            "prompt = \"draft.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 2\n",
+        ),
+    )
+    .unwrap();
+
+    let prompts_dir = tmp.path().join(".sgf/prompts");
+    fs::create_dir_all(&prompts_dir).unwrap();
+    fs::write(prompts_dir.join("discuss.md"), "discuss prompt\n").unwrap();
+    fs::write(prompts_dir.join("draft.md"), "draft prompt\n").unwrap();
+    git_add_commit(tmp.path(), "add stall event cursus");
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        concat!(
+            "#!/bin/sh\n",
+            "PROMPT=\"${@: -1}\"\n",
+            "if echo \"$PROMPT\" | grep -q 'discuss.md'; then\n",
+            "  touch \"${PWD}/.iter-complete\"\n",
+            "  exit 0\n",
+            "fi\n",
+            "# draft does NOT touch sentinel -> exhaustion\n",
+            "exit 2\n",
+        ),
+    );
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["pipeline", "-a", "--output-format", "json"])
+            .env("SGF_AGENT_COMMAND", &mock_agent),
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "stalled pipeline should exit 2: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let events = parse_ndjson_events(&output.stdout);
+    let types = event_types(&events);
+
+    // Should contain a stall event
+    let stall_events: Vec<&serde_json::Value> =
+        events.iter().filter(|e| e["event"] == "stall").collect();
+    assert_eq!(
+        stall_events.len(),
+        1,
+        "should emit exactly one stall event, got types: {types:?}"
+    );
+
+    let stall = stall_events[0];
+    assert_eq!(
+        stall["iter"], "draft",
+        "stall should reference the draft iter"
+    );
+    assert_eq!(
+        stall["iterations_attempted"], 2,
+        "stall should report 2 iterations attempted"
+    );
+    let actions = stall["actions"].as_array().unwrap();
+    assert!(
+        actions.iter().any(|a| a == "retry"),
+        "stall actions should include retry"
+    );
+    assert!(
+        actions.iter().any(|a| a == "skip"),
+        "stall actions should include skip"
+    );
+    assert!(
+        actions.iter().any(|a| a == "abort"),
+        "stall actions should include abort"
+    );
+
+    // run_complete should follow stall with status "stalled"
+    let rc_events: Vec<&serde_json::Value> = events
+        .iter()
+        .filter(|e| e["event"] == "run_complete")
+        .collect();
+    assert_eq!(rc_events.len(), 1, "should emit run_complete after stall");
+    assert_eq!(rc_events[0]["status"], "stalled");
+
+    // Stall should come before run_complete
+    let stall_pos = types.iter().position(|&t| t == "stall").unwrap();
+    let rc_pos = types.iter().position(|&t| t == "run_complete").unwrap();
+    assert!(stall_pos < rc_pos, "stall should come before run_complete");
+}
+
+#[test]
+fn cursus_programmatic_afk_piped_stdin_no_turn_events() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let cursus_dir = tmp.path().join(".sgf/cursus");
+    fs::create_dir_all(&cursus_dir).unwrap();
+    fs::write(
+        cursus_dir.join("build.toml"),
+        concat!(
+            "description = \"AFK piped stdin test\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 3\n",
+        ),
+    )
+    .unwrap();
+
+    let prompts_dir = tmp.path().join(".sgf/prompts");
+    fs::create_dir_all(&prompts_dir).unwrap();
+    fs::write(prompts_dir.join("build.md"), "Build prompt\n").unwrap();
+    git_add_commit(tmp.path(), "add cursus and prompt");
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        "#!/bin/sh\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
+    );
+
+    // Pipe stdin (triggers programmatic mode via !is_terminal), no --output-format json
+    let _permit = SGF_PERMITS
+        .acquire_timeout(Duration::from_secs(60))
+        .expect("semaphore timed out");
+    let mut guard = ChildGuard::spawn(
+        sgf_cmd(tmp.path())
+            .args(["build", "-a"])
+            .env("SGF_AGENT_COMMAND", &mock_agent)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn sgf");
+
+    // Close stdin immediately (no input provided)
+    drop(guard.child_mut().stdin.take());
+
+    let output = guard
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("failed to wait for sgf");
+    drop(_permit);
+
+    assert!(
+        output.status.success(),
+        "should exit 0: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let events = parse_ndjson_events(&output.stdout);
+    let types = event_types(&events);
+
+    // Should emit iter_start and iter_complete
+    assert!(
+        types.contains(&"iter_start"),
+        "should emit iter_start, got: {types:?}"
+    );
+    assert!(
+        types.contains(&"iter_complete"),
+        "should emit iter_complete, got: {types:?}"
+    );
+
+    // No turn events for AFK iters
+    assert!(
+        !types.contains(&"turn"),
+        "AFK iter with piped stdin should NOT emit turn events, got: {types:?}"
+    );
+
+    // Should still emit run_start and run_complete
+    assert_eq!(types[0], "run_start");
+    assert_eq!(types.last().unwrap(), &"run_complete");
+}
+
+#[test]
+fn cursus_programmatic_context_produced_and_consumed_events() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let cursus_dir = tmp.path().join(".sgf/cursus");
+    fs::create_dir_all(&cursus_dir).unwrap();
+    fs::write(
+        cursus_dir.join("pipeline.toml"),
+        concat!(
+            "description = \"Context events test\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"gather\"\n",
+            "prompt = \"gather.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+            "produces = \"gathered-data\"\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"process\"\n",
+            "prompt = \"process.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+            "consumes = [\"gathered-data\"]\n",
+        ),
+    )
+    .unwrap();
+
+    let prompts_dir = tmp.path().join(".sgf/prompts");
+    fs::create_dir_all(&prompts_dir).unwrap();
+    fs::write(prompts_dir.join("gather.md"), "gather prompt\n").unwrap();
+    fs::write(prompts_dir.join("process.md"), "process prompt\n").unwrap();
+    git_add_commit(tmp.path(), "add context events cursus");
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        concat!(
+            "#!/bin/sh\n",
+            "PROMPT=\"${@: -1}\"\n",
+            "if echo \"$PROMPT\" | grep -q 'gather.md'; then\n",
+            "  mkdir -p \"$SGF_RUN_CONTEXT\"\n",
+            "  echo 'gathered data content' > \"$SGF_RUN_CONTEXT/gathered-data.md\"\n",
+            "fi\n",
+            "touch \"${PWD}/.iter-complete\"\n",
+            "exit 0\n",
+        ),
+    );
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["pipeline", "-a", "--output-format", "json"])
+            .env("SGF_AGENT_COMMAND", &mock_agent),
+    );
+
+    assert!(
+        output.status.success(),
+        "context events test should exit 0: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let events = parse_ndjson_events(&output.stdout);
+    let types = event_types(&events);
+
+    // Should contain context_produced event
+    let produced_events: Vec<&serde_json::Value> = events
+        .iter()
+        .filter(|e| e["event"] == "context_produced")
+        .collect();
+    assert_eq!(
+        produced_events.len(),
+        1,
+        "should emit exactly one context_produced event, got types: {types:?}"
+    );
+    assert_eq!(produced_events[0]["key"], "gathered-data");
+    assert_eq!(produced_events[0]["iter"], "gather");
+
+    // Should contain context_consumed event
+    let consumed_events: Vec<&serde_json::Value> = events
+        .iter()
+        .filter(|e| e["event"] == "context_consumed")
+        .collect();
+    assert_eq!(
+        consumed_events.len(),
+        1,
+        "should emit exactly one context_consumed event, got types: {types:?}"
+    );
+    assert_eq!(consumed_events[0]["key"], "gathered-data");
+    assert_eq!(consumed_events[0]["from_iter"], "gather");
+
+    // context_produced should come after gather's iter_complete
+    let gather_complete_pos = events
+        .iter()
+        .position(|e| e["event"] == "iter_complete" && e["iter"] == "gather")
+        .unwrap();
+    let produced_pos = events
+        .iter()
+        .position(|e| e["event"] == "context_produced")
+        .unwrap();
+    assert!(
+        produced_pos > gather_complete_pos,
+        "context_produced should come after gather's iter_complete"
+    );
+
+    // context_consumed should come before process's iter_start
+    let process_start_pos = events
+        .iter()
+        .position(|e| e["event"] == "iter_start" && e["iter"] == "process")
+        .unwrap();
+    let consumed_pos = events
+        .iter()
+        .position(|e| e["event"] == "context_consumed")
+        .unwrap();
+    assert!(
+        consumed_pos < process_start_pos,
+        "context_consumed should come before process's iter_start"
+    );
+}
