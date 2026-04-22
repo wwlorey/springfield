@@ -35,12 +35,6 @@ enum Commands {
         loop_id: String,
     },
 
-    /// Resume a previous session
-    Resume {
-        /// Loop ID to resume (omit for interactive picker)
-        loop_id: Option<String>,
-    },
-
     #[command(external_subcommand)]
     Dynamic(Vec<OsString>),
 }
@@ -312,37 +306,21 @@ fn run_simple_prompt(root: &Path, args: &DynamicArgs, prompt_path: &Path) -> ! {
     std::process::exit(exit_code as i32);
 }
 
-fn run_resume_dispatch(root: &Path, run_id: &str) -> ! {
+fn resume_dispatch(root: &Path, run_id: &str) -> std::io::Result<i32> {
     if let Ok(Some(_)) = cursus::state::read_metadata(root, run_id) {
-        match cursus::runner::resume_cursus(root, run_id) {
-            Ok(code) => std::process::exit(code),
-            Err(e) => {
-                springfield::style::print_error(&format!("resume: {e}"));
-                std::process::exit(1);
-            }
-        }
+        return cursus::runner::resume_cursus(root, run_id);
     }
 
     match springfield::loop_mgmt::read_session_metadata(root, run_id) {
-        Ok(Some(_)) => {
-            match springfield::orchestrate::run_resume(root, Some(run_id)) {
-                Ok(code) => std::process::exit(code),
-                Err(e) => {
-                    springfield::style::print_error(&format!("resume: {e}"));
-                    std::process::exit(1);
-                }
-            }
-        }
-        Ok(None) => {
-            springfield::style::print_error(&format!("run not found: {run_id}"));
-            std::process::exit(1);
-        }
-        Err(e) => {
-            springfield::style::print_error(&format!(
-                "Session metadata not found or corrupt for {run_id}: {e}"
-            ));
-            std::process::exit(1);
-        }
+        Ok(Some(_)) => springfield::orchestrate::run_resume(root, Some(run_id)),
+        Ok(None) => Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("run not found: {run_id}"),
+        )),
+        Err(e) => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("Session metadata not found or corrupt for {run_id}: {e}"),
+        )),
     }
 }
 
@@ -350,7 +328,13 @@ fn run_dynamic(args: DynamicArgs) -> ! {
     let root = std::env::current_dir().expect("failed to get current directory");
 
     if let Some(ref run_id) = args.resume {
-        run_resume_dispatch(&root, run_id);
+        match resume_dispatch(&root, run_id) {
+            Ok(code) => std::process::exit(code),
+            Err(e) => {
+                springfield::style::print_error(&format!("resume: {e}"));
+                std::process::exit(1);
+            }
+        }
     }
 
     let candidate = Path::new(&args.command);
@@ -451,7 +435,6 @@ fn run_list(root: &Path) {
         ("init", "Scaffold a new project"),
         ("list", "Show available commands"),
         ("logs", "Tail a running loop's output"),
-        ("resume", "Resume a stalled/interrupted run"),
     ];
 
     let max_name = commands
@@ -500,66 +483,6 @@ fn main() {
             if let Err(e) = springfield::loop_mgmt::run_logs(&root, &loop_id) {
                 springfield::style::print_error(&format!("logs: {e}"));
                 std::process::exit(1);
-            }
-        }
-        Commands::Resume { loop_id } => {
-            let root = std::env::current_dir().expect("failed to get current directory");
-
-            if let Some(ref id) = loop_id
-                && let Ok(Some(_)) = cursus::state::read_metadata(&root, id)
-            {
-                match cursus::runner::resume_cursus(&root, id) {
-                    Ok(code) => std::process::exit(code),
-                    Err(e) => {
-                        springfield::style::print_error(&format!("resume: {e}"));
-                        std::process::exit(1);
-                    }
-                }
-            }
-
-            if loop_id.is_none() {
-                let cursus_runs = cursus::state::find_resumable_runs(&root).unwrap_or_default();
-                if !cursus_runs.is_empty() {
-                    eprintln!("Resumable cursus runs:");
-                    for (i, run) in cursus_runs.iter().enumerate() {
-                        eprintln!(
-                            "  {:>2}. {:<40} iter: {:<15} {}",
-                            i + 1,
-                            run.run_id,
-                            run.current_iter,
-                            run.status
-                        );
-                    }
-                    eprintln!();
-                    eprint!(
-                        "Select run (1-{}), or press Enter for legacy sessions: ",
-                        cursus_runs.len()
-                    );
-                    let mut input = String::new();
-                    if std::io::stdin().read_line(&mut input).is_ok()
-                        && !input.trim().is_empty()
-                        && let Ok(choice) = input.trim().parse::<usize>()
-                        && choice >= 1
-                        && choice <= cursus_runs.len()
-                    {
-                        let run_id = &cursus_runs[choice - 1].run_id;
-                        match cursus::runner::resume_cursus(&root, run_id) {
-                            Ok(code) => std::process::exit(code),
-                            Err(e) => {
-                                springfield::style::print_error(&format!("resume: {e}"));
-                                std::process::exit(1);
-                            }
-                        }
-                    }
-                }
-            }
-
-            match springfield::orchestrate::run_resume(&root, loop_id.as_deref()) {
-                Ok(code) => std::process::exit(code),
-                Err(e) => {
-                    springfield::style::print_error(&format!("resume: {e}"));
-                    std::process::exit(1);
-                }
             }
         }
         Commands::Dynamic(args) => {
@@ -804,6 +727,172 @@ iterations = 30
 
         let err = resolve_command(tmp.path(), "nonexistent").unwrap_err();
         assert!(err.contains("unknown command: nonexistent"));
+    }
+
+    #[test]
+    fn resume_dispatch_not_found_exits_error() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir_all(tmp.path().join(".sgf/run")).unwrap();
+
+        let result = resume_dispatch(tmp.path(), "nonexistent-run-id");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+        assert!(
+            err.to_string()
+                .contains("run not found: nonexistent-run-id"),
+            "error should mention run id, got: {err}"
+        );
+    }
+
+    #[test]
+    fn resume_dispatch_cursus_metadata_delegates_to_cursus() {
+        let tmp = TempDir::new().unwrap();
+        let run_id = "build-20260422T150000";
+        let run_dir = tmp.path().join(".sgf/run").join(run_id);
+        fs::create_dir_all(&run_dir).unwrap();
+        // Use "completed" status so resume_cursus rejects it with a known error
+        // that proves the cursus path was entered
+        let meta = serde_json::json!({
+            "run_id": run_id,
+            "cursus": "build",
+            "status": "completed",
+            "current_iter": "build",
+            "current_iter_index": 0,
+            "iters_completed": [],
+            "spec": null,
+            "mode_override": null,
+            "context_producers": {},
+            "created_at": "2026-04-22T15:00:00Z",
+            "updated_at": "2026-04-22T15:00:00Z"
+        });
+        fs::write(
+            run_dir.join("meta.json"),
+            serde_json::to_string_pretty(&meta).unwrap(),
+        )
+        .unwrap();
+
+        let result = resume_dispatch(tmp.path(), run_id);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("not resumable"),
+            "should enter cursus path and reject non-resumable status, got: {err}"
+        );
+    }
+
+    #[test]
+    fn resume_dispatch_legacy_metadata_delegates_to_legacy() {
+        let tmp = TempDir::new().unwrap();
+        let run_id = "spec-20260422T130000";
+        let run_dir = tmp.path().join(".sgf/run");
+        fs::create_dir_all(&run_dir).unwrap();
+        // Empty iterations so run_resume rejects with a known error
+        // that proves the legacy path was entered
+        let meta = serde_json::json!({
+            "loop_id": run_id,
+            "iterations": [],
+            "stage": "spec",
+            "spec": null,
+            "cursus": null,
+            "mode": "interactive",
+            "prompt": ".sgf/prompts/spec.md",
+            "iterations_total": 1,
+            "status": "completed",
+            "created_at": "2026-04-22T13:00:00Z",
+            "updated_at": "2026-04-22T13:02:30Z"
+        });
+        fs::write(
+            run_dir.join(format!("{run_id}.json")),
+            serde_json::to_string_pretty(&meta).unwrap(),
+        )
+        .unwrap();
+
+        let result = resume_dispatch(tmp.path(), run_id);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("No iterations found"),
+            "should enter legacy path and find no iterations, got: {err}"
+        );
+    }
+
+    #[test]
+    fn resume_dispatch_cursus_takes_priority_over_legacy() {
+        let tmp = TempDir::new().unwrap();
+        let run_id = "build-20260422T150000";
+
+        // Create BOTH cursus and legacy metadata for the same run_id
+        let cursus_dir = tmp.path().join(".sgf/run").join(run_id);
+        fs::create_dir_all(&cursus_dir).unwrap();
+        // Use "completed" status so cursus path fails with known error
+        let cursus_meta = serde_json::json!({
+            "run_id": run_id,
+            "cursus": "build",
+            "status": "completed",
+            "current_iter": "build",
+            "current_iter_index": 0,
+            "iters_completed": [],
+            "spec": null,
+            "mode_override": null,
+            "context_producers": {},
+            "created_at": "2026-04-22T15:00:00Z",
+            "updated_at": "2026-04-22T15:00:00Z"
+        });
+        fs::write(
+            cursus_dir.join("meta.json"),
+            serde_json::to_string_pretty(&cursus_meta).unwrap(),
+        )
+        .unwrap();
+
+        let legacy_dir = tmp.path().join(".sgf/run");
+        let legacy_meta = serde_json::json!({
+            "loop_id": run_id,
+            "iterations": [],
+            "stage": "build",
+            "spec": null,
+            "cursus": null,
+            "mode": "afk",
+            "prompt": ".sgf/prompts/build.md",
+            "iterations_total": 1,
+            "status": "completed",
+            "created_at": "2026-04-22T15:00:00Z",
+            "updated_at": "2026-04-22T15:02:30Z"
+        });
+        fs::write(
+            legacy_dir.join(format!("{run_id}.json")),
+            serde_json::to_string_pretty(&legacy_meta).unwrap(),
+        )
+        .unwrap();
+
+        // Should attempt cursus resume (not legacy)
+        let result = resume_dispatch(tmp.path(), run_id);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        // Cursus path error (not resumable), NOT legacy path error (No iterations)
+        assert!(
+            err.to_string().contains("not resumable"),
+            "should prefer cursus path when both exist, got: {err}"
+        );
+    }
+
+    #[test]
+    fn resume_dispatch_corrupt_legacy_metadata_returns_error() {
+        let tmp = TempDir::new().unwrap();
+        let run_id = "broken-20260422T150000";
+        let run_dir = tmp.path().join(".sgf/run");
+        fs::create_dir_all(&run_dir).unwrap();
+        fs::write(run_dir.join(format!("{run_id}.json")), "not valid json").unwrap();
+
+        let result = resume_dispatch(tmp.path(), run_id);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+        assert!(
+            err.to_string()
+                .contains("Session metadata not found or corrupt"),
+            "should report corruption, got: {err}"
+        );
     }
 
     #[test]

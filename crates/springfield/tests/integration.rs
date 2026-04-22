@@ -3708,14 +3708,14 @@ fn resume_with_loop_id_passes_resume_flag_to_cl() {
 
     let output = run_sgf(
         sgf_cmd(tmp.path())
-            .args(["resume", loop_id])
+            .args(["build", "--resume", loop_id])
             .env("PATH", &mock_path_with_cl)
             .env_remove("CLAUDECODE"),
     );
 
     assert!(
         output.status.success(),
-        "sgf resume failed: {}",
+        "sgf build --resume failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
 
@@ -3748,40 +3748,21 @@ fn resume_with_loop_id_passes_resume_flag_to_cl() {
 }
 
 #[test]
-fn resume_with_no_sessions_exits_1() {
+fn resume_with_bad_run_id_exits_1() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
 
-    let output = run_sgf(sgf_cmd(tmp.path()).arg("resume"));
+    let output = run_sgf(sgf_cmd(tmp.path()).args(["build", "--resume", "nonexistent-loop-id"]));
 
     assert_eq!(
         output.status.code(),
         Some(1),
-        "sgf resume with no sessions should exit 1"
+        "sgf build --resume with bad run-id should exit 1"
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("No sessions found"),
-        "stderr should contain 'No sessions found', got: {stderr}"
-    );
-}
-
-#[test]
-fn resume_with_bad_loop_id_exits_1() {
-    let tmp = setup_test_dir();
-    sgf_init_and_commit(tmp.path());
-
-    let output = run_sgf(sgf_cmd(tmp.path()).args(["resume", "nonexistent-loop-id"]));
-
-    assert_eq!(
-        output.status.code(),
-        Some(1),
-        "sgf resume with bad loop_id should exit 1"
-    );
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("Session not found"),
-        "stderr should contain 'Session not found', got: {stderr}"
+        stderr.contains("run not found"),
+        "stderr should contain 'run not found', got: {stderr}"
     );
 }
 
@@ -3888,7 +3869,7 @@ fn resume_multi_iteration_picks_selected_session() {
     // Pipe "2\n" to stdin to select iteration 2
     let mut guard = ChildGuard::spawn(
         sgf_cmd(tmp.path())
-            .args(["resume", loop_id])
+            .args(["build", "--resume", loop_id])
             .env("PATH", &mock_path_with_cl)
             .env_remove("CLAUDECODE")
             .stdin(Stdio::piped())
@@ -3912,7 +3893,7 @@ fn resume_multi_iteration_picks_selected_session() {
 
     assert!(
         output.status.success(),
-        "sgf resume should succeed, stderr: {}",
+        "sgf build --resume should succeed, stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
 
@@ -3928,123 +3909,6 @@ fn resume_multi_iteration_picks_selected_session() {
     assert!(
         !cl_args.contains(session_id_1),
         "cl should NOT receive iteration 1's session_id, got: {cl_args}"
-    );
-}
-
-#[test]
-fn resume_flat_picker_across_multiple_loops() {
-    let tmp = setup_test_dir();
-    sgf_init_and_commit(tmp.path());
-
-    let run_dir = tmp.path().join(".sgf/run");
-    fs::create_dir_all(&run_dir).unwrap();
-
-    let loop1 = "build-auth-20260316T120000";
-    let session1 = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
-    let meta1 = serde_json::json!({
-        "loop_id": loop1,
-        "iterations": [
-            { "iteration": 1, "session_id": session1, "completed_at": "2026-03-16T12:02:30Z" }
-        ],
-        "stage": "build",
-        "spec": "auth",
-        "mode": "afk",
-        "prompt": ".sgf/prompts/build.md",
-        "iterations_total": 1,
-        "status": "completed",
-        "created_at": "2026-03-16T12:00:00Z",
-        "updated_at": "2026-03-16T12:02:30Z"
-    });
-    fs::write(
-        run_dir.join(format!("{loop1}.json")),
-        serde_json::to_string_pretty(&meta1).unwrap(),
-    )
-    .unwrap();
-
-    let loop2 = "spec-20260316T130000";
-    let session2 = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
-    let meta2 = serde_json::json!({
-        "loop_id": loop2,
-        "iterations": [
-            { "iteration": 1, "session_id": session2, "completed_at": "2026-03-16T13:02:30Z" }
-        ],
-        "stage": "spec",
-        "spec": null,
-        "mode": "interactive",
-        "prompt": ".sgf/prompts/spec.md",
-        "iterations_total": 1,
-        "status": "completed",
-        "created_at": "2026-03-16T13:00:00Z",
-        "updated_at": "2026-03-16T13:02:30Z"
-    });
-    fs::write(
-        run_dir.join(format!("{loop2}.json")),
-        serde_json::to_string_pretty(&meta2).unwrap(),
-    )
-    .unwrap();
-
-    let mock_cl_dir = TempDir::new().unwrap();
-    let args_file = mock_cl_dir.path().join("cl_args.txt");
-    create_mock_script(
-        mock_cl_dir.path(),
-        "cl",
-        &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
-            args_file.display()
-        ),
-    );
-    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
-
-    // Select "1" — should be the newest session (spec loop, completed_at 13:02:30)
-    let mut guard = ChildGuard::spawn(
-        sgf_cmd(tmp.path())
-            .arg("resume")
-            .env("PATH", &mock_path_with_cl)
-            .env_remove("CLAUDECODE")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped()),
-    )
-    .expect("spawn sgf");
-
-    {
-        use std::io::Write;
-        let stdin = guard.child_mut().stdin.as_mut().expect("open stdin");
-        stdin.write_all(b"1\n").expect("write selection");
-    }
-
-    let _permit = SGF_PERMITS
-        .acquire_timeout(Duration::from_secs(60))
-        .expect("semaphore timed out");
-    let output = guard
-        .wait_with_output_timeout(Duration::from_secs(30))
-        .expect("wait for sgf");
-
-    assert!(
-        output.status.success(),
-        "sgf resume should succeed, stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let cl_args = fs::read_to_string(&args_file).unwrap();
-    assert!(
-        cl_args.contains("--resume"),
-        "cl should receive --resume flag, got: {cl_args}"
-    );
-    // Newest entry (session2, completed at 13:02:30) should be first
-    assert!(
-        cl_args.contains(session2),
-        "cl should receive the newest session's id (spec loop), got: {cl_args}"
-    );
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("Recent sessions"),
-        "picker should show 'Recent sessions' header, got: {stderr}"
-    );
-    assert!(
-        stderr.contains(loop1) && stderr.contains(loop2),
-        "picker should show both loop IDs, got: {stderr}"
     );
 }
 
@@ -4904,13 +4768,13 @@ fn cursus_multi_iter_resume_stalled_run() {
         .expect("semaphore timed out");
     let mut guard = ChildGuard::spawn(
         sgf_cmd(tmp.path())
-            .args(["resume", &run_id])
+            .args(["pipeline", "--resume", &run_id])
             .env("SGF_AGENT_COMMAND", &mock_agent_complete)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped()),
     )
-    .expect("failed to spawn sgf resume");
+    .expect("failed to spawn sgf pipeline --resume");
 
     // Write "2" (skip) to stdin
     {
@@ -4921,7 +4785,7 @@ fn cursus_multi_iter_resume_stalled_run() {
 
     let resume_output = guard
         .wait_with_output_timeout(Duration::from_secs(30))
-        .expect("failed to wait for sgf resume");
+        .expect("failed to wait for sgf pipeline --resume");
     drop(_permit);
     let _ = &resume_output;
 
@@ -5170,7 +5034,6 @@ fn list_shows_builtins_when_no_cursus() {
     assert!(stdout.contains("init"), "should list init builtin");
     assert!(stdout.contains("list"), "should list list builtin");
     assert!(stdout.contains("logs"), "should list logs builtin");
-    assert!(stdout.contains("resume"), "should list resume builtin");
     assert!(
         !stdout.contains("Available commands:"),
         "should not show Available commands when no cursus defined: {stdout}"
