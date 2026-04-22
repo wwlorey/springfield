@@ -3,7 +3,6 @@ use std::fs;
 use std::io;
 use std::io::{IsTerminal, Read as _};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
 use chrono::Utc;
 use shutdown::{ShutdownConfig, ShutdownController};
@@ -232,6 +231,7 @@ fn run_iter(inv: &IterInvocation<'_>, controller: &ShutdownController) -> io::Re
         runner_name: None,
         work_dir: Some(inv.root.to_path_buf()),
         post_result_timeout: crate::iter_runner::default_post_result_timeout(),
+        stdin_input: None,
         on_iteration_complete: None,
     };
 
@@ -245,29 +245,12 @@ fn run_iter(inv: &IterInvocation<'_>, controller: &ShutdownController) -> io::Re
     })
 }
 
-struct ProgrammaticTurnResult {
-    content: String,
-    session_id: String,
-    exit_code: i32,
-}
-
 fn run_programmatic_turn(
     inv: &IterInvocation<'_>,
     resume_session_id: Option<&str>,
     resume_input: Option<&str>,
-) -> io::Result<ProgrammaticTurnResult> {
+) -> io::Result<iter_runner::ProgrammaticResult> {
     let agent_cmd = resolve_agent_command(inv.config);
-
-    let mut cmd = Command::new(&agent_cmd);
-    cmd.args([
-        "--verbose",
-        "--print",
-        "--output-format",
-        "json",
-        "--dangerously-skip-permissions",
-        "--settings",
-        r#"{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}"#,
-    ]);
 
     let mut prompt_files = Vec::new();
     if !inv.consumed_content.is_empty() {
@@ -275,52 +258,50 @@ fn run_programmatic_turn(
         fs::write(&ctx_file, inv.consumed_content)?;
         prompt_files.push(ctx_file.to_string_lossy().to_string());
     }
-    for f in &prompt_files {
-        cmd.args(["--append-system-prompt", &format!("@{f}")]);
-    }
 
     let (ctx_env_name, ctx_env_val) = context::context_env_var(inv.run_id);
     let abs_ctx_val = inv.root.join(&ctx_env_val).to_string_lossy().to_string();
-    cmd.env("SGF_MANAGED", "1");
-    cmd.env(&ctx_env_name, &abs_ctx_val);
+    let mut env_vars = vec![
+        ("SGF_MANAGED".to_string(), "1".to_string()),
+        (ctx_env_name, abs_ctx_val),
+    ];
     if std::env::var("SGF_TEST_NO_SETSID").is_ok() {
-        cmd.env("SGF_TEST_NO_SETSID", "1");
+        env_vars.push(("SGF_TEST_NO_SETSID".to_string(), "1".to_string()));
     }
 
-    if let Some(sid) = resume_session_id {
-        cmd.args(["--resume", sid]);
-        if let Some(input) = resume_input {
-            cmd.arg(input);
-        }
-    } else {
-        cmd.args(["--session-id", inv.session_id]);
-        let prompt_arg = format!("@{}", inv.prompt_path.display());
-        cmd.arg(&prompt_arg);
-    }
+    let controller = ShutdownController::new(ShutdownConfig {
+        monitor_stdin: false,
+        ..Default::default()
+    })?;
 
-    cmd.stdin(Stdio::null());
-    cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::inherit());
+    let iter_config = IterRunnerConfig {
+        afk: false,
+        banner: false,
+        loop_id: Some(inv.run_id.to_string()),
+        iterations: 1,
+        prompt: inv.prompt_path.to_string_lossy().to_string(),
+        auto_push: false,
+        command: Some(agent_cmd),
+        prompt_files,
+        log_file: None,
+        session_id: Some(inv.session_id.to_string()),
+        resume: resume_session_id.map(|s| s.to_string()),
+        env_vars,
+        runner_name: None,
+        work_dir: Some(inv.root.to_path_buf()),
+        post_result_timeout: crate::iter_runner::default_post_result_timeout(),
+        stdin_input: resume_input.map(|s| s.to_string()),
+        on_iteration_complete: None,
+    };
 
-    let output = cmd.output()?;
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let exit_code = output.status.code().unwrap_or(1);
-
-    let (content, session_id) =
-        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&stdout) {
-            let content = parsed["result"].as_str().unwrap_or("").to_string();
-            let sid = parsed["session_id"].as_str().unwrap_or("").to_string();
-            (content, sid)
-        } else {
-            tracing::warn!("failed to parse cl JSON output");
-            (stdout.clone(), String::new())
-        };
-
-    Ok(ProgrammaticTurnResult {
-        content,
-        session_id,
-        exit_code,
-    })
+    iter_runner::run_programmatic(
+        iter_config.command.as_ref().unwrap(),
+        &iter_config,
+        true,
+        &controller,
+        1,
+        inv.session_id,
+    )
 }
 
 fn has_any_sentinel(root: &Path) -> bool {

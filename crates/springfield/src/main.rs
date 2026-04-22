@@ -258,6 +258,7 @@ fn run_simple_prompt(root: &Path, args: &DynamicArgs, prompt_path: &Path) -> ! {
         runner_name: Some("sgf".to_string()),
         work_dir: Some(root.to_path_buf()),
         post_result_timeout: springfield::iter_runner::default_post_result_timeout(),
+        stdin_input: None,
         on_iteration_complete: Some(on_iteration_complete),
     };
 

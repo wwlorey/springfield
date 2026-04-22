@@ -37,6 +37,12 @@ pub fn default_post_result_timeout() -> Duration {
     Duration::from_secs(secs)
 }
 
+pub struct ProgrammaticResult {
+    pub content: String,
+    pub session_id: String,
+    pub exit_code: i32,
+}
+
 pub type IterationCallback = Box<dyn FnMut(u32, &str)>;
 
 pub struct IterRunnerConfig {
@@ -62,6 +68,8 @@ pub struct IterRunnerConfig {
     /// Max time to wait for the agent process to exit after emitting its result event.
     /// Defaults to 30 seconds.
     pub post_result_timeout: Duration,
+    /// Input text to pass as a CLI argument when resuming in programmatic mode.
+    pub stdin_input: Option<String>,
     /// Called after each iteration completes with (iteration_number, session_id).
     pub on_iteration_complete: Option<IterationCallback>,
 }
@@ -449,6 +457,75 @@ fn run_afk(
         warn!(error = %e, "error waiting for child process");
     }
     let _ = reader_handle.join();
+}
+
+pub fn run_programmatic(
+    agent_cmd: &str,
+    config: &IterRunnerConfig,
+    is_file: bool,
+    _controller: &ShutdownController,
+    iteration: u32,
+    session_id: &str,
+) -> std::io::Result<ProgrammaticResult> {
+    let asp_args = build_append_system_prompt_args(&config.prompt_files);
+
+    let mut cmd = Command::new(agent_cmd);
+    cmd.args([
+        "--verbose",
+        "--print",
+        "--output-format",
+        "json",
+        "--dangerously-skip-permissions",
+        "--settings",
+        r#"{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}"#,
+    ]);
+    cmd.args(&asp_args);
+    for (key, val) in &config.env_vars {
+        cmd.env(key, val);
+    }
+
+    let resuming = iteration == 1 && config.resume.is_some();
+    if resuming {
+        cmd.args(["--resume", config.resume.as_ref().unwrap()]);
+        if let Some(ref input) = config.stdin_input {
+            cmd.arg(input);
+        }
+    } else {
+        cmd.args(["--session-id", session_id]);
+        let prompt_arg = if is_file {
+            format!("@{}", config.prompt)
+        } else {
+            config.prompt.clone()
+        };
+        cmd.arg(&prompt_arg);
+    }
+
+    cmd.stdin(Stdio::null());
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::inherit());
+
+    let output = cmd
+        .output()
+        .map_err(|e| std::io::Error::new(e.kind(), format!("failed to spawn command: {e}")))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let exit_code = output.status.code().unwrap_or(1);
+
+    let (content, result_session_id) =
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&stdout) {
+            let content = parsed["result"].as_str().unwrap_or("").to_string();
+            let sid = parsed["session_id"].as_str().unwrap_or("").to_string();
+            (content, sid)
+        } else {
+            warn!("failed to parse agent JSON output");
+            (stdout, String::new())
+        };
+
+    Ok(ProgrammaticResult {
+        content,
+        session_id: result_session_id,
+        exit_code,
+    })
 }
 
 fn log_resource_usage(iteration: u32) {
@@ -861,6 +938,7 @@ mod tests {
             runner_name: None,
             work_dir: Some(dir.to_path_buf()),
             post_result_timeout: Duration::from_secs(30),
+            stdin_input: None,
             on_iteration_complete: None,
         }
     }
@@ -1032,5 +1110,158 @@ mod tests {
         assert_eq!(calls[0].1, "initial-uuid");
         assert_ne!(calls[1].1, calls[0].1, "iteration 2 should have fresh UUID");
         assert_ne!(calls[2].1, calls[1].1, "iteration 3 should have fresh UUID");
+    }
+
+    #[test]
+    fn run_programmatic_parses_json_response() {
+        let dir = tempfile::tempdir().unwrap();
+        let result_json = r#"{"result":"All done.","session_id":"sess-abc123"}"#;
+        let script = mock_script(
+            dir.path(),
+            "prog_json.sh",
+            &format!("#!/bin/sh\necho '{}'\n", result_json),
+        );
+
+        let config = make_config(dir.path(), script.clone());
+        let controller = ShutdownController::new(ShutdownConfig {
+            monitor_stdin: false,
+            ..Default::default()
+        })
+        .unwrap();
+
+        let result = run_programmatic(&script, &config, false, &controller, 1, "test-sid").unwrap();
+
+        assert_eq!(result.content, "All done.");
+        assert_eq!(result.session_id, "sess-abc123");
+        assert_eq!(result.exit_code, 0);
+    }
+
+    #[test]
+    fn run_programmatic_handles_non_json_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = mock_script(dir.path(), "prog_plain.sh", "#!/bin/sh\necho 'not json'\n");
+
+        let config = make_config(dir.path(), script.clone());
+        let controller = ShutdownController::new(ShutdownConfig {
+            monitor_stdin: false,
+            ..Default::default()
+        })
+        .unwrap();
+
+        let result = run_programmatic(&script, &config, false, &controller, 1, "test-sid").unwrap();
+
+        assert_eq!(result.content, "not json\n");
+        assert!(result.session_id.is_empty());
+        assert_eq!(result.exit_code, 0);
+    }
+
+    #[test]
+    fn run_programmatic_captures_exit_code() {
+        let dir = tempfile::tempdir().unwrap();
+        let result_json = r#"{"result":"error","session_id":"s1"}"#;
+        let script = mock_script(
+            dir.path(),
+            "prog_fail.sh",
+            &format!("#!/bin/sh\necho '{}'\nexit 1\n", result_json),
+        );
+
+        let config = make_config(dir.path(), script.clone());
+        let controller = ShutdownController::new(ShutdownConfig {
+            monitor_stdin: false,
+            ..Default::default()
+        })
+        .unwrap();
+
+        let result = run_programmatic(&script, &config, false, &controller, 1, "test-sid").unwrap();
+
+        assert_eq!(result.exit_code, 1);
+        assert_eq!(result.content, "error");
+    }
+
+    #[test]
+    fn run_programmatic_with_resume_passes_input_as_arg() {
+        let dir = tempfile::tempdir().unwrap();
+        // Script checks that --resume and the input are present in args
+        let script = mock_script(
+            dir.path(),
+            "prog_resume.sh",
+            r#"#!/bin/sh
+has_resume=0
+has_input=0
+for arg in "$@"; do
+    case "$arg" in
+        --resume) has_resume=1 ;;
+        "use bcrypt") has_input=1 ;;
+    esac
+done
+if [ "$has_resume" = "1" ] && [ "$has_input" = "1" ]; then
+    echo '{"result":"resumed","session_id":"s2"}'
+else
+    echo '{"result":"missing_args","session_id":"s2"}'
+fi
+"#,
+        );
+
+        let mut config = make_config(dir.path(), script.clone());
+        config.resume = Some("prev-session-id".to_string());
+        config.stdin_input = Some("use bcrypt".to_string());
+
+        let controller = ShutdownController::new(ShutdownConfig {
+            monitor_stdin: false,
+            ..Default::default()
+        })
+        .unwrap();
+
+        let result = run_programmatic(&script, &config, false, &controller, 1, "test-sid").unwrap();
+
+        assert_eq!(result.content, "resumed");
+        assert_eq!(result.session_id, "s2");
+        assert_eq!(result.exit_code, 0);
+    }
+
+    #[test]
+    fn run_programmatic_missing_fields_defaults_to_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = mock_script(
+            dir.path(),
+            "prog_minimal.sh",
+            "#!/bin/sh\necho '{\"other\":\"field\"}'\n",
+        );
+
+        let config = make_config(dir.path(), script.clone());
+        let controller = ShutdownController::new(ShutdownConfig {
+            monitor_stdin: false,
+            ..Default::default()
+        })
+        .unwrap();
+
+        let result = run_programmatic(&script, &config, false, &controller, 1, "test-sid").unwrap();
+
+        assert!(result.content.is_empty());
+        assert!(result.session_id.is_empty());
+        assert_eq!(result.exit_code, 0);
+    }
+
+    #[test]
+    fn run_programmatic_env_vars_propagated() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = mock_script(
+            dir.path(),
+            "prog_env.sh",
+            "#!/bin/sh\necho \"{\\\"result\\\":\\\"$MY_VAR\\\",\\\"session_id\\\":\\\"s1\\\"}\"\n",
+        );
+
+        let mut config = make_config(dir.path(), script.clone());
+        config.env_vars = vec![("MY_VAR".to_string(), "hello_world".to_string())];
+
+        let controller = ShutdownController::new(ShutdownConfig {
+            monitor_stdin: false,
+            ..Default::default()
+        })
+        .unwrap();
+
+        let result = run_programmatic(&script, &config, false, &controller, 1, "test-sid").unwrap();
+
+        assert_eq!(result.content, "hello_world");
     }
 }
