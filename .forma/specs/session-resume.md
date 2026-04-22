@@ -5,7 +5,7 @@ Session resume — persist Claude session IDs and loop config to enable resuming
 | Field | Value |
 |-------|-------|
 | Src | `crates/springfield/` |
-| Status | draft |
+| Status | stable |
 
 ## Overview
 
