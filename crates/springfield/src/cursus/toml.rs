@@ -182,6 +182,13 @@ pub fn validate(def: &CursusDefinition) -> Result<(), io::Error> {
                 ),
             ));
         }
+        if iter.mode == Mode::Interactive && iter.iterations > 1 {
+            tracing::warn!(
+                iter = %iter.name,
+                iterations = iter.iterations,
+                "interactive iter ignores iterations > 1; only a single session will run"
+            );
+        }
         for key in &iter.consumes {
             if !produces_keys.contains(key) {
                 tracing::warn!(
@@ -505,6 +512,54 @@ prompt = "review.md"
         let def = parse(toml).unwrap();
         let err = validate(&def).unwrap_err();
         assert!(err.to_string().contains("on_revise target \"missing\""));
+    }
+
+    #[test]
+    fn warn_interactive_iter_with_iterations_gt_1() {
+        let toml = r#"
+description = "Interactive warning"
+
+[[iter]]
+name = "build"
+prompt = "build.md"
+mode = "interactive"
+iterations = 5
+"#;
+        let def = parse(toml).unwrap();
+        assert_eq!(def.iters[0].mode, Mode::Interactive);
+        assert_eq!(def.iters[0].iterations, 5);
+        // validate() should succeed (warning, not error)
+        assert!(validate(&def).is_ok());
+    }
+
+    #[test]
+    fn no_warn_interactive_iter_with_iterations_1() {
+        let toml = r#"
+description = "Interactive no warning"
+
+[[iter]]
+name = "build"
+prompt = "build.md"
+mode = "interactive"
+iterations = 1
+"#;
+        let def = parse(toml).unwrap();
+        assert!(validate(&def).is_ok());
+    }
+
+    #[test]
+    fn no_warn_afk_iter_with_iterations_gt_1() {
+        let toml = r#"
+description = "Afk no warning"
+
+[[iter]]
+name = "build"
+prompt = "build.md"
+mode = "afk"
+iterations = 10
+"#;
+        let def = parse(toml).unwrap();
+        assert!(validate(&def).is_ok());
     }
 
     #[test]
