@@ -693,11 +693,11 @@ Each cursus execution creates a run, tracked by metadata in `.sgf/run/`.
 | `stalled` | An iter exhausted its iterations without completing |
 | `interrupted` | Pipeline was interrupted by signal (SIGINT/SIGTERM) |
 
-### Resume via `--resume <run-id>`
+### Cursus Resume via `--resume <run-id>`
 
-Any sgf subcommand accepts `--resume <run-id>` to resume a stalled or interrupted pipeline. The former `sgf resume` built-in command is removed.
+Resume dispatch (how `--resume <run-id>` determines whether to route to cursus or non-cursus resume) is owned by the [session-resume spec](session-resume.md) Architecture section.
 
-When `--resume <run-id>` is provided:
+When a cursus run is resumed:
 1. Load `meta.json` from the run directory
 2. Restore full pipeline state: current iter, iteration count, accumulated context, context producers
 3. For stalled runs (interactive mode): present options — Retry, Skip, or Abort
@@ -738,52 +738,8 @@ When the user resumes with `sgf spec --resume spec-20260317T140000`:
    - **Abort**: Mark the run as interrupted and exit
 4. Continue the pipeline from the chosen point
 
-### Resume Integration
-
-`--resume <run-id>` dispatches based on the run directory structure:
-- If `.sgf/run/<run-id>/meta.json` exists with a `cursus` field → cursus resume (restore full pipeline state)
-- If `.sgf/run/<run-id>.json` exists → non-cursus session resume (see [session-resume spec](session-resume.md))
-- Otherwise → error: "run not found: <run-id>"
-
 ## Iter Execution
 
-### Execution Flow
-
-For each iter in the cursus (starting from the first, or from the resume point):
-
-1. **Pre-iter setup**:
-   - Create/verify run context directory
-   - Update `meta.json` with `current_iter` and `status: "running"`
-   - Clean stale sentinel files (`.iter-complete`, `.iter-reject`, `.iter-revise`)
-   - Resolve `consumes` files and build system prompt injection content
-   - Set environment: `SGF_RUN_CONTEXT` (relative path from repo root)
-
-2. **Invoke iter**:
-   - **AFK mode**: Invoke `cl` via sgf's iteration runner with the iter's prompt, iterations, banner flag, and consumed context via `--append-system-prompt`. Uses `--dangerously-skip-permissions`, `--print`, `--output-format stream-json`.
-   - **Interactive mode**: Invoke `cl` directly with the iter's prompt, `--dangerously-skip-permissions`, and consumed context via `--append-system-prompt`
-   - The iteration runner handles agent invocation, NDJSON output formatting, terminal settings save/restore (tcgetattr/tcsetattr), stdout teeing to log files, and notification watching. See the [springfield spec](springfield.md) for full details.
-   - A `ShutdownController` is created per-iter with `monitor_stdin` set based on the iter's effective mode: `true` for AFK iters (sgf owns stdin), `false` for interactive iters (stdin belongs to the agent). See the [shutdown spec's "Stdin EOF Detection" section](shutdown.md#stdin-eof-detection) for the rationale and behavior.
-   - Session ID management: fresh UUID per `cl` invocation. See [session-resume spec](session-resume.md) for the full session metadata schema and `sgf resume` command.
-
-3. **Post-iter evaluation**:
-   - Check sentinel files in priority order (see Sentinel Protocol)
-   - Record iter completion in `meta.json` (`iters_completed` array)
-   - Check for `produces` file existence (warn if missing)
-   - Determine next iter:
-     a. `.iter-complete` → advance to `next` override or next in list
-     b. `.iter-reject` → jump to `on_reject` target
-     c. `.iter-revise` → jump to `on_revise` target
-     d. Exhausted (no sentinel, iterations used up) → enter stalled state
-     e. Interactive with no sentinel → treat as complete (advance)
-
-4. **Termination**:
-   - If the completed iter is the last in the list (and no `next` override): pipeline complete. Update status to `completed`, exit 0
-   - If stalled: update status to `stalled`, print stall banner, exit 2
-   - If interrupted: update status to `interrupted`, exit 130
-
-### Mode Override
-
-CLI flags `-a` and `-i` override the `mode` field for ALL iters in the cursus. This allows running an otherwise-AFK cursus interactively for debugging, or vice versa. The override is stored in `meta.json` as `mode_override`.
 
 ## Command Resolution Changes
 

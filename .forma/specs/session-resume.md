@@ -91,12 +91,10 @@ No new external dependencies beyond `uuid`. The `serde` and `serde_json` crates 
 
 | Scenario | Behavior |
 |----------|----------|
-| `sgf resume` with no sessions available | Print "No sessions found." to stderr, exit 1 |
-| `sgf resume <loop_id>` with unknown loop_id | Print "Session not found: <loop_id>" to stderr, exit 1 |
-| Metadata file missing/corrupt | Print "Session metadata not found or corrupt for <loop_id>" to stderr, exit 1 |
+| `--resume` with unknown run-id | Print "run not found: <run-id>" to stderr, exit 1 |
+| Metadata file missing/corrupt | Print "Session metadata not found or corrupt for <run-id>" to stderr, exit 1 |
 | Metadata write failure (disk full, permissions) | `tracing::warn\!`, continue without metadata (session still runs, just can't be resumed) |
 | `cl --resume` fails (session expired/gone) | Claude Code handles this — it falls back to a new session. Not our error to handle. |
-| Picker selection cancelled (Ctrl+C during picker) | Exit 0 |
 
 ## Testing
 
@@ -141,6 +139,43 @@ cat .sgf/run/spec-*.json
 # Resume it
 sgf spec --resume spec-20260316T120000
 ```
+
+## Resume Dispatch
+
+### Resume via `--resume <run-id>`
+
+The former `sgf resume [loop-id]` built-in command is removed. Resume is now accessed via `--resume <run-id>` on any sgf subcommand:
+
+```
+sgf change --resume change-20260422T150000
+sgf spec --resume spec-20260317T140000
+sgf build --resume build-20260316T162408
+```
+
+### Behavior
+
+1. Read `.sgf/run/<run-id>/meta.json` (cursus) or `.sgf/run/<run-id>.json` (non-cursus)
+2. If not found → error: `run not found: <run-id>`, exit 1
+3. For cursus runs: delegate to cursus resume logic (restores full pipeline state)
+4. For non-cursus sessions: resume the most recent session via `cl --resume <session_id>`
+5. Always resumes in interactive mode (full terminal passthrough) unless programmatic mode is detected (piped stdin)
+6. Update metadata on exit: `status`, `updated_at`
+
+### Resume Command Output
+
+On any run exit (stall, interrupt, completion, error), sgf prints to stderr:
+
+```
+To resume:  sgf change --resume change-20260422T150000
+```
+
+In programmatic mode, this is included in the `run_complete` or `error` JSON event as `resume_command`.
+
+This is printed even on Ctrl+C / Ctrl+D exits, ensuring the user always has a way to get back to where they were.
+
+### Metadata File Lifecycle
+
+Session metadata files in `.sgf/run/` are never pruned automatically. The directory is gitignored, so files accumulate only on the local machine. Manual cleanup via `rm -rf .sgf/run/*` is safe at any time — metadata files are not required for normal operation, only for resume.
 
 ## Session Metadata Schema
 
@@ -201,43 +236,6 @@ The number of completed iterations is derived from `iterations.len()`. There is 
 All writes use atomic rename (write to `.tmp`, then rename into place). Atomic rename prevents corruption from crashes. Concurrent writes from multiple sgf processes targeting the same loop_id are not expected — each loop_id is unique per run.
 
 For AFK mode, The iteration runner reports status directly to sgf.
-
-## sgf resume Command
-
-### Resume via `--resume <run-id>`
-
-The former `sgf resume [loop-id]` built-in command is removed. Resume is now accessed via `--resume <run-id>` on any sgf subcommand:
-
-```
-sgf change --resume change-20260422T150000
-sgf spec --resume spec-20260317T140000
-sgf build --resume build-20260316T162408
-```
-
-### Behavior
-
-1. Read `.sgf/run/<run-id>/meta.json` (cursus) or `.sgf/run/<run-id>.json` (non-cursus)
-2. If not found → error: `run not found: <run-id>`, exit 1
-3. For cursus runs: delegate to cursus resume logic (restores full pipeline state)
-4. For non-cursus sessions: resume the most recent session via `cl --resume <session_id>`
-5. Always resumes in interactive mode (full terminal passthrough) unless programmatic mode is detected (piped stdin)
-6. Update metadata on exit: `status`, `updated_at`
-
-### Resume Command Output
-
-On any run exit (stall, interrupt, completion, error), sgf prints to stderr:
-
-```
-To resume:  sgf change --resume change-20260422T150000
-```
-
-In programmatic mode, this is included in the `run_complete` or `error` JSON event as `resume_command`.
-
-This is printed even on Ctrl+C / Ctrl+D exits, ensuring the user always has a way to get back to where they were.
-
-### Metadata File Lifecycle
-
-Session metadata files in `.sgf/run/` are never pruned automatically. The directory is gitignored, so files accumulate only on the local machine. Manual cleanup via `rm -rf .sgf/run/*` is safe at any time — metadata files are not required for normal operation, only for resume.
 
 ## Session Handling
 
