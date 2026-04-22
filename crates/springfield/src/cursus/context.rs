@@ -94,6 +94,7 @@ mod tests {
             alias: None,
             trigger: "manual".to_string(),
             auto_push: false,
+            retry: crate::cursus::toml::RetryConfig::default(),
             iters: iters
                 .into_iter()
                 .map(|(name, produces, consumes)| IterDefinition {

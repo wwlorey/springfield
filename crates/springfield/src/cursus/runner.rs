@@ -1292,6 +1292,7 @@ mod tests {
             alias: None,
             trigger: "manual".to_string(),
             auto_push,
+            retry: crate::cursus::toml::RetryConfig::default(),
             iters,
         }
     }

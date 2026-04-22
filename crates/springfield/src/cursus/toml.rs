@@ -49,6 +49,38 @@ fn default_trigger() -> String {
     "manual".to_string()
 }
 
+fn default_immediate() -> u32 {
+    3
+}
+
+fn default_interval_secs() -> u64 {
+    300
+}
+
+fn default_max_duration_secs() -> u64 {
+    43200
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct RetryConfig {
+    #[serde(default = "default_immediate")]
+    pub immediate: u32,
+    #[serde(default = "default_interval_secs")]
+    pub interval_secs: u64,
+    #[serde(default = "default_max_duration_secs")]
+    pub max_duration_secs: u64,
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            immediate: default_immediate(),
+            interval_secs: default_interval_secs(),
+            max_duration_secs: default_max_duration_secs(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct CursusDefinition {
     pub description: String,
@@ -57,6 +89,8 @@ pub struct CursusDefinition {
     pub trigger: String,
     #[serde(default)]
     pub auto_push: bool,
+    #[serde(default)]
+    pub retry: RetryConfig,
     #[serde(rename = "iter")]
     pub iters: Vec<IterDefinition>,
 }
@@ -515,6 +549,7 @@ auto_push = false
             alias: alias.map(|a| a.to_string()),
             trigger: "manual".to_string(),
             auto_push: false,
+            retry: RetryConfig::default(),
             iters: vec![IterDefinition {
                 name: iter_name.to_string(),
                 prompt: format!("{iter_name}.md"),
@@ -593,6 +628,7 @@ mode = "turbo"
             alias: None,
             trigger: "manual".to_string(),
             auto_push: false,
+            retry: RetryConfig::default(),
             iters: vec![IterDefinition {
                 name: "build".to_string(),
                 prompt: "build.md".to_string(),
@@ -620,6 +656,7 @@ mode = "turbo"
             alias: None,
             trigger: "manual".to_string(),
             auto_push: false,
+            retry: RetryConfig::default(),
             iters: vec![IterDefinition {
                 name: "build".to_string(),
                 prompt: "missing.md".to_string(),
@@ -650,6 +687,7 @@ mode = "turbo"
             alias: None,
             trigger: "manual".to_string(),
             auto_push: false,
+            retry: RetryConfig::default(),
             iters: vec![
                 IterDefinition {
                     name: "build".to_string(),
@@ -728,5 +766,123 @@ mode = "afk"
             }
         }
         assert!(count > 0, "no TOML files found in {}", cursus_dir.display());
+    }
+
+    #[test]
+    fn parse_retry_all_fields() {
+        let toml = r#"
+description = "Retry test"
+
+[retry]
+immediate = 5
+interval_secs = 600
+max_duration_secs = 86400
+
+[[iter]]
+name = "build"
+prompt = "build.md"
+"#;
+        let def = parse(toml).unwrap();
+        assert_eq!(def.retry.immediate, 5);
+        assert_eq!(def.retry.interval_secs, 600);
+        assert_eq!(def.retry.max_duration_secs, 86400);
+    }
+
+    #[test]
+    fn parse_retry_partial_fields() {
+        let toml = r#"
+description = "Retry partial"
+
+[retry]
+immediate = 10
+
+[[iter]]
+name = "build"
+prompt = "build.md"
+"#;
+        let def = parse(toml).unwrap();
+        assert_eq!(def.retry.immediate, 10);
+        assert_eq!(def.retry.interval_secs, 300);
+        assert_eq!(def.retry.max_duration_secs, 43200);
+    }
+
+    #[test]
+    fn parse_retry_defaults_when_omitted() {
+        let toml = r#"
+description = "No retry section"
+
+[[iter]]
+name = "build"
+prompt = "build.md"
+"#;
+        let def = parse(toml).unwrap();
+        assert_eq!(def.retry.immediate, 3);
+        assert_eq!(def.retry.interval_secs, 300);
+        assert_eq!(def.retry.max_duration_secs, 43200);
+    }
+
+    #[test]
+    fn parse_retry_defaults_when_empty_table() {
+        let toml = r#"
+description = "Empty retry"
+
+[retry]
+
+[[iter]]
+name = "build"
+prompt = "build.md"
+"#;
+        let def = parse(toml).unwrap();
+        assert_eq!(def.retry.immediate, 3);
+        assert_eq!(def.retry.interval_secs, 300);
+        assert_eq!(def.retry.max_duration_secs, 43200);
+    }
+
+    #[test]
+    fn parse_retry_invalid_type_rejected() {
+        let toml = r#"
+description = "Bad retry"
+
+[retry]
+immediate = "not_a_number"
+
+[[iter]]
+name = "build"
+prompt = "build.md"
+"#;
+        let err = parse(toml).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn parse_retry_invalid_interval_type_rejected() {
+        let toml = r#"
+description = "Bad retry interval"
+
+[retry]
+interval_secs = true
+
+[[iter]]
+name = "build"
+prompt = "build.md"
+"#;
+        let err = parse(toml).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn parse_retry_invalid_max_duration_type_rejected() {
+        let toml = r#"
+description = "Bad retry max duration"
+
+[retry]
+max_duration_secs = [1, 2, 3]
+
+[[iter]]
+name = "build"
+prompt = "build.md"
+"#;
+        let err = parse(toml).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
     }
 }
