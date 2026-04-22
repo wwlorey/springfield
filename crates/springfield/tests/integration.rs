@@ -9529,3 +9529,324 @@ fn cursus_programmatic_stall_resume_abort() {
         "metadata should be interrupted after abort"
     );
 }
+
+// ===========================================================================
+// Resume command printed on all exit types
+// ===========================================================================
+
+#[test]
+fn cursus_stall_prints_resume_command() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
+    write_cursus_toml(
+        tmp.path(),
+        "build",
+        concat!(
+            "description = \"Build\"\n",
+            "alias = \"b\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+        ),
+    );
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_agent = create_mock_script(mock_dir.path(), "mock_agent.sh", "#!/bin/sh\nexit 1\n");
+
+    let mock_cl_dir = TempDir::new().unwrap();
+    create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "-a"])
+            .env("SGF_AGENT_COMMAND", &mock_agent)
+            .env("PATH", &mock_path_with_cl)
+            .env("SGF_FORCE_TERMINAL", "1")
+            .stdin(Stdio::null()),
+    );
+
+    assert_eq!(output.status.code(), Some(2));
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("To resume: sgf build --resume build-"),
+        "stalled cursus run should print resume command, got stderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn cursus_completion_prints_resume_command() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
+    write_cursus_toml(
+        tmp.path(),
+        "build",
+        concat!(
+            "description = \"Build\"\n",
+            "alias = \"b\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+        ),
+    );
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        "#!/bin/sh\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
+    );
+
+    let mock_cl_dir = TempDir::new().unwrap();
+    create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "-a"])
+            .env("SGF_AGENT_COMMAND", &mock_agent)
+            .env("PATH", &mock_path_with_cl)
+            .env("SGF_FORCE_TERMINAL", "1")
+            .stdin(Stdio::null()),
+    );
+
+    assert!(
+        output.status.success(),
+        "cursus build should complete, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("To resume: sgf build --resume build-"),
+        "completed cursus run should print resume command, got stderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn cursus_exhausted_prints_resume_command() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
+    write_cursus_toml(
+        tmp.path(),
+        "build",
+        concat!(
+            "description = \"Build\"\n",
+            "alias = \"b\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"build\"\n",
+            "prompt = \"build.md\"\n",
+            "mode = \"afk\"\n",
+            "iterations = 1\n",
+        ),
+    );
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_agent = create_mock_script(mock_dir.path(), "mock_agent.sh", "#!/bin/sh\nexit 2\n");
+
+    let mock_cl_dir = TempDir::new().unwrap();
+    create_mock_script(mock_cl_dir.path(), "cl", "#!/bin/sh\nexit 0\n");
+    let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["build", "-a"])
+            .env("SGF_AGENT_COMMAND", &mock_agent)
+            .env("PATH", &mock_path_with_cl)
+            .env("SGF_FORCE_TERMINAL", "1")
+            .stdin(Stdio::null()),
+    );
+
+    assert_eq!(output.status.code(), Some(2));
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("To resume: sgf build --resume build-"),
+        "exhausted cursus run should print resume command, got stderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn cursus_interrupt_prints_resume_command() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+    setup_default_cursus(tmp.path());
+    create_spec_and_commit(tmp.path(), "auth");
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_agent = create_slow_mock_agent(mock_dir.path());
+    let ready_file = mock_dir.path().join("sgf_ready");
+
+    let _permit = SGF_PERMITS
+        .acquire_timeout(Duration::from_secs(60))
+        .expect("semaphore timed out");
+
+    let guard = ChildGuard::spawn(
+        sgf_cmd(tmp.path())
+            .args(["build", "auth", "-a"])
+            .env("SGF_AGENT_COMMAND", &mock_agent)
+            .env("SGF_READY_FILE", &ready_file)
+            .env("SGF_FORCE_TERMINAL", "1")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn sgf");
+
+    let pid = nix::unistd::Pid::from_raw(guard.id() as i32);
+
+    wait_for_ready(&ready_file);
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send first SIGINT");
+    std::thread::sleep(Duration::from_millis(200));
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send second SIGINT");
+
+    let output = guard
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("wait for sgf");
+
+    assert_eq!(
+        output.status.code(),
+        Some(130),
+        "should exit 130 on double Ctrl+C"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("To resume: sgf build --resume build-"),
+        "interrupted cursus run should print resume command, got stderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn simple_prompt_completion_prints_resume_command() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        "#!/bin/sh\ntouch \"${PWD}/.iter-complete\"\nexit 0\n",
+    );
+
+    let prompt_path = tmp.path().join("task.md");
+    fs::write(&prompt_path, "Do the thing").unwrap();
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["task.md", "-a"])
+            .env("SGF_AGENT_COMMAND", &mock_agent),
+    );
+
+    assert!(
+        output.status.success(),
+        "simple prompt should complete, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("To resume: sgf task.md --resume simple-"),
+        "completed simple prompt run should print resume command, got stderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn simple_prompt_exhausted_prints_resume_command() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_agent = create_mock_script(mock_dir.path(), "mock_agent.sh", "#!/bin/sh\nexit 0\n");
+
+    let prompt_path = tmp.path().join("task.md");
+    fs::write(&prompt_path, "Do the thing").unwrap();
+
+    let output = run_sgf(
+        sgf_cmd(tmp.path())
+            .args(["task.md", "-a", "-n", "1"])
+            .env("SGF_AGENT_COMMAND", &mock_agent),
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "should exit 2 (exhausted), stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("To resume: sgf task.md --resume simple-"),
+        "exhausted simple prompt run should print resume command, got stderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn simple_prompt_interrupt_prints_resume_command() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let mock_dir = TempDir::new().unwrap();
+    let ready_file = mock_dir.path().join("agent_ready");
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent_slow.sh",
+        &format!(
+            "#!/bin/bash\ntrap '' INT\ntouch \"{}\"\nfor i in $(seq 1 50); do sleep 0.1; done\nexit 2\n",
+            ready_file.display()
+        ),
+    );
+
+    let prompt_path = tmp.path().join("task.md");
+    fs::write(&prompt_path, "Do the thing").unwrap();
+
+    let _permit = SGF_PERMITS
+        .acquire_timeout(Duration::from_secs(60))
+        .expect("semaphore timed out");
+
+    let guard = ChildGuard::spawn(
+        sgf_cmd(tmp.path())
+            .args(["task.md", "-a"])
+            .env("SGF_AGENT_COMMAND", &mock_agent)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn sgf");
+
+    let pid = nix::unistd::Pid::from_raw(guard.id() as i32);
+
+    wait_for_ready(&ready_file);
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send first SIGINT");
+    std::thread::sleep(Duration::from_millis(200));
+    nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGINT).expect("send second SIGINT");
+
+    let output = guard
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("wait for sgf");
+
+    assert_eq!(
+        output.status.code(),
+        Some(130),
+        "should exit 130 on double Ctrl+C"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("To resume: sgf task.md --resume simple-"),
+        "interrupted simple prompt run should print resume command, got stderr:\n{stderr}"
+    );
+}
