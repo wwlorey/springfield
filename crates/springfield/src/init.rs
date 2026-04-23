@@ -558,17 +558,6 @@ pub fn run(root: &Path, force: bool, no_fe: bool) -> io::Result<()> {
     merge_pre_commit_config(root)?;
     install_prek_hooks(root)?;
 
-    if !root.join(".sgf/MEMENTO.md").exists() {
-        crate::style::print_warning(
-            ".sgf/MEMENTO.md not found \u{2014} agents won't have fm/pn workflow reference",
-        );
-    }
-    if !root.join(".sgf/BACKPRESSURE.md").exists() {
-        crate::style::print_warning(
-            ".sgf/BACKPRESSURE.md not found \u{2014} agents won't have build/test/lint reference",
-        );
-    }
-
     crate::style::print_success("project scaffolded successfully");
     Ok(())
 }
