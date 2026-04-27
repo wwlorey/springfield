@@ -57,7 +57,8 @@ pub enum Event {
     RunComplete {
         status: String,
         run_id: String,
-        resume_command: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        resume_command: Option<String>,
     },
     Error {
         message: String,
@@ -244,15 +245,15 @@ mod tests {
         let event = Event::RunComplete {
             status: "completed".into(),
             run_id: "change-20260422T150000".into(),
-            resume_command: "sgf change --resume change-20260422T150000".into(),
+            resume_command: None,
         };
         let v = parse_event(&event);
         assert_eq!(v["event"], "run_complete");
         assert_eq!(v["status"], "completed");
         assert_eq!(v["run_id"], "change-20260422T150000");
-        assert_eq!(
-            v["resume_command"],
-            "sgf change --resume change-20260422T150000"
+        assert!(
+            v.get("resume_command").is_none(),
+            "completed run_complete should not include resume_command"
         );
     }
 
@@ -261,10 +262,14 @@ mod tests {
         let event = Event::RunComplete {
             status: "stalled".into(),
             run_id: "build-20260422T150000".into(),
-            resume_command: "sgf build --resume build-20260422T150000".into(),
+            resume_command: Some("sgf build --resume build-20260422T150000".into()),
         };
         let v = parse_event(&event);
         assert_eq!(v["status"], "stalled");
+        assert_eq!(
+            v["resume_command"],
+            "sgf build --resume build-20260422T150000"
+        );
     }
 
     #[test]
@@ -343,7 +348,7 @@ mod tests {
             Event::RunComplete {
                 status: "completed".into(),
                 run_id: "r1".into(),
-                resume_command: "sgf c1 --resume r1".into(),
+                resume_command: None,
             },
             Event::Error {
                 message: "oops".into(),
