@@ -8495,10 +8495,7 @@ fn cursus_programmatic_single_iter_afk_event_ordering() {
     // Validate run_complete content
     let rc = &events[run_complete_pos.unwrap()];
     assert_eq!(rc["status"], "completed");
-    assert!(
-        rc.get("resume_command").is_none() || rc["resume_command"].is_null(),
-        "completed run_complete should not include resume_command"
-    );
+    assert!(rc["resume_command"].as_str().unwrap().contains("--resume"));
 
     // No turn events should be emitted for AFK iters
     assert!(
@@ -9537,7 +9534,7 @@ fn cursus_stall_prints_resume_command() {
 }
 
 #[test]
-fn cursus_completion_omits_resume_command() {
+fn cursus_completion_prints_resume_command() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
     setup_default_cursus(tmp.path());
@@ -9585,8 +9582,8 @@ fn cursus_completion_omits_resume_command() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        !stderr.contains("To resume:"),
-        "completed cursus run should NOT print resume command, got stderr:\n{stderr}"
+        stderr.contains("To resume: sgf build --resume build-"),
+        "completed cursus run should print resume command, got stderr:\n{stderr}"
     );
 }
 
@@ -9687,7 +9684,7 @@ fn cursus_interrupt_prints_resume_command() {
 }
 
 #[test]
-fn simple_prompt_completion_omits_resume_command() {
+fn simple_prompt_completion_prints_resume_command() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());
 
@@ -9715,8 +9712,8 @@ fn simple_prompt_completion_omits_resume_command() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        !stderr.contains("To resume:"),
-        "completed simple prompt run should NOT print resume command, got stderr:\n{stderr}"
+        stderr.contains("To resume: sgf task.md --resume simple-"),
+        "completed simple prompt run should print resume command, got stderr:\n{stderr}"
     );
 }
 
@@ -10071,9 +10068,14 @@ fn cursus_programmatic_piped_stdin_run_complete_has_resume_command() {
         run_id,
         "run_complete run_id should match run_start run_id"
     );
+    let resume_cmd = rc["resume_command"].as_str().unwrap();
     assert!(
-        rc.get("resume_command").is_none() || rc["resume_command"].is_null(),
-        "completed piped stdin run_complete should not include resume_command"
+        resume_cmd.contains("--resume"),
+        "piped stdin run_complete should include --resume in resume_command, got: {resume_cmd}"
+    );
+    assert!(
+        resume_cmd.contains(run_id),
+        "resume_command should contain run_id, got: {resume_cmd}"
     );
 }
 
@@ -10228,9 +10230,14 @@ fn cursus_programmatic_event_structure_validates_all_fields() {
         run_id,
         "run_complete run_id must match run_start run_id"
     );
+    let resume_cmd = rc["resume_command"].as_str().unwrap();
     assert!(
-        rc.get("resume_command").is_none() || rc["resume_command"].is_null(),
-        "completed run_complete should not include resume_command"
+        resume_cmd.contains("--resume"),
+        "resume_command must contain --resume"
+    );
+    assert!(
+        resume_cmd.contains(run_id),
+        "resume_command must contain the run_id"
     );
 
     // --- Verify no unexpected event types (only known events) ---

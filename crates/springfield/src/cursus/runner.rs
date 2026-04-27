@@ -623,7 +623,7 @@ fn run_cursus_loop(
                 events::emit_event(&Event::RunComplete {
                     status: "waiting_for_input".to_string(),
                     run_id: metadata.run_id.clone(),
-                    resume_command: Some(format!("sgf {cursus_name} --resume {}", metadata.run_id)),
+                    resume_command: format!("sgf {cursus_name} --resume {}", metadata.run_id),
                 });
                 state::remove_pid_file(root, &metadata.run_id);
                 return Ok(0);
@@ -659,7 +659,7 @@ fn run_cursus_loop(
                 events::emit_event(&Event::RunComplete {
                     status: "interrupted".to_string(),
                     run_id: metadata.run_id.clone(),
-                    resume_command: Some(format!("sgf {cursus_name} --resume {}", metadata.run_id)),
+                    resume_command: format!("sgf {cursus_name} --resume {}", metadata.run_id),
                 });
             } else {
                 eprintln!("To resume: sgf {cursus_name} --resume {}", metadata.run_id);
@@ -725,10 +725,7 @@ fn run_cursus_loop(
                     events::emit_event(&Event::RunComplete {
                         status: "stalled".to_string(),
                         run_id: metadata.run_id.clone(),
-                        resume_command: Some(format!(
-                            "sgf {cursus_name} --resume {}",
-                            metadata.run_id
-                        )),
+                        resume_command: format!("sgf {cursus_name} --resume {}", metadata.run_id),
                     });
                 } else {
                     print_stall_banner(cursus_name, &iter.name, iter.iterations, &metadata.run_id);
@@ -762,10 +759,14 @@ fn run_cursus_loop(
                         events::emit_event(&Event::RunComplete {
                             status: "completed".to_string(),
                             run_id: metadata.run_id.clone(),
-                            resume_command: None,
+                            resume_command: format!(
+                                "sgf {cursus_name} --resume {}",
+                                metadata.run_id
+                            ),
                         });
                     } else {
                         style::print_success(&format!("cursus complete [{cursus_name}]"));
+                        eprintln!("To resume: sgf {cursus_name} --resume {}", metadata.run_id);
                     }
                     state::remove_pid_file(root, &metadata.run_id);
                     break 0;
@@ -959,7 +960,7 @@ pub fn resume_cursus(root: &Path, run_id: &str) -> io::Result<i32> {
                 events::emit_event(&Event::RunComplete {
                     status: "interrupted".to_string(),
                     run_id: metadata.run_id.clone(),
-                    resume_command: Some(format!("sgf {cursus_name} --resume {}", metadata.run_id)),
+                    resume_command: format!("sgf {cursus_name} --resume {}", metadata.run_id),
                 });
             } else {
                 style::print_warning(&format!("run aborted [{run_id}]"));
@@ -1022,7 +1023,7 @@ pub fn resume_cursus(root: &Path, run_id: &str) -> io::Result<i32> {
                     events::emit_event(&Event::RunComplete {
                         status: "completed".to_string(),
                         run_id: metadata.run_id.clone(),
-                        resume_command: None,
+                        resume_command: format!("sgf {cursus_name} --resume {}", metadata.run_id),
                     });
                 } else {
                     style::print_success(&format!(
