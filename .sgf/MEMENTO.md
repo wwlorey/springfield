@@ -211,6 +211,20 @@ Specifications are the **source of truth** for all code. They are managed exclus
 
 - Anytime you edit the Claude configuration settings, always edit the version that lives in `~/Repos/dotfiles/.claude` (not in `~/`).
 
+### Invoking `sgf` programmatically
+
+- When calling `sgf` commands from within a Claude Code session (e.g., via Bash tool), **pipe the message through stdin** — do NOT pass it as a positional argument.
+- The positional argument is reserved for spec stems (e.g., `sgf c auth`), not free-text descriptions.
+- Piped stdin activates programmatic mode, which emits structured NDJSON events.
+
+```bash
+# Correct:
+echo "Fix the settings button visibility" | sgf c
+
+# Wrong — treats the string as a spec stem:
+sgf c "Fix the settings button visibility"
+```
+
 ### Session Start
 
 - **Run this command at the beginning of EACH SESSION** to understand the structure of this project's specifications:
