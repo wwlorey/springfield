@@ -203,6 +203,10 @@ Specifications are the **source of truth** for all code. They are managed exclus
 - Issues live in `pn`, not `gh`.
   * **ALWAYS use `pn`** for anything having to do with BUGS and/or ISSUES.
 
+### TypeScript scripts (`tsx`)
+
+- Never use bare `tsx` as a script runner — the Claude Code sandbox blocks the IPC pipe it spawns. Use `node --import tsx/esm <script>` instead.
+
 ### Editing `.claude/settings.json`
 
 - Anytime you edit the Claude configuration settings, always edit the version that lives in `~/Repos/dotfiles/.claude` (not in `~/`).
