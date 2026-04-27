@@ -106,6 +106,12 @@ const SANDBOX_ALLOWED_DOMAINS: &[&str] = &[
     "registry.yarnpkg.com",
 ];
 
+const PRETTIERIGNORE: &str = "\
+.forma/
+.pensa/
+.sgf/
+";
+
 const PRE_COMMIT_YAML_FULL: &str = "\
 repos:
   - repo: local
@@ -553,6 +559,7 @@ pub fn run(root: &Path, force: bool, no_fe: bool) -> io::Result<()> {
         unix_fs::symlink("AGENTS.md", &claude_md)?;
     }
 
+    write_if_missing(&root.join(".prettierignore"), PRETTIERIGNORE)?;
     merge_gitignore(root)?;
     merge_claude_settings(root)?;
     merge_pre_commit_config(root)?;
@@ -756,6 +763,33 @@ mod tests {
             tmp.path().join(".git/hooks/pre-commit").exists(),
             "pre-commit hook not installed"
         );
+    }
+
+    // --- .prettierignore tests ---
+
+    #[test]
+    fn prettierignore_created() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+        run(tmp.path(), false, true).unwrap();
+
+        let content = fs::read_to_string(tmp.path().join(".prettierignore")).unwrap();
+        assert!(content.contains(".forma/"));
+        assert!(content.contains(".pensa/"));
+        assert!(content.contains(".sgf/"));
+    }
+
+    #[test]
+    fn prettierignore_not_overwritten() {
+        let tmp = TempDir::new().unwrap();
+        git_init(tmp.path());
+        let custom = "custom\n";
+        fs::write(tmp.path().join(".prettierignore"), custom).unwrap();
+
+        run(tmp.path(), false, true).unwrap();
+
+        let content = fs::read_to_string(tmp.path().join(".prettierignore")).unwrap();
+        assert_eq!(content, custom);
     }
 
     // --- .gitignore tests ---
