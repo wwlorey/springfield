@@ -189,11 +189,19 @@ Specifications are the **source of truth** for all code. They are managed exclus
 
 ## IMPORTANT
 
-- **Use relative paths—from the repo root—for file operations, not absolute paths.**
-- **When asked about what has been built** IN GENERAL or ON A PARTICULAR DAY/TIME:
+### Use relative paths
+
+- Use relative paths—from the repo root—for file operations, not absolute paths.
+
+### "What has been built?"
+
+- When asked about what has been built (*in general* or *on a particular day/time*):
   * Read the logs in `./.sgf/logs` to help formulate your answer.
-- **ALWAYS use `pn`** for anything having to do with BUGS and/or ISSUES.
-  * NEVER USE GITHUB (`gh`).
+
+### `pn`, never `gh`
+
+- Issues live in `pn`, not `gh`.
+  * **ALWAYS use `pn`** for anything having to do with BUGS and/or ISSUES.
 
 ### Editing `.claude/settings.json`
 
