@@ -76,6 +76,15 @@ pub fn list_session_metadata(root: &Path) -> io::Result<Vec<SessionMetadata>> {
     Ok(sessions)
 }
 
+pub fn find_resumable_sessions(root: &Path) -> io::Result<Vec<SessionMetadata>> {
+    let all = list_session_metadata(root)?;
+    let resumable = all
+        .into_iter()
+        .filter(|m| matches!(m.status.as_str(), "interrupted" | "exhausted"))
+        .collect();
+    Ok(resumable)
+}
+
 pub fn generate_loop_id(stage: &str, spec: Option<&str>) -> String {
     let ts = Local::now().format("%Y%m%dT%H%M%S");
     match spec {
@@ -553,6 +562,62 @@ mod tests {
         let read_back = read_session_metadata(root, "append-test").unwrap().unwrap();
         assert_eq!(read_back.iterations.len(), 2);
         assert_eq!(read_back.iterations[1].session_id, "uuid-iter-2");
+    }
+
+    #[test]
+    fn find_resumable_filters_to_interrupted_and_exhausted() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+
+        let mut completed = make_metadata("completed-loop", "2026-03-16T12:00:00Z");
+        completed.status = "completed".to_string();
+        write_session_metadata(root, &completed).unwrap();
+
+        let mut interrupted = make_metadata("interrupted-loop", "2026-03-16T13:00:00Z");
+        interrupted.status = "interrupted".to_string();
+        write_session_metadata(root, &interrupted).unwrap();
+
+        let mut exhausted = make_metadata("exhausted-loop", "2026-03-16T14:00:00Z");
+        exhausted.status = "exhausted".to_string();
+        write_session_metadata(root, &exhausted).unwrap();
+
+        let mut running = make_metadata("running-loop", "2026-03-16T15:00:00Z");
+        running.status = "running".to_string();
+        write_session_metadata(root, &running).unwrap();
+
+        let sessions = find_resumable_sessions(root).unwrap();
+        assert_eq!(sessions.len(), 2);
+        let ids: Vec<&str> = sessions.iter().map(|s| s.loop_id.as_str()).collect();
+        assert!(ids.contains(&"interrupted-loop"));
+        assert!(ids.contains(&"exhausted-loop"));
+        assert!(!ids.contains(&"completed-loop"));
+        assert!(!ids.contains(&"running-loop"));
+    }
+
+    #[test]
+    fn find_resumable_empty_when_no_sessions() {
+        let tmp = TempDir::new().unwrap();
+        let sessions = find_resumable_sessions(tmp.path()).unwrap();
+        assert!(sessions.is_empty());
+    }
+
+    #[test]
+    fn find_resumable_sorted_newest_first() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+
+        let mut older = make_metadata("older-loop", "2026-03-16T10:00:00Z");
+        older.status = "interrupted".to_string();
+        write_session_metadata(root, &older).unwrap();
+
+        let mut newer = make_metadata("newer-loop", "2026-03-16T14:00:00Z");
+        newer.status = "interrupted".to_string();
+        write_session_metadata(root, &newer).unwrap();
+
+        let sessions = find_resumable_sessions(root).unwrap();
+        assert_eq!(sessions.len(), 2);
+        assert_eq!(sessions[0].loop_id, "newer-loop");
+        assert_eq!(sessions[1].loop_id, "older-loop");
     }
 
     #[test]

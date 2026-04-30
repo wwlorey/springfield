@@ -29,6 +29,12 @@ enum Commands {
     /// Show available commands with descriptions
     List,
 
+    /// List and resume a previous session
+    Resume {
+        /// Run ID to resume directly
+        run_id: Option<String>,
+    },
+
     /// Tail a running loop's output
     Logs {
         /// Loop ID to tail
@@ -465,6 +471,99 @@ fn run_cursus_dispatch(root: &Path, args: &DynamicArgs, resolved: cursus::Resolv
     }
 }
 
+struct ResumableEntry {
+    run_id: String,
+    label: String,
+    status: String,
+    updated_at: String,
+}
+
+fn collect_resumable(root: &Path) -> Vec<ResumableEntry> {
+    let mut entries = Vec::new();
+
+    if let Ok(cursus_runs) = cursus::state::find_resumable_runs(root) {
+        for r in cursus_runs {
+            entries.push(ResumableEntry {
+                run_id: r.run_id.clone(),
+                label: format!("cursus:{}", r.cursus),
+                status: r.status.to_string(),
+                updated_at: r.updated_at.clone(),
+            });
+        }
+    }
+
+    if let Ok(legacy) = springfield::loop_mgmt::find_resumable_sessions(root) {
+        for m in legacy {
+            entries.push(ResumableEntry {
+                run_id: m.loop_id.clone(),
+                label: m.stage.clone(),
+                status: m.status.clone(),
+                updated_at: m.updated_at.clone(),
+            });
+        }
+    }
+
+    entries.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    entries.truncate(20);
+    entries
+}
+
+fn run_resume_command(root: &Path, run_id: Option<&str>) -> ! {
+    if let Some(id) = run_id {
+        match resume_dispatch(root, id) {
+            Ok(code) => std::process::exit(code),
+            Err(e) => {
+                springfield::style::print_error(&format!("resume: {e}"));
+                std::process::exit(1);
+            }
+        }
+    }
+
+    let entries = collect_resumable(root);
+    if entries.is_empty() {
+        eprintln!("No resumable sessions");
+        std::process::exit(0);
+    }
+
+    eprintln!("Resumable sessions:\n");
+    for (i, e) in entries.iter().enumerate() {
+        let relative = springfield::orchestrate::humanize_relative_time(&e.updated_at);
+        eprintln!(
+            "  {:>2}. {:<40} {:<16} {:<14} {}",
+            i + 1,
+            e.run_id,
+            e.label,
+            e.status,
+            relative,
+        );
+    }
+    eprintln!();
+
+    eprint!("Select session (1-{}): ", entries.len());
+
+    let mut input = String::new();
+    if std::io::stdin().read_line(&mut input).is_err() || input.trim().is_empty() {
+        std::process::exit(0);
+    }
+
+    let choice: usize = match input.trim().parse() {
+        Ok(n) if n >= 1 && n <= entries.len() => n,
+        _ => {
+            springfield::style::print_error("Invalid selection");
+            std::process::exit(1);
+        }
+    };
+
+    let selected = &entries[choice - 1];
+    match resume_dispatch(root, &selected.run_id) {
+        Ok(code) => std::process::exit(code),
+        Err(e) => {
+            springfield::style::print_error(&format!("resume: {e}"));
+            std::process::exit(1);
+        }
+    }
+}
+
 fn run_list(root: &Path) {
     let commands = cursus::list_all(root);
 
@@ -472,6 +571,7 @@ fn run_list(root: &Path) {
         ("init", "Scaffold a new project"),
         ("list", "Show available commands"),
         ("logs", "Tail a running loop's output"),
+        ("resume", "List and resume a previous session"),
     ];
 
     let max_name = commands
@@ -514,6 +614,10 @@ fn main() {
         Commands::List => {
             let root = std::env::current_dir().expect("failed to get current directory");
             run_list(&root);
+        }
+        Commands::Resume { run_id } => {
+            let root = std::env::current_dir().expect("failed to get current directory");
+            run_resume_command(&root, run_id.as_deref());
         }
         Commands::Logs { loop_id } => {
             let root = std::env::current_dir().expect("failed to get current directory");
@@ -1018,5 +1122,217 @@ prompt = "test.md"
 
         let resolved = resolve_command(tmp.path(), "build").unwrap();
         assert_eq!(resolved.name, "build");
+    }
+
+    #[test]
+    fn collect_resumable_empty_when_no_sessions() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir_all(tmp.path().join(".sgf/run")).unwrap();
+        let entries = collect_resumable(tmp.path());
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn collect_resumable_includes_legacy_interrupted() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let run_dir = root.join(".sgf/run");
+        fs::create_dir_all(&run_dir).unwrap();
+
+        let meta = serde_json::json!({
+            "loop_id": "simple-20260430T120000",
+            "iterations": [{"iteration": 1, "session_id": "sid-1", "completed_at": "2026-04-30T12:01:00Z"}],
+            "stage": "build",
+            "spec": null,
+            "cursus": null,
+            "mode": "interactive",
+            "prompt": ".sgf/prompts/build.md",
+            "iterations_total": 1,
+            "status": "interrupted",
+            "created_at": "2026-04-30T12:00:00Z",
+            "updated_at": "2026-04-30T12:01:00Z"
+        });
+        fs::write(
+            run_dir.join("simple-20260430T120000.json"),
+            serde_json::to_string_pretty(&meta).unwrap(),
+        )
+        .unwrap();
+
+        let entries = collect_resumable(root);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].run_id, "simple-20260430T120000");
+        assert_eq!(entries[0].label, "build");
+        assert_eq!(entries[0].status, "interrupted");
+    }
+
+    #[test]
+    fn collect_resumable_includes_cursus_stalled() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let run_id = "change-20260430T130000";
+        let run_dir = root.join(".sgf/run").join(run_id);
+        fs::create_dir_all(&run_dir).unwrap();
+
+        let meta = serde_json::json!({
+            "run_id": run_id,
+            "cursus": "change",
+            "status": "stalled",
+            "current_iter": "build",
+            "current_iter_index": 1,
+            "iters_completed": [],
+            "spec": null,
+            "mode_override": null,
+            "context_producers": {},
+            "created_at": "2026-04-30T13:00:00Z",
+            "updated_at": "2026-04-30T13:05:00Z"
+        });
+        fs::write(
+            run_dir.join("meta.json"),
+            serde_json::to_string_pretty(&meta).unwrap(),
+        )
+        .unwrap();
+
+        let entries = collect_resumable(root);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].run_id, run_id);
+        assert_eq!(entries[0].label, "cursus:change");
+        assert_eq!(entries[0].status, "stalled");
+    }
+
+    #[test]
+    fn collect_resumable_merges_and_sorts_by_updated_at() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let run_dir = root.join(".sgf/run");
+        fs::create_dir_all(&run_dir).unwrap();
+
+        // Legacy session (older)
+        let legacy = serde_json::json!({
+            "loop_id": "simple-20260430T100000",
+            "iterations": [{"iteration": 1, "session_id": "sid-1", "completed_at": "2026-04-30T10:01:00Z"}],
+            "stage": "build",
+            "spec": null,
+            "cursus": null,
+            "mode": "afk",
+            "prompt": ".sgf/prompts/build.md",
+            "iterations_total": 1,
+            "status": "exhausted",
+            "created_at": "2026-04-30T10:00:00Z",
+            "updated_at": "2026-04-30T10:01:00Z"
+        });
+        fs::write(
+            run_dir.join("simple-20260430T100000.json"),
+            serde_json::to_string_pretty(&legacy).unwrap(),
+        )
+        .unwrap();
+
+        // Cursus run (newer)
+        let cursus_id = "spec-20260430T140000";
+        let cursus_dir = run_dir.join(cursus_id);
+        fs::create_dir_all(&cursus_dir).unwrap();
+        let cursus_meta = serde_json::json!({
+            "run_id": cursus_id,
+            "cursus": "spec",
+            "status": "interrupted",
+            "current_iter": "draft",
+            "current_iter_index": 0,
+            "iters_completed": [],
+            "spec": null,
+            "mode_override": null,
+            "context_producers": {},
+            "created_at": "2026-04-30T14:00:00Z",
+            "updated_at": "2026-04-30T14:05:00Z"
+        });
+        fs::write(
+            cursus_dir.join("meta.json"),
+            serde_json::to_string_pretty(&cursus_meta).unwrap(),
+        )
+        .unwrap();
+
+        let entries = collect_resumable(root);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].run_id, cursus_id, "newer should be first");
+        assert_eq!(entries[1].run_id, "simple-20260430T100000");
+    }
+
+    #[test]
+    fn collect_resumable_excludes_completed_and_running() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let run_dir = root.join(".sgf/run");
+        fs::create_dir_all(&run_dir).unwrap();
+
+        let completed = serde_json::json!({
+            "loop_id": "done-loop",
+            "iterations": [{"iteration": 1, "session_id": "s1", "completed_at": "2026-04-30T12:00:00Z"}],
+            "stage": "build",
+            "spec": null,
+            "cursus": null,
+            "mode": "interactive",
+            "prompt": ".sgf/prompts/build.md",
+            "iterations_total": 1,
+            "status": "completed",
+            "created_at": "2026-04-30T12:00:00Z",
+            "updated_at": "2026-04-30T12:00:00Z"
+        });
+        fs::write(
+            run_dir.join("done-loop.json"),
+            serde_json::to_string_pretty(&completed).unwrap(),
+        )
+        .unwrap();
+
+        let running = serde_json::json!({
+            "loop_id": "active-loop",
+            "iterations": [],
+            "stage": "build",
+            "spec": null,
+            "cursus": null,
+            "mode": "afk",
+            "prompt": ".sgf/prompts/build.md",
+            "iterations_total": 5,
+            "status": "running",
+            "created_at": "2026-04-30T12:00:00Z",
+            "updated_at": "2026-04-30T12:00:00Z"
+        });
+        fs::write(
+            run_dir.join("active-loop.json"),
+            serde_json::to_string_pretty(&running).unwrap(),
+        )
+        .unwrap();
+
+        let entries = collect_resumable(root);
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn collect_resumable_truncates_to_20() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let run_dir = root.join(".sgf/run");
+        fs::create_dir_all(&run_dir).unwrap();
+
+        for i in 0..25u32 {
+            let meta = serde_json::json!({
+                "loop_id": format!("loop-{i:02}"),
+                "iterations": [{"iteration": 1, "session_id": format!("sid-{i}"), "completed_at": "2026-04-30T12:00:00Z"}],
+                "stage": "build",
+                "spec": null,
+                "cursus": null,
+                "mode": "afk",
+                "prompt": ".sgf/prompts/build.md",
+                "iterations_total": 1,
+                "status": "interrupted",
+                "created_at": "2026-04-30T12:00:00Z",
+                "updated_at": format!("2026-04-{:02}T12:00:00Z", (i % 28) + 1)
+            });
+            fs::write(
+                run_dir.join(format!("loop-{i:02}.json")),
+                serde_json::to_string_pretty(&meta).unwrap(),
+            )
+            .unwrap();
+        }
+
+        let entries = collect_resumable(root);
+        assert_eq!(entries.len(), 20);
     }
 }

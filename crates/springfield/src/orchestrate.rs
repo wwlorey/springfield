@@ -43,7 +43,7 @@ fn kill_child(child: &std::process::Child) {
     shutdown::kill_process_group(child.id(), Duration::from_millis(200));
 }
 
-fn humanize_relative_time(updated_at: &str) -> String {
+pub fn humanize_relative_time(updated_at: &str) -> String {
     let Ok(updated) = chrono::DateTime::parse_from_rfc3339(updated_at) else {
         return "unknown".to_string();
     };
