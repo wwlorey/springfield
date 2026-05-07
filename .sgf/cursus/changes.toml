@@ -1,0 +1,9 @@
+description = "Orchestrate changes to the code and log bugs tracking them."
+alias = "cs"
+auto_push = true
+
+[[iter]]
+name = "changes"
+prompt = "changes.md"
+mode = "interactive"
+iterations = 1
