@@ -1,10 +1,10 @@
 use std::io;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::time::Duration;
 
 use chrono::Utc;
-use shutdown::{ShutdownConfig, ShutdownController, ShutdownStatus};
+use shutdown::{ShutdownConfig, ShutdownController};
 
 use crate::loop_mgmt::{self, IterationRecord, SessionMetadata};
 use crate::style;
@@ -37,10 +37,6 @@ fn update_metadata_on_exit(root: &Path, loop_id: &str, exit_code: i32) {
             ));
         }
     }
-}
-
-fn kill_child(child: &std::process::Child) {
-    shutdown::kill_process_group(child.id(), Duration::from_millis(200));
 }
 
 pub fn humanize_relative_time(updated_at: &str) -> String {
@@ -81,36 +77,71 @@ fn run_resume_session(root: &Path, meta: &SessionMetadata, session_id: &str) -> 
         ..Default::default()
     })?;
 
-    let mut child = Command::new("cl")
-        .args([
-            "--resume",
-            session_id,
-            "--verbose",
-            "--dangerously-skip-permissions",
-        ])
-        .stdin(Stdio::inherit())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .map_err(|e| io::Error::other(format!("failed to spawn cl: {e}")))?;
+    let log_path = loop_mgmt::create_log_file(root, loop_id).ok();
 
-    let exit_code = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status.code().unwrap_or(1),
-            Ok(None) => {
-                if controller.poll() == ShutdownStatus::Shutdown {
-                    kill_child(&child);
-                    let _ = child.wait();
-                    break 130;
-                }
-                std::thread::sleep(Duration::from_millis(50));
+    let mut command = Command::new("cl");
+    command.args([
+        "--resume",
+        session_id,
+        "--verbose",
+        "--dangerously-skip-permissions",
+    ]);
+
+    let start = std::time::Instant::now();
+    let result = crate::iter_runner::pty_tee::run_interactive_with_pty(
+        &mut command,
+        log_path.as_deref(),
+        &controller,
+    )?;
+
+    let exit_code = result.exit_code.unwrap_or(1);
+
+    if exit_code != 0 && start.elapsed() < Duration::from_secs(5) {
+        style::print_warning("session may have expired");
+        eprintln!();
+        eprint!("Restart with same prompt ({})? [Y/n] ", meta.prompt);
+        let mut input = String::new();
+        if io::stdin().read_line(&mut input).is_ok() {
+            let answer = input.trim().to_lowercase();
+            if answer.is_empty() || answer == "y" || answer == "yes" {
+                return restart_with_prompt(root, meta, &controller, log_path.as_deref());
             }
-            Err(e) => return Err(e),
         }
-    };
+    }
 
     update_metadata_on_exit(root, loop_id, exit_code);
 
+    Ok(exit_code)
+}
+
+fn restart_with_prompt(
+    root: &Path,
+    meta: &SessionMetadata,
+    controller: &ShutdownController,
+    log_path: Option<&Path>,
+) -> io::Result<i32> {
+    style::print_action("restarting with original prompt...");
+
+    let mut command = Command::new("cl");
+    command.args([
+        "--verbose",
+        "--dangerously-skip-permissions",
+        "--settings",
+        r#"{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}"#,
+    ]);
+
+    let is_file = Path::new(&meta.prompt).exists();
+    if is_file {
+        command.arg(format!("@{}", meta.prompt));
+    } else {
+        command.arg(&meta.prompt);
+    }
+
+    let result =
+        crate::iter_runner::pty_tee::run_interactive_with_pty(&mut command, log_path, controller)?;
+
+    let exit_code = result.exit_code.unwrap_or(1);
+    update_metadata_on_exit(root, &meta.loop_id, exit_code);
     Ok(exit_code)
 }
 
@@ -206,6 +237,7 @@ mod tests {
     use super::*;
     use std::fs;
     use std::os::unix::process::CommandExt;
+    use std::process::Stdio;
     use tempfile::TempDir;
 
     #[test]

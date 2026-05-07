@@ -80,9 +80,28 @@ pub fn find_resumable_sessions(root: &Path) -> io::Result<Vec<SessionMetadata>> 
     let all = list_session_metadata(root)?;
     let resumable = all
         .into_iter()
-        .filter(|m| matches!(m.status.as_str(), "interrupted" | "exhausted"))
+        .filter(|m| matches!(m.status.as_str(), "interrupted" | "exhausted" | "running"))
+        .map(|mut m| {
+            if m.status == "running" && is_stale_running(&m, root) {
+                m.status = "crashed".to_string();
+            }
+            m
+        })
         .collect();
     Ok(resumable)
+}
+
+fn is_stale_running(meta: &SessionMetadata, root: &Path) -> bool {
+    let pid_path = root.join(".sgf/run").join(format!("{}.pid", meta.loop_id));
+    if !pid_path.exists() {
+        return true;
+    }
+    if let Ok(contents) = fs::read_to_string(&pid_path)
+        && let Ok(pid) = contents.trim().parse::<u32>()
+    {
+        return !is_pid_alive(pid);
+    }
+    true
 }
 
 pub fn generate_loop_id(stage: &str, spec: Option<&str>) -> String {
@@ -565,7 +584,7 @@ mod tests {
     }
 
     #[test]
-    fn find_resumable_filters_to_interrupted_and_exhausted() {
+    fn find_resumable_includes_interrupted_exhausted_and_crashed() {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
 
@@ -586,12 +605,21 @@ mod tests {
         write_session_metadata(root, &running).unwrap();
 
         let sessions = find_resumable_sessions(root).unwrap();
-        assert_eq!(sessions.len(), 2);
+        assert_eq!(sessions.len(), 3);
         let ids: Vec<&str> = sessions.iter().map(|s| s.loop_id.as_str()).collect();
         assert!(ids.contains(&"interrupted-loop"));
         assert!(ids.contains(&"exhausted-loop"));
         assert!(!ids.contains(&"completed-loop"));
-        assert!(!ids.contains(&"running-loop"));
+        assert!(ids.contains(&"running-loop"));
+
+        let running_session = sessions
+            .iter()
+            .find(|s| s.loop_id == "running-loop")
+            .unwrap();
+        assert_eq!(
+            running_session.status, "crashed",
+            "stale running session should be marked crashed"
+        );
     }
 
     #[test]

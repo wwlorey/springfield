@@ -236,30 +236,55 @@ fn run_simple_prompt(root: &Path, args: &DynamicArgs, prompt_path: &Path) -> ! {
         tracing::warn!(error = %e, "failed to write initial session metadata");
     }
 
-    let root_for_cb = root.to_path_buf();
-    let loop_id_for_cb = loop_id.clone();
-    let on_iteration_complete: springfield::iter_runner::IterationCallback =
+    let root_for_start = root.to_path_buf();
+    let loop_id_for_start = loop_id.clone();
+    let on_iteration_start: springfield::iter_runner::IterationCallback =
         Box::new(move |iteration: u32, session_id: &str| {
-            match loop_mgmt::read_session_metadata(&root_for_cb, &loop_id_for_cb) {
+            match loop_mgmt::read_session_metadata(&root_for_start, &loop_id_for_start) {
                 Ok(Some(mut meta)) => {
                     meta.iterations.push(IterationRecord {
                         iteration,
                         session_id: session_id.to_string(),
-                        completed_at: Utc::now().to_rfc3339(),
+                        completed_at: String::new(),
                     });
                     meta.updated_at = Utc::now().to_rfc3339();
-                    if let Err(e) = loop_mgmt::write_session_metadata(&root_for_cb, &meta) {
-                        tracing::warn!(error = %e, "failed to update session metadata");
+                    if let Err(e) = loop_mgmt::write_session_metadata(&root_for_start, &meta) {
+                        tracing::warn!(error = %e, "failed to write session_id before spawn");
                     }
                 }
                 Ok(None) => {
-                    tracing::warn!("session metadata missing during iteration callback");
+                    tracing::warn!("session metadata missing during iteration start callback");
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "failed to read session metadata");
                 }
             }
         });
+
+    let root_for_cb = root.to_path_buf();
+    let loop_id_for_cb = loop_id.clone();
+    let on_iteration_complete: springfield::iter_runner::IterationCallback = Box::new(
+        move |_iteration: u32, _session_id: &str| match loop_mgmt::read_session_metadata(
+            &root_for_cb,
+            &loop_id_for_cb,
+        ) {
+            Ok(Some(mut meta)) => {
+                if let Some(last) = meta.iterations.last_mut() {
+                    last.completed_at = Utc::now().to_rfc3339();
+                }
+                meta.updated_at = Utc::now().to_rfc3339();
+                if let Err(e) = loop_mgmt::write_session_metadata(&root_for_cb, &meta) {
+                    tracing::warn!(error = %e, "failed to update session metadata");
+                }
+            }
+            Ok(None) => {
+                tracing::warn!("session metadata missing during iteration callback");
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to read session metadata");
+            }
+        },
+    );
 
     let config = IterRunnerConfig {
         afk,
@@ -278,6 +303,7 @@ fn run_simple_prompt(root: &Path, args: &DynamicArgs, prompt_path: &Path) -> ! {
         work_dir: Some(root.to_path_buf()),
         post_result_timeout: springfield::iter_runner::default_post_result_timeout(),
         stdin_input: None,
+        on_iteration_start: Some(on_iteration_start),
         on_iteration_complete: Some(on_iteration_complete),
         retry_immediate: 3,
         retry_interval_secs: 300,
@@ -1322,7 +1348,7 @@ prompt = "test.md"
     }
 
     #[test]
-    fn collect_resumable_excludes_completed_and_running() {
+    fn collect_resumable_excludes_completed_includes_crashed() {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
         let run_dir = root.join(".sgf/run");
@@ -1349,7 +1375,7 @@ prompt = "test.md"
 
         let running = serde_json::json!({
             "loop_id": "active-loop",
-            "iterations": [],
+            "iterations": [{"iteration": 1, "session_id": "s-crash", "completed_at": ""}],
             "stage": "build",
             "spec": null,
             "cursus": null,
@@ -1367,7 +1393,9 @@ prompt = "test.md"
         .unwrap();
 
         let entries = collect_resumable(root);
-        assert!(entries.is_empty());
+        assert_eq!(entries.len(), 1, "crashed running session should be resumable");
+        assert_eq!(entries[0].run_id, "active-loop");
+        assert_eq!(entries[0].status, "crashed");
     }
 
     #[test]

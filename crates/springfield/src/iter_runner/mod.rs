@@ -1,5 +1,6 @@
 pub mod banner;
 pub mod format;
+pub mod pty_tee;
 
 use shutdown::{ShutdownController, ShutdownStatus, kill_process_group};
 use std::fs;
@@ -76,6 +77,8 @@ pub struct IterRunnerConfig {
     pub post_result_timeout: Duration,
     /// Input text to pass as a CLI argument when resuming in programmatic mode.
     pub stdin_input: Option<String>,
+    /// Called before each iteration starts with (iteration_number, session_id).
+    pub on_iteration_start: Option<IterationCallback>,
     /// Called after each iteration completes with (iteration_number, session_id).
     pub on_iteration_complete: Option<IterationCallback>,
     /// Number of immediate retry attempts (no delay) before switching to backoff.
@@ -88,9 +91,9 @@ pub struct IterRunnerConfig {
     pub on_retry: Option<RetryCallback>,
 }
 
-struct AgentExitStatus {
-    exit_code: Option<i32>,
-    killed_by_timeout: bool,
+pub(crate) struct AgentExitStatus {
+    pub(crate) exit_code: Option<i32>,
+    pub(crate) killed_by_timeout: bool,
 }
 
 /// Exit codes returned by the iteration loop.
@@ -274,59 +277,29 @@ fn run_interactive(
         };
         command.arg(&prompt_arg);
     }
-    let mut child = match command
-        .stdin(Stdio::inherit())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .spawn()
-    {
-        Ok(c) => c,
-        Err(e) => {
-            warn!(error = %e, "failed to spawn command");
-            stop.store(true, Ordering::Relaxed);
-            let _ = watcher.join();
-            return AgentExitStatus {
-                exit_code: None,
-                killed_by_timeout: false,
-            };
-        }
-    };
 
-    let mut exit_code = None;
-
-    loop {
-        if controller.poll() == ShutdownStatus::Shutdown {
-            kill_process_group(child.id(), Duration::from_millis(200));
-            let _ = child.wait();
-            break;
-        }
-
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                exit_code = status.code();
-                if !status.success() {
-                    warn!(
-                        status = exit_code.unwrap_or(-1),
-                        "command exited with non-zero status"
-                    );
-                }
-                break;
-            }
-            Ok(None) => {
-                thread::sleep(Duration::from_millis(100));
-            }
-            Err(e) => {
-                warn!(error = %e, "error waiting for child process");
-                break;
-            }
-        }
-    }
+    let result =
+        pty_tee::run_interactive_with_pty(&mut command, config.log_file.as_deref(), controller);
 
     stop.store(true, Ordering::Relaxed);
     let _ = watcher.join();
-    AgentExitStatus {
-        exit_code,
-        killed_by_timeout: false,
+
+    match result {
+        Ok(status) => {
+            if let Some(code) = status.exit_code
+                && code != 0
+            {
+                warn!(status = code, "command exited with non-zero status");
+            }
+            status
+        }
+        Err(e) => {
+            warn!(error = %e, "failed to spawn command via PTY");
+            AgentExitStatus {
+                exit_code: None,
+                killed_by_timeout: false,
+            }
+        }
     }
 }
 
@@ -557,6 +530,19 @@ pub fn run_programmatic(
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let exit_code = output.status.code().unwrap_or(1);
+
+    if let Some(log_path) = config.log_file.as_deref() {
+        if let Some(parent) = log_path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        if let Ok(mut f) = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log_path)
+        {
+            let _ = f.write_all(output.stdout.as_slice());
+        }
+    }
 
     let (content, result_session_id) =
         if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&stdout) {
@@ -869,6 +855,10 @@ pub fn run_iteration_loop(
         }
         tee.writeln("");
 
+        if let Some(ref mut cb) = config.on_iteration_start {
+            cb(i, &iter_session_id);
+        }
+
         let head_before = vcs_utils::git_head();
 
         run_agent_with_retry(
@@ -1118,6 +1108,7 @@ mod tests {
             work_dir: Some(dir.to_path_buf()),
             post_result_timeout: Duration::from_secs(30),
             stdin_input: None,
+            on_iteration_start: None,
             on_iteration_complete: None,
             retry_immediate: 3,
             retry_interval_secs: 300,
@@ -1649,5 +1640,53 @@ fi
         assert_eq!(calls[0].0, 1, "first retry attempt");
         assert_eq!(calls[0].1, "process_failure");
         assert_eq!(calls[0].2, 0, "immediate retry has 0 delay");
+    }
+
+    #[test]
+    fn on_iteration_start_called_before_complete() {
+        let dir = tempfile::tempdir().unwrap();
+        let sentinel = dir.path().join(SENTINEL);
+        let script = mock_script(
+            dir.path(),
+            "start_cb_test.sh",
+            &format!("#!/bin/sh\ntouch \"{}\"\nexit 0\n", sentinel.display()),
+        );
+
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let events_start = events.clone();
+        let events_complete = events.clone();
+
+        let mut config = make_config(dir.path(), script);
+        config.session_id = Some("start-test-uuid".to_string());
+        config.on_iteration_start = Some(Box::new(move |iter, sid| {
+            events_start
+                .lock()
+                .unwrap()
+                .push(("start".to_string(), iter, sid.to_string()));
+        }));
+        config.on_iteration_complete = Some(Box::new(move |iter, sid| {
+            events_complete
+                .lock()
+                .unwrap()
+                .push(("complete".to_string(), iter, sid.to_string()));
+        }));
+
+        let controller = ShutdownController::new(ShutdownConfig {
+            monitor_stdin: false,
+            ..Default::default()
+        })
+        .unwrap();
+
+        let exit_code = run_iteration_loop(config, &controller);
+        assert!(matches!(exit_code, IterExitCode::Complete));
+
+        let ev = events.lock().unwrap();
+        assert_eq!(ev.len(), 2);
+        assert_eq!(ev[0].0, "start", "start should be called first");
+        assert_eq!(ev[0].1, 1);
+        assert_eq!(ev[0].2, "start-test-uuid");
+        assert_eq!(ev[1].0, "complete", "complete should be called second");
+        assert_eq!(ev[1].1, 1);
+        assert_eq!(ev[1].2, "start-test-uuid");
     }
 }
