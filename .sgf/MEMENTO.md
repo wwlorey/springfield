@@ -229,3 +229,7 @@ sgf c "Fix the settings button visibility"
 
 - **Run this command at the beginning of EACH SESSION** to understand the structure of this project's specifications:
   * `fm list --json` — list all specifications (the source of truth for implementation)
+
+### Spawning subagents
+
+ - **Subagent limits:** Do not spawn more than 3 concurrent Agent/subagent calls. Large refactors touching many files must be done sequentially, not parallelized across agents.
