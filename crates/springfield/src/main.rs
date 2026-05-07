@@ -449,8 +449,6 @@ fn run_cursus_dispatch(root: &Path, args: &DynamicArgs, resolved: cursus::Resolv
         .unwrap_or_else(|_| std::io::IsTerminal::is_terminal(&std::io::stdin()));
     let programmatic = args.output_format.as_deref() == Some("json") || !is_tty;
 
-    let output_format_json = args.output_format.as_deref() == Some("json");
-
     let config = cursus::runner::CursusConfig {
         spec: args.spec.clone(),
         mode_override,
@@ -459,7 +457,6 @@ fn run_cursus_dispatch(root: &Path, args: &DynamicArgs, resolved: cursus::Resolv
         skip_preflight: args.skip_preflight,
         monitor_stdin_override: None,
         programmatic,
-        output_format_json,
     };
 
     match cursus::runner::run_cursus(root, &resolved.name, &def, &config) {

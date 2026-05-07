@@ -285,3 +285,8 @@
 {"id":"pn-2c9908ff","issue_id":"pn-69af5a23","path":"crates/springfield/src/main.rs","reason":"Added Resume variant to Commands enum, collect_resumable fn, run_resume_command fn, and tests","created_at":"2026-04-30T18:19:24Z"}
 {"id":"pn-b398113b","issue_id":"pn-69af5a23","path":"crates/springfield/src/loop_mgmt.rs","reason":"Added find_resumable_sessions fn and tests","created_at":"2026-04-30T18:19:24Z"}
 {"id":"pn-aac2424d","issue_id":"pn-69af5a23","path":"crates/springfield/src/orchestrate.rs","reason":"Made humanize_relative_time public","created_at":"2026-04-30T18:19:24Z"}
+{"id":"pn-9f20a8e5","issue_id":"pn-78db9bad","path":"crates/springfield/src/cursus/runner.rs","reason":"Removed output_format_json from CursusConfig, changed turn-based flow gate from output_format_json to programmatic, added auto-push to turn-based path","created_at":"2026-05-07T18:19:45Z"}
+{"id":"pn-2de07c1b","issue_id":"pn-78db9bad","path":"crates/springfield/src/iter_runner/mod.rs","reason":"Changed run_programmatic stdin from always-null to inherit on initial turns","created_at":"2026-05-07T18:19:45Z"}
+{"id":"pn-9b906860","issue_id":"pn-78db9bad","path":"crates/springfield/src/main.rs","reason":"Removed output_format_json from CursusConfig construction","created_at":"2026-05-07T18:19:45Z"}
+{"id":"pn-6a97ab04","issue_id":"pn-78db9bad","path":"crates/springfield/src/cursus/toml.rs","reason":"Removed obsolete warning about interactive iters ignoring iterations > 1","created_at":"2026-05-07T18:19:45Z"}
+{"id":"pn-5f6a1535","issue_id":"pn-78db9bad","path":"crates/springfield/tests/integration.rs","reason":"Updated 4 integration tests to match new programmatic interactive semantics","created_at":"2026-05-07T18:19:45Z"}

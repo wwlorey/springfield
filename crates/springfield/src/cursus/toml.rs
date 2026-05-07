@@ -182,13 +182,6 @@ pub fn validate(def: &CursusDefinition) -> Result<(), io::Error> {
                 ),
             ));
         }
-        if iter.mode == Mode::Interactive && iter.iterations > 1 {
-            tracing::warn!(
-                iter = %iter.name,
-                iterations = iter.iterations,
-                "interactive iter ignores iterations > 1; only a single session will run"
-            );
-        }
         for key in &iter.consumes {
             if !produces_keys.contains(key) {
                 tracing::warn!(

@@ -27,7 +27,6 @@ pub struct CursusConfig {
     pub skip_preflight: bool,
     pub monitor_stdin_override: Option<bool>,
     pub programmatic: bool,
-    pub output_format_json: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -307,7 +306,7 @@ fn run_programmatic_turn(
         loop_id: Some(inv.run_id.to_string()),
         iterations: 1,
         prompt: inv.prompt_path.to_string_lossy().to_string(),
-        auto_push: false,
+        auto_push: inv.auto_push,
         command: Some(agent_cmd),
         prompt_files,
         log_file: None,
@@ -593,7 +592,13 @@ fn run_cursus_loop(
             resuming,
         };
 
-        let exit_code = if config.output_format_json && effective_mode == Mode::Interactive {
+        let exit_code = if config.programmatic && effective_mode == Mode::Interactive {
+            let head_before = if auto_push {
+                vcs_utils::git_head()
+            } else {
+                None
+            };
+
             let is_resume_turn = resume_input.is_some() && metadata.current_session_id.is_some();
             let turn_result = if is_resume_turn {
                 let input = resume_input.take().unwrap();
@@ -608,6 +613,12 @@ fn run_cursus_loop(
             };
 
             let waiting_for_input = !has_any_sentinel(root) && turn_result.exit_code == 0;
+
+            if let Some(ref before) = head_before {
+                vcs_utils::auto_push_if_changed(before, |msg| {
+                    style::print_action(msg);
+                });
+            }
 
             events::emit_event(&Event::Turn {
                 content: turn_result.content,
@@ -891,7 +902,6 @@ pub fn resume_cursus(root: &Path, run_id: &str) -> io::Result<i32> {
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
-            output_format_json: true,
         };
 
         state::write_pid_file(root, run_id)?;
@@ -948,7 +958,6 @@ pub fn resume_cursus(root: &Path, run_id: &str) -> io::Result<i32> {
         skip_preflight: true,
         monitor_stdin_override: if programmatic { Some(false) } else { None },
         programmatic,
-        output_format_json: programmatic,
     };
 
     match action {
@@ -1468,7 +1477,6 @@ mod tests {
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
-            output_format_json: false,
         };
 
         let exit_code = run_cursus(root, "build", &def, &config).unwrap();
@@ -1514,7 +1522,6 @@ mod tests {
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
-            output_format_json: false,
         };
 
         let exit_code = run_cursus(root, "build", &def, &config).unwrap();
@@ -1564,7 +1571,6 @@ mod tests {
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
-            output_format_json: false,
         };
 
         let exit_code = run_cursus(root, "spec", &def, &config).unwrap();
@@ -1632,7 +1638,6 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
-            output_format_json: false,
         };
 
         let exit_code = run_cursus(root, "spec", &def, &config).unwrap();
@@ -1712,7 +1717,6 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
-            output_format_json: false,
         };
 
         let exit_code = run_cursus(root, "spec", &def, &config).unwrap();
@@ -1798,7 +1802,6 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
-            output_format_json: false,
         };
 
         let exit_code = run_cursus(root, "pipeline", &def, &config).unwrap();
@@ -1862,7 +1865,6 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
-            output_format_json: false,
         };
 
         let exit_code = run_cursus(root, "build", &def, &config).unwrap();
@@ -1904,7 +1906,6 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
-            output_format_json: false,
         };
 
         let exit_code = run_cursus(root, "build", &def, &config).unwrap();
@@ -1949,7 +1950,6 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
-            output_format_json: false,
         };
 
         run_cursus(root, "build", &def, &config).unwrap();
@@ -1982,7 +1982,6 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: None,
             programmatic: false,
-            output_format_json: false,
         };
 
         let err = run_cursus(root, "empty", &def, &config).unwrap_err();
@@ -2034,7 +2033,6 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
-            output_format_json: false,
         };
 
         let exit_code = run_cursus(root, "spec", &def, &config).unwrap();
@@ -2214,7 +2212,6 @@ prompt = "build.md"
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
-            output_format_json: false,
         };
 
         let run_id = "spec-20260317T140000";
@@ -2284,7 +2281,6 @@ prompt = "build.md"
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
-            output_format_json: false,
         };
 
         let run_id = "spec-20260317T140000";
@@ -2408,7 +2404,6 @@ prompt = "build.md"
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
-            output_format_json: true,
         };
 
         assert!(config.programmatic);
@@ -2427,7 +2422,6 @@ prompt = "build.md"
             skip_preflight: false,
             monitor_stdin_override: None,
             programmatic: false,
-            output_format_json: false,
         };
 
         assert!(!config.programmatic);
@@ -2461,7 +2455,6 @@ prompt = "build.md"
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
-            output_format_json: false,
         };
 
         let exit_code = run_cursus(root, "build", &def, &config).unwrap();
@@ -2525,7 +2518,6 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
-            output_format_json: false,
         };
 
         let exit_code = run_cursus(root, "spec", &def, &config).unwrap();
@@ -2566,7 +2558,6 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
-            output_format_json: false,
         };
 
         let exit_code = run_cursus(root, "build", &def, &config).unwrap();
@@ -2638,7 +2629,6 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
-            output_format_json: false,
         };
 
         let exit_code = run_cursus(root, "pipeline", &def, &config).unwrap();
@@ -2667,7 +2657,6 @@ exit 0
             skip_preflight: false,
             monitor_stdin_override: None,
             programmatic: true,
-            output_format_json: true,
         };
         // Should not panic when emitting events
         emit_if_programmatic(
@@ -2690,7 +2679,6 @@ exit 0
             skip_preflight: false,
             monitor_stdin_override: None,
             programmatic: false,
-            output_format_json: false,
         };
         // Should not emit anything (no way to assert, but verifies no panic)
         emit_if_programmatic(
@@ -2750,7 +2738,6 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
-            output_format_json: true,
         };
 
         let exit_code = run_cursus(root, "chat", &def, &config).unwrap();
@@ -2796,7 +2783,6 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
-            output_format_json: true,
         };
 
         let exit_code = run_cursus(root, "chat", &def, &config).unwrap();
@@ -2813,6 +2799,51 @@ exit 0
         assert_eq!(meta.status, RunStatus::WaitingForInput);
         assert_eq!(meta.current_session_id.as_deref(), Some("sess-xyz"));
         assert_eq!(meta.current_iter, "chat");
+    }
+
+    #[test]
+    fn programmatic_interactive_without_json_output_waits_for_input() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        setup_cursus_project(root, &["chat.md"]);
+
+        let mock_agent = mock_script(
+            root,
+            "mock_agent.sh",
+            r#"#!/bin/sh
+echo '{"type":"result","result":"What should I do next?","session_id":"sess-pipe"}'
+exit 0
+"#,
+        );
+
+        let def = make_cursus_def(
+            vec![make_iter("chat", Mode::Interactive, 1, None, None, None)],
+            false,
+        );
+
+        let config = CursusConfig {
+            spec: None,
+            mode_override: None,
+            no_push: true,
+            agent_command: Some(mock_agent),
+            skip_preflight: true,
+            monitor_stdin_override: Some(false),
+            programmatic: true,
+        };
+
+        let exit_code = run_cursus(root, "chat", &def, &config).unwrap();
+        assert_eq!(exit_code, 0);
+
+        let run_dir = root.join(".sgf/run");
+        let entries: Vec<_> = fs::read_dir(&run_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().ok().is_some_and(|ft| ft.is_dir()))
+            .collect();
+        let run_id = entries[0].file_name().to_str().unwrap().to_string();
+        let meta = state::read_metadata(root, &run_id).unwrap().unwrap();
+        assert_eq!(meta.status, RunStatus::WaitingForInput);
+        assert_eq!(meta.current_session_id.as_deref(), Some("sess-pipe"));
     }
 
     #[test]
@@ -2843,7 +2874,6 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
-            output_format_json: false,
         };
 
         let exit_code = run_cursus(root, "build", &def, &config).unwrap();
@@ -2904,7 +2934,6 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
-            output_format_json: true,
         };
 
         // First run: should get WaitingForInput
@@ -2931,7 +2960,6 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
-            output_format_json: true,
         };
 
         state::write_pid_file(root, &run_id).unwrap();
@@ -2998,7 +3026,6 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
-            output_format_json: true,
         };
 
         // Both iters complete because the mock always creates .iter-complete
@@ -3047,7 +3074,6 @@ exit 1
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
-            output_format_json: true,
         };
 
         let exit_code = run_cursus(root, "chat", &def, &config).unwrap();
@@ -3169,7 +3195,6 @@ exit 1
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
-            output_format_json: true,
         };
 
         metadata.status = RunStatus::Interrupted;
@@ -3227,7 +3252,6 @@ exit 1
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
-            output_format_json: true,
         };
 
         let exit_code =
@@ -3286,7 +3310,6 @@ exit 1
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
-            output_format_json: true,
         };
 
         let exit_code =
@@ -3344,7 +3367,6 @@ touch "$(dirname "$0")/.iter-complete"
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
-            output_format_json: false,
         };
 
         let exit_code = run_cursus(root, "test", &def, &config).unwrap();
@@ -3401,7 +3423,6 @@ exit 1
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
-            output_format_json: false,
         };
 
         let exit_code = run_cursus(root, "test", &def, &config).unwrap();
@@ -3470,7 +3491,6 @@ exit 1
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
-            output_format_json: false,
         };
 
         let exit_code =
@@ -3536,7 +3556,6 @@ exit 1
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
-            output_format_json: false,
         };
 
         let exit_code = run_cursus_loop(
@@ -3610,7 +3629,6 @@ exit 1
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
-            output_format_json: false,
         };
 
         let exit_code =

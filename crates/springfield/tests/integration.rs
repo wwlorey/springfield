@@ -1671,7 +1671,7 @@ fn spec_auto_pushes_after_session_with_new_commits() {
 
     let head_before = bare_remote_head(bare.path());
 
-    // Mock cl that creates a new commit
+    // Mock cl that creates a new commit and signals completion
     let mock_cl_dir = TempDir::new().unwrap();
     create_mock_script(
         mock_cl_dir.path(),
@@ -1683,6 +1683,8 @@ fn spec_auto_pushes_after_session_with_new_commits() {
                 "cd \"{root}\"\n",
                 "git add .\n",
                 "git commit -m 'agent commit' --allow-empty\n",
+                "touch \"{root}/.iter-complete\"\n",
+                "echo '{{\"type\":\"result\",\"result\":\"Done\",\"session_id\":\"sess-push\"}}'\n",
                 "exit 0\n",
             ),
             root = tmp.path().display()
@@ -1850,6 +1852,8 @@ fn doc_auto_pushes_after_session_with_new_commits() {
                 "cd \"{root}\"\n",
                 "git add .\n",
                 "git commit -m 'agent commit' --allow-empty\n",
+                "touch \"{root}/.iter-complete\"\n",
+                "echo '{{\"type\":\"result\",\"result\":\"Done\",\"session_id\":\"sess-push\"}}'\n",
                 "exit 0\n",
             ),
             root = tmp.path().display()
@@ -3609,12 +3613,20 @@ fn interactive_session_writes_metadata_with_session_id() {
 
     let mock_cl_dir = TempDir::new().unwrap();
     let args_file = mock_cl_dir.path().join("agent_args.txt");
+    // Mock cl produces JSON output (as run_programmatic expects) and captures args.
     create_mock_script(
         mock_cl_dir.path(),
         "cl",
         &format!(
-            "#!/bin/sh\necho \"$@\" > \"{}\"\nexit 0\n",
-            args_file.display()
+            concat!(
+                "#!/bin/sh\n",
+                "echo \"$@\" > \"{args}\"\n",
+                "# Extract session-id from args for JSON output\n",
+                "SID=$(echo \"$@\" | sed -n 's/.*--session-id \\([^ ]*\\).*/\\1/p')\n",
+                "echo '{{\"type\":\"result\",\"result\":\"Ready\",\"session_id\":\"'\"$SID\"'\"}}'\n",
+                "exit 0\n",
+            ),
+            args = args_file.display()
         ),
     );
     let mock_path_with_cl = format!("{}:{}", mock_cl_dir.path().display(), mock_bin_path());
@@ -3640,17 +3652,13 @@ fn interactive_session_writes_metadata_with_session_id() {
         meta["run_id"]
     );
     assert_eq!(meta["cursus"], "spec");
-    assert_eq!(meta["status"], "completed");
+    // Non-TTY interactive cursus enters turn-based flow; no sentinel → waiting_for_input
+    assert_eq!(meta["status"], "waiting_for_input");
 
-    let iters_completed = meta["iters_completed"].as_array().unwrap();
-    assert!(
-        !iters_completed.is_empty(),
-        "iters_completed should not be empty"
-    );
-    let session_id = iters_completed[0]["session_id"].as_str().unwrap();
+    let session_id = meta["current_session_id"].as_str().unwrap();
     assert!(
         !session_id.is_empty() && session_id.contains('-'),
-        "session_id should be a UUID, got: {session_id}"
+        "current_session_id should be a UUID, got: {session_id}"
     );
 
     // Verify cl received --session-id with the same UUID
@@ -5385,16 +5393,15 @@ fn cursus_afk_then_interactive_stdin_not_stolen() {
     let mock_dir = TempDir::new().unwrap();
     let stdin_capture = mock_dir.path().join("stdin_capture.txt");
 
-    // Unified mock cl that handles both AFK mode (--print flag) and interactive mode.
-    // In AFK mode: creates context and sentinel.
-    // In interactive mode: reads stdin and captures it.
+    // Unified mock cl that handles both AFK mode (stream-json) and interactive mode (json).
+    // AFK path uses --output-format stream-json; programmatic interactive uses --output-format json.
     let mock_agent = create_mock_script(
         mock_dir.path(),
         "mock_agent.sh",
         &format!(
             concat!(
                 "#!/bin/bash\n",
-                "if echo \"$@\" | grep -q -- '--print'; then\n",
+                "if echo \"$@\" | grep -q -- 'stream-json'; then\n",
                 "  mkdir -p \"$SGF_RUN_CONTEXT\" 2>/dev/null\n",
                 "  echo 'gathered' > \"$SGF_RUN_CONTEXT/gather-output.md\"\n",
                 "  touch \"${{PWD}}/.iter-complete\"\n",
@@ -5402,6 +5409,8 @@ fn cursus_afk_then_interactive_stdin_not_stolen() {
                 "else\n",
                 "  read -t 5 LINE\n",
                 "  echo \"$LINE\" > \"{capture}\"\n",
+                "  touch \"${{PWD}}/.iter-complete\"\n",
+                "  echo '{{\"type\":\"result\",\"result\":\"Done\",\"session_id\":\"sess-discuss\"}}'\n",
                 "  exit 0\n",
                 "fi\n",
             ),

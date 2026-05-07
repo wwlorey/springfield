@@ -548,7 +548,11 @@ pub fn run_programmatic(
         cmd.arg(&prompt_arg);
     }
 
-    cmd.stdin(Stdio::null());
+    if resuming {
+        cmd.stdin(Stdio::null());
+    } else {
+        cmd.stdin(Stdio::inherit());
+    }
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::inherit());
 
