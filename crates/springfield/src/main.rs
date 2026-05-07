@@ -1393,7 +1393,11 @@ prompt = "test.md"
         .unwrap();
 
         let entries = collect_resumable(root);
-        assert_eq!(entries.len(), 1, "crashed running session should be resumable");
+        assert_eq!(
+            entries.len(),
+            1,
+            "crashed running session should be resumable"
+        );
         assert_eq!(entries[0].run_id, "active-loop");
         assert_eq!(entries[0].status, "crashed");
     }

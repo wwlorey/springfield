@@ -287,15 +287,18 @@ fn run_programmatic_turn(
         prompt_files.push(ctx_file.to_string_lossy().to_string());
     }
 
-    // When user_input is provided (piped stdin), the iter prompt becomes system
-    // context and the user's message becomes the main prompt.
+    // When user_input is provided (piped stdin), write it to a file rather than
+    // passing as a CLI argument — large or multiline content can exceed OS arg
+    // limits or be misparsed by the child process.
     let main_prompt = if let Some(input) = user_input {
         prompt_files.push(inv.prompt_path.to_string_lossy().to_string());
-        input.to_string()
+        let input_file = context::context_file_path(inv.root, inv.run_id, "_stdin");
+        fs::write(&input_file, input)?;
+        input_file.to_string_lossy().to_string()
     } else {
         inv.prompt_path.to_string_lossy().to_string()
     };
-    let is_file = user_input.is_none();
+    let is_file = true;
 
     let (ctx_env_name, ctx_env_val) = context::context_env_var(inv.run_id);
     let abs_ctx_val = inv.root.join(&ctx_env_val).to_string_lossy().to_string();
