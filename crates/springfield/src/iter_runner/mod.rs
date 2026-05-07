@@ -519,7 +519,6 @@ pub fn run_programmatic(
 
     let mut cmd = Command::new(agent_cmd);
     cmd.args([
-        "--verbose",
         "--print",
         "--output-format",
         "json",
@@ -561,8 +560,15 @@ pub fn run_programmatic(
 
     let (content, result_session_id) =
         if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&stdout) {
-            let content = parsed["result"].as_str().unwrap_or("").to_string();
-            let sid = parsed["session_id"].as_str().unwrap_or("").to_string();
+            let result_obj = match &parsed {
+                serde_json::Value::Array(arr) => arr
+                    .iter()
+                    .find(|v| v["type"].as_str() == Some("result"))
+                    .unwrap_or(&parsed),
+                _ => &parsed,
+            };
+            let content = result_obj["result"].as_str().unwrap_or("").to_string();
+            let sid = result_obj["session_id"].as_str().unwrap_or("").to_string();
             (content, sid)
         } else {
             warn!("failed to parse agent JSON output");
@@ -1416,6 +1422,30 @@ fi
 
         assert!(result.content.is_empty());
         assert!(result.session_id.is_empty());
+        assert_eq!(result.exit_code, 0);
+    }
+
+    #[test]
+    fn run_programmatic_parses_verbose_json_array() {
+        let dir = tempfile::tempdir().unwrap();
+        let verbose_json = r#"[{"type":"system","subtype":"init"},{"type":"assistant"},{"type":"result","subtype":"success","result":"Done.","session_id":"sess-verbose"}]"#;
+        let script = mock_script(
+            dir.path(),
+            "prog_verbose.sh",
+            &format!("#!/bin/sh\necho '{}'\n", verbose_json),
+        );
+
+        let config = make_config(dir.path(), script.clone());
+        let controller = ShutdownController::new(ShutdownConfig {
+            monitor_stdin: false,
+            ..Default::default()
+        })
+        .unwrap();
+
+        let result = run_programmatic(&script, &config, false, &controller, 1, "test-sid").unwrap();
+
+        assert_eq!(result.content, "Done.");
+        assert_eq!(result.session_id, "sess-verbose");
         assert_eq!(result.exit_code, 0);
     }
 

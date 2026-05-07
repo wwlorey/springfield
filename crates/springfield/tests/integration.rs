@@ -814,8 +814,10 @@ fn spec_runs_interactive_via_cl() {
     );
 
     let args = fs::read_to_string(&args_file).unwrap();
-    assert!(args.contains("--verbose"), "should pass --verbose to agent");
-    assert!(args.contains("@"), "should pass prompt via @ prefix");
+    assert!(
+        args.contains("--dangerously-skip-permissions"),
+        "should pass --dangerously-skip-permissions to agent"
+    );
     assert!(
         args.contains(".sgf/prompts/spec.md"),
         "should pass raw spec prompt path"
@@ -853,8 +855,10 @@ fn issues_log_runs_interactive_via_cl() {
     );
 
     let args = fs::read_to_string(&args_file).unwrap();
-    assert!(args.contains("--verbose"), "should pass --verbose to agent");
-    assert!(args.contains("@"), "should pass prompt via @ prefix");
+    assert!(
+        args.contains("--dangerously-skip-permissions"),
+        "should pass --dangerously-skip-permissions to agent"
+    );
     assert!(
         args.contains(".sgf/prompts/issues-log.md"),
         "should pass raw issues-log prompt path"
@@ -1918,8 +1922,10 @@ fn doc_runs_interactive_via_cl() {
     );
 
     let args = fs::read_to_string(&args_file).unwrap();
-    assert!(args.contains("--verbose"), "should pass --verbose to agent");
-    assert!(args.contains("@"), "should pass prompt via @ prefix");
+    assert!(
+        args.contains("--dangerously-skip-permissions"),
+        "should pass --dangerously-skip-permissions to agent"
+    );
     assert!(
         args.contains(".sgf/prompts/doc.md"),
         "should pass raw doc prompt path, got: {args}"
@@ -2645,7 +2651,7 @@ fn interactive_override_does_not_invoke_agent() {
 
     let args = fs::read_to_string(&args_file).unwrap();
     assert!(
-        args.contains("--verbose"),
+        args.contains("--dangerously-skip-permissions"),
         "-i should force interactive mode using cl"
     );
 }
@@ -3223,8 +3229,8 @@ fn build_auth_uses_config_defaults() {
     // Interactive mode invokes cl, not agent
     let args = fs::read_to_string(&args_file).unwrap();
     assert!(
-        args.contains("--verbose"),
-        "interactive mode should pass --verbose to agent"
+        args.contains("--dangerously-skip-permissions"),
+        "should invoke cl with --dangerously-skip-permissions"
     );
     assert!(
         args.contains(".sgf/prompts/build.md"),

@@ -8,3 +8,4 @@ IMPORTANT:
 - You cannot let cursus pipelines implement code in parallel. IMPLEMENTATION MUST BE DONE SEQUENTIALLY.
 - However, planning (interfacing with each cursus pipeline) can and should be done in parallel.
 - NEVER implement code, track issues, etc. yourself. All implementations, issue tracking, etc. are done by `sgf`. You are simply an orchestrator.
+- When running `sgf` pipelines, immediately set up Monitor watchers on their output files to stream live updates. Don't wait for the user to ask for updates.

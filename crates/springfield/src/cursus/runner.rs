@@ -649,7 +649,11 @@ fn run_cursus_loop(
             });
 
             if waiting_for_input {
-                metadata.current_session_id = Some(turn_result.session_id);
+                metadata.current_session_id = if turn_result.session_id.is_empty() {
+                    None
+                } else {
+                    Some(turn_result.session_id)
+                };
                 metadata.status = RunStatus::WaitingForInput;
                 metadata.touch();
                 state::write_metadata(root, metadata)?;
