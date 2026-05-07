@@ -275,6 +275,7 @@ fn run_programmatic_turn(
     retry_config: &RetryConfig,
     resume_session_id: Option<&str>,
     resume_input: Option<&str>,
+    user_input: Option<&str>,
 ) -> io::Result<iter_runner::ProgrammaticResult> {
     let agent_cmd = resolve_agent_command(inv.config);
 
@@ -284,6 +285,16 @@ fn run_programmatic_turn(
         fs::write(&ctx_file, inv.consumed_content)?;
         prompt_files.push(ctx_file.to_string_lossy().to_string());
     }
+
+    // When user_input is provided (piped stdin), the iter prompt becomes system
+    // context and the user's message becomes the main prompt.
+    let main_prompt = if let Some(input) = user_input {
+        prompt_files.push(inv.prompt_path.to_string_lossy().to_string());
+        input.to_string()
+    } else {
+        inv.prompt_path.to_string_lossy().to_string()
+    };
+    let is_file = user_input.is_none();
 
     let (ctx_env_name, ctx_env_val) = context::context_env_var(inv.run_id);
     let abs_ctx_val = inv.root.join(&ctx_env_val).to_string_lossy().to_string();
@@ -305,7 +316,7 @@ fn run_programmatic_turn(
         banner: false,
         loop_id: Some(inv.run_id.to_string()),
         iterations: 1,
-        prompt: inv.prompt_path.to_string_lossy().to_string(),
+        prompt: main_prompt,
         auto_push: inv.auto_push,
         command: Some(agent_cmd),
         prompt_files,
@@ -327,7 +338,7 @@ fn run_programmatic_turn(
     iter_runner::run_programmatic(
         iter_config.command.as_ref().unwrap(),
         &iter_config,
-        true,
+        is_file,
         &controller,
         1,
         inv.session_id,
@@ -607,9 +618,20 @@ fn run_cursus_loop(
                     &def.retry,
                     metadata.current_session_id.as_deref(),
                     Some(&input),
+                    None,
                 )?
             } else {
-                run_programmatic_turn(&inv, &def.retry, None, None)?
+                // Initial turn: read piped stdin as the user's message
+                let stdin_content = {
+                    let mut buf = String::new();
+                    io::stdin().read_to_string(&mut buf)?;
+                    if buf.trim().is_empty() {
+                        None
+                    } else {
+                        Some(buf)
+                    }
+                };
+                run_programmatic_turn(&inv, &def.retry, None, None, stdin_content.as_deref())?
             };
 
             let waiting_for_input = !has_any_sentinel(root) && turn_result.exit_code == 0;

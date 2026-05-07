@@ -5395,6 +5395,7 @@ fn cursus_afk_then_interactive_stdin_not_stolen() {
 
     // Unified mock cl that handles both AFK mode (stream-json) and interactive mode (json).
     // AFK path uses --output-format stream-json; programmatic interactive uses --output-format json.
+    // In programmatic interactive mode, user input arrives as the last positional arg.
     let mock_agent = create_mock_script(
         mock_dir.path(),
         "mock_agent.sh",
@@ -5407,8 +5408,7 @@ fn cursus_afk_then_interactive_stdin_not_stolen() {
                 "  touch \"${{PWD}}/.iter-complete\"\n",
                 "  exit 0\n",
                 "else\n",
-                "  read -t 5 LINE\n",
-                "  echo \"$LINE\" > \"{capture}\"\n",
+                "  echo \"$@\" > \"{capture}\"\n",
                 "  touch \"${{PWD}}/.iter-complete\"\n",
                 "  echo '{{\"type\":\"result\",\"result\":\"Done\",\"session_id\":\"sess-discuss\"}}'\n",
                 "  exit 0\n",
@@ -5475,7 +5475,7 @@ fn cursus_afk_then_interactive_stdin_not_stolen() {
     let captured = fs::read_to_string(&stdin_capture).unwrap_or_default();
     assert!(
         captured.contains("hello_from_stdin"),
-        "interactive cl should receive stdin data, but got: {captured:?}\nstderr: {stderr}"
+        "interactive cl should receive piped user input as arg, but got: {captured:?}\nstderr: {stderr}"
     );
 }
 
