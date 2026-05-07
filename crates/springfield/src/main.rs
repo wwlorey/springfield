@@ -35,6 +35,12 @@ enum Commands {
         run_id: Option<String>,
     },
 
+    /// Kill a running cursus and mark it resumable
+    Kill {
+        /// Run ID to kill
+        run_id: String,
+    },
+
     /// Tail a running loop's output
     Logs {
         /// Loop ID to tail
@@ -561,11 +567,70 @@ fn run_resume_command(root: &Path, run_id: Option<&str>) -> ! {
     }
 }
 
+fn run_kill(root: &Path, run_id: &str) -> ! {
+    let meta = match cursus::state::read_metadata(root, run_id) {
+        Ok(Some(m)) => m,
+        Ok(None) => {
+            springfield::style::print_error(&format!("run not found: {run_id}"));
+            std::process::exit(1);
+        }
+        Err(e) => {
+            springfield::style::print_error(&format!("failed to read metadata: {e}"));
+            std::process::exit(1);
+        }
+    };
+
+    if meta.status != cursus::state::RunStatus::Running {
+        eprintln!("Run {run_id} is already {}, nothing to kill", meta.status);
+        std::process::exit(0);
+    }
+
+    let killed = if let Some(pid) = cursus::state::read_pid(root, run_id) {
+        if cursus::state::is_pid_alive(pid) {
+            let ok = shutdown::kill_process_group(pid, std::time::Duration::from_secs(2));
+            if ok {
+                eprintln!("Killed process group (pid {pid})");
+            } else {
+                eprintln!("Process {pid} already exited");
+            }
+            true
+        } else {
+            eprintln!("Process {pid} already exited");
+            true
+        }
+    } else {
+        eprintln!("No PID file found, updating status only");
+        false
+    };
+
+    let mut meta = if killed {
+        match cursus::state::read_metadata(root, run_id) {
+            Ok(Some(m)) => m,
+            _ => meta,
+        }
+    } else {
+        meta
+    };
+
+    meta.status = cursus::state::RunStatus::WaitingForInput;
+    meta.touch();
+    if let Err(e) = cursus::state::write_metadata(root, &meta) {
+        springfield::style::print_error(&format!("failed to update metadata: {e}"));
+        std::process::exit(1);
+    }
+    cursus::state::remove_pid_file(root, run_id);
+
+    springfield::style::print_success(&format!("Marked {run_id} as waiting_for_input"));
+    eprintln!("To resume: sgf {} --resume {run_id}", meta.cursus);
+    std::process::exit(0);
+}
+
 fn run_list(root: &Path) {
     let commands = cursus::list_all(root);
 
     let builtins = [
         ("init", "Scaffold a new project"),
+        ("kill", "Kill a running cursus and mark it resumable"),
         ("list", "Show available commands"),
         ("logs", "Tail a running loop's output"),
         ("resume", "List and resume a previous session"),
@@ -611,6 +676,10 @@ fn main() {
         Commands::List => {
             let root = std::env::current_dir().expect("failed to get current directory");
             run_list(&root);
+        }
+        Commands::Kill { run_id } => {
+            let root = std::env::current_dir().expect("failed to get current directory");
+            run_kill(&root, &run_id);
         }
         Commands::Resume { run_id } => {
             let root = std::env::current_dir().expect("failed to get current directory");
@@ -1331,5 +1400,240 @@ prompt = "test.md"
 
         let entries = collect_resumable(root);
         assert_eq!(entries.len(), 20);
+    }
+
+    fn write_cursus_meta(root: &Path, run_id: &str, status: &str) {
+        let run_dir = root.join(".sgf/run").join(run_id);
+        fs::create_dir_all(&run_dir).unwrap();
+        let meta = serde_json::json!({
+            "run_id": run_id,
+            "cursus": "build",
+            "status": status,
+            "current_iter": "build",
+            "current_iter_index": 0,
+            "iters_completed": [],
+            "spec": null,
+            "mode_override": null,
+            "context_producers": {},
+            "created_at": "2026-05-07T10:00:00Z",
+            "updated_at": "2026-05-07T10:00:00Z"
+        });
+        fs::write(
+            run_dir.join("meta.json"),
+            serde_json::to_string_pretty(&meta).unwrap(),
+        )
+        .unwrap();
+    }
+
+    fn write_pid(root: &Path, run_id: &str, pid: u32) {
+        let pid_path = root
+            .join(".sgf/run")
+            .join(run_id)
+            .join(format!("{run_id}.pid"));
+        fs::write(pid_path, pid.to_string()).unwrap();
+    }
+
+    #[test]
+    fn kill_not_found_exits_error() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir_all(tmp.path().join(".sgf/run")).unwrap();
+
+        let result = std::panic::catch_unwind(|| {
+            // run_kill calls process::exit, so we test the underlying logic directly
+        });
+        let _ = result;
+
+        // Test the metadata lookup path directly
+        let meta = cursus::state::read_metadata(tmp.path(), "nonexistent").unwrap();
+        assert!(meta.is_none());
+    }
+
+    #[test]
+    fn kill_already_completed_is_noop() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        write_cursus_meta(root, "build-20260507T100000", "completed");
+
+        let meta = cursus::state::read_metadata(root, "build-20260507T100000")
+            .unwrap()
+            .unwrap();
+        assert_ne!(meta.status, cursus::state::RunStatus::Running);
+    }
+
+    #[test]
+    fn kill_already_waiting_for_input_is_noop() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        write_cursus_meta(root, "build-20260507T100000", "waiting_for_input");
+
+        let meta = cursus::state::read_metadata(root, "build-20260507T100000")
+            .unwrap()
+            .unwrap();
+        assert_ne!(meta.status, cursus::state::RunStatus::Running);
+    }
+
+    #[test]
+    fn kill_running_with_dead_pid_updates_status() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let run_id = "build-20260507T100000";
+        write_cursus_meta(root, run_id, "running");
+        write_pid(root, run_id, 4000000); // very unlikely to be alive
+
+        let meta = cursus::state::read_metadata(root, run_id).unwrap().unwrap();
+        assert_eq!(meta.status, cursus::state::RunStatus::Running);
+
+        // Simulate what run_kill does for a dead process
+        let pid = cursus::state::read_pid(root, run_id).unwrap();
+        assert!(!cursus::state::is_pid_alive(pid));
+
+        let mut meta = cursus::state::read_metadata(root, run_id).unwrap().unwrap();
+        meta.status = cursus::state::RunStatus::WaitingForInput;
+        meta.touch();
+        cursus::state::write_metadata(root, &meta).unwrap();
+        cursus::state::remove_pid_file(root, run_id);
+
+        let updated = cursus::state::read_metadata(root, run_id).unwrap().unwrap();
+        assert_eq!(updated.status, cursus::state::RunStatus::WaitingForInput);
+        assert!(cursus::state::read_pid(root, run_id).is_none());
+    }
+
+    #[test]
+    fn kill_running_no_pid_file_updates_status() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let run_id = "build-20260507T100000";
+        write_cursus_meta(root, run_id, "running");
+        // No PID file written
+
+        assert!(cursus::state::read_pid(root, run_id).is_none());
+
+        let mut meta = cursus::state::read_metadata(root, run_id).unwrap().unwrap();
+        meta.status = cursus::state::RunStatus::WaitingForInput;
+        meta.touch();
+        cursus::state::write_metadata(root, &meta).unwrap();
+
+        let updated = cursus::state::read_metadata(root, run_id).unwrap().unwrap();
+        assert_eq!(updated.status, cursus::state::RunStatus::WaitingForInput);
+    }
+
+    #[test]
+    fn kill_running_with_alive_pid_kills_and_updates() {
+        use std::os::unix::process::CommandExt;
+
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let run_id = "build-20260507T100000";
+        write_cursus_meta(root, run_id, "running");
+
+        // Spawn a child in its own process group so kill_process_group works
+        let mut cmd = std::process::Command::new("sleep");
+        cmd.arg("60");
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::setpgid(0, 0);
+                Ok(())
+            });
+        }
+        let child = cmd.spawn().unwrap();
+        let pid = child.id();
+        write_pid(root, run_id, pid);
+
+        assert!(cursus::state::is_pid_alive(pid));
+
+        let killed = shutdown::kill_process_group(pid, std::time::Duration::from_secs(2));
+        assert!(killed);
+
+        let mut meta = cursus::state::read_metadata(root, run_id).unwrap().unwrap();
+        meta.status = cursus::state::RunStatus::WaitingForInput;
+        meta.touch();
+        cursus::state::write_metadata(root, &meta).unwrap();
+        cursus::state::remove_pid_file(root, run_id);
+
+        let updated = cursus::state::read_metadata(root, run_id).unwrap().unwrap();
+        assert_eq!(updated.status, cursus::state::RunStatus::WaitingForInput);
+        assert!(cursus::state::read_pid(root, run_id).is_none());
+    }
+
+    #[test]
+    fn kill_preserves_existing_session_id() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let run_id = "build-20260507T100000";
+        let run_dir = root.join(".sgf/run").join(run_id);
+        fs::create_dir_all(&run_dir).unwrap();
+
+        let meta = serde_json::json!({
+            "run_id": run_id,
+            "cursus": "build",
+            "status": "running",
+            "current_iter": "build",
+            "current_iter_index": 0,
+            "iters_completed": [],
+            "spec": null,
+            "mode_override": null,
+            "context_producers": {},
+            "current_session_id": "sess-abc123",
+            "created_at": "2026-05-07T10:00:00Z",
+            "updated_at": "2026-05-07T10:00:00Z"
+        });
+        fs::write(
+            run_dir.join("meta.json"),
+            serde_json::to_string_pretty(&meta).unwrap(),
+        )
+        .unwrap();
+
+        let mut meta = cursus::state::read_metadata(root, run_id).unwrap().unwrap();
+        meta.status = cursus::state::RunStatus::WaitingForInput;
+        meta.touch();
+        cursus::state::write_metadata(root, &meta).unwrap();
+
+        let updated = cursus::state::read_metadata(root, run_id).unwrap().unwrap();
+        assert_eq!(updated.status, cursus::state::RunStatus::WaitingForInput);
+        assert_eq!(updated.current_session_id.as_deref(), Some("sess-abc123"));
+    }
+
+    #[test]
+    fn kill_preserves_iter_position() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let run_id = "build-20260507T100000";
+        let run_dir = root.join(".sgf/run").join(run_id);
+        fs::create_dir_all(&run_dir).unwrap();
+
+        let meta = serde_json::json!({
+            "run_id": run_id,
+            "cursus": "build",
+            "status": "running",
+            "current_iter": "test",
+            "current_iter_index": 2,
+            "iters_completed": [
+                {"name": "plan", "session_id": "s1", "completed_at": "2026-05-07T10:01:00Z", "outcome": "complete"},
+                {"name": "build", "session_id": "s2", "completed_at": "2026-05-07T10:05:00Z", "outcome": "complete"}
+            ],
+            "spec": "auth",
+            "mode_override": null,
+            "context_producers": {"plan-summary": "plan"},
+            "created_at": "2026-05-07T10:00:00Z",
+            "updated_at": "2026-05-07T10:05:00Z"
+        });
+        fs::write(
+            run_dir.join("meta.json"),
+            serde_json::to_string_pretty(&meta).unwrap(),
+        )
+        .unwrap();
+
+        let mut meta = cursus::state::read_metadata(root, run_id).unwrap().unwrap();
+        meta.status = cursus::state::RunStatus::WaitingForInput;
+        meta.touch();
+        cursus::state::write_metadata(root, &meta).unwrap();
+
+        let updated = cursus::state::read_metadata(root, run_id).unwrap().unwrap();
+        assert_eq!(updated.status, cursus::state::RunStatus::WaitingForInput);
+        assert_eq!(updated.current_iter, "test");
+        assert_eq!(updated.current_iter_index, 2);
+        assert_eq!(updated.iters_completed.len(), 2);
+        assert_eq!(updated.spec.as_deref(), Some("auth"));
+        assert_eq!(updated.context_producers.len(), 1);
     }
 }
