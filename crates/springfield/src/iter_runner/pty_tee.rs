@@ -11,6 +11,7 @@ use shutdown::{ShutdownController, ShutdownStatus, kill_process_group};
 use tracing::warn;
 
 use super::AgentExitStatus;
+use crate::style;
 
 fn open_pty() -> io::Result<(OwnedFd, OwnedFd)> {
     unsafe {
@@ -107,7 +108,8 @@ fn drain_master(master_fd: RawFd, log_file: &Option<Mutex<fs::File>>) {
         if let Some(lf) = &log_file
             && let Ok(mut f) = lf.lock()
         {
-            let _ = f.write_all(data);
+            let stripped = style::strip_ansi(&String::from_utf8_lossy(data));
+            let _ = f.write_all(stripped.as_bytes());
         }
     }
 }
@@ -252,7 +254,8 @@ pub(crate) fn run_interactive_with_pty(
                 if let Some(lf) = &log_file
                     && let Ok(mut f) = lf.lock()
                 {
-                    let _ = f.write_all(data);
+                    let stripped = style::strip_ansi(&String::from_utf8_lossy(data));
+                    let _ = f.write_all(stripped.as_bytes());
                 }
             } else if n == 0 || (n < 0 && fds[1].revents & libc::POLLHUP != 0) {
                 drain_master(master_fd, &log_file);
@@ -350,6 +353,34 @@ mod tests {
         assert!(
             log_content.contains("hello from pty"),
             "log should contain output, got: {log_content:?}"
+        );
+    }
+
+    #[test]
+    fn pty_tee_strips_ansi_from_log() {
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("test.log");
+
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", r#"printf '\x1b[1;32mgreen bold\x1b[0m plain\n'"#]);
+
+        let controller = ShutdownController::new(shutdown::ShutdownConfig {
+            monitor_stdin: false,
+            ..Default::default()
+        })
+        .unwrap();
+
+        let result = run_interactive_with_pty(&mut cmd, Some(&log_path), &controller).unwrap();
+        assert_eq!(result.exit_code, Some(0));
+
+        let log_content = fs::read_to_string(&log_path).unwrap();
+        assert!(
+            log_content.contains("green bold"),
+            "log should contain text, got: {log_content:?}"
+        );
+        assert!(
+            !log_content.contains("\x1b["),
+            "log should not contain ANSI escapes, got: {log_content:?}"
         );
     }
 

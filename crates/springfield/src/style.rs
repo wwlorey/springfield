@@ -66,14 +66,51 @@ pub fn strip_ansi(s: &str) -> String {
     let mut out = Vec::with_capacity(len);
     let mut i = 0;
     while i < len {
-        if bytes[i] == 0x1b && i + 1 < len && bytes[i + 1] == b'[' {
-            i += 2;
-            while i < len && (bytes[i].is_ascii_digit() || bytes[i] == b';') {
+        if bytes[i] == 0x1b && i + 1 < len {
+            if bytes[i + 1] == b'[' {
+                // CSI sequence: \x1b[ <params> <final byte>
+                // Final byte is 0x40..=0x7E (any ASCII letter or @[\]^_`{|}~)
+                i += 2;
+                while i < len
+                    && (bytes[i].is_ascii_digit()
+                        || bytes[i] == b';'
+                        || bytes[i] == b'?'
+                        || bytes[i] == b'>'
+                        || bytes[i] == b'=')
+                {
+                    i += 1;
+                }
+                // Skip intermediate bytes (0x20..=0x2F) if any
+                while i < len && (0x20..=0x2F).contains(&bytes[i]) {
+                    i += 1;
+                }
+                // Skip the final byte (0x40..=0x7E)
+                if i < len && (0x40..=0x7E).contains(&bytes[i]) {
+                    i += 1;
+                }
+            } else if bytes[i + 1] == b']' {
+                // OSC sequence: \x1b] ... (terminated by BEL \x07 or ST \x1b\\)
+                i += 2;
+                while i < len {
+                    if bytes[i] == 0x07 {
+                        i += 1;
+                        break;
+                    }
+                    if bytes[i] == 0x1b && i + 1 < len && bytes[i + 1] == b'\\' {
+                        i += 2;
+                        break;
+                    }
+                    i += 1;
+                }
+            } else if (0x40..=0x5F).contains(&bytes[i + 1]) {
+                // Other Fe escape: \x1b + byte in @A..Z[\]^_ — skip both
+                i += 2;
+            } else {
+                out.push(bytes[i]);
                 i += 1;
             }
-            if i < len && bytes[i] == b'm' {
-                i += 1;
-            }
+        } else if bytes[i] == b'\r' {
+            i += 1;
         } else {
             out.push(bytes[i]);
             i += 1;
@@ -538,6 +575,36 @@ mod tests {
     fn strip_ansi_compound_codes() {
         assert_eq!(strip_ansi("\x1b[1m sgf \x1b[0m"), " sgf ");
         assert_eq!(strip_ansi("\x1b[1;31merror\x1b[0m"), "error");
+    }
+
+    #[test]
+    fn strip_ansi_csi_cursor_movement() {
+        assert_eq!(strip_ansi("\x1b[2Khello"), "hello");
+        assert_eq!(strip_ansi("\x1b[Hstart"), "start");
+        assert_eq!(strip_ansi("\x1b[10;20Hxy"), "xy");
+        assert_eq!(strip_ansi("\x1b[2Jcleared"), "cleared");
+        assert_eq!(
+            strip_ansi("\x1b[?25lhidden cursor\x1b[?25h"),
+            "hidden cursor"
+        );
+    }
+
+    #[test]
+    fn strip_ansi_osc_sequences() {
+        assert_eq!(strip_ansi("\x1b]0;window title\x07text"), "text");
+        assert_eq!(strip_ansi("\x1b]0;title\x1b\\text"), "text");
+    }
+
+    #[test]
+    fn strip_ansi_carriage_return() {
+        assert_eq!(strip_ansi("old\rnew"), "oldnew");
+        assert_eq!(strip_ansi("\r\x1b[2Kprogress"), "progress");
+    }
+
+    #[test]
+    fn strip_ansi_mixed_pty_output() {
+        let pty_line = "\x1b]0;title\x07\x1b[?25l\x1b[1;32mhello\x1b[0m world\r\n";
+        assert_eq!(strip_ansi(pty_line), "hello world\n");
     }
 
     #[test]

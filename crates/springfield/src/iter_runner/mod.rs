@@ -540,7 +540,8 @@ pub fn run_programmatic(
             .append(true)
             .open(log_path)
         {
-            let _ = f.write_all(output.stdout.as_slice());
+            let stripped = style::strip_ansi(&String::from_utf8_lossy(&output.stdout));
+            let _ = f.write_all(stripped.as_bytes());
         }
     }
 
