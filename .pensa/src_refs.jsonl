@@ -294,3 +294,4 @@
 {"id":"pn-43379f5d","issue_id":"pn-9517087f","path":"crates/springfield/src/cursus/runner.rs","reason":"Guard against empty session_id in WaitingForInput metadata","created_at":"2026-05-07T19:21:52Z"}
 {"id":"pn-edddf53c","issue_id":"pn-9517087f","path":"crates/springfield/tests/integration.rs","reason":"Update integration tests that checked for --verbose in programmatic path","created_at":"2026-05-07T19:21:52Z"}
 {"id":"pn-4494ee50","issue_id":"pn-7f2a572f","path":"crates/springfield/src/main.rs","reason":"Added Kill variant to Commands enum, run_kill() function, and kill tests","created_at":"2026-05-07T22:03:37Z"}
+{"id":"pn-ac222de0","issue_id":"pn-82fa36a3","path":"crates/springfield/src/iter_runner/mod.rs","reason":"run_interactive and run_afk had --session-id unconditionally before resume check","created_at":"2026-05-08T03:14:32Z"}

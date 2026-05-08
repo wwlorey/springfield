@@ -261,7 +261,6 @@ fn run_interactive(
         "--settings",
         r#"{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}"#,
     ]);
-    command.args(["--session-id", session_id]);
     command.args(&asp_args);
     for (key, val) in &config.env_vars {
         command.env(key, val);
@@ -270,6 +269,7 @@ fn run_interactive(
     if resuming {
         command.args(["--resume", config.resume.as_ref().unwrap()]);
     } else {
+        command.args(["--session-id", session_id]);
         let prompt_arg = if is_file {
             format!("@{}", config.prompt)
         } else {
@@ -332,7 +332,6 @@ fn run_afk(
         "--settings",
         r#"{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}"#,
     ]);
-    cmd.args(["--session-id", session_id]);
     cmd.args(&asp_args);
     for (key, val) in &config.env_vars {
         cmd.env(key, val);
@@ -341,6 +340,7 @@ fn run_afk(
     if resuming {
         cmd.args(["--resume", config.resume.as_ref().unwrap()]);
     } else {
+        cmd.args(["--session-id", session_id]);
         let prompt_arg = if is_file {
             format!("@{}", config.prompt)
         } else {
