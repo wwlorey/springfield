@@ -481,6 +481,14 @@ fn run_cursus_dispatch(root: &Path, args: &DynamicArgs, resolved: cursus::Resolv
         .unwrap_or_else(|_| std::io::IsTerminal::is_terminal(&std::io::stdin()));
     let programmatic = args.output_format.as_deref() == Some("json") || !is_tty;
 
+    let initial_input = if programmatic {
+        let mut buf = String::new();
+        let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut buf);
+        Some(buf)
+    } else {
+        None
+    };
+
     let config = cursus::runner::CursusConfig {
         spec: args.spec.clone(),
         mode_override,
@@ -489,6 +497,7 @@ fn run_cursus_dispatch(root: &Path, args: &DynamicArgs, resolved: cursus::Resolv
         skip_preflight: args.skip_preflight,
         monitor_stdin_override: None,
         programmatic,
+        initial_input,
     };
 
     match cursus::runner::run_cursus(root, &resolved.name, &def, &config) {

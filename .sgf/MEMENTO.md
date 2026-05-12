@@ -1,3 +1,42 @@
+## Rules
+
+These rules override default behavior. Follow them exactly.
+
+- **Relative paths only** — use paths from the repo root for file operations, not absolute paths.
+- **`pn`, never `gh`** — issues live in `pn`, not `gh`. ALWAYS use `pn` for bugs and issues.
+- **No bare `tsx`** — the Claude Code sandbox blocks the IPC pipe. Use `node --import tsx/esm <script>` instead.
+- **Edit settings in dotfiles** — always edit `~/Repos/dotfiles/.claude` (not `~/`).
+- **Subagent limits** — do not spawn more than 3 concurrent Agent/subagent calls. Large refactors must be done sequentially.
+- **Session start** — run `fm list --json` at the beginning of EACH SESSION.
+
+### Invoking `sgf` programmatically
+
+When calling `sgf` commands from within a Claude Code session (e.g., via Bash tool), **pipe the message through stdin** — do NOT pass it as a positional argument. The positional argument is reserved for spec stems (e.g., `sgf c auth`), not free-text descriptions. Piped stdin activates programmatic mode, which emits structured NDJSON events.
+
+**NEVER use heredoc syntax.** Heredocs do not survive `sh -c` — newlines get mangled, the terminator is never found, and stdin arrives empty. Use `echo` or `printf` instead.
+
+```bash
+# Correct:
+echo "Fix the settings button visibility" | sgf c
+
+# Also correct (printf for content with special chars):
+printf '%s\n' "Fix the settings button visibility" | sgf c
+
+# WRONG — treats the string as a spec stem:
+sgf c "Fix the settings button visibility"
+
+# WRONG — heredocs break under sh -c:
+cat <<'EOF' | sgf c
+Fix the settings button visibility
+EOF
+```
+
+### Build history
+
+- When asked about what has been built (*in general* or *on a particular day/time*):
+  * Read the logs in `./.sgf/logs` to help formulate your answer.
+
+
 ## pn — Issue Tracker
 
 `pn` (pensa) is the exclusive issue (i.e. work item) tracker. Never use TodoWrite, TaskCreate, or markdown files for tracking work.
@@ -185,61 +224,3 @@ Specifications are the **source of truth** for all code. They are managed exclus
 | `fm check --json` | Validation report (required sections, src paths, refs, pensa integration) |
 | `fm doctor [--fix] --json` | Health checks; `--fix` removes orphaned data |
 | `fm where` | Print JSONL and DB directory paths |
-
-
-## IMPORTANT
-
-### Use relative paths
-
-- Use relative paths—from the repo root—for file operations, not absolute paths.
-
-### "What has been built?"
-
-- When asked about what has been built (*in general* or *on a particular day/time*):
-  * Read the logs in `./.sgf/logs` to help formulate your answer.
-
-### `pn`, never `gh`
-
-- Issues live in `pn`, not `gh`.
-  * **ALWAYS use `pn`** for anything having to do with BUGS and/or ISSUES.
-
-### TypeScript scripts (`tsx`)
-
-- Never use bare `tsx` as a script runner — the Claude Code sandbox blocks the IPC pipe it spawns. Use `node --import tsx/esm <script>` instead.
-
-### Editing `.claude/settings.json`
-
-- Anytime you edit the Claude configuration settings, always edit the version that lives in `~/Repos/dotfiles/.claude` (not in `~/`).
-
-### Invoking `sgf` programmatically
-
-- When calling `sgf` commands from within a Claude Code session (e.g., via Bash tool), **pipe the message through stdin** — do NOT pass it as a positional argument.
-- The positional argument is reserved for spec stems (e.g., `sgf c auth`), not free-text descriptions.
-- Piped stdin activates programmatic mode, which emits structured NDJSON events.
-
-```bash
-# Correct:
-echo "Fix the settings button visibility" | sgf c
-
-# Also correct (printf for content with special chars):
-printf '%s\n' "Fix the settings button visibility" | sgf c
-
-# Wrong — treats the string as a spec stem:
-sgf c "Fix the settings button visibility"
-
-# Wrong — heredocs don't survive sh -c (newlines get mangled):
-cat <<'EOF' | sgf c
-Fix the settings button visibility
-EOF
-```
-
-- **Do NOT use heredoc syntax** (`cat <<'EOF' ... EOF | sgf c`) to pipe content. Agent shells typically execute commands via `sh -c "..."`, which flattens heredoc newlines so the terminator is never found on its own line. The result is empty stdin and sgf silently runs only the iter prompt. Use `echo` or `printf` instead.
-
-### Session Start
-
-- **Run this command at the beginning of EACH SESSION** to understand the structure of this project's specifications:
-  * `fm list --json` — list all specifications (the source of truth for implementation)
-
-### Spawning subagents
-
- - **Subagent limits:** Do not spawn more than 3 concurrent Agent/subagent calls. Large refactors touching many files must be done sequentially, not parallelized across agents.

@@ -10207,6 +10207,89 @@ fn cursus_programmatic_interactive_multiline_stdin_reaches_agent() {
 }
 
 #[test]
+fn cursus_programmatic_interactive_empty_stdin_emits_warning() {
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let mock_dir = TempDir::new().unwrap();
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        concat!(
+            "#!/bin/bash\n",
+            "touch \"${PWD}/.iter-complete\"\n",
+            "echo '{\"result\": \"ok\", \"session_id\": \"sess-empty\"}'\n",
+            "exit 0\n",
+        ),
+    );
+
+    write_cursus_toml(
+        tmp.path(),
+        "emptytest",
+        concat!(
+            "description = \"Empty stdin test\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"work\"\n",
+            "prompt = \"work.md\"\n",
+            "mode = \"interactive\"\n",
+            "iterations = 1\n",
+        ),
+    );
+    let prompts_dir = tmp.path().join(".sgf/prompts");
+    fs::create_dir_all(&prompts_dir).unwrap();
+    fs::write(prompts_dir.join("work.md"), "do work\n").unwrap();
+    git_add_commit(tmp.path(), "add work prompt");
+
+    let _permit = SGF_PERMITS
+        .acquire_timeout(Duration::from_secs(60))
+        .expect("semaphore timed out");
+    let mut guard = ChildGuard::spawn(
+        sgf_cmd(tmp.path())
+            .args(["emptytest", "--output-format", "json"])
+            .env("SGF_AGENT_COMMAND", &mock_agent)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn sgf emptytest");
+
+    // Close stdin immediately → empty stdin
+    drop(guard.child_mut().stdin.take());
+
+    let output = guard
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("failed to wait for sgf emptytest");
+    drop(_permit);
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let events: Vec<serde_json::Value> = stdout
+        .lines()
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect();
+
+    let error_event = events.iter().find(|e| e["event"].as_str() == Some("error"));
+    assert!(
+        error_event.is_some(),
+        "should emit a warning error event on empty stdin, got events: {events:?}"
+    );
+    let error = error_event.unwrap();
+    assert_eq!(
+        error["fatal"].as_bool(),
+        Some(false),
+        "empty stdin warning should be non-fatal"
+    );
+    assert!(
+        error["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("stdin was empty"),
+        "error message should mention empty stdin"
+    );
+}
+
+#[test]
 fn cursus_programmatic_event_structure_validates_all_fields() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());

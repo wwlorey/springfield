@@ -27,6 +27,10 @@ pub struct CursusConfig {
     pub skip_preflight: bool,
     pub monitor_stdin_override: Option<bool>,
     pub programmatic: bool,
+    /// Initial user input for programmatic interactive mode.
+    /// `Some(content)` — use as the user's message (read from stdin by caller).
+    /// `None` — no initial input (used for resume turns and tests).
+    pub initial_input: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -626,23 +630,24 @@ fn run_cursus_loop(
                     None,
                 )?
             } else {
-                // Initial turn: read piped stdin as the user's message
-                let stdin_content = {
-                    let mut buf = String::new();
-                    io::stdin().read_to_string(&mut buf)?;
-                    tracing::debug!(bytes = buf.len(), "programmatic stdin read");
-                    if buf.trim().is_empty() {
-                        tracing::warn!(
-                            "programmatic mode active but stdin was empty — \
-                             the piped content may not have reached sgf \
-                             (e.g. heredoc mangled by sh -c)"
-                        );
-                        None
-                    } else {
-                        Some(buf)
-                    }
-                };
-                run_programmatic_turn(&inv, &def.retry, None, None, stdin_content.as_deref())?
+                // Initial turn: use caller-provided stdin as the user's message.
+                // None means no stdin was provided (or it was empty).
+                let stdin_content = config
+                    .initial_input
+                    .as_deref()
+                    .filter(|s| !s.trim().is_empty());
+                if config.initial_input.is_some() && stdin_content.is_none() {
+                    let msg = "programmatic mode active but stdin was empty — \
+                         the piped content may not have reached sgf \
+                         (hint: heredocs do not survive sh -c; use echo or printf instead)";
+                    tracing::warn!("{msg}");
+                    events::emit_event(&Event::Error {
+                        message: msg.to_string(),
+                        fatal: false,
+                        iter: Some(iter.name.clone()),
+                    });
+                }
+                run_programmatic_turn(&inv, &def.retry, None, None, stdin_content)?
             };
 
             let waiting_for_input = !has_any_sentinel(root) && turn_result.exit_code == 0;
@@ -940,6 +945,7 @@ pub fn resume_cursus(root: &Path, run_id: &str) -> io::Result<i32> {
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
+            initial_input: None,
         };
 
         state::write_pid_file(root, run_id)?;
@@ -996,6 +1002,7 @@ pub fn resume_cursus(root: &Path, run_id: &str) -> io::Result<i32> {
         skip_preflight: true,
         monitor_stdin_override: if programmatic { Some(false) } else { None },
         programmatic,
+        initial_input: None,
     };
 
     match action {
@@ -1515,6 +1522,7 @@ mod tests {
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
+            initial_input: None,
         };
 
         let exit_code = run_cursus(root, "build", &def, &config).unwrap();
@@ -1560,6 +1568,7 @@ mod tests {
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
+            initial_input: None,
         };
 
         let exit_code = run_cursus(root, "build", &def, &config).unwrap();
@@ -1609,6 +1618,7 @@ mod tests {
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
+            initial_input: None,
         };
 
         let exit_code = run_cursus(root, "spec", &def, &config).unwrap();
@@ -1676,6 +1686,7 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
+            initial_input: None,
         };
 
         let exit_code = run_cursus(root, "spec", &def, &config).unwrap();
@@ -1755,6 +1766,7 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
+            initial_input: None,
         };
 
         let exit_code = run_cursus(root, "spec", &def, &config).unwrap();
@@ -1840,6 +1852,7 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
+            initial_input: None,
         };
 
         let exit_code = run_cursus(root, "pipeline", &def, &config).unwrap();
@@ -1903,6 +1916,7 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
+            initial_input: None,
         };
 
         let exit_code = run_cursus(root, "build", &def, &config).unwrap();
@@ -1944,6 +1958,7 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
+            initial_input: None,
         };
 
         let exit_code = run_cursus(root, "build", &def, &config).unwrap();
@@ -1988,6 +2003,7 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
+            initial_input: None,
         };
 
         run_cursus(root, "build", &def, &config).unwrap();
@@ -2020,6 +2036,7 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: None,
             programmatic: false,
+            initial_input: None,
         };
 
         let err = run_cursus(root, "empty", &def, &config).unwrap_err();
@@ -2071,6 +2088,7 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
+            initial_input: None,
         };
 
         let exit_code = run_cursus(root, "spec", &def, &config).unwrap();
@@ -2250,6 +2268,7 @@ prompt = "build.md"
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
+            initial_input: None,
         };
 
         let run_id = "spec-20260317T140000";
@@ -2319,6 +2338,7 @@ prompt = "build.md"
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
+            initial_input: None,
         };
 
         let run_id = "spec-20260317T140000";
@@ -2442,6 +2462,7 @@ prompt = "build.md"
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
+            initial_input: None,
         };
 
         assert!(config.programmatic);
@@ -2460,6 +2481,7 @@ prompt = "build.md"
             skip_preflight: false,
             monitor_stdin_override: None,
             programmatic: false,
+            initial_input: None,
         };
 
         assert!(!config.programmatic);
@@ -2493,6 +2515,7 @@ prompt = "build.md"
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
+            initial_input: None,
         };
 
         let exit_code = run_cursus(root, "build", &def, &config).unwrap();
@@ -2556,6 +2579,7 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
+            initial_input: None,
         };
 
         let exit_code = run_cursus(root, "spec", &def, &config).unwrap();
@@ -2596,6 +2620,7 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
+            initial_input: None,
         };
 
         let exit_code = run_cursus(root, "build", &def, &config).unwrap();
@@ -2667,6 +2692,7 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
+            initial_input: None,
         };
 
         let exit_code = run_cursus(root, "pipeline", &def, &config).unwrap();
@@ -2695,6 +2721,7 @@ exit 0
             skip_preflight: false,
             monitor_stdin_override: None,
             programmatic: true,
+            initial_input: None,
         };
         // Should not panic when emitting events
         emit_if_programmatic(
@@ -2717,6 +2744,7 @@ exit 0
             skip_preflight: false,
             monitor_stdin_override: None,
             programmatic: false,
+            initial_input: None,
         };
         // Should not emit anything (no way to assert, but verifies no panic)
         emit_if_programmatic(
@@ -2776,6 +2804,7 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
+            initial_input: None,
         };
 
         let exit_code = run_cursus(root, "chat", &def, &config).unwrap();
@@ -2821,6 +2850,7 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
+            initial_input: None,
         };
 
         let exit_code = run_cursus(root, "chat", &def, &config).unwrap();
@@ -2867,6 +2897,7 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
+            initial_input: None,
         };
 
         let exit_code = run_cursus(root, "chat", &def, &config).unwrap();
@@ -2912,6 +2943,7 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
+            initial_input: None,
         };
 
         let exit_code = run_cursus(root, "build", &def, &config).unwrap();
@@ -2972,6 +3004,7 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
+            initial_input: None,
         };
 
         // First run: should get WaitingForInput
@@ -2998,6 +3031,7 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
+            initial_input: None,
         };
 
         state::write_pid_file(root, &run_id).unwrap();
@@ -3064,6 +3098,7 @@ exit 0
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
+            initial_input: None,
         };
 
         // Both iters complete because the mock always creates .iter-complete
@@ -3112,6 +3147,7 @@ exit 1
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
+            initial_input: None,
         };
 
         let exit_code = run_cursus(root, "chat", &def, &config).unwrap();
@@ -3233,6 +3269,7 @@ exit 1
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
+            initial_input: None,
         };
 
         metadata.status = RunStatus::Interrupted;
@@ -3290,6 +3327,7 @@ exit 1
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
+            initial_input: None,
         };
 
         let exit_code =
@@ -3348,6 +3386,7 @@ exit 1
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: true,
+            initial_input: None,
         };
 
         let exit_code =
@@ -3405,6 +3444,7 @@ touch "$(dirname "$0")/.iter-complete"
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
+            initial_input: None,
         };
 
         let exit_code = run_cursus(root, "test", &def, &config).unwrap();
@@ -3461,6 +3501,7 @@ exit 1
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
+            initial_input: None,
         };
 
         let exit_code = run_cursus(root, "test", &def, &config).unwrap();
@@ -3529,6 +3570,7 @@ exit 1
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
+            initial_input: None,
         };
 
         let exit_code =
@@ -3594,6 +3636,7 @@ exit 1
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
+            initial_input: None,
         };
 
         let exit_code = run_cursus_loop(
@@ -3667,6 +3710,7 @@ exit 1
             skip_preflight: true,
             monitor_stdin_override: Some(false),
             programmatic: false,
+            initial_input: None,
         };
 
         let exit_code =
