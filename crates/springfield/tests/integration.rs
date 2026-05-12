@@ -10100,6 +10100,113 @@ fn cursus_programmatic_piped_stdin_run_complete_has_resume_command() {
 }
 
 #[test]
+fn cursus_programmatic_interactive_multiline_stdin_reaches_agent() {
+    use std::io::Write;
+
+    let tmp = setup_test_dir();
+    sgf_init_and_commit(tmp.path());
+
+    let mock_dir = TempDir::new().unwrap();
+    let stdin_capture = mock_dir.path().join("stdin_capture.txt");
+
+    // Mock agent captures the @file content to verify multiline stdin arrived intact
+    let mock_agent = create_mock_script(
+        mock_dir.path(),
+        "mock_agent.sh",
+        &format!(
+            concat!(
+                "#!/bin/bash\n",
+                "LAST_ARG=\"${{@: -1}}\"\n",
+                "if [[ \"$LAST_ARG\" == @* ]]; then\n",
+                "  cat \"${{LAST_ARG:1}}\" > \"{capture}\"\n",
+                "else\n",
+                "  echo \"$LAST_ARG\" > \"{capture}\"\n",
+                "fi\n",
+                "touch \"${{PWD}}/.iter-complete\"\n",
+                "echo '{{\"result\": \"Done\", \"session_id\": \"sess-multi\"}}'\n",
+                "exit 0\n",
+            ),
+            capture = stdin_capture.display()
+        ),
+    );
+
+    write_cursus_toml(
+        tmp.path(),
+        "multitest",
+        concat!(
+            "description = \"Multiline stdin test\"\n",
+            "auto_push = false\n",
+            "\n",
+            "[[iter]]\n",
+            "name = \"work\"\n",
+            "prompt = \"work.md\"\n",
+            "mode = \"interactive\"\n",
+            "iterations = 1\n",
+        ),
+    );
+    let prompts_dir = tmp.path().join(".sgf/prompts");
+    fs::create_dir_all(&prompts_dir).unwrap();
+    fs::write(prompts_dir.join("work.md"), "do work\n").unwrap();
+    git_add_commit(tmp.path(), "add work prompt");
+
+    // Simulate heredoc-style multiline content: multiple lines with blank lines
+    let multiline_content = "line one\n\nline three\nline four with special: $VAR `backtick`\n";
+
+    let _permit = SGF_PERMITS
+        .acquire_timeout(Duration::from_secs(60))
+        .expect("semaphore timed out");
+    let mut guard = ChildGuard::spawn(
+        sgf_cmd(tmp.path())
+            .args(["multitest", "--output-format", "json"])
+            .env("SGF_AGENT_COMMAND", &mock_agent)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped()),
+    )
+    .expect("spawn sgf multitest");
+
+    {
+        let mut stdin = guard.child_mut().stdin.take().expect("open stdin");
+        stdin.write_all(multiline_content.as_bytes()).unwrap();
+        stdin.flush().unwrap();
+        // Drop closes the write end → EOF
+    }
+
+    let output = guard
+        .wait_with_output_timeout(Duration::from_secs(30))
+        .expect("failed to wait for sgf multitest");
+    drop(_permit);
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "multiline stdin should succeed, stderr: {stderr}"
+    );
+
+    let captured = fs::read_to_string(&stdin_capture).unwrap_or_default();
+    assert_eq!(
+        captured, multiline_content,
+        "agent should receive exact multiline content via @file reference"
+    );
+
+    // Verify the _stdin.md file was created in the run context dir
+    let run_dirs: Vec<_> = fs::read_dir(tmp.path().join(".sgf/run"))
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .collect();
+    assert!(!run_dirs.is_empty(), "should have a run directory");
+
+    let stdin_file = run_dirs[0].path().join("context/_stdin.md");
+    assert!(stdin_file.exists(), "_stdin.md should exist in context dir");
+    let file_content = fs::read_to_string(&stdin_file).unwrap();
+    assert_eq!(
+        file_content, multiline_content,
+        "_stdin.md should contain the exact multiline input"
+    );
+}
+
+#[test]
 fn cursus_programmatic_event_structure_validates_all_fields() {
     let tmp = setup_test_dir();
     sgf_init_and_commit(tmp.path());

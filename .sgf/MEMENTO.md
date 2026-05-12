@@ -221,9 +221,19 @@ Specifications are the **source of truth** for all code. They are managed exclus
 # Correct:
 echo "Fix the settings button visibility" | sgf c
 
+# Also correct (printf for content with special chars):
+printf '%s\n' "Fix the settings button visibility" | sgf c
+
 # Wrong — treats the string as a spec stem:
 sgf c "Fix the settings button visibility"
+
+# Wrong — heredocs don't survive sh -c (newlines get mangled):
+cat <<'EOF' | sgf c
+Fix the settings button visibility
+EOF
 ```
+
+- **Do NOT use heredoc syntax** (`cat <<'EOF' ... EOF | sgf c`) to pipe content. Agent shells typically execute commands via `sh -c "..."`, which flattens heredoc newlines so the terminator is never found on its own line. The result is empty stdin and sgf silently runs only the iter prompt. Use `echo` or `printf` instead.
 
 ### Session Start
 

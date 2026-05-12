@@ -630,7 +630,13 @@ fn run_cursus_loop(
                 let stdin_content = {
                     let mut buf = String::new();
                     io::stdin().read_to_string(&mut buf)?;
+                    tracing::debug!(bytes = buf.len(), "programmatic stdin read");
                     if buf.trim().is_empty() {
+                        tracing::warn!(
+                            "programmatic mode active but stdin was empty — \
+                             the piped content may not have reached sgf \
+                             (e.g. heredoc mangled by sh -c)"
+                        );
                         None
                     } else {
                         Some(buf)
@@ -924,6 +930,7 @@ pub fn resume_cursus(root: &Path, run_id: &str) -> io::Result<i32> {
     if metadata.status == RunStatus::WaitingForInput {
         let mut input = String::new();
         io::stdin().read_to_string(&mut input)?;
+        tracing::debug!(bytes = input.len(), "resume stdin read");
 
         let config = CursusConfig {
             spec: metadata.spec.clone(),
