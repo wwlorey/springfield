@@ -94,6 +94,7 @@ pub struct IterRunnerConfig {
 pub(crate) struct AgentExitStatus {
     pub(crate) exit_code: Option<i32>,
     pub(crate) killed_by_timeout: bool,
+    pub(crate) ctrl_c_forwarded: bool,
 }
 
 /// Exit codes returned by the iteration loop.
@@ -298,6 +299,7 @@ fn run_interactive(
             AgentExitStatus {
                 exit_code: None,
                 killed_by_timeout: false,
+                ctrl_c_forwarded: false,
             }
         }
     }
@@ -363,6 +365,7 @@ fn run_afk(
             return AgentExitStatus {
                 exit_code: None,
                 killed_by_timeout: false,
+                ctrl_c_forwarded: false,
             };
         }
     };
@@ -374,6 +377,7 @@ fn run_afk(
             return AgentExitStatus {
                 exit_code: None,
                 killed_by_timeout: false,
+                ctrl_c_forwarded: false,
             };
         }
     };
@@ -402,6 +406,7 @@ fn run_afk(
             return AgentExitStatus {
                 exit_code: None,
                 killed_by_timeout: false,
+                ctrl_c_forwarded: false,
             };
         }
 
@@ -477,6 +482,7 @@ fn run_afk(
     AgentExitStatus {
         exit_code,
         killed_by_timeout,
+        ctrl_c_forwarded: false,
     }
 }
 
@@ -676,7 +682,7 @@ fn run_agent_with_retry(
     tee: &Arc<TeeWriter>,
     iteration: u32,
     session_id: &str,
-) {
+) -> bool {
     let start = std::time::Instant::now();
     let status = if config.afk {
         run_afk(
@@ -690,7 +696,7 @@ fn run_agent_with_retry(
     let elapsed = start.elapsed();
 
     if !is_retryable_process_failure(&status, elapsed) {
-        return;
+        return status.ctrl_c_forwarded;
     }
 
     let first_failure = std::time::Instant::now();
@@ -711,11 +717,11 @@ fn run_agent_with_retry(
                 "retry duration exceeded, giving up"
             );
             style::print_error("retry duration exceeded, giving up");
-            return;
+            return false;
         }
 
         if controller.poll() == ShutdownStatus::Shutdown {
-            return;
+            return false;
         }
 
         let in_backoff = attempt > config.retry_immediate;
@@ -750,7 +756,7 @@ fn run_agent_with_retry(
             let mut waited = Duration::ZERO;
             while waited < interval {
                 if controller.poll() == ShutdownStatus::Shutdown {
-                    return;
+                    return false;
                 }
                 thread::sleep(tick);
                 waited += tick;
@@ -768,7 +774,7 @@ fn run_agent_with_retry(
         let retry_elapsed = start.elapsed();
 
         if !is_retryable_process_failure(&retry_status, retry_elapsed) {
-            return;
+            return retry_status.ctrl_c_forwarded;
         }
     }
 }
@@ -862,7 +868,7 @@ pub fn run_iteration_loop(
 
         let head_before = vcs_utils::git_head();
 
-        run_agent_with_retry(
+        let ctrl_c_forwarded = run_agent_with_retry(
             &agent_cmd,
             &mut config,
             is_file,
@@ -901,6 +907,12 @@ pub fn run_iteration_loop(
             }
             auto_push_if_changed(&config, &head_before, &tee);
             return IterExitCode::Complete;
+        }
+
+        if ctrl_c_forwarded {
+            warn!("interrupted (ctrl-c forwarded to agent)");
+            auto_push_if_changed(&config, &head_before, &tee);
+            return IterExitCode::Interrupted;
         }
 
         log_resource_usage(i);
@@ -1470,6 +1482,7 @@ fi
         AgentExitStatus {
             exit_code: code,
             killed_by_timeout: false,
+            ctrl_c_forwarded: false,
         }
     }
 
@@ -1566,6 +1579,7 @@ fi
         let status = AgentExitStatus {
             exit_code: None,
             killed_by_timeout: true,
+            ctrl_c_forwarded: false,
         };
         assert!(!is_retryable_process_failure(
             &status,

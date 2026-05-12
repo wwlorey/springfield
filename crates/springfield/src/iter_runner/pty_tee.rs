@@ -180,6 +180,7 @@ pub(crate) fn run_interactive_with_pty(
     let mut last_ws: libc::winsize = unsafe { std::mem::zeroed() };
     unsafe { libc::ioctl(stdin_fd, libc::TIOCGWINSZ, &mut last_ws) };
 
+    let mut ctrl_c_forwarded = false;
     let exit_code;
     loop {
         if controller.poll() == ShutdownStatus::Shutdown {
@@ -241,6 +242,9 @@ pub(crate) fn run_interactive_with_pty(
         if fds[0].revents & libc::POLLIN != 0 {
             let n = unsafe { libc::read(stdin_fd, buf.as_mut_ptr() as _, buf.len()) };
             if n > 0 {
+                if buf[..n as usize].contains(&0x03) {
+                    ctrl_c_forwarded = true;
+                }
                 let _ = unsafe { libc::write(master_fd, buf.as_ptr() as _, n as usize) };
             }
         }
@@ -295,6 +299,7 @@ pub(crate) fn run_interactive_with_pty(
     Ok(AgentExitStatus {
         exit_code,
         killed_by_timeout: false,
+        ctrl_c_forwarded,
     })
 }
 

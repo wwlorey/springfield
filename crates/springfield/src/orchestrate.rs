@@ -94,7 +94,11 @@ fn run_resume_session(root: &Path, meta: &SessionMetadata, session_id: &str) -> 
         &controller,
     )?;
 
-    let exit_code = result.exit_code.unwrap_or(1);
+    let exit_code = if result.ctrl_c_forwarded && result.exit_code == Some(0) {
+        130
+    } else {
+        result.exit_code.unwrap_or(1)
+    };
 
     if exit_code != 0 && start.elapsed() < Duration::from_secs(5) {
         style::print_warning("session may have expired");
@@ -140,7 +144,11 @@ fn restart_with_prompt(
     let result =
         crate::iter_runner::pty_tee::run_interactive_with_pty(&mut command, log_path, controller)?;
 
-    let exit_code = result.exit_code.unwrap_or(1);
+    let exit_code = if result.ctrl_c_forwarded && result.exit_code == Some(0) {
+        130
+    } else {
+        result.exit_code.unwrap_or(1)
+    };
     update_metadata_on_exit(root, &meta.loop_id, exit_code);
     Ok(exit_code)
 }
