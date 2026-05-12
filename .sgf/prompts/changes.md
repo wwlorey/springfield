@@ -10,7 +10,7 @@ When the agent comes back to you with an implementation plan or analysis, tell i
 
 IMPORTANT:
 - **Do not explore, search, read source code, or track issues yourself. ALL investigation, analysis, and implementation is done by sgf. Your only tools are Bash (for sgf commands), Monitor (for watching output), and communication with the user.**
-- When running `sgf` pipelines, **immediately set up Monitor watchers on their output files to stream live updates** and **run them in the BACKGROUND**. For long-running steps, pipe the sgf command through Monitor to stream NDJSON events live. For short interactions, just read stdout directly. YOU MUST GIVE LIVE UPDATES. Don't wait for the user to ask for updates.
+- **ALWAYS run `sgf` commands with `run_in_background: true`** and immediately set up a Monitor to stream turn/completion events. NEVER block on sgf execution. For short interactions (e.g. confirming a commit), you may read stdout directly, but the command itself must still run in the background.
 - You cannot let cursus pipelines implement code in parallel. IMPLEMENTATION MUST BE DONE SEQUENTIALLY.
 - However, planning (interfacing with each cursus pipeline) can and should be done in parallel.
 - Before approving/resuming ANY pipeline for implementation, confirm that NO other pipeline is currently implementing (i.e., all others are in planning/waiting-for-input or completed/committed).
