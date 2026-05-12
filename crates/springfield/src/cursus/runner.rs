@@ -685,21 +685,7 @@ fn run_cursus_loop(
             metadata.current_session_id = None;
             turn_result.exit_code
         } else {
-            let head_before = if auto_push && effective_mode == Mode::Interactive {
-                vcs_utils::git_head()
-            } else {
-                None
-            };
-
-            let exit_code = run_iter(&inv, &def.retry, &controller)?;
-
-            if let Some(ref before) = head_before {
-                vcs_utils::auto_push_if_changed(before, |msg| {
-                    style::print_action(msg);
-                });
-            }
-
-            exit_code
+            run_iter(&inv, &def.retry, &controller)?
         };
 
         if exit_code == 130 {

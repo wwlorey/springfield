@@ -882,6 +882,7 @@ pub fn run_iteration_loop(
 
         if controller.poll() == ShutdownStatus::Shutdown {
             warn!("interrupted");
+            auto_push_if_changed(&config, &head_before, &tee);
             return IterExitCode::Interrupted;
         }
 
@@ -916,6 +917,7 @@ pub fn run_iteration_loop(
         while elapsed < target {
             if controller.poll() == ShutdownStatus::Shutdown {
                 warn!("interrupted");
+                auto_push_if_changed(&config, &head_before, &tee);
                 return IterExitCode::Interrupted;
             }
             thread::sleep(tick);
