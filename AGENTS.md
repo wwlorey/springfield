@@ -23,6 +23,11 @@ just install
   + Playwright should be configured with `workers: 1` to avoid macOS Chromium sandbox limits.
   + Chromium may fail with `bootstrap_check_in ... Permission denied` due to the Claude Code sandbox. The `chromiumSandbox: false` setting in `playwright.config.ts` works around this — do not remove it.
 
+## Cursus Definitions
+
+- Cursus pipelines are defined in `.sgf/cursus/*.toml`.
+- Valid iter modes: `interactive` (human in the loop), `afk` (fully automated, no human input).
+
 ## IMPORTANT
 
 - **ALWAYS read the given prompt files at the beginning of each session.**
