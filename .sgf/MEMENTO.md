@@ -8,6 +8,7 @@ These rules override default behavior. Follow them exactly.
 - **Edit settings in dotfiles** — always edit `~/Repos/dotfiles/.claude` (not `~/`).
 - **Subagent limits** — do not spawn more than 3 concurrent Agent/subagent calls. Large refactors must be done sequentially.
 - **Session start** — run `fm list --json` at the beginning of EACH SESSION.
+- **Uncommitted changes** — if `git status` shows a dirty working tree at session start, check the most recent `.sgf/logs` entry to understand what produced them before asking the user what to do with them. They are usually formatter residue from backpressure and should likely be committed.
 
 ### Invoking `sgf` programmatically
 
@@ -31,10 +32,9 @@ Fix the settings button visibility
 EOF
 ```
 
-### Build history
+### Build context
 
-- When asked about what has been built (*in general* or *on a particular day/time*):
-  * Read the logs in `./.sgf/logs` to help formulate your answer.
+- Logs for what has been built are kept in `./.sgf/logs`. Check there when in need of context regarding what has been built.
 
 
 ## pn — Issue Tracker

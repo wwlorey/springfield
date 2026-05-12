@@ -1,6 +1,12 @@
 # Backpressure — Building, Testing, Linting, Formatting, Integration Tests, and Code Coverage
 
+> **Editing:** This file is symlinked from `~/Repos/springfield/.sgf/`. Always edit the source in the springfield repo, not `~/.sgf/` directly.
+
 This document defines backpressure for a variety of project types. Be sure to align your understanding of backpressure to the project type with which you're currently working.
+
+## Formatter residue
+
+Running full backpressure includes formatters (`cargo fmt`, `pnpm run format`) that may reformat files beyond those you changed. These leftover formatting diffs are expected. After backpressure completes, commit any formatter residue as a separate formatting-only commit.
 
 ## Backend (Rust)
 
