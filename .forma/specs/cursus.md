@@ -38,23 +38,20 @@ Cursus is a module within the `springfield` crate. Pipeline definitions live in 
     build.toml
     change.toml
     changes.toml
+    cohere.toml
     doc.toml
     incarnatur.toml
     install.toml
-    reconcile.toml
     spec.toml
   prompts/                     # prompt content (markdown)
     build.md
     change.md
     changes.md
+    cohere.md
     doc.md
     incarnatur-0-spec-to-issues.md
     incarnatur-1-spec-to-issues-final-pass.md
     install.md
-    reconcile-0-setup.md
-    reconcile-1-per-spec.md
-    reconcile-2-coherence.md
-    reconcile-3-tag.md
     spec-harden.md
     spec-refine-and-create.md
 

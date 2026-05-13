@@ -1,0 +1,8 @@
+description = "'Cohere' | Verify cross-spec consistency at integration boundaries"
+alias = "co"
+auto_push = true
+
+[[iter]]
+name = "cohere"
+prompt = "cohere.md"
+mode = "afk"

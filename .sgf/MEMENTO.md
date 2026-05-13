@@ -41,7 +41,7 @@ EOF
 ### Build context
 
 - Logs for what has been built are kept in `./.sgf/logs`. Check there when in need of context regarding what has been built.
-- The most recent log by mtime is the most recent work — always start there regardless of filename prefix (e.g. `reconcile-*`, `changes-*`).
+- The most recent log by mtime is the most recent work — always start there regardless of filename prefix (e.g. `cohere-*`, `changes-*`).
 
 
 ## pn — Issue Tracker

@@ -6,7 +6,16 @@ The user will tell you something they would like to add, change, or fix.
 3. Check it for robustness and ensure it actually fixes the issue/makes the requested change.
 4. Once the user approves your plan, implement the change.
 5. Add unit and/or property-based and/or integration tests (whichever is best).
-6. When the change is complete:
+6. Update affected specs:
+  a. Identify specs covering the code you changed — run `fm list --json` and check which specs have a `src` path overlapping with the files you modified.
+  b. For each affected spec:
+    i. Read it via `fm show <stem> --json`.
+    ii. Verify claims in sections that relate to your change against the new code.
+    iii. Update via `fm` to match the new behavior. If rewriting >40% of a section, rewrite the whole section so it reads coherently.
+    iv. Set status to `proven` via `fm update <stem> --status proven`.
+  c. Export via `fm export`.
+  d. If no specs are affected by the change, skip this step.
+7. When the change is complete:
   a. Run **full BACKPRESSURE**.
   b. If applicable, run `just install`.
   c. Track the work:
@@ -14,6 +23,3 @@ The user will tell you something they would like to add, change, or fix.
     ii. Capture (i) the impetus for the change and (ii) what work was done to change it, including any relevant design decisions made.
     iii. **Close both as fixed.**
   d. Commit your changes.
-
-IMPORTANT:
-- Do NOT update the spec.
