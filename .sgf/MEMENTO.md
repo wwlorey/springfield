@@ -10,6 +10,12 @@ These rules override default behavior. Follow them exactly.
 - **Session start** — run `fm list --json` at the beginning of EACH SESSION.
 - **Uncommitted changes** — if `git status` shows a dirty working tree at session start, check the most recent `.sgf/logs` entry to understand what produced them before asking the user what to do with them. They are usually formatter residue from backpressure and should likely be committed.
 
+### Shortcuts
+
+| Shortcut | Meaning |
+|----------|---------|
+| `cp`     | Commit and push |
+
 ### Invoking `sgf` programmatically
 
 When calling `sgf` commands from within a Claude Code session (e.g., via Bash tool), **pipe the message through stdin** — do NOT pass it as a positional argument. The positional argument is reserved for spec stems (e.g., `sgf c auth`), not free-text descriptions. Piped stdin activates programmatic mode, which emits structured NDJSON events.
