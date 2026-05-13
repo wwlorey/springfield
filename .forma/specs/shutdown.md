@@ -5,7 +5,7 @@ Shared graceful shutdown — double-press Ctrl+C/Ctrl+D detection with confirmat
 | Field | Value |
 |-------|-------|
 | Src | `crates/shutdown/` |
-| Status | proven |
+| Status | draft |
 
 ## Overview
 

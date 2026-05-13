@@ -5,7 +5,7 @@ CLI entry point — scaffolding, prompt delivery, iteration runner, loop orchest
 | Field | Value |
 |-------|-------|
 | Src | `crates/springfield/` |
-| Status | proven |
+| Status | draft |
 
 ## Overview
 
