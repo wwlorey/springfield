@@ -894,7 +894,7 @@ Additional mechanisms needed for daemon mode:
 ## Related Specifications
 
 - [claude-wrapper](claude-wrapper.md) — Agent wrapper — layered .sgf/ context injection, cl binary
-- [session-resume](session-resume.md) — Session resume — persist Claude session IDs and loop config to enable resuming interrupted sessions via --resume flag on any sgf subcommand
+- [session-resume](session-resume.md) — Session resume — persist Claude session IDs and loop config to enable resuming interrupted sessions via --resume flag or sgf resume command
 - [shutdown](shutdown.md) — Shared graceful shutdown — double-press Ctrl+C/Ctrl+D detection with confirmation prompts
 - [springfield](springfield.md) — CLI entry point — scaffolding, prompt delivery, iteration runner, loop orchestration, recovery, and daemon lifecycle
 - [test-harness](test-harness.md) — Cross-crate integration test harness — concurrency control, process lifecycle guards, mock infrastructure, and environment isolation
