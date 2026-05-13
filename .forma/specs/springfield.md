@@ -5,7 +5,7 @@ CLI entry point — scaffolding, prompt delivery, iteration runner, loop orchest
 | Field | Value |
 |-------|-------|
 | Src | `crates/springfield/` |
-| Status | draft |
+| Status | proven |
 
 ## Overview
 
@@ -22,6 +22,7 @@ CLI entry point for Springfield. All developer interaction goes through this bin
 - **Loop orchestration**: Launch iteration loops with the correct flags, manage PID files, tee logs
 - **Recovery**: Pre-launch cleanup of dirty state from crashed iterations
 - **Daemon lifecycle**: Start the pensa and forma daemons before launching loops
+- **Session management**: `sgf resume` lists and resumes previous sessions; `sgf kill` stops a running cursus and marks it resumable
 
 ## Implementation Order
 
@@ -65,7 +66,7 @@ After `sgf init` and ongoing development, a project contains:
 │   └── <loop-id>.json         (session metadata — session_id, loop config, status; see session-resume spec)
 └── prompts/                   (optional — project-local overrides only)
     └── build.md               (example: overrides just build.md, other prompts fall through to ~/.sgf/)
-.pre-commit-config.yaml        (prek hooks for pensa sync)
+.pre-commit-config.yaml        (prek hooks for pensa + forma sync)
 AGENTS.md                      (hand-authored operational guidance)
 CLAUDE.md                      (`ln -s` to AGENTS.md)
 test-report.md                 (generated — overwritten each test run, committed)
@@ -76,18 +77,18 @@ Specs are managed by forma and read via `fm show <stem> --json`. The `.forma/spe
 
 ### Global Home Structure
 
-Populated by `just install` (rsync from the springfield repo's `.sgf/`):
+Populated by `just install` (symlinks from the springfield repo's `.sgf/`):
 
 ```
 ~/.sgf/
-├── MEMENTO.md                 (universal agent instructions — fm/pn workflows, conventions)
-├── BACKPRESSURE.md            (universal build/test/lint/format reference)
-├── cursus/                    (global cursus pipeline definitions)
+├── MEMENTO.md                 (symlink → repo .sgf/MEMENTO.md)
+├── BACKPRESSURE.md            (symlink → repo .sgf/BACKPRESSURE.md)
+├── cursus/                    (symlink → repo .sgf/cursus/)
 │   ├── build.toml
 │   ├── spec.toml
 │   ├── verify.toml
 │   └── ...
-└── prompts/
+└── prompts/                   (symlink → repo .sgf/prompts/)
     ├── build.md               (default prompts for all projects)
     ├── spec.md
     ├── verify.md
@@ -99,42 +100,49 @@ Populated by `just install` (rsync from the springfield repo's `.sgf/`):
 
 ### Installation
 
-All crates are installed via `just install`, which also syncs the global `~/.sgf/` directory:
+All crates are installed via `just install`, which also creates the global `~/.sgf/` directory structure:
 
 ```just
 install:
     cargo install --path crates/pensa
     cargo install --path crates/springfield
     cargo install --path crates/claude-wrapper
-    rsync -av --delete --exclude='logs/' --exclude='run/' .sgf/ ~/.sgf/
+    cargo install --path crates/forma
+    mkdir -p ~/.sgf/logs ~/.sgf/run
+    ln -sfn "$(pwd)/.sgf/MEMENTO.md" ~/.sgf/MEMENTO.md
+    ln -sfn "$(pwd)/.sgf/BACKPRESSURE.md" ~/.sgf/BACKPRESSURE.md
+    ln -sfn "$(pwd)/.sgf/cursus" ~/.sgf/cursus
+    ln -sfn "$(pwd)/.sgf/prompts" ~/.sgf/prompts
 ```
 
-The rsync copies prompts, cursus definitions, MEMENTO.md, and BACKPRESSURE.md to `~/.sgf/`. The `--delete` flag removes files from `~/.sgf/` that no longer exist in the repo. Runtime directories (`logs/`, `run/`) are excluded.
+The symlinks point directly to the repo's `.sgf/` directory. Stale directory copies from previous rsync-based installs are removed before creating symlinks. Runtime directories (`logs/`, `run/`) are created with `mkdir -p`.
 
-### Iteration Runner Module
-
-The iteration runner is built into sgf (absorbed from the former `ralph` crate). It provides direct `cl` invocation with:
+### Module Layout
 
 ```
 crates/springfield/
 ├── src/
-│   ├── iter_runner/
-│   │   ├── mod.rs       # Iteration loop, agent invocation, completion detection
-│   │   ├── format.rs    # NDJSON parsing, tool call/result formatting (pure, no ANSI)
-│   │   ├── style.rs     # ANSI escape code helpers (bold, dim, green, yellow, red), NO_COLOR support
-│   │   └── banner.rs    # Box-drawing banner renderer (render_box)
-│   ├── ...
+│   ├── main.rs          # CLI entry point (clap definitions, command dispatch, dynamic arg parsing)
+│   ├── lib.rs           # Public module exports
+│   ├── init.rs          # sgf init scaffolding
+│   ├── orchestrate.rs   # Session resume orchestration (run_resume, restart_with_prompt)
+│   ├── recovery.rs      # Pre-launch recovery, daemon startup, port derivation, data export
+│   ├── loop_mgmt.rs     # Loop/session metadata management (read/write session JSON, log files, loop ID generation)
+│   ├── prompt.rs        # Prompt file resolution (layered lookup)
+│   ├── style.rs         # ANSI styling primitives, badge box, semantic output functions, tool name coloring
+│   ├── cursus/
+│   │   ├── mod.rs       # Exports: resolve_cursus, resolve_alias, load_all_definitions, list_all
+│   │   ├── runner.rs    # Cursus execution engine (run_cursus, resume_cursus)
+│   │   ├── state.rs     # Run state persistence (metadata, PID files, resumable run detection)
+│   │   ├── toml.rs      # TOML parsing and validation
+│   │   ├── context.rs   # Context handling for inter-iter data passing
+│   │   └── events.rs    # Structured event system for programmatic mode
+│   └── iter_runner/
+│       ├── mod.rs       # Iteration loop, agent invocation, completion detection, retry logic
+│       ├── format.rs    # NDJSON parsing, tool call/result formatting (pure, no ANSI)
+│       ├── banner.rs    # Box-drawing banner renderer (render_box, render_box_styled)
+│       └── pty_tee.rs   # PTY-based interactive execution with log tee and signal forwarding
 ```
-
-Key components:
-- **`format.rs`** — Pure function `format_line()` that parses NDJSON and returns structured `FormattedOutput`
-- **`style.rs`** — ANSI styling with `NO_COLOR` support (reconciled from both former style modules)
-- **`banner.rs`** — Box-drawing banner renderer for iteration/completion/stall banners
-- **`TeeWriter`** — Writes styled output to stdout and stripped output to log file
-- **Stdout reader thread** — Reads agent stdout via `mpsc` channel with 100ms poll for interrupt checking
-- **Notification watcher** — Monitors `.iter-ding` sentinel for interactive notification sounds
-- **Terminal settings save/restore** — `tcgetattr`/`tcsetattr` around agent invocations
-- **`cl`-in-PATH check** — Verifies `cl` is available before starting the loop
 
 ### File Purposes
 
@@ -146,29 +154,31 @@ Key components:
 
 **`CLAUDE.md`** — Entry point for Claude Code. Symlinks to AGENTS.md. Auto-loaded by Claude Code at the start of every session.
 
-**`~/.sgf/cursus/`** — Global cursus pipeline definitions. Each `.toml` file defines a command available via `sgf <name>`. Synced from the springfield repo via `just install`. To override a cursus for a specific project, create `./.sgf/cursus/<name>.toml` — that file takes precedence for that project only.
+**`~/.sgf/cursus/`** — Global cursus pipeline definitions (symlink to repo). Each `.toml` file defines a command available via `sgf <name>`. To override a cursus for a specific project, create `./.sgf/cursus/<name>.toml` — that file takes precedence for that project only.
 
-**`~/.sgf/prompts/`** — Default prompts for all projects. Synced from the springfield repo via `just install`. To override a prompt for a specific project, create `./.sgf/prompts/<name>.md` — that file takes precedence for that project only.
+**`~/.sgf/prompts/`** — Default prompts for all projects (symlink to repo). To override a prompt for a specific project, create `./.sgf/prompts/<name>.md` — that file takes precedence for that project only.
 
-**`.sgf/run/{loop_id}.json`** — Session metadata file. Contains `session_id` (UUID), loop config (`mode`, `prompt`, `iterations_completed`, `iterations_total`), and `status` (`running`, `completed`, `interrupted`, `exhausted`). Written before spawning cl and updated on exit. Enables `--resume <run-id>` to restart previous sessions. See [session-resume spec](session-resume.md) for the full schema.
+**`.sgf/run/{loop_id}.json`** — Session metadata file for non-cursus sessions. Contains loop_id, iterations array (with session_id per iteration), stage, mode, prompt, iterations_total, status, and timestamps. Written before spawning cl and updated on exit. Enables resume via `sgf resume`.
+
+**`.sgf/run/{run_id}/meta.json`** — Session metadata file for cursus runs. Contains run_id, cursus name, status, current iter info, completed iters, spec, context producers, and timestamps. Enables resume via `sgf <command> --resume <run-id>` or `sgf resume`.
 
 **`.sgf/` and `.claude/` protection** — Both `.sgf/` and `.claude/` are protected from agent modification via Claude deny settings. `sgf init` scaffolds these rules. `.sgf/` protection prevents agents from modifying local overrides and reference files. `.claude/` protection prevents agents from weakening sandbox configuration or deny rules.
-
 
 ## Dependencies
 
 | Crate | Purpose |
-|-------|---------|
+|-------|---------| 
 | `clap` (4, derive + env) | CLI argument parsing |
 | `serde` (1, derive) | Serialization for run state and NDJSON parsing |
 | `serde_json` (1) | JSON handling for run metadata and NDJSON stream |
+| `serde_yaml` (0.9) | YAML handling for pre-commit config parsing and merging |
 | `chrono` (0.4) | Timestamps for run metadata and loop IDs |
 | `toml` (0.8) | Cursus TOML pipeline definition parsing |
 | `sha2` (0.10) | SHA-256 for daemon port derivation |
 | `uuid` (1, v4) | UUIDv4 session ID generation |
 | `shutdown` (workspace) | Shared graceful shutdown handling, ChildGuard, ProcessSemaphore (see [shutdown spec](shutdown.md)) |
 | `vcs-utils` (workspace) | Git operations — auto-push (see [vcs-utils spec](vcs-utils.md)) |
-| `libc` (0.2) | Terminal settings save/restore (`tcgetattr`/`tcsetattr`) |
+| `libc` (0.2) | Terminal settings save/restore (`tcgetattr`/`tcsetattr`), PTY management (`posix_openpt`, `grantpt`, `ptsname`), process group control (`setpgid`, `setsid`) |
 | `tracing` (0.1) | Structured logging |
 | `tracing-subscriber` (0.3, fmt + env-filter) | Log output formatting, `RUST_LOG` env filter |
 
@@ -212,9 +222,9 @@ Note: `cl` (claude-wrapper), `pn` (pensa), and `fm` (forma) are all invoked as c
 
 ### Recovery Failure Modes
 
-- **Git checkout/clean failure**: Fatal — loop launch is aborted. Proceeding with dirty state would violate the atomic iteration guarantee.
+- **Git checkout/clean failure**: Warning — logged via `print_warning` and execution continues. The recovery function returns an error, but `main.rs` treats it as non-fatal.
 - **`pn doctor --fix` failure**: Warning only — supplementary, not critical for state consistency.
-- **Daemon startup failure**: Fatal — loop cannot proceed without pensa/forma daemons. 5-second deadline with exponential backoff.
+- **Daemon startup failure**: Warning — logged via `print_warning` and execution continues. Loop launch proceeds without daemons if they fail to start.
 
 ### Auto-Retry on Agent Process Failure
 
@@ -232,7 +242,7 @@ Retryable failures are distinguished from non-retryable ones using exit code/sig
 | User Ctrl+C / Ctrl+D | No | SIGINT detected by shutdown controller |
 | Bad arguments / config error | No | Exit code 1 within first few seconds of startup |
 
-The **duration heuristic** acts as a safety net: if the process ran for less than a few seconds before failing with exit code 1, it is treated as a non-retryable startup error (bad args, missing prompt, config issue). If it ran longer, the failure is treated as retryable (the agent was working and something went wrong mid-execution).
+The **duration heuristic** (`STARTUP_ERROR_THRESHOLD = 5s`): if the process ran for less than 5 seconds before failing with exit code 1, it is treated as a non-retryable startup error (bad args, missing prompt, config issue). If it ran longer, the failure is treated as retryable (the agent was working and something went wrong mid-execution).
 
 #### Retry Strategy
 
@@ -296,9 +306,11 @@ Springfield is tested via integration tests that exercise the full CLI. All inte
 | Init | Sandbox domains include npm registries | `registry.npmjs.org` and `registry.yarnpkg.com` in allowedDomains |
 | Init | SvelteKit not in .gitignore | `.svelte-kit/` entry absent |
 | Command resolution | Alias resolution | `sgf b` resolves to `build` cursus when `alias = "b"` |
+| Command resolution | Direct name preferred over alias | `sgf build` resolves to build cursus even when another cursus has `alias = "build"` |
 | Command resolution | Local overrides global | `./.sgf/cursus/build.toml` takes precedence over `~/.sgf/cursus/build.toml` |
 | Command resolution | Simple prompt mode | `sgf my-task.md` detected as file path, runs iteration loop |
 | Command resolution | Unknown command | `sgf nonexistent` exits 1 with "unknown command" message |
+| Command resolution | Bare prompt without cursus | `sgf deploy` with only `.sgf/prompts/deploy.md` exits 1 (cursus TOML required) |
 | Cursus | TOML parsing and validation | Duplicate iter names, missing transitions → exit 1 |
 | Cursus | Sentinel transitions | `.iter-complete`, `.iter-reject`, `.iter-revise` trigger correct next iter |
 | Cursus | Context passing | `produces` files written to run dir; `consumes` files injected into prompt |
@@ -316,23 +328,41 @@ Springfield is tested via integration tests that exercise the full CLI. All inte
 | Output | Console formatting | Banners, iteration headers, stall messages formatted correctly |
 | List | `sgf list` output | Shows cursus commands with descriptions and built-ins |
 | List | Local override display | Local cursus overrides global; only one entry per command name |
+| List | Built-ins include kill and resume | `kill`, `resume` shown in built-ins section |
 | Logs | `sgf logs <loop-id>` | Tails the correct log file |
 | Logs | Missing log file | Exits 1 with error message |
 | Flags | `-a` and `-i` mutual exclusion | Passing both exits 1 with error message |
+| Flags | `--resume` and `-a` mutual exclusion | Passing both exits 1 with error message |
+| Flags | `--resume` and `-i` mutual exclusion | Passing both exits 1 with error message |
 | Programmatic | isatty detection | Piped stdin triggers programmatic mode (NDJSON events on stdout) |
+| Programmatic | `SGF_FORCE_TERMINAL` env var | Set to `1` overrides isatty, forces terminal mode |
 | Programmatic | `--output-format json` flag | Explicit flag triggers programmatic mode even with TTY stdin |
 | Programmatic | Structured events emitted | `run_start`, `iter_start`, `turn`, `iter_complete`, `run_complete` events in correct order |
 | Programmatic | Turn-by-turn driving | Outer agent sends message via stdin, receives structured JSON response, resumes with `--resume` |
 | Programmatic | AFK iters in programmatic mode | AFK iters run to completion, emit iter events, no input needed |
 | Programmatic | Stall event | Iter exhaustion emits `stall` event with iter info and available actions |
 | Programmatic | Resume command on exit | All exit paths (stall, interrupt, complete, error) print resume command |
+| Resume | `sgf resume` lists sessions | Shows cursus and non-cursus sessions sorted by most recent |
+| Resume | `sgf resume <run-id>` | Resumes the specified session directly |
+| Resume | `sgf resume` interactive selection | User selects from numbered list, session resumes |
+| Resume | Resume dispatch prefers cursus over legacy | When both metadata types exist, cursus path is attempted first |
+| Resume | Resume with corrupt metadata | Returns clear error about corruption |
 | Resume | `--resume <run-id>` on subcommand | Restores full cursus state (iter, iteration, context) and continues |
 | Resume | `--resume` with invalid run-id | Exits 1 with "run not found" error |
 | Resume | Resume interrupted run | Resumes from interruption point |
 | Resume | Resume stalled run (interactive) | Offers Retry/Skip/Abort options |
 | Resume | Resume stalled run (programmatic) | Emits stall event, waits for input |
+| Resume | Quick failure prompts restart | If resumed session fails within 5s, prompts to restart with original prompt |
+| Kill | `sgf kill <run-id>` not found | Exits 1 with error |
+| Kill | Kill already completed | Reports status, no-op |
+| Kill | Kill already waiting_for_input | Reports status, no-op |
+| Kill | Kill with dead PID | Updates status to waiting_for_input, removes PID file |
+| Kill | Kill with no PID file | Updates status only |
+| Kill | Kill with alive PID | Kills process group, updates status, removes PID file |
+| Kill | Kill preserves session_id | Existing session_id retained in metadata after kill |
+| Kill | Kill preserves iter position | Current iter, index, completed iters preserved after kill |
 | Auto-retry | Retryable failure detection | Non-zero exit after sustained execution triggers retry |
-| Auto-retry | Non-retryable failure detection | Exit code 1 within first seconds treated as config error, no retry |
+| Auto-retry | Non-retryable failure detection | Exit code 1 within first 5 seconds treated as config error, no retry |
 | Auto-retry | Signal-killed process | Process killed by signal (SIGSEGV) triggers retry |
 | Auto-retry | User interrupt not retried | SIGINT/SIGTERM detected by shutdown controller does not trigger retry |
 | Auto-retry | Immediate retries | Up to 3 immediate retries before backoff |
@@ -351,23 +381,26 @@ Springfield is tested via integration tests that exercise the full CLI. All inte
 ## CLI Commands
 
 ```
-sgf <command> [-a | -i] [-n N] [--no-push] [--skip-preflight] [--output-format json] [--resume <run-id>]   — run a cursus pipeline
-sgf <file>                                                       — run a prompt file as a simple iteration loop
-sgf init [--force] [--no-fe]                                     — scaffold a new project
-sgf list                                                         — show available commands with descriptions
-sgf logs <loop-id>                                               — tail a running loop's output
+sgf <command> [<spec>] [-a | -i] [-n N] [--no-push] [--skip-preflight] [--output-format json] [--resume <run-id>]   — run a cursus pipeline
+sgf <file> [-a | -i] [-n N] [--no-push] [--skip-preflight]              — run a prompt file as a simple iteration loop
+sgf init [--force] [--no-fe]                                             — scaffold a new project
+sgf list                                                                 — show available commands with descriptions
+sgf resume [<run-id>]                                                    — list and resume a previous session
+sgf kill <run-id>                                                        — kill a running cursus and mark it resumable
+sgf logs <loop-id>                                                       — tail a running loop's output
 ```
 
-Where `<command>` resolves to a cursus TOML pipeline definition. Commands can also be invoked by alias (e.g., `sgf b` for `sgf build` if `alias = "b"` is configured in the cursus TOML).
+Where `<command>` resolves to a cursus TOML pipeline definition. Commands can also be invoked by alias (e.g., `sgf b` for `sgf build` if `alias = "b"` is configured in the cursus TOML). An optional `<spec>` positional argument filters the run to a specific spec stem.
 
 ### Command Resolution
 
-1. Check if `<command>` matches a reserved built-in (`init`, `list`, `logs`). If so, run the built-in.
-2. Check if the argument resolves to an existing file path. If so, run it as a simple iteration loop (see [Simple Prompt Mode](#simple-prompt-mode)).
-3. Check if `./.sgf/cursus/<command>.toml` exists (local override). If so, parse and run the cursus.
-4. Check if `~/.sgf/cursus/<command>.toml` exists (global default). If so, parse and run the cursus.
-5. Check if `<command>` matches an alias in any resolved cursus TOML. If so, resolve to the aliased cursus and run it.
-6. Error: `unknown command: <command>`.
+1. Check if `<command>` matches a reserved built-in (`init`, `list`, `resume`, `kill`, `logs`). If so, run the built-in.
+2. If `--resume <run-id>` is provided, dispatch to the resume handler (checks cursus metadata first, then non-cursus session metadata).
+3. Check if the argument resolves to an existing file path. If so, run it as a simple iteration loop (see [Simple Prompt Mode](#simple-prompt-mode)).
+4. Check if `./.sgf/cursus/<command>.toml` exists (local override). If so, parse and run the cursus.
+5. Check if `~/.sgf/cursus/<command>.toml` exists (global default). If so, parse and run the cursus.
+6. Check if `<command>` matches an alias in any resolved cursus TOML. If so, resolve to the aliased cursus and run it.
+7. Error: `unknown command: <command>`.
 
 ### Simple Prompt Mode (`sgf <file>`)
 
@@ -386,7 +419,23 @@ Behavior:
 - No context injection via `consumes` — keep simple mode simple. `cl` still injects MEMENTO/BACKPRESSURE independently.
 - Exit codes: 0 (`.iter-complete` found), 2 (iterations exhausted), 130 (interrupted)
 
-### Resume via `--resume <run-id>`
+### Resume Built-in: `sgf resume`
+
+```
+sgf resume [<run-id>]
+```
+
+When called without arguments, lists all resumable sessions (up to 20, sorted by most recent) and prompts interactively for selection. Includes both cursus runs and non-cursus sessions.
+
+When called with a `<run-id>`, resumes that session directly. Checks cursus metadata first (`.sgf/run/<run-id>/meta.json`), then non-cursus session metadata (`.sgf/run/<run-id>.json`).
+
+Resume behavior:
+1. Load session metadata to find the last iteration's session_id
+2. Spawn `cl --resume <session_id> --verbose --dangerously-skip-permissions`
+3. On quick failure (<5s), prompt the user to restart with the original prompt
+4. If the user confirms restart, spawn `cl` with the original prompt and `--settings` to disable auto-memory and unsandboxed commands
+
+### Resume via `--resume <run-id>` on Subcommand
 
 Any sgf subcommand accepts `--resume <run-id>` to resume a stalled or interrupted run:
 
@@ -394,6 +443,8 @@ Any sgf subcommand accepts `--resume <run-id>` to resume a stalled or interrupte
 sgf change --resume change-20260422T150000
 sgf spec --resume spec-20260317T140000
 ```
+
+`--resume` is mutually exclusive with both `-a`/`--afk` and `-i`/`--interactive` — passing `--resume` with either mode flag is an error.
 
 Behavior:
 1. Load `.sgf/run/<run-id>/meta.json` (for cursus runs) or `.sgf/run/<run-id>.json` (for non-cursus sessions)
@@ -409,11 +460,25 @@ To resume:  sgf change --resume change-20260422T150000
 
 This appears in both terminal output (for humans) and as a structured JSON event (for outer agents in programmatic mode).
 
-The former `sgf resume` built-in command is removed. All resume functionality is accessed via `--resume <run-id>` on the original subcommand.
+### Kill Built-in: `sgf kill`
+
+```
+sgf kill <run-id>
+```
+
+Kills a running cursus and marks it as `waiting_for_input` so it can be resumed later. Only operates on cursus runs (not non-cursus sessions).
+
+Behavior:
+1. Load cursus metadata from `.sgf/run/<run-id>/meta.json`
+2. If the run is not in `running` status, report and exit (no-op)
+3. If a PID file exists and the process is alive, kill the process group with a 2-second grace period
+4. Update the run status to `waiting_for_input`
+5. Remove the PID file
+6. Print the resume command
 
 ### Programmatic Mode
 
-When stdin is not a TTY (`isatty(stdin) == false`), sgf automatically switches to programmatic mode. This can also be forced explicitly with `--output-format json`.
+When stdin is not a TTY (`isatty(stdin) == false`), sgf automatically switches to programmatic mode. This can also be forced explicitly with `--output-format json`. The `SGF_FORCE_TERMINAL` env var (set to `1`) overrides isatty detection, forcing terminal mode even when stdin is piped.
 
 In programmatic mode:
 - **Output**: Structured NDJSON events on stdout (see [cursus spec](cursus.md) Structured Events section)
@@ -460,8 +525,10 @@ Available commands:
 Built-ins:
 
   init         Scaffold a new project
+  kill         Kill a running cursus and mark it resumable
   list         Show available commands
   logs         Tail a running loop's output
+  resume       List and resume a previous session
 ```
 
 ### Common Flags
@@ -474,7 +541,7 @@ Built-ins:
 | `-n` / `--iterations` | from cursus TOML | Number of iterations (overrides `iterations` on all iters) |
 | `--skip-preflight` | `false` | Disable all pre-launch checks including recovery and daemon startup |
 | `--output-format` | — | Output format. `json` enables programmatic mode with structured NDJSON events on stdout. Auto-detected when stdin is not a TTY. |
-| `--resume <run-id>` | — | Resume a stalled or interrupted run. Restores full pipeline state (iter, iteration, context) and continues execution. |
+| `--resume <run-id>` | — | Resume a stalled or interrupted run. Mutually exclusive with `-a` and `-i`. |
 
 `-a` and `-i` are mutually exclusive — passing both is an error (exit 1 with a clear message). When neither is passed, the default comes from the cursus TOML iter definition (or `interactive` for simple prompt mode).
 
@@ -489,7 +556,10 @@ sgf verify -a                  # force AFK verify
 sgf issues-log                 # interactive bug reporting
 sgf doc                        # interactive doc triage
 sgf list                       # show available commands
-sgf change --resume change-20260422T150000  # resume specific run
+sgf resume                     # list resumable sessions interactively
+sgf resume change-20260422T150000  # resume specific run directly
+sgf kill change-20260422T150000    # kill running cursus, mark resumable
+sgf change --resume change-20260422T150000  # resume specific run via subcommand
 sgf my-task.md -a -n 5         # simple prompt mode
 sgf init --no-fe               # scaffold without frontend (backend-only project)
 
@@ -759,12 +829,14 @@ When `SGF_AGENT_COMMAND` is set (testing mode), the command override replaces `c
 cl \
   --verbose \
   --dangerously-skip-permissions \
+  --settings '{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}' \
   [--session-id <uuid>]           # always (fresh UUID per invocation)
+  [--resume <session_id>]         # only on first iteration if provided via CLI
   [--append-system-prompt '<consumed context>']
   @<PROMPT_FILE>
 ```
 
-Spawns with full terminal passthrough (stdin/stdout/stderr inherited). No `setsid()` — the agent stays in sgf's process group for natural signal delivery.
+Spawns via PTY (`pty_tee.rs`): allocates a pseudo-terminal pair, enters raw mode on the real TTY, forks the child with `setsid()` + `TIOCSCTTY` so it becomes the session leader with its own controlling terminal. PTY master/slave handles I/O forwarding between the real terminal and the child process. Output is simultaneously written to both stdout and a log file (with ANSI codes stripped). Window resize events (`TIOCGWINSZ`/`TIOCSWINSZ`) are forwarded from the real terminal to the PTY slave.
 
 **AFK mode** (`-a`):
 
@@ -774,6 +846,7 @@ cl \
   --print \
   --output-format stream-json \
   --dangerously-skip-permissions \
+  --settings '{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}' \
   [--session-id <uuid>]           # always (fresh UUID per invocation)
   [--append-system-prompt '<consumed context>']
   @<PROMPT_FILE>
@@ -789,6 +862,7 @@ cl \
   --print \
   --output-format json \
   --dangerously-skip-permissions \
+  --settings '{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}' \
   [--session-id <uuid>]           # always (fresh UUID per invocation)
   [--resume <session_id>]         # when resuming a previous turn
   [--append-system-prompt '<consumed context>']
@@ -801,29 +875,35 @@ Programmatic mode is activated when:
 1. `isatty(stdin) == false` (stdin is piped — automatic detection), OR
 2. `--output-format json` is passed explicitly
 
+The `SGF_FORCE_TERMINAL` env var (set to `1`) overrides isatty detection, forcing terminal mode even when stdin is piped.
+
 On `--resume`, the outer agent's stdin message is passed as input to the resumed conversation. The prompt file is not re-sent (the conversation already has it from the first turn).
+
+### Settings Override
+
+All modes pass `--settings '{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}'` to `cl`. This disables Claude Code's auto-memory feature (prevents the agent from writing to its own memory) and prevents the agent from executing commands outside the sandbox.
 
 ### Post-Result Timeout (AFK Mode)
 
-In AFK mode, after the agent emits a result event (NDJSON `result` or `usage` message), sgf starts a 30-second countdown. If the agent process does not exit within 30 seconds, sgf kills it via the `ChildGuard` (which calls `kill_process_group()`). This prevents hung agent processes from blocking the iteration loop indefinitely.
+In AFK mode, after the agent emits a result event (NDJSON `result` or `usage` message), sgf starts a countdown. If the agent process does not exit within the timeout, sgf kills it via the `ChildGuard` (which calls `kill_process_group()`). This prevents hung agent processes from blocking the iteration loop indefinitely.
 
-The timeout is stored in `IterRunnerConfig.post_result_timeout` (default: `Duration::from_secs(30)`). The timer starts on whichever event arrives first — `result` or `usage`. A single successful check resets nothing; the timeout is one-shot per invocation.
+The timeout defaults to 30 seconds (`DEFAULT_POST_RESULT_TIMEOUT_SECS`). It can be overridden via the `SGF_POST_RESULT_TIMEOUT_SECS` environment variable. The timer starts on whichever event arrives first — `result` or `usage`. A single successful check resets nothing; the timeout is one-shot per invocation.
 
-This timeout only applies to AFK mode. Interactive mode inherits stdio and has no NDJSON parsing, so there is no result event to trigger the countdown. Programmatic mode uses a similar timeout mechanism.
+This timeout only applies to AFK mode. Interactive mode uses PTY passthrough and has no NDJSON parsing, so there is no result event to trigger the countdown. Programmatic mode uses a similar timeout mechanism.
 
 ### Execution Model
 
 | Mode | Execution | Description |
 |------|-----------|-------------|
-| `interactive` | `cl` directly | Full terminal passthrough; calls `cl --verbose --dangerously-skip-permissions [--session-id UUID] [--append-system-prompt ...] @{prompt_path}`, inheriting stdio |
+| `interactive` | `cl` via PTY | Full PTY passthrough with raw mode; `cl` invoked with `--verbose --dangerously-skip-permissions`, output tee'd to log file |
 | `afk` | `cl` via iteration runner | Autonomous execution; `cl` invoked with `--dangerously-skip-permissions`, NDJSON stream formatting |
 | `programmatic` | `cl` via programmatic runner | Turn-by-turn agent-driven execution; `cl` invoked with `--output-format json`, structured NDJSON events emitted on stdout |
 
-**Interactive mode**: Calls `cl` directly with `--dangerously-skip-permissions`. No PID file, no log tee. Generates a loop_id and writes session metadata to `.sgf/run/{loop_id}.json` for resume capability. `cl` handles context file injection (MEMENTO, BACKPRESSURE). When `auto_push` is true, auto-pushes after the session if HEAD changed. Passes `--session-id <uuid>` to `cl` for session tracking.
+**Interactive mode**: Calls `cl` via PTY with `--dangerously-skip-permissions`. Generates a loop_id and writes session metadata to `.sgf/run/{loop_id}.json` for resume capability. `cl` handles context file injection (MEMENTO, BACKPRESSURE). When `auto_push` is true, auto-pushes after the session if HEAD changed. Passes `--session-id <uuid>` to `cl` for session tracking. Output is simultaneously written to both the real terminal and a log file.
 
 **AFK mode**: Calls `cl` directly via the iteration runner. PID file, log tee, and loop ID are managed by sgf. Session metadata (`.sgf/run/{loop_id}.json`) is written before spawn and updated on exit.
 
-**Programmatic mode**: Calls `cl` with `--output-format json` and piped stdin/stdout. Each invocation runs one turn: sgf sends the outer agent's message as stdin, captures the JSON response, wraps it with cursus metadata, and emits structured NDJSON events on stdout. The outer agent reads these events and decides whether to send another message (via a new `sgf --resume <run-id>` invocation) or stop. Session metadata and run state are persisted between invocations so `--resume` can restore the full pipeline state.
+**Programmatic mode**: Calls `cl` with `--output-format json` and piped stdin/stdout. Each invocation runs one turn: sgf sends the outer agent's message as stdin, captures the JSON response, wraps it with cursus metadata, and emits structured NDJSON events on stdout. Session metadata and run state are persisted between invocations so `--resume` can restore the full pipeline state.
 
 #### Session Metadata
 
@@ -846,11 +926,9 @@ Interrupt handling uses the shared `shutdown` crate's `ShutdownController` (see 
 
 **AFK mode** (`sgf build -a`, `sgf verify -a`, etc.): sgf spawns `cl` via `ChildGuard::spawn()` with `Stdio::null()` for stdin. Stdin isolation prevents the agent from inheriting the terminal fd and modifying terminal settings (e.g., disabling ISIG via `tcsetattr`), which would cause Ctrl+C/Ctrl+D to emit raw bytes instead of generating signals/EOF. The controller is created with `monitor_stdin: true` — stdin is free since no user interaction occurs. Both double Ctrl+C (SIGINT) and double Ctrl+D (stdin EOF) trigger shutdown. First press prints "Press Ctrl-C again to exit" (or "Press Ctrl-D again to exit") to stderr. Second press of the same key within 2 seconds: the `ChildGuard` is dropped, killing the process group via `kill_process_group(pid, 200ms)`, exit code 130. Timeout resets the counter. SIGTERM always triggers immediate shutdown (single signal).
 
-**Non-AFK mode** (`sgf build`, `sgf verify`, etc.): sgf spawns `cl` **without** `setsid()` — `cl` and the agent stay in sgf's process group, receiving terminal signals naturally and retaining full terminal access. The controller is created with `monitor_stdin: false` — stdin belongs to the child for user interaction with Claude. Only double Ctrl+C works for shutdown; Ctrl+D goes to Claude as normal input. Both sgf and the child receive SIGINT on Ctrl+C; sgf's handler prints the confirmation prompt while Claude handles the signal with its own logic.
+**Non-AFK mode** (`sgf build`, `sgf verify`, etc.): sgf spawns `cl` via PTY. The controller is created with `monitor_stdin: false` — stdin is managed by the PTY for user interaction with Claude. Ctrl+C is forwarded to the child as a raw byte (0x03) through the PTY. SIGTERM triggers immediate shutdown.
 
 **Programmatic mode**: sgf spawns `cl` with piped stdin and stdout. The controller is created with `monitor_stdin: false` — stdin is managed by the outer agent's piped input. Ctrl+C/Ctrl+D are not applicable (no terminal). SIGTERM triggers immediate shutdown.
-
-**Interactive stages** (`sgf spec`, `sgf issues log`): Same as non-AFK — no `setsid()`, `monitor_stdin: false`. The user types directly into Claude.
 
 Signal handlers are registered just before spawning the child — during pre-launch checks, daemon startup, and other steps before handler registration, default signal behavior applies (single SIGINT exits).
 
@@ -874,9 +952,9 @@ For each iteration `i` in `1..=iterations`:
 2. Print iteration banner (includes loop ID if provided)
 3. Record `vcs_utils::git_head()` as `head_before`
 4. Execute agent via `cl` (or `SGF_AGENT_COMMAND` override):
-   - **Session ID handling**: Each invocation receives a fresh `--session-id <uuid>`.
+   - **Session ID handling**: Each invocation receives a fresh `--session-id <uuid>` (except iteration 1 which uses the config's session_id if provided).
    - **Resume handling**: If `--resume` is provided from the CLI, it only applies on the first invocation.
-   - Interactive: start notification watcher thread, `.status()` with inherited stdio, stop watcher thread
+   - Interactive: PTY-based execution via `pty_tee.rs` with raw mode, I/O forwarding, and log tee
    - AFK: `ChildGuard::spawn()` with piped stdout, read lines via reader thread + channel through `format_line()`
    - Programmatic: spawn with piped stdin/stdout, write outer agent's message to stdin, read JSON response, emit structured NDJSON events
 5. Restore terminal settings (`tcsetattr`)
@@ -884,7 +962,7 @@ For each iteration `i` in `1..=iterations`:
 7. If agent process failed (retryable): trigger auto-retry (see Error Handling)
 8. Search for `.iter-complete` recursively (depth <= 2): if found, delete it, print completion banner, auto-push, exit 0
 9. Print "Iteration N complete, continuing..."
-10. Sleep 2 seconds (interruptible, polled in 100ms increments)
+10. Sleep 2 seconds (interruptible, polled in 100ms increments; configurable via `SGF_TEST_ITER_DELAY_MS` env var)
 11. If interrupted: log warning, exit 130
 12. If `auto_push`: call `vcs_utils::auto_push_if_changed()`
 
@@ -896,7 +974,11 @@ Iterations are clamped to a hard limit of 1000. If a higher value is provided (v
 
 ### Inter-Iteration Sleep
 
-A 2-second sleep between iterations allows git operations to settle and prevents rapid-fire agent invocations. The sleep is interruptible — polled in 100ms increments, checking the shutdown controller between polls.
+A 2-second sleep between iterations allows git operations to settle and prevents rapid-fire agent invocations. The sleep is interruptible — polled in 100ms increments, checking the shutdown controller between polls. The delay is configurable via the `SGF_TEST_ITER_DELAY_MS` environment variable (for tests).
+
+### Notification Watcher
+
+In interactive mode, sgf watches for an `.iter-ding` sentinel file. When found, it plays a notification sound (via `afplay`) and deletes the file. This allows agents to notify the developer when they need attention.
 
 ## NDJSON Stream Format
 
@@ -986,13 +1068,13 @@ The `.sgf/logs/` directory is gitignored.
 
 ## Console Output
 
-sgf uses a rounded-box badge for all status output to stderr. Every message is wrapped in a 3-line box drawn with Unicode box-drawing characters (\`╭╮╰╯│─\`). The \`sgf\` label appears on the middle line in bold. The box borders are dim. Message text sits to the right of the box on the middle line — its color conveys semantic state.
+sgf uses a rounded-box badge for all status output to stderr. Every message is wrapped in a 3-line box drawn with Unicode box-drawing characters (`╭╮╰╯│─`). The `sgf` label appears on the middle line in bold. The box borders are dim. Message text sits to the right of the box on the middle line — its color conveys semantic state.
 
 ### Visual Format
 
-Each message gets its own 3-line box. The box is always 7 characters wide (\`╭─────╮\`). The \`sgf\` label is centered inside on the middle line in bold. The message text appears to the right of the closing \`│\` on the middle line.
+Each message gets its own 3-line box. The box is always 7 characters wide (`╭─────╮`). The `sgf` label is centered inside on the middle line in bold. The message text appears to the right of the closing `│` on the middle line.
 
-\`\`\`
+```
 ╭─────╮
 │ sgf │ launching iteration runner [build-20260312T143000]
 ╰─────╯ iterations: 10 · mode: afk
@@ -1003,7 +1085,7 @@ Each message gets its own 3-line box. The box is always 7 characters wide (\`╭
 │ sgf │ recovery complete
 ╰─────╯
 ╭─────╮
-│ sgf │ starting pensa daemon...
+│ sgf │ starting pensa daemon on port 12345...
 ╰─────╯
 ╭─────╮
 │ sgf │ pensa daemon ready
@@ -1026,77 +1108,100 @@ Each message gets its own 3-line box. The box is always 7 characters wide (\`╭
 ╭─────╮
 │ sgf │ iterations exhausted [build-20260312T143000]
 ╰─────╯
-\`\`\`
+```
 
 ### Color Scheme
 
 | State | Message Color | When |
 |-------|---------------|------|
-| Action | White | In-progress operations: launching, recovering, pushing, starting daemon |
-| Success | Green | Completed operations: recovery complete, daemon ready, pn export ok, fm export ok, loop complete, pushed |
-| Warning | Yellow | Non-fatal issues: pn export skipped, fm export skipped, pn doctor failed, iterations exhausted |
-| Error | Red | Fatal failures: agent exited with error, pn export failed, fm export failed |
+| Action | Bold White | In-progress operations: launching, recovering, pushing, starting daemon |
+| Success | Bold Green | Completed operations: recovery complete, daemon ready, pn export ok, fm export ok, loop complete, pushed |
+| Warning | Bold Yellow | Non-fatal issues: pn export skipped, fm export skipped, pn doctor failed, iterations exhausted |
+| Error | Bold Red | Fatal failures: agent exited with error, pn export failed, fm export failed |
 | Detail | Dim (gray) | Supplementary info: iterations, mode (below box, no badge) |
 
-The box borders (\`╭─────╮\`, \`│\`, \`╰─────╯\`) are always **dim**. The \`sgf\` text inside the box is always **bold** (\`\x1b[1m sgf \x1b[0m\`) — normal text color regardless of message state.
+The box borders (`╭─────╮`, `│`, `╰─────╯`) are always **dim**. The `sgf` text inside the box is always **bold** (`\x1b[1m sgf \x1b[0m`) — normal text color regardless of message state.
 
 ### Box Construction
 
 The badge box is 3 lines emitted to stderr:
 
-1. **Top**: \`dim(╭─────╮)\`
-2. **Middle**: \`dim(│) bold( sgf ) dim(│)\` + space + colored message
-3. **Bottom**: \`dim(╰─────╯)\` + optional detail text
+1. **Top**: `dim(╭─────╮)`
+2. **Middle**: `dim(│) bold( sgf ) dim(│)` + space + colored message
+3. **Bottom**: `dim(╰─────╯)` + optional detail text
 
-The box is stateless — each semantic output call (\`print_action\`, \`print_success\`, etc.) emits its own complete 3-line box. No buffering or grouping.
+The box is stateless — each semantic output call (`print_action`, `print_success`, etc.) emits its own complete 3-line box. No buffering or grouping.
 
 ### Detail Lines
 
-Detail lines appear on the bottom line of the box, to the right of \`╰─────╯\`, aligned with the message text on the middle line (8 characters: 7-char box width + 1-space gap). They are rendered in dim gray.
+Detail lines appear on the bottom line of the box, to the right of `╰─────╯`, aligned with the message text on the middle line (8 characters: 7-char box width + 1-space gap). They are rendered in dim gray.
 
 Detail lines appear for:
-- **Iteration runner launch**: \`iterations: <n> · mode: <afk|interactive>\`
-- **Interactive launch**: \`mode: interactive\`
+- **Iteration runner launch**: `iterations: <n> · mode: <afk|interactive>`
+- **Interactive launch**: `mode: interactive`
+
+### Banner Boxes
+
+The `banner.rs` module provides a separate box-drawing renderer (`render_box`, `render_box_styled`) for iteration banners, completion banners, and stall messages. These are larger boxes with a title on the top border and content lines inside:
+
+```
+╭─ Iteration 1 ──────────────────╮
+│  build-20260312T143000          │
+│  session: abc-123               │
+╰────────────────────────────────╯
+```
+
+These use `╭─ ║ ╮ ┃ ╰─╯` box-drawing characters with a minimum width of 40. The title is styled with `bold()` by default. Borders are styled with `dim()`.
 
 ### NO_COLOR Support
 
-When the \`NO_COLOR\` environment variable is set, all ANSI codes and box-drawing characters are suppressed. The badge falls back to plain \`sgf:\` prefix. Detail lines are indented with plain spaces. Message text has no color formatting.
+When the `NO_COLOR` environment variable is set, all ANSI codes and box-drawing characters are suppressed. The badge falls back to plain `sgf:` prefix. Detail lines are indented with 5 spaces. Message text has no color formatting.
 
-\`\`\`
+```
 sgf: launching iteration runner [build-20260312T143000]
      iterations: 30
 sgf: recovery complete
 sgf: agent exited with error [build-20260312T143000]
-\`\`\`
+```
 
 ### style.rs Module
 
-\`crates/springfield/src/style.rs\` provides styling primitives and semantic output functions. Provides ANSI primitives and sgf-specific badge box and message functions.
+`crates/springfield/src/style.rs` provides styling primitives and semantic output functions.
 
 **ANSI Primitives**:
-- \`bold(s)\`, \`dim(s)\`, \`green(s)\`, \`yellow(s)\`, \`red(s)\`, \`white(s)\`
-- \`no_color()\` — checks \`NO_COLOR\` environment variable
-- \`strip_ansi(s)\` — removes ANSI escape sequences
+- `bold(s)`, `dim(s)`, `red(s)`, `green(s)`, `yellow(s)`, `blue(s)`, `magenta(s)`, `cyan(s)`, `white(s)`
+- `no_color()` — checks `NO_COLOR` environment variable (cached via `OnceLock`)
+- `strip_ansi(s)` — removes ANSI escape sequences (CSI, OSC, Fe sequences, carriage returns)
+
+**Tool Name Styling** (`tool_name_style`):
+- `Read`, `Glob`, `Grep` → Bold Blue
+- `Edit`, `Write` → Bold Magenta
+- `Bash` → Bold Yellow
+- Other tools → Bold Cyan
 
 **Badge Box**:
-- \`badge_top()\` — returns the top border: \`dim(╭─────╮)\`
-- \`badge_mid()\` — returns the middle line badge: \`dim(│) bold( sgf ) dim(│)\`
-- \`badge_bot()\` — returns the bottom border: \`dim(╰─────╯)\`
+- `badge_top()` — returns the top border: `dim(╭─────╮)`
+- `badge_mid()` — returns the middle line badge: `dim(│) bold( sgf ) dim(│)`
+- `badge_bot()` — returns the bottom border: `dim(╰─────╯)`
 
-**Semantic Output** (all write to stderr via 3-line box):
-- \`action(msg)\` — box + bold white message
-- \`success(msg)\` — box + bold green message
-- \`warning(msg)\` — box + bold yellow message
-- \`error(msg)\` — box + bold red message
-- \`detail(msg)\` — indented dim message, no box (appended to bottom line of preceding box)
+**Semantic Output** (each has both a string-returning and a `print_` variant that writes to stderr):
+- `action(msg)` / `print_action(msg)` — box + bold white message
+- `action_detail(msg, detail)` / `print_action_detail(msg, detail)` — box + bold white message + dim detail
+- `success(msg)` / `print_success(msg)` — box + bold green message
+- `success_detail(msg, detail)` / `print_success_detail(msg, detail)` — box + bold green message + dim detail
+- `warning(msg)` / `print_warning(msg)` — box + bold yellow message
+- `warning_detail(msg, detail)` / `print_warning_detail(msg, detail)` — box + bold yellow message + dim detail
+- `error(msg)` / `print_error(msg)` — box + bold red message
+- `error_detail(msg, detail)` / `print_error_detail(msg, detail)` — box + bold red message + dim detail
+- `detail(msg)` / `print_detail(msg)` — indented dim message, no box
 
 ### Auto-push Callback
 
-The \`vcs_utils::auto_push_if_changed()\` callback emits raw messages (e.g., \`"New commits detected, pushing..."\`, \`"push failed (non-fatal): ..."\`). The callback in \`orchestrate.rs\` wraps these with the appropriate styled output function — action for "pushing", warning for "push failed".
+The `vcs_utils::auto_push_if_changed()` callback emits raw messages (e.g., `"New commits detected, pushing..."`, `"push failed (non-fatal): ..."`). The callback in `orchestrate.rs` wraps these with the appropriate styled output function — action for "pushing", warning for "push failed".
 
 ### Message Catalog
 
-Every \`eprintln\\\!("sgf: ...")\` and \`println\\\!(...)\` call in the springfield crate is replaced with a styled output call.
+Every `eprintln\!("sgf: ...")` and `println\!(...)` call in the springfield crate is replaced with a styled output call.
 
 | Message | Style | Source |
 |---------|-------|--------|
@@ -1114,13 +1219,12 @@ Every \`eprintln\\\!("sgf: ...")\` and \`println\\\!(...)\` call in the springfi
 | fm export ok | success | recovery.rs |
 | fm export failed: {err} | error | recovery.rs |
 | fm export skipped (fm not found: {e}) | warning | recovery.rs |
-| launching interactive session | action | orchestrate.rs |
-| launching iteration runner [{loop_id}] | action | orchestrate.rs |
-| loop complete [{loop_id}] | success | orchestrate.rs |
-| agent exited with error [{loop_id}] | error | orchestrate.rs |
-| iterations exhausted [{loop_id}] | warning | orchestrate.rs |
-| interrupted [{loop_id}] | warning | orchestrate.rs |
-| agent exited with unexpected code [{loop_id}] | error | orchestrate.rs |
+| launching interactive session | action | main.rs |
+| launching iteration runner [{loop_id}] | action | main.rs |
+| loop complete [{loop_id}] | success | main.rs |
+| agent exited with error [{loop_id}] | error | main.rs |
+| iterations exhausted [{loop_id}] | warning | main.rs |
+| interrupted [{loop_id}] | warning | main.rs |
 | New commits detected, pushing... | action | orchestrate.rs (auto-push callback) |
 | push failed (non-fatal): {err} | warning | orchestrate.rs (auto-push callback) |
 | .sgf/MEMENTO.md not found — agents won't have fm/pn workflow reference | warning | init.rs |
@@ -1146,27 +1250,29 @@ Before invoking `cl`, `sgf` scans PID files at `.sgf/run/*.pid` (non-cursus sess
 
 - **Any PID alive** (verified via `kill -0`) → another loop is running. Skip cleanup and launch normally — the dirty tree or in-progress claims may belong to that loop.
 - **All PIDs stale** (process dead) → no loops are running. Remove stale PID files, then recover:
-  1. `git checkout -- .` — discard modifications to tracked files. **Failure is fatal** — loop launch is aborted.
-  2. `git clean -fd` — remove untracked files (respects `.gitignore`, so `db.sqlite` and logs are safe). **Failure is fatal** — loop launch is aborted.
+  1. `git checkout -- .` — discard modifications to tracked files. Failure causes `pre_launch_recovery()` to return an error, but the caller treats this as a warning (see Pre-launch Lifecycle).
+  2. `git clean -fd` — remove untracked files (respects `.gitignore`, so `db.sqlite` and logs are safe). Failure causes `pre_launch_recovery()` to return an error, but the caller treats this as a warning.
   3. `pn doctor --fix` — release stale claims and repair integrity (warning only — supplementary, not critical for state consistency)
 
-**Principle**: Work is only preserved when committed. Uncommitted changes from crashed iterations are discarded — the agent that produced them is gone and cannot continue them. Git recovery failures are hard errors that prevent loop launch — proceeding with dirty state would violate the atomic iteration guarantee.
+**Principle**: Work is only preserved when committed. Uncommitted changes from crashed iterations are discarded — the agent that produced them is gone and cannot continue them.
 
 ---
 
 ## Pre-launch Lifecycle
 
-Before launching any loop, `sgf` runs pre-launch checks. The checks vary by stage:
+Before launching any loop, `sgf` runs pre-launch checks. The checks are controlled by two mechanisms:
+
+**`--skip-preflight` CLI flag** — When passed, skips ALL pre-launch checks (recovery, daemon startup, data export). Nothing runs.
+
+**`SGF_SKIP_PREFLIGHT` env var** — When set, skips daemon startup only. Recovery still runs. Data export still runs (but may fail if daemons are not available). Used by integration tests to exercise recovery logic without requiring running daemons.
 
 **All stages** (build, verify, test-plan, test, spec, issues log):
 
-1. **Recovery** — clean up stale state from crashed iterations (see Recovery)
-2. **Daemons** — start the pensa and forma daemons if not already running
-3. **Data export** — run `pn export` and `fm export` to sync SQLite → JSONL before the agent starts
+1. **Recovery** — clean up stale state from crashed iterations (see Recovery). Failures are logged as warnings and do not block loop launch.
+2. **Daemons** — start the pensa and forma daemons if not already running. Failures are logged as warnings and do not block loop launch.
+3. **Data export** — run `pn export` and `fm export` to sync SQLite → JSONL before the agent starts. Always attempted regardless of `SGF_SKIP_PREFLIGHT`.
 
-After pre-launch checks, automated stages invoke `cl` via the iteration runner; interactive stages call `cl` directly with `--verbose @{prompt_path}`, inheriting stdio.
-
-**`SGF_SKIP_PREFLIGHT`** (env var) — When set, skips daemon startup and data export while still running recovery. This allows two-tier control: the `--skip-preflight` CLI flag disables all pre-launch checks (including recovery), while `SGF_SKIP_PREFLIGHT` disables only the infrastructure checks (daemons, export). Used by integration tests to exercise recovery logic without requiring a running pensa daemon.
+All pre-launch failures are non-fatal — they are logged as warnings via `print_warning` and execution continues. This allows loops to launch even when infrastructure is partially unavailable.
 
 ### Daemons
 
@@ -1184,13 +1290,13 @@ The `"forma:"` prefix ensures forma and pensa derive different ports for the sam
 #### Pensa daemon
 
 1. Check if the daemon is reachable (`pn daemon status`)
-2. If not, start it: `pn daemon --project-dir <project-root> --port <pensa-derived> &` (backgrounded)
+2. If not, start it: `pn daemon --port <pensa-derived> --project-dir <project-root>` (backgrounded with null stdio)
 3. Wait for readiness (poll `pn daemon status` with exponential backoff: 50ms initial, doubling up to 800ms cap, 5s total deadline)
 
 #### Forma daemon
 
 1. Check if the daemon is reachable (`fm daemon status`)
-2. If not, start it: `fm daemon --project-dir <project-root> --port <forma-derived> &` (backgrounded)
+2. If not, start it: `fm daemon --port <forma-derived> --project-dir <project-root>` (backgrounded with null stdio)
 3. Wait for readiness (poll `fm daemon status` with exponential backoff: 50ms initial, doubling up to 800ms cap, 5s total deadline)
 
 Both daemons are started in parallel. Both must be ready before proceeding with loop launch. The daemons run for the duration of the `sgf` session. They stop on SIGTERM or when `sgf` shuts down.
