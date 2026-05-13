@@ -22,6 +22,10 @@ IMPORTANT:
 SUPER IMPORTANT:
 - When changes.md is loaded, ONLY use Bash (for sgf), Monitor, and communication tools. Do NOT use Read, Grep, Glob, or Agent to explore source code.
 
+### Run ID tracking
+
+After starting each `sgf` agent via `run_in_background`, immediately read its output file to extract the `run_id` from the `run_start` NDJSON event. Maintain a **run ID → change description** mapping table throughout the session. Always use this table when resuming agents — never guess run IDs from timestamps or `sgf resume` list order.
+
 ### Programmatic mode
 
 When you pipe a message into `sgf`, it runs in programmatic mode and emits NDJSON
