@@ -5,7 +5,7 @@ Agent persistent memory — SQLite-backed issue/task tracker with pn CLI
 | Field | Value |
 |-------|-------|
 | Src | `crates/pensa/` |
-| Status | draft |
+| Status | proven |
 
 ## Overview
 
@@ -120,7 +120,7 @@ Whichever fires first triggers graceful shutdown.
 ## Dependencies
 
 | Crate | Purpose |
-|-------|---------|
+|-------|---------|\
 | `clap` (4, derive + env) | CLI argument parsing with env var support |
 | `axum` (0.8) | Daemon HTTP server |
 | `tokio` (1, full) | Async runtime for daemon |
@@ -137,11 +137,13 @@ Whichever fires first triggers graceful shutdown.
 Dev dependencies:
 
 | Crate | Purpose |
-|-------|---------|
+|-------|---------|\
 | `tempfile` (3) | Temporary directories for test isolation |
 | `portpicker` (0.1) | Random port selection for test daemons |
 | `proptest` (1) | Property-based testing |
 | `forma` (workspace) | Forma crate for spec validation integration tests |
+| `shutdown` (workspace) | Graceful shutdown utilities for test daemon lifecycle |
+| `reqwest` (0.12, blocking + json) | Direct HTTP requests in integration tests |
 
 ## Error Handling
 
@@ -347,9 +349,9 @@ pn show <id>
 
 **`pn release <id>`** is an alias for `pn update <id> --unclaim`.
 
-**`pn close`** with `--force` allows closing regardless of current status. Without `--force`, closing a `closed` issue is an error. When closing an issue that has a `fixes` field, the linked bug is automatically closed with reason `"fixed by <task-id>"`. The auto-close is idempotent — if the bug is already closed (e.g., another fix task's close triggered auto-close first), the auto-close silently succeeds.
+**`pn close`** with `--force` allows closing regardless of current status. Without `--force`, closing a `closed` issue is an error. When closing an issue that has a `fixes` field, the linked bug is automatically closed with reason `"fixed"`. The auto-close only fires when all issues with `fixes` pointing to that bug are now closed (all-or-nothing). The auto-close is idempotent — if the bug is already closed, the update silently succeeds.
 
-**`pn delete`** requires `--force` if the issue has dependents or comments. Deletes the issue and all associated deps, comments, and events.
+**`pn delete`** requires `--force` if the issue has dependents or comments. Deletes the issue and all associated deps, comments, src_refs, doc_refs, and events.
 
 ### Views and queries
 
@@ -471,7 +473,6 @@ Since the daemon owns the database, `pn export` and `pn import` are daemon comma
 With `--fix`: releases all in_progress claims unconditionally (set status → open, clear assignee) and repairs integrity issues (remove orphaned deps). This is safe when called by sgf's pre-launch recovery (which only runs when all PIDs are stale), but will release legitimate claims if run manually while agents are active.
 
 **`pn where`** — prints both the JSONL directory (`.pensa/`) and the DB directory (`~/.local/share/pensa/<hash>/`). Useful for scripts and debugging.
-
 
 ## JSON Output
 
