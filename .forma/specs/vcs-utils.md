@@ -5,7 +5,7 @@ Shared VCS utilities — git HEAD detection, auto-push
 | Field | Value |
 |-------|-------|
 | Src | `crates/vcs-utils/` |
-| Status | draft |
+| Status | proven |
 
 ## Overview
 
@@ -51,8 +51,13 @@ Dev dependencies:
 
 ### Integration Tests
 
+All integration tests use a `CWD_LOCK` mutex to serialize tests that change the working directory, preventing interference between concurrent test runs.
+
 - Create a temp git repo with a local bare remote, make a commit, call `auto_push_if_changed` with the old HEAD, verify the push lands on the remote
 - Create a temp git repo with a local bare remote, make a commit, push it manually, call `auto_push_if_changed` with the old HEAD — verify no message is emitted (already pushed)
+- Unchanged HEAD in a repo with no remote emits nothing
+- `git_head()` returns `Some` in a freshly created temp repo
+- `git_head()` returns `None` in a non-git temp directory
 
 ## Public API
 
@@ -84,7 +89,7 @@ fn has_unpushed_commits() -> bool {
 pub fn auto_push_if_changed(head_before: &str, emit: impl Fn(&str)) {
     let head_after = git_head();
     if let Some(ref after) = head_after
-        && after \\!= head_before
+        && after \!= head_before
         && has_unpushed_commits()
     {
         emit("New commits detected, pushing...");
@@ -92,10 +97,10 @@ pub fn auto_push_if_changed(head_before: &str, emit: impl Fn(&str)) {
             Ok(out) if out.status.success() => {}
             Ok(out) => {
                 let stderr = String::from_utf8_lossy(&out.stderr);
-                emit(&format\\!("push failed (non-fatal): {}", stderr.trim()));
+                emit(&format\!("push failed (non-fatal): {}", stderr.trim()));
             }
             Err(e) => {
-                emit(&format\\!("push failed (non-fatal): {e}"));
+                emit(&format\!("push failed (non-fatal): {e}"));
             }
         }
     }
@@ -110,7 +115,7 @@ pub fn auto_push_if_changed(head_before: &str, emit: impl Fn(&str)) {
 
 ### Caller Integration
 
-**springfield** (`crates/springfield/src/orchestrate.rs` and `crates/springfield/src/cursus/runner.rs`):
-```rust
-vcs_utils::auto_push_if_changed(&head_before, |msg| style::print_warning(msg));
-```
+**springfield** uses `vcs_utils` in two call sites:
+
+- `crates/springfield/src/iter_runner/mod.rs` — interactive iteration runner: captures `git_head()` before the Claude session, calls `auto_push_if_changed()` after, emitting via `tee.writeln(&style::dim(msg))`.
+- `crates/springfield/src/cursus/runner.rs` — cursus pipeline runner: captures `git_head()` before iter execution, calls `auto_push_if_changed()` after, emitting via `style::print_action(msg)`.
