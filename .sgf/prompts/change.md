@@ -8,11 +8,12 @@ The user will tell you something they would like to add, change, or fix.
 5. Add unit and/or property-based and/or integration tests (whichever is best).
 6. When the change is complete:
   a. Run **full BACKPRESSURE**.
-  b. Track the work:
+  b. If applicable, run `just install`.
+  c. Track the work:
     i. Log a BUG using the Bug Log Workflow and an ISSUE (which fixes the bug) using the Issue Create Workflow.
     ii. Capture (i) the impetus for the change and (ii) what work was done to change it, including any relevant design decisions made.
     iii. **Close both as fixed.**
-  c. Commit your changes.
+  d. Commit your changes.
 
 IMPORTANT:
 - Do NOT update the spec.
