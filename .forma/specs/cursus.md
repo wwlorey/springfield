@@ -5,7 +5,7 @@ Pipeline orchestration — declarative TOML-defined multi-iter workflows with co
 | Field | Value |
 |-------|-------|
 | Src | `crates/springfield/` |
-| Status | draft |
+| Status | proven |
 
 ## Overview
 
@@ -36,29 +36,27 @@ Cursus is a module within the `springfield` crate. Pipeline definitions live in 
 ~/.sgf/
   cursus/                      # global pipeline definitions (TOML)
     build.toml
+    change.toml
+    changes.toml
     doc.toml
     incarnatur.toml
     install.toml
-    precatur.toml
-    spec-gen.toml
+    reconcile.toml
+    spec.toml
   prompts/                     # prompt content (markdown)
     build.md
+    change.md
+    changes.md
     doc.md
     incarnatur-0-spec-to-issues.md
     incarnatur-1-spec-to-issues-final-pass.md
-    incarnatur-2-build.md
     install.md
-    precatur-0-gather-preces.md
-    precatur-1-discuss-and-interview.md
-    precatur-1-write.md
-    precatur-2-review.md
-    precatur-3-revise.md
-    precatur-4-approve.md
-    spec-gen-0-discuss-and-interview.md
-    spec-gen-1-write.md
-    spec-gen-2-review.md
-    spec-gen-3-revise.md
-    spec-gen-4-approve.md
+    reconcile-0-setup.md
+    reconcile-1-per-spec.md
+    reconcile-2-coherence.md
+    reconcile-3-tag.md
+    spec-harden.md
+    spec-refine-and-create.md
 
 .sgf/                          # per-project overrides
   cursus/                      # project-local pipeline overrides
@@ -85,13 +83,14 @@ Cursus is implemented in the `springfield` crate at `crates/springfield/src/curs
 ## Dependencies
 
 | Crate | Purpose |
-|-------|---------|
+|-------|---------| 
 | `toml` (0.8) | TOML parsing for cursus definitions |
 | `serde` (1, derive) | Deserialization of TOML and JSON run state |
 | `serde_json` (1) | Run state serialization/deserialization |
 | `uuid` (1, v4) | Run ID and session ID generation |
 | `chrono` (0.4) | Timestamps for run metadata |
 | `tracing` (0.1) | Structured logging |
+| `libc` (0.2) | PID-based stale run detection (`kill -0`) |
 
 These are part of the `springfield` crate's Cargo.toml (cursus is a module within springfield, not a separate crate).
 
@@ -308,7 +307,7 @@ consumes = ["draft-presentation"]
 | `name` | string | required | Unique identifier for this iter within the cursus |
 | `prompt` | string | required | Prompt file name, resolved via layered `.sgf/prompts/` lookup |
 | `mode` | `"interactive"` or `"afk"` | `"interactive"` | Execution mode. In programmatic mode (piped stdin), `"interactive"` iters are driven turn-by-turn by the outer agent; `"afk"` iters run to completion internally |
-| `iterations` | u32 | `1` | Max iterations for this iter (only meaningful for `afk` mode) |
+| `iterations` | u32 | `1` | Max iterations for this iter (only meaningful for `afk` mode). Clamped to 1000 at load time |
 | `produces` | string | — | Key name for the summary file this iter writes. Stored at `.sgf/run/<run-id>/context/<key>.md` |
 | `consumes` | array of strings | `[]` | Keys of summary files from previous iters, injected into this iter's system prompt |
 | `auto_push` | bool | cursus-level default | Override auto-push for this specific iter |
@@ -339,16 +338,15 @@ A single-iter cursus defines a simple command:
 
 ```toml
 # build.toml
-description = "Implementation loop"
+description = "Claim and implement one issue from the backlog"
 alias = "b"
 auto_push = true
 
 [[iter]]
 name = "build"
 prompt = "build.md"
-mode = "afk"
+mode = "interactive"
 iterations = 30
-banner = true
 ```
 
 ### Validation Rules
@@ -361,7 +359,7 @@ Enforced at parse time (before any iter executes):
 5. Aliases must not shadow cursus file names
 6. Prompt files must exist (resolved via layered lookup)
 7. `[retry]` field types must be valid (u32 for `immediate`, u64 for `interval_secs` and `max_duration_secs`)
-8. `iterations > 1` on an interactive iter emits a warning at parse time (interactive iters always run a single `cl` session regardless of `iterations` value)
+8. `iterations` is clamped to 1000 (hard limit) with a warning if exceeded
 
 ## Sentinel Protocol
 
@@ -383,13 +381,16 @@ After each `cl` invocation returns, sgf checks for sentinel files in priority or
 2. `.iter-reject` — checked second.
 3. `.iter-revise` — checked third.
 4. None found, iterations exhausted — treated as exhausted (pipeline enters stalled state).
-5. None found, iterations remaining (interactive single-iteration iter) — treated as `.iter-complete` (interactive iters are assumed to complete in one invocation).
+5. None found, iterations remaining (interactive single-iteration iter, terminal mode) — treated as `.iter-complete` (interactive iters are assumed to complete in one invocation).
+6. None found, interactive iter in programmatic mode with exit code 0 — treated as `waiting_for_input` (the outer agent must resume to continue the conversation). See Iter Execution step 17.
 
 All detected sentinel files are deleted after processing. Sentinel search is recursive (depth <= 2) following the existing cleanup pattern.
 
 ### Interactive Iter Completion
 
-Interactive iters (`mode = "interactive"`) with `iterations = 1` (the default) have special completion semantics: when the `cl` session ends without any sentinel file, the iter is treated as successfully completed. This is because interactive sessions end when the user is done — the absence of a rejection sentinel means implicit approval.
+Interactive iters (`mode = "interactive"`) with `iterations = 1` (the default) have special completion semantics in terminal mode: when the `cl` session ends without any sentinel file, the iter is treated as successfully completed. This is because interactive sessions end when the user is done — the absence of a rejection sentinel means implicit approval.
+
+In programmatic mode, the same scenario instead sets the run to `waiting_for_input` status, since the outer agent may need to send additional input to complete the iter.
 
 For interactive iters to signal rejection or revision, the agent must explicitly create `.iter-reject` or `.iter-revise` before the session ends. The prompt for review iters should instruct the agent to do this based on user feedback.
 
@@ -552,11 +553,11 @@ Emitted when an iter exhausts its iterations without completing.
   "event": "stall",
   "iter": "implement",
   "iterations_attempted": 5,
-  "actions": ["retry", "skip", "abort"]
+  "actions": ["resume", "retry", "skip", "abort"]
 }
 ```
 
-The outer agent should respond with one of the listed actions as plain text input via `--resume`.
+The `actions` array includes `"resume"` when the run has a current session ID that can be resumed; otherwise it contains `["retry", "skip", "abort"]`. The outer agent should respond with one of the listed actions as plain text input via `--resume`.
 
 #### `retry`
 
@@ -584,7 +585,7 @@ Emitted when the pipeline finishes (successfully or not).
 }
 ```
 
-`status` is one of: `completed`, `stalled`, `interrupted`, `error`.
+`status` is one of: `completed`, `stalled`, `interrupted`, `waiting_for_input`, `error`.
 
 #### `error`
 
@@ -620,6 +621,8 @@ run_complete
 ```
 
 For AFK iters, no `turn` events are emitted — the iter runs to completion internally and the outer agent sees `iter_start` → `iter_complete`.
+
+When an interactive iter's agent turn completes without a sentinel and exits cleanly, the run emits `run_complete` with `status: "waiting_for_input"` and the process exits. The outer agent resumes with `--resume <run-id>` to continue the conversation.
 
 ### Terminal Mode
 
@@ -663,9 +666,11 @@ Each cursus execution creates a run, tracked by metadata in `.sgf/run/`.
       "outcome": "complete"
     }
   ],
+  "spec": "auth",
   "context_producers": {
     "discuss-summary": "discuss"
   },
+  "current_session_id": "e5f6a7b8-...",
   "mode_override": null,
   "created_at": "2026-03-17T14:00:00Z",
   "updated_at": "2026-03-17T14:10:00Z"
@@ -676,11 +681,13 @@ Each cursus execution creates a run, tracked by metadata in `.sgf/run/`.
 |-------|------|-------------|
 | `run_id` | string | Unique run identifier |
 | `cursus` | string | Name of the cursus being run |
-| `status` | string | `running`, `completed`, `stalled`, `interrupted` |
+| `status` | string | `running`, `completed`, `stalled`, `interrupted`, `waiting_for_input` |
 | `current_iter` | string | Name of the iter currently executing (or stalled at) |
 | `current_iter_index` | u32 | Position in the iters array (for ordered resumption) |
 | `iters_completed` | array | Record of each completed iter with session ID, timestamp, and outcome |
+| `spec` | string or null | Spec stem passed via CLI positional arg (e.g., `sgf build auth`) |
 | `context_producers` | object | Mapping of produces key → iter name that last wrote it. Updated whenever an iter successfully writes its `produces` file |
+| `current_session_id` | string or null | UUID of the active agent session. Used to resume interactive iters in programmatic mode |
 | `mode_override` | string or null | CLI mode override (`-a` or `-i`) that applies to all iters |
 | `created_at` | string | RFC3339 timestamp |
 | `updated_at` | string | RFC3339 timestamp (updated after each iter) |
@@ -693,6 +700,7 @@ Each cursus execution creates a run, tracked by metadata in `.sgf/run/`.
 | `completed` | All iters finished successfully (final iter produced `.iter-complete`) |
 | `stalled` | An iter exhausted its iterations without completing |
 | `interrupted` | Pipeline was interrupted by signal (SIGINT/SIGTERM) |
+| `waiting_for_input` | An interactive iter in programmatic mode completed a turn without a sentinel; the outer agent must resume with `--resume` to continue |
 
 ### Cursus Resume via `--resume <run-id>`
 
@@ -702,7 +710,7 @@ When a cursus run is resumed:
 1. Load `meta.json` from the run directory
 2. Restore full pipeline state: current iter, iteration count, accumulated context, context producers
 3. For stalled runs (interactive mode): present options — Retry, Skip, or Abort
-4. For stalled runs (programmatic mode): emit a `stall` event with available actions. On the next `--resume` invocation, the first line of stdin is parsed as an action: `retry` (re-run the stalled iter with the same iteration count), `skip` (advance to the next iter), `abort` (mark the run as `interrupted` and exit). Unrecognized actions emit an `error` event and exit 1
+4. For stalled runs (programmatic mode): emit a `stall` event with available actions. The `actions` array includes `"resume"` when the run has a current session ID; otherwise it contains `["retry", "skip", "abort"]`. On the next `--resume` invocation, the first line of stdin is parsed as an action: `retry` (re-run the stalled iter with the same iteration count), `skip` (advance to the next iter), `abort` (mark the run as `interrupted` and exit). Unrecognized actions emit an `error` event and exit 1
 5. Continue the pipeline from the restored point
 
 On any run exit (stall, interrupt, completion, error), sgf prints a copy-pasteable resume command:
@@ -769,12 +777,13 @@ Each iter in a cursus pipeline follows this execution sequence:
 13. **`.iter-revise` found** — follow `on_revise` transition. Error if no `on_revise` is defined.
 14. **No sentinel, iterations remaining** — continue to next iteration of the same iter (AFK only).
 15. **No sentinel, iterations exhausted (AFK)** — pipeline enters stalled state.
-16. **No sentinel, interactive iter with `iterations = 1`** — treated as `.iter-complete` (implicit approval).
+16. **No sentinel, interactive iter with `iterations = 1` (terminal mode)** — treated as `.iter-complete` (implicit approval).
+17. **No sentinel, interactive iter in programmatic mode, exit code 0** — pipeline enters `waiting_for_input` state. Run metadata is persisted, `run_complete` event emitted with `status: "waiting_for_input"`, and the process exits. The outer agent resumes with `--resume <run-id>` to continue the conversation.
 
 ### Between Iters
 
-17. **Emit transition event** (programmatic mode) — `transition` event with `from_iter`, `to_iter`, `reason`.
-18. **Continue** — loop back to Pre-Iter Setup for the next iter.
+18. **Emit transition event** (programmatic mode) — `transition` event with `from_iter`, `to_iter`, `reason`.
+19. **Continue** — loop back to Pre-Iter Setup for the next iter.
 
 ## Command Resolution Changes
 
