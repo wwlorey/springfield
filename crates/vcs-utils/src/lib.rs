@@ -11,13 +11,29 @@ pub fn git_head() -> Option<String> {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
 }
 
-/// If HEAD has changed since `head_before`, run `git push`.
+fn has_unpushed_commits() -> bool {
+    Command::new("git")
+        .args(["rev-list", "--count", "@{u}..HEAD"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .trim()
+                .parse::<u64>()
+                .ok()
+        })
+        .is_none_or(|count| count > 0)
+}
+
+/// If HEAD has changed since `head_before` and there are unpushed commits, run `git push`.
 /// Messages are emitted via `emit`. Silent on success.
 /// Push failures are non-fatal — reported through `emit` and execution continues.
 pub fn auto_push_if_changed(head_before: &str, emit: impl Fn(&str)) {
     let head_after = git_head();
     if let Some(ref after) = head_after
         && after != head_before
+        && has_unpushed_commits()
     {
         emit("New commits detected, pushing...");
         match Command::new("git").arg("push").output() {
@@ -69,14 +85,15 @@ mod tests {
     }
 
     #[test]
-    fn auto_push_changed_head_emits_message() {
+    fn auto_push_changed_head_already_pushed_emits_nothing() {
         let fake_old_head = "0000000000000000000000000000000000000000";
         let messages = RefCell::new(Vec::new());
         auto_push_if_changed(fake_old_head, |msg| {
             messages.borrow_mut().push(msg.to_string())
         });
-        let msgs = messages.borrow();
-        assert!(!msgs.is_empty());
-        assert_eq!(msgs[0], "New commits detected, pushing...");
+        assert!(
+            messages.borrow().is_empty(),
+            "should not push when upstream is already up to date"
+        );
     }
 }

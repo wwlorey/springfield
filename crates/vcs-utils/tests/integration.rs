@@ -73,6 +73,52 @@ fn auto_push_pushes_to_remote() {
 }
 
 #[test]
+fn auto_push_skips_when_already_pushed() {
+    let _lock = CWD_LOCK.lock().unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+
+    let remote_dir = tmp.path().join("remote.git");
+    std::fs::create_dir(&remote_dir).unwrap();
+    git(&remote_dir, &["init", "--bare"]);
+
+    let local_dir = tmp.path().join("local");
+    std::fs::create_dir(&local_dir).unwrap();
+    git(&local_dir, &["init"]);
+    git(
+        &local_dir,
+        &["remote", "add", "origin", remote_dir.to_str().unwrap()],
+    );
+
+    std::fs::write(local_dir.join("file.txt"), "initial").unwrap();
+    git(&local_dir, &["add", "."]);
+    git(&local_dir, &["commit", "-m", "initial"]);
+    git(&local_dir, &["push", "-u", "origin", "master"]);
+
+    let head_before = git(&local_dir, &["rev-parse", "HEAD"]);
+
+    std::fs::write(local_dir.join("file.txt"), "updated").unwrap();
+    git(&local_dir, &["add", "."]);
+    git(&local_dir, &["commit", "-m", "update"]);
+    git(&local_dir, &["push"]);
+
+    let messages = std::cell::RefCell::new(Vec::new());
+
+    let original_dir = std::env::current_dir().unwrap();
+    std::env::set_current_dir(&local_dir).unwrap();
+
+    vcs_utils::auto_push_if_changed(&head_before, |msg| {
+        messages.borrow_mut().push(msg.to_string())
+    });
+
+    std::env::set_current_dir(&original_dir).unwrap();
+
+    assert!(
+        messages.borrow().is_empty(),
+        "should not push when commits are already on remote"
+    );
+}
+
+#[test]
 fn unchanged_head_emits_nothing() {
     let _lock = CWD_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();

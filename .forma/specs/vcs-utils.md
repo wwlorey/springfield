@@ -11,7 +11,8 @@ Shared VCS utilities — git HEAD detection, auto-push
 
 `vcs-utils` provides:
 - **`git_head()`** — Returns the current HEAD commit hash
-- **`auto_push_if_changed()`** — Pushes if HEAD moved since a recorded snapshot, with caller-controlled output
+- **`has_unpushed_commits()`** — Checks if the local branch has commits not yet on its upstream (internal helper)
+- **`auto_push_if_changed()`** — Pushes only if HEAD moved since a recorded snapshot AND there are unpushed commits, with caller-controlled output
 
 ## Architecture
 
@@ -46,11 +47,12 @@ Dev dependencies:
 - `git_head()` returns `Some` in a git repo with at least one commit
 - `git_head()` returns `None` in a non-git directory
 - `auto_push_if_changed()` with unchanged HEAD emits nothing
-- `auto_push_if_changed()` with changed HEAD emits "New commits detected, pushing..."
+- `auto_push_if_changed()` with changed HEAD but commits already pushed emits nothing
 
-### Integration Test
+### Integration Tests
 
 - Create a temp git repo with a local bare remote, make a commit, call `auto_push_if_changed` with the old HEAD, verify the push lands on the remote
+- Create a temp git repo with a local bare remote, make a commit, push it manually, call `auto_push_if_changed` with the old HEAD — verify no message is emitted (already pushed)
 
 ## Public API
 
@@ -66,23 +68,34 @@ pub fn git_head() -> Option<String> {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
 }
 
-/// If HEAD has changed since `head_before`, run `git push`.
+fn has_unpushed_commits() -> bool {
+    Command::new("git")
+        .args(["rev-list", "--count", "@{u}..HEAD"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<u64>().ok())
+        .is_none_or(|count| count > 0)
+}
+
+/// If HEAD has changed since `head_before` and there are unpushed commits, run `git push`.
 /// Messages are emitted via `emit`. Silent on success.
 /// Push failures are non-fatal — reported through `emit` and execution continues.
 pub fn auto_push_if_changed(head_before: &str, emit: impl Fn(&str)) {
     let head_after = git_head();
     if let Some(ref after) = head_after
-        && after \!= head_before
+        && after \\!= head_before
+        && has_unpushed_commits()
     {
         emit("New commits detected, pushing...");
         match Command::new("git").arg("push").output() {
             Ok(out) if out.status.success() => {}
             Ok(out) => {
                 let stderr = String::from_utf8_lossy(&out.stderr);
-                emit(&format\!("push failed (non-fatal): {}", stderr.trim()));
+                emit(&format\\!("push failed (non-fatal): {}", stderr.trim()));
             }
             Err(e) => {
-                emit(&format\!("push failed (non-fatal): {e}"));
+                emit(&format\\!("push failed (non-fatal): {e}"));
             }
         }
     }
@@ -92,7 +105,8 @@ pub fn auto_push_if_changed(head_before: &str, emit: impl Fn(&str)) {
 ### Behavior
 
 - **`git_head()`**: Runs `git rev-parse HEAD`. Returns `None` on any failure (not a repo, git not installed, etc.). No output.
-- **`auto_push_if_changed()`**: Compares current HEAD against `head_before`. If different, emits "New commits detected, pushing..." via the `emit` callback, then runs `git push`. Silent on success. On failure, emits the error message through `emit` and returns (non-fatal). Uses `.output()` (not `.status()`) to capture stderr for error reporting.
+- **`has_unpushed_commits()`**: Runs `git rev-list --count @{u}..HEAD`. Returns `true` if count > 0. If the upstream cannot be determined (detached HEAD, no tracking branch, no remote), defaults to `true` (safe fallback — attempts push). Internal, not public API.
+- **`auto_push_if_changed()`**: Compares current HEAD against `head_before`. If different AND there are unpushed commits (via `has_unpushed_commits()`), emits "New commits detected, pushing..." via the `emit` callback, then runs `git push`. Silent on success. On failure, emits the error message through `emit` and returns (non-fatal). Uses `.output()` (not `.status()`) to capture stderr for error reporting. If commits have already been pushed (e.g., by the agent or a hook during the run), the push is skipped entirely.
 
 ### Caller Integration
 
