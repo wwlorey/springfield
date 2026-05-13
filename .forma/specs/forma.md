@@ -5,7 +5,7 @@ Specification management — forma daemon and fm CLI
 | Field | Value |
 |-------|-------|
 | Src | `crates/forma/` |
-| Status | draft |
+| Status | proven |
 
 ## Overview
 
@@ -167,11 +167,9 @@ No request body. Returns `200 OK` immediately. The daemon completes in-flight re
 
 ### Project Directory Watchdog
 
-The daemon monitors the existence of its `--project-dir` on a fixed 5-second interval. If the directory does not exist for 3 consecutive checks (15 seconds total), the daemon shuts down gracefully. This prevents the daemon from running indefinitely after the project directory is deleted (e.g., temp dirs in tests, renamed projects).
+The daemon monitors the existence of its `--project-dir` on a configurable interval (default 5 seconds, overridable via `FM_WATCHDOG_INTERVAL_MS` env var). If the directory does not exist for 3 consecutive checks, the daemon shuts down gracefully. This prevents the daemon from running indefinitely after the project directory is deleted (e.g., temp dirs in tests, renamed projects).
 
 The watchdog requires 3 consecutive failures before triggering shutdown to tolerate transient filesystem issues (NFS flakes, permission blips, momentary unmounts). A single successful check resets the failure counter to zero.
-
-The 5-second interval is hardcoded — not configurable.
 
 ### `FormaState`
 
@@ -192,7 +190,7 @@ The daemon's main loop uses `tokio::select\!` to await any of four conditions:
 1. **Ctrl+C** (`tokio::signal::ctrl_c()`)
 2. **SIGTERM** (`tokio::signal::unix::signal(SignalKind::terminate())`)
 3. **`/shutdown` endpoint** (`state.shutdown.notified()`)
-4. **Project directory watchdog** (3 consecutive failures at 5s interval)
+4. **Project directory watchdog** (3 consecutive failures at configurable interval)
 
 Whichever fires first triggers graceful shutdown.
 

@@ -4,7 +4,7 @@
 |------|------|--------|--------|
 | [claude-wrapper](specs/claude-wrapper.md) | `crates/claude-wrapper/` | proven | Agent wrapper — layered .sgf/ context injection, cl binary |
 | [cursus](specs/cursus.md) | `crates/springfield/` | proven | Pipeline orchestration — declarative TOML-defined multi-iter workflows with context passing, sentinel-based transitions, and stall recovery |
-| [forma](specs/forma.md) | `crates/forma/` | draft | Specification management — forma daemon and fm CLI |
+| [forma](specs/forma.md) | `crates/forma/` | proven | Specification management — forma daemon and fm CLI |
 | [pensa](specs/pensa.md) | `crates/pensa/` | draft | Agent persistent memory — SQLite-backed issue/task tracker with pn CLI |
 | [session-resume](specs/session-resume.md) | `crates/springfield/` | draft | Session resume — persist Claude session IDs and loop config to enable resuming interrupted sessions via --resume flag on any sgf subcommand |
 | [shutdown](specs/shutdown.md) | `crates/shutdown/` | draft | Shared graceful shutdown — double-press Ctrl+C/Ctrl+D detection with confirmation prompts |
