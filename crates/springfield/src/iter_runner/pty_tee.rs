@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs;
 use std::io::{self, Write};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
@@ -11,7 +12,6 @@ use shutdown::{ShutdownController, ShutdownStatus, kill_process_group};
 use tracing::warn;
 
 use super::AgentExitStatus;
-use crate::style;
 
 fn open_pty() -> io::Result<(OwnedFd, OwnedFd)> {
     unsafe {
@@ -83,7 +83,116 @@ fn restore_termios(fd: RawFd, termios: &libc::termios) {
     }
 }
 
-fn drain_master(master_fd: RawFd, log_file: &Option<Mutex<fs::File>>) {
+struct ScreenScraper {
+    parser: vt100::Parser,
+    prev_lines: Vec<String>,
+}
+
+impl ScreenScraper {
+    fn new(rows: u16, cols: u16) -> Self {
+        Self {
+            parser: vt100::Parser::new(rows, cols, 0),
+            prev_lines: Vec::new(),
+        }
+    }
+
+    fn process(&mut self, data: &[u8]) -> String {
+        self.parser.process(data);
+        let (_, cols) = self.parser.screen().size();
+        let curr_lines: Vec<String> = self
+            .parser
+            .screen()
+            .rows(0, cols)
+            .map(|l| l.trim_end().to_string())
+            .collect();
+
+        if curr_lines == self.prev_lines {
+            return String::new();
+        }
+
+        let result = extract_new_content(&self.prev_lines, &curr_lines);
+        self.prev_lines = curr_lines;
+        result
+    }
+
+    fn resize(&mut self, rows: u16, cols: u16) {
+        self.parser.screen_mut().set_size(rows, cols);
+        // The app will repaint at the new size, invalidating prev_lines.
+        // Clear so the next frame diffs against nothing rather than stale
+        // old-layout lines. This may re-log some content — acceptable since
+        // resizes are rare.
+        self.prev_lines.clear();
+    }
+}
+
+/// Dedup uses exact string comparison after trim_end(). Lines whose only
+/// difference is trailing whitespace are always deduped. Internal whitespace
+/// changes (e.g. column realignment after resize) are treated as new content
+/// and logged, which is the correct behavior for layout changes.
+fn extract_new_content(prev: &[String], curr: &[String]) -> String {
+    if prev.is_empty() {
+        return curr
+            .iter()
+            .filter(|l| !l.is_empty() && !is_chrome(l))
+            .map(|l| format!("{l}\n"))
+            .collect();
+    }
+
+    if let Some(scroll) = detect_scroll(prev, curr) {
+        return curr[curr.len().saturating_sub(scroll)..]
+            .iter()
+            .filter(|l| !l.is_empty() && !is_chrome(l))
+            .map(|l| format!("{l}\n"))
+            .collect();
+    }
+
+    let prev_set: HashSet<&str> = prev
+        .iter()
+        .map(|s| s.as_str())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    curr.iter()
+        .filter(|l| !l.is_empty() && !is_chrome(l) && !prev_set.contains(l.as_str()))
+        .map(|l| format!("{l}\n"))
+        .collect()
+}
+
+fn detect_scroll(prev: &[String], curr: &[String]) -> Option<usize> {
+    let n = prev.len().min(curr.len());
+    if n < 2 {
+        return None;
+    }
+    for scroll in 1..=5 {
+        if scroll >= n {
+            break;
+        }
+        if prev[scroll..n] == curr[..n - scroll] {
+            return Some(scroll);
+        }
+    }
+    None
+}
+
+fn is_chrome(line: &str) -> bool {
+    let t = line.trim();
+    if t.is_empty() {
+        return true;
+    }
+    if t.chars().all(|c| "─═│╭╮╰╯┌┐└┘├┤┬┴┼━┃╋ ".contains(c)) {
+        return true;
+    }
+    if t.chars().count() <= 2 && t.chars().all(|c| !c.is_ascii_alphanumeric()) {
+        return true;
+    }
+    false
+}
+
+fn drain_master(
+    master_fd: RawFd,
+    log_file: &Option<Mutex<fs::File>>,
+    scraper: &mut Option<ScreenScraper>,
+) {
     let mut buf = [0u8; 4096];
     loop {
         let mut fds = [libc::pollfd {
@@ -105,11 +214,14 @@ fn drain_master(master_fd: RawFd, log_file: &Option<Mutex<fs::File>>) {
         let data = &buf[..n as usize];
         let _ = io::stdout().write_all(data);
         let _ = io::stdout().flush();
-        if let Some(lf) = &log_file
-            && let Ok(mut f) = lf.lock()
-        {
-            let stripped = style::strip_ansi(&String::from_utf8_lossy(data));
-            let _ = f.write_all(stripped.as_bytes());
+        if let Some(s) = scraper.as_mut() {
+            let output = s.process(data);
+            if !output.is_empty()
+                && let Some(lf) = log_file
+                && let Ok(mut f) = lf.lock()
+            {
+                let _ = f.write_all(output.as_bytes());
+            }
         }
     }
 }
@@ -180,6 +292,22 @@ pub(crate) fn run_interactive_with_pty(
     let mut last_ws: libc::winsize = unsafe { std::mem::zeroed() };
     unsafe { libc::ioctl(stdin_fd, libc::TIOCGWINSZ, &mut last_ws) };
 
+    let mut scraper = if log_file.is_some() {
+        let rows = if last_ws.ws_row > 0 {
+            last_ws.ws_row
+        } else {
+            24
+        };
+        let cols = if last_ws.ws_col > 0 {
+            last_ws.ws_col
+        } else {
+            80
+        };
+        Some(ScreenScraper::new(rows, cols))
+    } else {
+        None
+    };
+
     let mut ctrl_c_forwarded = false;
     let exit_code;
     loop {
@@ -192,7 +320,7 @@ pub(crate) fn run_interactive_with_pty(
 
         match child.try_wait() {
             Ok(Some(status)) => {
-                drain_master(master_fd, &log_file);
+                drain_master(master_fd, &log_file, &mut scraper);
                 exit_code = status.code();
                 break;
             }
@@ -235,6 +363,9 @@ pub(crate) fn run_interactive_with_pty(
                 && (current_ws.ws_row != last_ws.ws_row || current_ws.ws_col != last_ws.ws_col)
             {
                 unsafe { libc::ioctl(master_fd, libc::TIOCSWINSZ, &current_ws) };
+                if let Some(s) = &mut scraper {
+                    s.resize(current_ws.ws_row, current_ws.ws_col);
+                }
                 last_ws = current_ws;
             }
         }
@@ -255,14 +386,17 @@ pub(crate) fn run_interactive_with_pty(
                 let data = &buf[..n as usize];
                 let _ = io::stdout().write_all(data);
                 let _ = io::stdout().flush();
-                if let Some(lf) = &log_file
-                    && let Ok(mut f) = lf.lock()
-                {
-                    let stripped = style::strip_ansi(&String::from_utf8_lossy(data));
-                    let _ = f.write_all(stripped.as_bytes());
+                if let Some(s) = &mut scraper {
+                    let output = s.process(data);
+                    if !output.is_empty()
+                        && let Some(lf) = &log_file
+                        && let Ok(mut f) = lf.lock()
+                    {
+                        let _ = f.write_all(output.as_bytes());
+                    }
                 }
             } else if n == 0 || (n < 0 && fds[1].revents & libc::POLLHUP != 0) {
-                drain_master(master_fd, &log_file);
+                drain_master(master_fd, &log_file, &mut scraper);
                 match child.try_wait() {
                     Ok(Some(status)) => {
                         exit_code = status.code();
@@ -446,5 +580,152 @@ mod tests {
             log_content.contains("is_tty=yes"),
             "child should see a TTY, got: {log_content:?}"
         );
+    }
+
+    #[test]
+    fn scraper_simple_text() {
+        let mut s = ScreenScraper::new(24, 80);
+        let out = s.process(b"hello world\r\n");
+        assert!(out.contains("hello world"), "got: {out:?}");
+    }
+
+    #[test]
+    fn scraper_dedup_identical_frames() {
+        let mut s = ScreenScraper::new(24, 80);
+        let _ = s.process(b"hello\r\n");
+        let out = s.process(b"\x1b[H\x1b[2Jhello\r\n");
+        assert!(
+            !out.contains("hello"),
+            "duplicate frame should produce no output, got: {out:?}"
+        );
+    }
+
+    #[test]
+    fn scraper_cursor_positioned_overwrite() {
+        let mut s = ScreenScraper::new(24, 80);
+        s.process(b"old text\r\n");
+        let out = s.process(b"\x1b[1;1Hnew text");
+        assert!(out.contains("new text"), "got: {out:?}");
+        assert!(
+            !out.contains("old text"),
+            "old text should not reappear, got: {out:?}"
+        );
+    }
+
+    #[test]
+    fn scraper_filters_separator_lines() {
+        let mut s = ScreenScraper::new(24, 80);
+        let out = s.process("─────────────────\r\n".as_bytes());
+        assert!(
+            out.is_empty(),
+            "separator line should be filtered, got: {out:?}"
+        );
+    }
+
+    #[test]
+    fn scraper_filters_short_nonalpha() {
+        let mut s = ScreenScraper::new(24, 80);
+        // Single spinner character
+        let out = s.process("✽\r\n".as_bytes());
+        assert!(
+            out.is_empty(),
+            "spinner char should be filtered, got: {out:?}"
+        );
+    }
+
+    #[test]
+    fn scraper_preserves_real_content_with_ansi() {
+        let mut s = ScreenScraper::new(24, 80);
+        let out = s.process(b"\x1b[1;32mgreen bold\x1b[0m plain\r\n");
+        assert!(out.contains("green bold"), "got: {out:?}");
+        assert!(out.contains("plain"), "got: {out:?}");
+        assert!(
+            !out.contains("\x1b["),
+            "ANSI codes should be stripped, got: {out:?}"
+        );
+    }
+
+    #[test]
+    fn scraper_scroll_logs_new_line_only() {
+        let mut s = ScreenScraper::new(4, 40);
+        s.process(b"line1\r\nline2\r\nline3\r\nline4\r\n");
+        // Now add a new line, pushing line1 off the top
+        let out = s.process(b"\x1b[Hline2\r\nline3\r\nline4\r\nline5\r\n");
+        assert!(
+            out.contains("line5"),
+            "new line should appear, got: {out:?}"
+        );
+        assert!(
+            !out.contains("line2"),
+            "old lines should not repeat, got: {out:?}"
+        );
+        assert!(
+            !out.contains("line3"),
+            "old lines should not repeat, got: {out:?}"
+        );
+    }
+
+    #[test]
+    fn scraper_major_redraw_logs_new_content() {
+        let mut s = ScreenScraper::new(24, 80);
+        s.process(b"first screen content\r\n");
+        let out = s.process(b"\x1b[H\x1b[2Jcompletely different\r\n");
+        assert!(out.contains("completely different"), "got: {out:?}");
+        assert!(
+            !out.contains("first screen"),
+            "old content should not repeat, got: {out:?}"
+        );
+    }
+
+    #[test]
+    fn scraper_resize_does_not_panic() {
+        let mut s = ScreenScraper::new(24, 80);
+        s.process(b"hello\r\n");
+        s.resize(40, 120);
+        let out = s.process(b"after resize\r\n");
+        assert!(out.contains("after resize"), "got: {out:?}");
+    }
+
+    #[test]
+    fn is_chrome_rejects_separators() {
+        assert!(is_chrome("─────────────"));
+        assert!(is_chrome("  ─══━━━  "));
+        assert!(is_chrome("╭──────╮"));
+    }
+
+    #[test]
+    fn is_chrome_preserves_real_text() {
+        assert!(!is_chrome("hello world"));
+        assert!(!is_chrome("cargo build -p foo"));
+        assert!(!is_chrome("│ sgf │ launching"));
+        assert!(!is_chrome("error[E0308]: mismatched types"));
+    }
+
+    #[test]
+    fn is_chrome_rejects_short_special() {
+        assert!(is_chrome("✽"));
+        assert!(is_chrome("◐"));
+        assert!(is_chrome("⠋"));
+    }
+
+    #[test]
+    fn detect_scroll_single_line() {
+        let prev = vec!["A".into(), "B".into(), "C".into(), "D".into()];
+        let curr = vec!["B".into(), "C".into(), "D".into(), "E".into()];
+        assert_eq!(detect_scroll(&prev, &curr), Some(1));
+    }
+
+    #[test]
+    fn detect_scroll_no_scroll() {
+        let prev = vec!["A".into(), "B".into()];
+        let curr = vec!["X".into(), "Y".into()];
+        assert_eq!(detect_scroll(&prev, &curr), None);
+    }
+
+    #[test]
+    fn detect_scroll_multi_line() {
+        let prev = vec!["A".into(), "B".into(), "C".into(), "D".into()];
+        let curr = vec!["C".into(), "D".into(), "E".into(), "F".into()];
+        assert_eq!(detect_scroll(&prev, &curr), Some(2));
     }
 }
