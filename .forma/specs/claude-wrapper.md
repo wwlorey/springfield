@@ -5,7 +5,7 @@ Agent wrapper — layered .sgf/ context injection, cl binary
 | Field | Value |
 |-------|-------|
 | Src | `crates/claude-wrapper/` |
-| Status | draft |
+| Status | proven |
 
 ## Overview
 
@@ -67,16 +67,18 @@ No async runtime. No clap (no flag parsing — all args are passthrough).
 - Both missing → skipped, not in result
 - All files missing → empty result
 - Mixed: some local, some global → correct per-file resolution
+- Home is None → only local files resolved, global files skipped
+- Home is None and no local files → returns empty
 
 ### Integration Tests (`tests/integration.rs`)
 
-- `cl` never invokes `claude` directly — mock `claude-wrapper-secret`, verify it receives the call
-- `cl` never invokes `claude` binary — assert the binary name in the exec call is `claude-wrapper-secret`
+- `cl` invokes `claude-wrapper-secret`, not `claude` — mock both, verify only `claude-wrapper-secret` receives the call
 - Context files appear in `--append-system-prompt` argument
 - Local override takes precedence over global
 - Missing context files are skipped (no error exit)
 - Passthrough args are forwarded unchanged
 - Multiple `--append-system-prompt` args coexist (one from `cl`, one from caller)
+- Exits with code 1 when `claude-wrapper-secret` is not in PATH
 
 ## Design Goals
 
