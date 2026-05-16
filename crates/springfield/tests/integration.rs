@@ -10336,6 +10336,7 @@ fn cursus_programmatic_event_structure_validates_all_fields() {
             "  mkdir -p \"$SGF_RUN_CONTEXT\"\n",
             "  echo 'data' > \"$SGF_RUN_CONTEXT/gathered-data.md\"\n",
             "fi\n",
+            "echo '{\"type\":\"result\",\"result\":\"done\",\"session_id\":\"mock\"}'\n",
             "touch \"${PWD}/.iter-complete\"\n",
             "exit 0\n",
         ),

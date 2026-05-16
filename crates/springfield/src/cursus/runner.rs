@@ -232,6 +232,9 @@ fn run_iter(
         ("SGF_MANAGED".to_string(), "1".to_string()),
         (ctx_env_name, abs_ctx_val),
     ];
+    if std::env::var("SGF_MANAGED").is_err() {
+        env_vars.push(("SGF_ORCHESTRATOR".to_string(), "1".to_string()));
+    }
     if std::env::var("SGF_TEST_NO_SETSID").is_ok() {
         env_vars.push(("SGF_TEST_NO_SETSID".to_string(), "1".to_string()));
     }
@@ -256,6 +259,7 @@ fn run_iter(
         runner_name: None,
         work_dir: Some(inv.root.to_path_buf()),
         post_result_timeout: crate::iter_runner::default_post_result_timeout(),
+        inactivity_timeout: crate::iter_runner::default_inactivity_timeout(),
         stdin_input: None,
         on_iteration_start: None,
         on_iteration_complete: None,
@@ -310,6 +314,9 @@ fn run_programmatic_turn(
         ("SGF_MANAGED".to_string(), "1".to_string()),
         (ctx_env_name, abs_ctx_val),
     ];
+    if std::env::var("SGF_MANAGED").is_err() {
+        env_vars.push(("SGF_ORCHESTRATOR".to_string(), "1".to_string()));
+    }
     if std::env::var("SGF_TEST_NO_SETSID").is_ok() {
         env_vars.push(("SGF_TEST_NO_SETSID".to_string(), "1".to_string()));
     }
@@ -335,6 +342,7 @@ fn run_programmatic_turn(
         runner_name: None,
         work_dir: Some(inv.root.to_path_buf()),
         post_result_timeout: crate::iter_runner::default_post_result_timeout(),
+        inactivity_timeout: crate::iter_runner::default_inactivity_timeout(),
         stdin_input: resume_input.map(|s| s.to_string()),
         on_iteration_start: None,
         on_iteration_complete: None,

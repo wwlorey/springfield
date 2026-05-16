@@ -22,6 +22,8 @@ const DING_SENTINEL: &str = ".iter-ding";
 pub const MAX_ITERATIONS: u32 = 1000;
 const DEFAULT_ITER_DELAY_MS: u64 = 2000;
 const DEFAULT_POST_RESULT_TIMEOUT_SECS: u64 = 30;
+const DEFAULT_INACTIVITY_TIMEOUT_SECS: u64 = 1800; // 30 min
+const DEFAULT_HEARTBEAT_INTERVAL_SECS: u64 = 60;
 const STARTUP_ERROR_THRESHOLD: Duration = Duration::from_secs(5);
 
 fn iter_delay() -> Duration {
@@ -37,6 +39,22 @@ pub fn default_post_result_timeout() -> Duration {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(DEFAULT_POST_RESULT_TIMEOUT_SECS);
+    Duration::from_secs(secs)
+}
+
+pub fn default_inactivity_timeout() -> Duration {
+    let secs = std::env::var("SGF_INACTIVITY_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_INACTIVITY_TIMEOUT_SECS);
+    Duration::from_secs(secs)
+}
+
+pub fn heartbeat_interval() -> Duration {
+    let secs = std::env::var("SGF_HEARTBEAT_INTERVAL_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_HEARTBEAT_INTERVAL_SECS);
     Duration::from_secs(secs)
 }
 
@@ -75,6 +93,10 @@ pub struct IterRunnerConfig {
     /// Max time to wait for the agent process to exit after emitting its result event.
     /// Defaults to 30 seconds.
     pub post_result_timeout: Duration,
+    /// Max time with no NDJSON output before killing the agent process.
+    /// Only fires when the child process is confirmed alive via try_wait; dead processes
+    /// are detected immediately via process liveness checks. Defaults to 45 minutes.
+    pub inactivity_timeout: Duration,
     /// Input text to pass as a CLI argument when resuming in programmatic mode.
     pub stdin_input: Option<String>,
     /// Called before each iteration starts with (iteration_number, session_id).
@@ -94,6 +116,7 @@ pub struct IterRunnerConfig {
 pub(crate) struct AgentExitStatus {
     pub(crate) exit_code: Option<i32>,
     pub(crate) killed_by_timeout: bool,
+    pub(crate) killed_by_inactivity: bool,
     pub(crate) ctrl_c_forwarded: bool,
 }
 
@@ -130,7 +153,12 @@ impl TeeWriter {
     }
 
     pub fn writeln(&self, line: &str) {
-        println!("{line}");
+        let stdout = std::io::stdout();
+        let mut lock = stdout.lock();
+        if let Err(e) = writeln!(lock, "{line}") {
+            warn!(error = %e, "failed to write to stdout");
+        }
+        drop(lock);
         if let Some(ref f) = self.log_file
             && let Ok(mut f) = f.lock()
         {
@@ -141,8 +169,13 @@ impl TeeWriter {
     pub fn write_ansi_line(&self, line: &str) {
         let stdout = std::io::stdout();
         let mut lock = stdout.lock();
-        let _ = write!(lock, "\r\x1b[2K{line}\n");
-        let _ = lock.flush();
+        if let Err(e) = write!(lock, "\r\x1b[2K{line}\n") {
+            warn!(error = %e, "failed to write to stdout");
+        }
+        if let Err(e) = lock.flush() {
+            warn!(error = %e, "failed to flush stdout");
+        }
+        drop(lock);
         if let Some(ref f) = self.log_file
             && let Ok(mut f) = f.lock()
         {
@@ -299,6 +332,7 @@ fn run_interactive(
             AgentExitStatus {
                 exit_code: None,
                 killed_by_timeout: false,
+                killed_by_inactivity: false,
                 ctrl_c_forwarded: false,
             }
         }
@@ -365,6 +399,7 @@ fn run_afk(
             return AgentExitStatus {
                 exit_code: None,
                 killed_by_timeout: false,
+                killed_by_inactivity: false,
                 ctrl_c_forwarded: false,
             };
         }
@@ -377,6 +412,7 @@ fn run_afk(
             return AgentExitStatus {
                 exit_code: None,
                 killed_by_timeout: false,
+                killed_by_inactivity: false,
                 ctrl_c_forwarded: false,
             };
         }
@@ -396,7 +432,13 @@ fn run_afk(
     let child_pid = child.id();
     let mut result_received_at: Option<std::time::Instant> = None;
     let post_result_timeout = config.post_result_timeout;
+    let inactivity_timeout = config.inactivity_timeout;
+    let hb_interval = heartbeat_interval();
     let mut killed_by_timeout = false;
+    let mut killed_by_inactivity = false;
+    let mut last_activity_at = std::time::Instant::now();
+    let mut last_heartbeat_at = std::time::Instant::now();
+    let mut got_any_output = false;
 
     loop {
         if controller.poll() == ShutdownStatus::Shutdown {
@@ -406,6 +448,7 @@ fn run_afk(
             return AgentExitStatus {
                 exit_code: None,
                 killed_by_timeout: false,
+                killed_by_inactivity: false,
                 ctrl_c_forwarded: false,
             };
         }
@@ -422,52 +465,86 @@ fn run_afk(
         }
 
         match rx.recv_timeout(Duration::from_millis(100)) {
-            Ok(Ok(line)) => match format::format_line(&line) {
-                format::FormattedOutput::Text(text) => {
-                    tee.write_ansi_line("");
-                    for l in text.split('\n') {
-                        tee.write_ansi_line(&style::white(&style::bold(l)));
+            Ok(Ok(line)) => {
+                last_activity_at = std::time::Instant::now();
+                got_any_output = true;
+                match format::format_line(&line) {
+                    format::FormattedOutput::Text(text) => {
+                        tee.write_ansi_line("");
+                        for l in text.split('\n') {
+                            tee.write_ansi_line(&style::white(&style::bold(l)));
+                        }
+                        tee.write_ansi_line("");
                     }
-                    tee.write_ansi_line("");
-                }
-                format::FormattedOutput::ToolCalls(calls) => {
-                    for call in &calls {
-                        tee.write_ansi_line(&format!(
-                            "  {} {}  {}",
-                            style::dim("─"),
-                            style::tool_name_style(&call.name),
-                            style::white(&call.detail),
-                        ));
+                    format::FormattedOutput::ToolCalls(calls) => {
+                        for call in &calls {
+                            tee.write_ansi_line(&format!(
+                                "  {} {}  {}",
+                                style::dim("─"),
+                                style::tool_name_style(&call.name),
+                                style::white(&call.detail),
+                            ));
+                        }
                     }
-                }
-                format::FormattedOutput::ToolResults(_) => {}
-                format::FormattedOutput::Usage {
-                    input_tokens,
-                    output_tokens,
-                } => {
-                    tee.write_ansi_line(&style::dim(&format!(
-                        "  Input: {input_tokens} tokens · Output: {output_tokens} tokens"
-                    )));
-                    result_received_at = Some(std::time::Instant::now());
-                }
-                format::FormattedOutput::Result(text) => {
-                    tee.write_ansi_line("");
-                    for l in text.split('\n') {
-                        tee.write_ansi_line(l);
-                    }
-                    tee.write_ansi_line("");
-                    if result_received_at.is_none() {
+                    format::FormattedOutput::ToolResults(_) => {}
+                    format::FormattedOutput::Usage {
+                        input_tokens,
+                        output_tokens,
+                    } => {
+                        tee.write_ansi_line(&style::dim(&format!(
+                            "  Input: {input_tokens} tokens · Output: {output_tokens} tokens"
+                        )));
                         result_received_at = Some(std::time::Instant::now());
                     }
+                    format::FormattedOutput::Result(text) => {
+                        tee.write_ansi_line("");
+                        for l in text.split('\n') {
+                            tee.write_ansi_line(l);
+                        }
+                        tee.write_ansi_line("");
+                        if result_received_at.is_none() {
+                            result_received_at = Some(std::time::Instant::now());
+                        }
+                    }
+                    format::FormattedOutput::Skip => {}
                 }
-                format::FormattedOutput::Skip => {}
-            },
+            }
             Ok(Err(e)) => {
                 warn!(error = %e, "error reading stdout");
             }
-            Err(mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                match child.try_wait() {
+                    Ok(Some(_)) => {
+                        warn!("child process exited but stdout pipe still open, breaking");
+                        break;
+                    }
+                    Ok(None) => {
+                        if last_activity_at.elapsed() > inactivity_timeout {
+                            warn!(
+                                elapsed_secs = last_activity_at.elapsed().as_secs(),
+                                "no output from agent, killing due to inactivity"
+                            );
+                            killed_by_inactivity = true;
+                            break;
+                        }
+                        if result_received_at.is_none()
+                            && last_heartbeat_at.elapsed() >= hb_interval
+                        {
+                            tee.writeln(r#"{"event":"heartbeat"}"#);
+                            last_heartbeat_at = std::time::Instant::now();
+                        }
+                    }
+                    Err(_) => {}
+                }
+                continue;
+            }
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
+    }
+
+    if !got_any_output && !killed_by_timeout && !killed_by_inactivity {
+        warn!("inner session produced no output");
+        tee.writeln(r#"{"event":"error","message":"inner session died"}"#);
     }
 
     kill_process_group(child_pid, Duration::from_millis(200));
@@ -479,9 +556,17 @@ fn run_afk(
         }
     };
     let _ = reader_handle.join();
+
+    let exit_code = if !got_any_output && exit_code == Some(0) {
+        Some(1)
+    } else {
+        exit_code
+    };
+
     AgentExitStatus {
         exit_code,
         killed_by_timeout,
+        killed_by_inactivity,
         ctrl_c_forwarded: false,
     }
 }
@@ -650,6 +735,9 @@ fn print_startup_banner(
 fn is_retryable_process_failure(status: &AgentExitStatus, elapsed: Duration) -> bool {
     if status.killed_by_timeout {
         return false;
+    }
+    if status.killed_by_inactivity {
+        return true;
     }
     let code = match status.exit_code {
         Some(0) => return false,
@@ -1122,6 +1210,7 @@ mod tests {
             runner_name: None,
             work_dir: Some(dir.to_path_buf()),
             post_result_timeout: Duration::from_secs(30),
+            inactivity_timeout: Duration::from_secs(2700),
             stdin_input: None,
             on_iteration_start: None,
             on_iteration_complete: None,
@@ -1229,6 +1318,107 @@ mod tests {
         assert!(
             elapsed >= Duration::from_secs(2),
             "should have waited for the timeout period, only took {:?}",
+            elapsed
+        );
+    }
+
+    #[test]
+    fn dead_process_detected_via_liveness_check() {
+        let dir = tempfile::tempdir().unwrap();
+        // Script exits immediately without closing stdout properly by spawning
+        // a backgrounded child that holds the pipe open.
+        let script = mock_script(
+            dir.path(),
+            "dead_with_open_pipe.sh",
+            "#!/bin/sh\nsleep 300 &\nexit 0\n",
+        );
+
+        let mut config = make_config(dir.path(), script);
+        config.inactivity_timeout = Duration::from_secs(300);
+
+        let controller = ShutdownController::new(ShutdownConfig {
+            monitor_stdin: false,
+            ..Default::default()
+        })
+        .unwrap();
+
+        let start = std::time::Instant::now();
+        let _exit_code = run_iteration_loop(config, &controller);
+        let elapsed = start.elapsed();
+
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "should have detected dead process quickly via try_wait, took {:?}",
+            elapsed
+        );
+    }
+
+    #[test]
+    fn inactivity_timeout_kills_silent_agent() {
+        let dir = tempfile::tempdir().unwrap();
+        // Script sits silently (alive but no output)
+        let script = mock_script(dir.path(), "silent_agent.sh", "#!/bin/sh\nsleep 300\n");
+
+        let mut config = make_config(dir.path(), script);
+        config.inactivity_timeout = Duration::from_secs(2);
+        config.retry_immediate = 0;
+        config.retry_max_duration_secs = 0;
+
+        let controller = ShutdownController::new(ShutdownConfig {
+            monitor_stdin: false,
+            ..Default::default()
+        })
+        .unwrap();
+
+        let start = std::time::Instant::now();
+        let _exit_code = run_iteration_loop(config, &controller);
+        let elapsed = start.elapsed();
+
+        assert!(
+            elapsed >= Duration::from_secs(2),
+            "should have waited for inactivity timeout, only took {:?}",
+            elapsed
+        );
+        assert!(
+            elapsed < Duration::from_secs(10),
+            "should have killed after inactivity timeout, took {:?}",
+            elapsed
+        );
+    }
+
+    #[test]
+    fn active_agent_not_affected_by_inactivity_timeout() {
+        let dir = tempfile::tempdir().unwrap();
+        let sentinel = dir.path().join(SENTINEL);
+        // Script emits NDJSON output, creates sentinel, then exits
+        let result_json = r#"{"type":"result","result":"Done.","session_id":"s1"}"#;
+        let script = mock_script(
+            dir.path(),
+            "active_agent.sh",
+            &format!(
+                "#!/bin/sh\necho '{}'\ntouch \"{}\"\nexit 0\n",
+                result_json,
+                sentinel.display()
+            ),
+        );
+
+        let mut config = make_config(dir.path(), script);
+        config.inactivity_timeout = Duration::from_secs(2);
+
+        let controller = ShutdownController::new(ShutdownConfig {
+            monitor_stdin: false,
+            ..Default::default()
+        })
+        .unwrap();
+
+        let start = std::time::Instant::now();
+        let exit_code = run_iteration_loop(config, &controller);
+        let elapsed = start.elapsed();
+
+        assert!(matches!(exit_code, IterExitCode::Complete));
+        assert!(
+            elapsed < Duration::from_secs(5),
+            "active agent should complete quickly, took {:?}",
             elapsed
         );
     }
@@ -1482,6 +1672,7 @@ fi
         AgentExitStatus {
             exit_code: code,
             killed_by_timeout: false,
+            killed_by_inactivity: false,
             ctrl_c_forwarded: false,
         }
     }
@@ -1579,9 +1770,24 @@ fi
         let status = AgentExitStatus {
             exit_code: None,
             killed_by_timeout: true,
+            killed_by_inactivity: false,
             ctrl_c_forwarded: false,
         };
         assert!(!is_retryable_process_failure(
+            &status,
+            Duration::from_secs(10)
+        ));
+    }
+
+    #[test]
+    fn retryable_inactivity_kill() {
+        let status = AgentExitStatus {
+            exit_code: None,
+            killed_by_inactivity: true,
+            killed_by_timeout: false,
+            ctrl_c_forwarded: false,
+        };
+        assert!(is_retryable_process_failure(
             &status,
             Duration::from_secs(10)
         ));

@@ -219,6 +219,8 @@ Note: `cl` (claude-wrapper), `pn` (pensa), and `fm` (forma) are all invoked as c
 | Git push failure | `tracing::warn\!`, continue |
 | SIGINT/Ctrl+D received (all modes) | First press: print confirmation to stderr, start 2s timeout. Second press of same key: kill child process group, exit 130. Timeout: reset counter, continue. |
 | SIGTERM received | Kill child process group, exit 130 (immediate, single signal) |
+| Inner session dies with no output (AFK mode) | Emit `{"event":"error","message":"inner session died"}`, override exit code to 1 if child exited 0 |
+| Inactivity timeout (AFK mode) | Kill child process group after 30 min of no NDJSON output, mark as retryable |
 
 ### Recovery Failure Modes
 
@@ -228,63 +230,41 @@ Note: `cl` (claude-wrapper), `pn` (pensa), and `fm` (forma) are all invoked as c
 
 ### Auto-Retry on Agent Process Failure
 
-When the `cl` process fails mid-execution (API rate limit, usage limit, network error, OOM, unexpected crash), sgf automatically retries the failed invocation. This applies to all modes: interactive, AFK, and programmatic.
+When the `cl` process fails mid-execution (API rate limit, usage limit, network error, OOM, unexpected crash), sgf automatically retries the failed invocation. This applies to both AFK and interactive modes.
 
-#### Failure Classification
+**Retryable conditions:**
+- Non-zero exit code (except 130/SIGINT) when process ran longer than 5 seconds
+- Process killed by signal (SIGSEGV, SIGKILL, etc.)
+- Inactivity timeout (agent alive but producing no output for 30 minutes)
 
-Retryable failures are distinguished from non-retryable ones using exit code/signal analysis plus a duration heuristic:
+**Non-retryable conditions:**
+- Exit code 0 (success)
+- Exit code 130 (user interrupt)
+- Post-result timeout kill (agent hung after emitting result)
+- Fast failure (process ran < 5 seconds with non-zero exit) — indicates misconfiguration, not transient error
 
-| Failure | Retryable | Detection |
-|---------|-----------|-----------|
-| API rate limit / usage limit | Yes | Non-zero exit after sustained execution |
-| Network error | Yes | Non-zero exit after sustained execution |
-| OOM / crash (signal) | Yes | Process killed by signal (SIGSEGV, SIGKILL, etc.) |
-| User Ctrl+C / Ctrl+D | No | SIGINT detected by shutdown controller |
-| Bad arguments / config error | No | Exit code 1 within first few seconds of startup |
+**Retry strategy:**
+- Immediate retries: configurable count (default 3) with no delay
+- Backoff retries: configurable interval (default 5 minutes) after immediate retries exhausted
+- Maximum retry duration: configurable (default 12 hours)
+- All retries resume the same session via `--resume <session_id>`
+- `on_retry` callback notified with (attempt_number, reason, next_retry_delay_secs)
 
-The **duration heuristic** (`STARTUP_ERROR_THRESHOLD = 5s`): if the process ran for less than 5 seconds before failing with exit code 1, it is treated as a non-retryable startup error (bad args, missing prompt, config issue). If it ran longer, the failure is treated as retryable (the agent was working and something went wrong mid-execution).
+### AFK Mode Liveness Detection
 
-#### Retry Strategy
+In AFK mode, sgf monitors the child process for silent death:
 
-1. **Immediate retries**: Up to 3 attempts with no delay between them
-2. **Backoff retries**: If all immediate retries fail, retry every 5 minutes
-3. **Maximum duration**: 12 hours total from the first failure. After 12 hours of failed retries, sgf exits with an error.
-4. **On success**: Resume the crashed session via `cl --resume <session_id>`. The agent picks up the conversation where it left off — no context is lost.
+1. **Process liveness check**: On each 100ms poll timeout, `try_wait()` is called. If the child has already exited but stdout pipe is still open (held by orphaned subprocesses), sgf detects this immediately and breaks out of the read loop.
 
-#### Configuration
+2. **Heartbeat emission**: Every 60 seconds (configurable via `SGF_HEARTBEAT_INTERVAL_SECS`), sgf emits `{"event":"heartbeat"}` to its own stdout while the child is confirmed alive via `try_wait()`. Heartbeats only emit before a result is received. They do NOT reset the inactivity timer.
 
-Retry behavior is configurable per-cursus in the TOML definition (see [cursus spec](cursus.md) TOML Format):
+3. **Inactivity timeout**: If 30 minutes pass (configurable via `SGF_INACTIVITY_TIMEOUT_SECS`) with no NDJSON output from the child, sgf kills the process group. This is a fallback for when the child is alive but completely stuck. Marked as retryable.
 
-```toml
-[retry]
-immediate = 3           # immediate retry attempts (default: 3)
-interval_secs = 300     # backoff interval in seconds (default: 300)
-max_duration_secs = 43200  # max total retry duration in seconds (default: 43200 = 12 hours)
-```
+4. **No-output detection**: If the child exits without producing any NDJSON output at all, sgf emits an error event and overrides exit code 0 to 1. This catches scenarios where `cl` starts up but crashes silently before producing any stream output.
 
-If the `[retry]` section is omitted, the defaults above apply.
+### TeeWriter Robustness
 
-Simple prompt mode (`sgf <file>`) uses the same defaults. Retry behavior is not configurable in simple prompt mode — users who need custom retry settings should create a cursus TOML.
-
-#### Retry State
-
-Retry state is purely in-process — it does not persist across sgf restarts. If sgf itself is killed during the retry window, the retry loop dies with it. The run can still be resumed manually via `--resume <run-id>`.
-
-#### Notifications
-
-During retries, sgf emits status messages:
-- **Terminal mode**: Badge box messages (e.g., `retrying in 5m (attempt 4/147)...`)
-- **Programmatic mode**: Structured `retry` events in the NDJSON stream
-
-### Resume Command on Exit
-
-On any run exit — stall, interrupt, completion, or error — sgf prints a copy-pasteable resume command:
-
-```
-To resume:  sgf change --resume change-20260422T150000
-```
-
-This is printed even on Ctrl+C / Ctrl+D exits. In programmatic mode, this information is included in the `run_complete` or `error` event.
+`TeeWriter::writeln()` and `write_ansi_line()` lock stdout explicitly and log warnings on write failures rather than panicking. This ensures heartbeats and error events are reliably emitted even when stdout is a pipe that may have limited buffer space. Log file writes silently skip on failure (non-critical path).
 
 ## Testing
 
@@ -1469,8 +1449,9 @@ Per-command defaults are defined in cursus TOML files (see [cursus spec](cursus.
 | Auto-push | `false` | `--no-push` flag (disables), cursus TOML `auto_push` field |
 | Pensa daemon port | per-project derived (`SHA256(path)`) | `--port` flag on `pn daemon` |
 | Forma daemon port | per-project derived (`SHA256("forma:" + path)`) | `--port` flag on `fm daemon` |
-
----
+| Post-result timeout | 30 seconds | `SGF_POST_RESULT_TIMEOUT_SECS` env var |
+| Inactivity timeout | 30 minutes (1800s) | `SGF_INACTIVITY_TIMEOUT_SECS` env var |
+| Heartbeat interval | 60 seconds | `SGF_HEARTBEAT_INTERVAL_SECS` env var |
 
 ## Key Design Principles
 

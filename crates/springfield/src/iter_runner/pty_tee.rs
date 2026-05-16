@@ -433,6 +433,7 @@ pub(crate) fn run_interactive_with_pty(
     Ok(AgentExitStatus {
         exit_code,
         killed_by_timeout: false,
+        killed_by_inactivity: false,
         ctrl_c_forwarded,
     })
 }
