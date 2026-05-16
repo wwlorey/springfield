@@ -1369,6 +1369,8 @@ mod tests {
 
         let mut config = make_config(dir.path(), script);
         config.inactivity_timeout = Duration::from_secs(300);
+        config.retry_immediate = 0;
+        config.retry_max_duration_secs = 0;
 
         let controller = ShutdownController::new(ShutdownConfig {
             monitor_stdin: false,
