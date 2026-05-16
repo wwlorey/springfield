@@ -23,6 +23,7 @@ These rules override default behavior. Follow them exactly.
 | `run_dic` | Speak text aloud via the `dic` TTS wrapper. Accepts `text`, optional `voice` (default: bf_isabella), and optional `speed`. |
 | `run_newsboat` | Run newsboat commands outside the sandbox for RSS/Atom feed access. |
 | `run_kw` | Run the kw CLI outside the sandbox for keyword research API access. |
+| `save_config` | Deploy dotfiles from `~/Repos/dotfiles` to `$HOME`. Use after editing config files in dotfiles. |
 
 ### Shortcuts
 
