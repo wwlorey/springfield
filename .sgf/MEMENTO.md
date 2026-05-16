@@ -231,3 +231,18 @@ Specifications are the **source of truth** for all code. They are managed exclus
 | `fm check --json` | Validation report (required sections, src paths, refs, pensa integration) |
 | `fm doctor [--fix] --json` | Health checks; `--fix` removes orphaned data |
 | `fm where` | Print JSONL and DB directory paths |
+
+
+## Unmanaged Sessions Only (skip if `$SGF_MANAGED` is set)
+
+### Voice Output
+
+Every time you finish responding and are about to return control to the user, speak a very brief summary aloud using the `run_dic` MCP tool. This includes: task complete, waiting for user input, unrecoverable error, or stalled. Start with the working directory name, then the summary.
+
+Keep it to a short phrase. Examples:
+- "Springfield. Auth refactor done."
+- "Dotfiles. Zsh config updated."
+- "My project. Need input on migration strategy."
+- "Springfield. Stalled, stopping."
+
+Default voice: bf_isabella. A downstream prompt may override the voice.
