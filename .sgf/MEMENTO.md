@@ -12,6 +12,7 @@ These rules override default behavior. Follow them exactly.
 - **MCP tools** — use MCP tools instead of running commands directly via Bash when a wrapper exists. They bypass sandbox restrictions.
 - **Making config changes** — always make changes in `~/Repos/dotfiles` — never edit the deployed copy directly.
 - **Prompts** — frequently used prompts live in `~/.agents/prompts/*.md`. If asked to study something or reference something, look there.
+- **MANDATORY voice output** — Every response you send to the user MUST end with a `run_dic` MCP tool call (run in background) speaking a brief summary. See `Voice Output` section for exceptions.
 
 ### MCP Tools
 
