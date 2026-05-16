@@ -9,6 +9,20 @@ These rules override default behavior. Follow them exactly.
 - **Subagent limits** — do not spawn more than 3 concurrent Agent/subagent calls. Large refactors must be done sequentially.
 - **Session start** — run `fm list --json` at the beginning of EACH SESSION.
 - **Uncommitted changes** — if `git status` shows a dirty working tree at session start, check the most recent `.sgf/logs` entry to understand what produced them before asking the user what to do with them. They are usually formatter residue from backpressure and should likely be committed.
+- **MCP tools** — use MCP tools instead of running commands directly via Bash when a wrapper exists. They bypass sandbox restrictions.
+- **Making config changes** — always make changes in `~/Repos/dotfiles` — never edit the deployed copy directly.
+- **Prompts** — frequently used prompts live in `~/.agents/prompts/*.md`. If asked to study something or reference something, look there.
+
+### MCP Tools
+
+| Tool | Purpose |
+|------|---------|
+| `run_playwright` | Run Playwright e2e tests. Chromium can't launch from Bash. Pass `config` for non-default configs (e.g. `playwright-visual.config.ts`). |
+| `create_project` | Scaffold new projects (e.g. `pnpm create vite`, `npm create next-app`). Never run scaffold commands via Bash — they are blocked by the sandbox. |
+| `run_pnpm` | Run allowlisted pnpm scripts that need network access (e.g. `seed`, `push:schema`, `push:perms`). Loads `.env` from the project root and strips proxy env. To add new scripts, update `ALLOWED_PNPM_SCRIPTS` in the unsandboxed-runner source. |
+| `run_dic` | Speak text aloud via the `dic` TTS wrapper. Accepts `text`, optional `voice` (default: bf_isabella), and optional `speed`. |
+| `run_newsboat` | Run newsboat commands outside the sandbox for RSS/Atom feed access. |
+| `run_kw` | Run the kw CLI outside the sandbox for keyword research API access. |
 
 ### Shortcuts
 
@@ -233,11 +247,11 @@ Specifications are the **source of truth** for all code. They are managed exclus
 | `fm where` | Print JSONL and DB directory paths |
 
 
-## Unmanaged Sessions Only (skip if `$SGF_MANAGED` is set)
+## Voice Output
 
-### Voice Output
+**Runs if** `$SGF_AGENT` is not set, OR `$SGF_ORCHESTRATOR` is set. Check with: `echo $SGF_AGENT $SGF_ORCHESTRATOR`
 
-Every time you finish responding and are about to return control to the user, speak a very brief summary aloud using the `run_dic` MCP tool. This includes: task complete, waiting for user input, unrecoverable error, or stalled. Start with the working directory name, then the summary.
+Every time you finish responding, call the `run_dic` MCP tool (run in background) to speak a very brief summary aloud. Start with the working directory name, then the summary.
 
 Keep it to a short phrase. Examples:
 - "Springfield. Auth refactor done."

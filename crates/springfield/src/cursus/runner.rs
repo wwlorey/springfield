@@ -229,10 +229,10 @@ fn run_iter(
     let (ctx_env_name, ctx_env_val) = context::context_env_var(inv.run_id);
     let abs_ctx_val = inv.root.join(&ctx_env_val).to_string_lossy().to_string();
     let mut env_vars = vec![
-        ("SGF_MANAGED".to_string(), "1".to_string()),
+        ("SGF_AGENT".to_string(), "1".to_string()),
         (ctx_env_name, abs_ctx_val),
     ];
-    if std::env::var("SGF_MANAGED").is_err() {
+    if std::env::var("SGF_AGENT").is_err() {
         env_vars.push(("SGF_ORCHESTRATOR".to_string(), "1".to_string()));
     }
     if std::env::var("SGF_TEST_NO_SETSID").is_ok() {
@@ -311,10 +311,10 @@ fn run_programmatic_turn(
     let (ctx_env_name, ctx_env_val) = context::context_env_var(inv.run_id);
     let abs_ctx_val = inv.root.join(&ctx_env_val).to_string_lossy().to_string();
     let mut env_vars = vec![
-        ("SGF_MANAGED".to_string(), "1".to_string()),
+        ("SGF_AGENT".to_string(), "1".to_string()),
         (ctx_env_name, abs_ctx_val),
     ];
-    if std::env::var("SGF_MANAGED").is_err() {
+    if std::env::var("SGF_AGENT").is_err() {
         env_vars.push(("SGF_ORCHESTRATOR".to_string(), "1".to_string()));
     }
     if std::env::var("SGF_TEST_NO_SETSID").is_ok() {

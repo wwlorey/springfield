@@ -755,6 +755,16 @@ Each iter in a cursus pipeline follows this execution sequence:
 3. **Ensure context directory** — create `.sgf/run/<run-id>/context/` if it does not exist.
 4. **Generate session UUID** — `Uuid::new_v4()` for the `--session-id` flag.
 
+### Environment Variables
+
+The runner sets the following env vars on spawned agent sessions:
+
+- `SGF_AGENT=1` — always set. Marks the session as part of a Springfield pipeline.
+- `SGF_ORCHESTRATOR=1` — set only when the current `sgf` process was NOT itself spawned inside a pipeline (i.e., `SGF_AGENT` is absent from the runner's own environment). Marks the session as the top-level orchestrator that should communicate directly with the user.
+- `SGF_RUN_CONTEXT=<path>` — absolute path to the run's context directory.
+
+This two-flag system enables voice output gating: orchestrators and bare `cl` sessions speak, while nested agents stay silent.
+
 ### Invocation
 
 5. **Invoke `cl`** — delegate to sgf's iteration runner (AFK), direct `cl` call (interactive), or programmatic runner (piped stdin). The effective mode is determined by: `mode_override` (from CLI `-a`/`-i`) if set, else the iter's `mode` field. See [springfield spec](springfield.md) Agent Invocation for flag details.
