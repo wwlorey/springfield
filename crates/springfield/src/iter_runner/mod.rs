@@ -421,13 +421,13 @@ fn run_afk(
     let reader = BufReader::new(stdout);
     let (tx, rx) = mpsc::channel();
 
-    let reader_handle = thread::spawn(move || {
+    let mut reader_handle = Some(thread::spawn(move || {
         for line in reader.lines() {
             if tx.send(line).is_err() {
                 break;
             }
         }
-    });
+    }));
 
     let child_pid = child.id();
     let mut result_received_at: Option<std::time::Instant> = None;
@@ -444,7 +444,9 @@ fn run_afk(
         if controller.poll() == ShutdownStatus::Shutdown {
             kill_process_group(child_pid, Duration::from_millis(200));
             let _ = child.wait();
-            let _ = reader_handle.join();
+            if let Some(h) = reader_handle.take() {
+                let _ = h.join();
+            }
             return AgentExitStatus {
                 exit_code: None,
                 killed_by_timeout: false,
@@ -515,7 +517,37 @@ fn run_afk(
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 match child.try_wait() {
                     Ok(Some(_)) => {
-                        warn!("child process exited but stdout pipe still open, breaking");
+                        warn!("child process exited but stdout pipe still open, draining");
+                        // Wait for reader thread to finish processing remaining pipe data,
+                        // then drain whatever it sent to the channel.
+                        if let Some(h) = reader_handle.take() {
+                            let _ = h.join();
+                        }
+                        while let Ok(Ok(line)) = rx.try_recv() {
+                            got_any_output = true;
+                            match format::format_line(&line) {
+                                format::FormattedOutput::Result(text) => {
+                                    tee.write_ansi_line("");
+                                    for l in text.split('\n') {
+                                        tee.write_ansi_line(l);
+                                    }
+                                    tee.write_ansi_line("");
+                                    if result_received_at.is_none() {
+                                        result_received_at = Some(std::time::Instant::now());
+                                    }
+                                }
+                                format::FormattedOutput::Usage {
+                                    input_tokens,
+                                    output_tokens,
+                                } => {
+                                    tee.write_ansi_line(&style::dim(&format!(
+                                        "  Input: {input_tokens} tokens · Output: {output_tokens} tokens"
+                                    )));
+                                    result_received_at = Some(std::time::Instant::now());
+                                }
+                                _ => {}
+                            }
+                        }
                         break;
                     }
                     Ok(None) => {
@@ -555,7 +587,9 @@ fn run_afk(
             None
         }
     };
-    let _ = reader_handle.join();
+    if let Some(h) = reader_handle.take() {
+        let _ = h.join();
+    }
 
     let exit_code = if !got_any_output && exit_code == Some(0) {
         Some(1)
