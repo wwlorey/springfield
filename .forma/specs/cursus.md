@@ -118,12 +118,13 @@ Workspace crate dependencies (linked at compile time via springfield):
 | Sentinel file `.iter-reject` with no `on_reject` transition defined | Exit 1: `iter '<name>' signaled reject but no on_reject transition is defined` |
 | Sentinel file `.iter-revise` with no `on_revise` transition defined | Exit 1: `iter '<name>' signaled revise but no on_revise transition is defined` |
 | Run directory creation failure | Exit 1: `failed to create run directory: <error>` |
-| Run metadata read/write failure | `tracing::error\!`, continue if possible (non-fatal for execution, fatal for resume) |
-| `produces` file not written by agent | `tracing::warn\!` — continue to next iter. The consuming iter will run without that context. Not fatal because the agent may have communicated through other means (spec updates, pn comments) |
+| Run metadata read/write failure | `tracing::error\\!`, continue if possible (non-fatal for execution, fatal for resume) |
+| `produces` file not written by agent | `tracing::warn\\!` — continue to next iter. The consuming iter will run without that context. Not fatal because the agent may have communicated through other means (spec updates, pn comments) |
 | Stale run directory from previous crashed run | Detected at cursus startup: scan `.sgf/run/*/meta.json` for entries with `status: running`, check if PID file (`.sgf/run/<run-id>/<run-id>.pid`) exists and process is alive via `kill -0`. If PID is stale (process dead), update `meta.json` status to `interrupted`. This is separate from the non-cursus PID scan in springfield recovery (which handles flat `.sgf/run/*.pid` files) |
 | SIGINT/SIGTERM during iter execution | Delegated to sgf/cl signal handling. Pipeline status updated to `interrupted` on exit. Resume command printed |
 | Agent process crash (retryable) | Auto-retry triggered: 3 immediate retries, then backoff every 5 minutes for up to 12 hours. Resume crashed session on success. See [springfield spec](springfield.md) Error Handling |
 | Agent process crash (non-retryable) | Startup failure (exit 1 within first seconds). No retry. Error event emitted in programmatic mode |
+| Inner session silent death (AFK mode) | Heartbeats detect liveness; inactivity timeout (30 min) kills stuck agents; no-output detection emits error event and exit 1. All retryable. See [springfield spec](springfield.md) AFK Mode Liveness Detection |
 | `--resume` with invalid run-id | Exit 1: `run not found: <run-id>` |
 | `--resume` with mismatched cursus name | Exit 1: `run <run-id> belongs to cursus '<name>', not '<requested>'` |
 

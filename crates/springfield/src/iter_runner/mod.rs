@@ -518,11 +518,11 @@ fn run_afk(
                 match child.try_wait() {
                     Ok(Some(_)) => {
                         warn!("child process exited but stdout pipe still open, draining");
-                        // Wait for reader thread to finish processing remaining pipe data,
-                        // then drain whatever it sent to the channel.
-                        if let Some(h) = reader_handle.take() {
-                            let _ = h.join();
-                        }
+                        // Drain any remaining messages the reader thread already sent
+                        // to the channel. Don't join the reader thread here — it may be
+                        // blocked on a pipe held open by orphaned child processes.
+                        // A brief sleep lets in-flight data arrive at the channel.
+                        thread::sleep(Duration::from_millis(50));
                         while let Ok(Ok(line)) = rx.try_recv() {
                             got_any_output = true;
                             match format::format_line(&line) {
