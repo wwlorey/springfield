@@ -632,26 +632,26 @@ Each cursus execution creates a run, tracked by metadata in `.sgf/run/`.
 
 ### Run ID Format
 
-`<cursus-name>-<timestamp>` — e.g., `spec-20260317T140000`. Same format as the existing loop ID.
+`<cursus-name>-<timestamp>-<uuid-prefix>` — e.g., `spec-20260317T140000-a3f1b2c0`. The 8-character UUID v4 prefix ensures uniqueness when multiple processes start within the same second.
 
 ### Run Directory
 
 `.sgf/run/<run-id>/` contains:
 
 ```
-.sgf/run/spec-20260317T140000/
+.sgf/run/spec-20260317T140000-a3f1b2c0/
   meta.json           # run metadata
   context/            # produced summary files
     discuss-summary.md
     draft-presentation.md
-  spec-20260317T140000.pid   # PID file (while running)
+  spec-20260317T140000-a3f1b2c0.pid   # PID file (while running)
 ```
 
 ### Run Metadata (`meta.json`)
 
 ```json
 {
-  "run_id": "spec-20260317T140000",
+  "run_id": "spec-20260317T140000-a3f1b2c0",
   "cursus": "spec",
   "status": "running",
   "current_iter": "draft",
@@ -714,7 +714,7 @@ When a cursus run is resumed:
 On any run exit (stall, interrupt, completion, error), sgf prints a copy-pasteable resume command:
 
 ```
-To resume:  sgf change --resume change-20260422T150000
+To resume:  sgf change --resume change-20260422T150000-a3f1b2c0
 ```
 
 This is printed to stderr in terminal mode and included in structured events in programmatic mode.
@@ -726,17 +726,17 @@ When a pipeline enters the `stalled` state:
 1. Run metadata is persisted with `status: "stalled"` and `current_iter` set to the stalled iter
 2. The cursus runner prints a stall banner:
    ```
-   ╭─ Cursus STALLED ─────────────────────────────────╮
-   │  Cursus:    spec                                  │
-   │  Iter:      draft                                 │
-   │  Reason:    Iterations exhausted (10/10)          │
-   │                                                   │
-   │  To resume: sgf spec --resume spec-20260317T140000│
-   ╰───────────────────────────────────────────────────╯
+   ╭─ Cursus STALLED ─────────────────────────────────────────╮
+   │  Cursus:    spec                                         │
+   │  Iter:      draft                                        │
+   │  Reason:    Iterations exhausted (10/10)                 │
+   │                                                          │
+   │  To resume: sgf spec --resume spec-20260317T140000-a3f1b2c0│
+   ╰──────────────────────────────────────────────────────────╯
    ```
 3. The runner exits with code 2
 
-When the user resumes with `sgf spec --resume spec-20260317T140000`:
+When the user resumes with `sgf spec --resume spec-20260317T140000-a3f1b2c0`:
 1. Load `meta.json` from the run directory
 2. Present the stalled state: which iter stalled, how many iterations were used, what context was accumulated
 3. Offer options:

@@ -679,7 +679,13 @@ pub fn run_programmatic(
                     .unwrap_or(&parsed),
                 _ => &parsed,
             };
-            let content = result_obj["result"].as_str().unwrap_or("").to_string();
+            let content = result_obj["result"]
+                .as_str()
+                .unwrap_or_else(|| {
+                    warn!("agent JSON output has no \"result\" field — turn content will be empty");
+                    ""
+                })
+                .to_string();
             let sid = result_obj["session_id"].as_str().unwrap_or("").to_string();
             (content, sid)
         } else {

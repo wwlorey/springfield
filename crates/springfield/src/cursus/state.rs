@@ -86,7 +86,8 @@ impl RunMetadata {
 
 pub fn generate_run_id(cursus_name: &str) -> String {
     let ts = Local::now().format("%Y%m%dT%H%M%S");
-    format!("{cursus_name}-{ts}")
+    let suffix = &uuid::Uuid::new_v4().to_string()[..8];
+    format!("{cursus_name}-{ts}-{suffix}")
 }
 
 pub fn run_dir(root: &Path, run_id: &str) -> PathBuf {
@@ -240,9 +241,24 @@ mod tests {
     fn run_id_format() {
         let id = generate_run_id("spec");
         assert!(id.starts_with("spec-"));
-        let ts = id.strip_prefix("spec-").unwrap();
-        assert_eq!(ts.len(), 15);
-        assert!(ts.contains('T'));
+        let rest = id.strip_prefix("spec-").unwrap();
+        // Format: 20260518T140912-a3f1b2c0 (15 char timestamp + dash + 8 hex chars = 24)
+        assert_eq!(rest.len(), 24);
+        assert!(rest.contains('T'));
+        let parts: Vec<&str> = rest.rsplitn(2, '-').collect();
+        assert_eq!(parts[0].len(), 8, "suffix should be 8 hex chars");
+        assert!(parts[0].chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn run_id_unique_under_concurrency() {
+        let ids: Vec<String> = (0..100).map(|_| generate_run_id("test")).collect();
+        let unique: std::collections::HashSet<&String> = ids.iter().collect();
+        assert_eq!(
+            ids.len(),
+            unique.len(),
+            "run IDs must be unique even within the same second"
+        );
     }
 
     #[test]
