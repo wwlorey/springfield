@@ -21,7 +21,7 @@ These rules override default behavior. Follow them exactly.
 | `run_playwright` | Run Playwright e2e tests. Chromium can't launch from Bash. Pass `config` for non-default configs (e.g. `playwright-visual.config.ts`). |
 | `create_project` | Scaffold new projects (e.g. `pnpm create vite`, `npm create next-app`). Never run scaffold commands via Bash — they are blocked by the sandbox. |
 | `run_pnpm` | Run allowlisted pnpm scripts that need network access (e.g. `seed`, `push:schema`, `push:perms`). Loads `.env` from the project root and strips proxy env. To add new scripts, update `ALLOWED_PNPM_SCRIPTS` in the unsandboxed-runner source. |
-| `run_dic` | Speak text aloud via the `dic` TTS wrapper. Accepts `text`, optional `voice` (default: bf_isabella), and optional `speed`. |
+| `run_dic` | Speak text aloud via the `dic` TTS wrapper. Accepts `text`, optional `voice` (default: bf_isabella), optional `speed`, optional `output` (file path — saves audio instead of playing), and optional `format` (wav/mp3). |
 | `run_newsboat` | Run newsboat commands outside the sandbox for RSS/Atom feed access. |
 | `run_kw` | Run the kw CLI outside the sandbox for keyword research API access. |
 | `save_config` | Deploy dotfiles from `~/Repos/dotfiles` to `$HOME`. Use after editing config files in dotfiles. |

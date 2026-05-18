@@ -26,7 +26,7 @@ SUPER IMPORTANT:
 
 ### Run ID tracking
 
-After starting each `sgf` agent via `run_in_background`, immediately read its output file to extract the `run_id` from the `run_start` NDJSON event. Maintain a **run ID → change description** mapping table throughout the session. Always use this table when resuming agents — never guess run IDs from timestamps or `sgf resume` list order.
+After starting each `sgf` agent via `run_in_background`, immediately read its output file to extract the `run_id` from the `run_start` NDJSON event. Maintain an **Agent ID (run ID) → change description** mapping table throughout the session. **Agent IDs are in the form Agent XX, starting with 01**. Always use this table when resuming agents — never guess run IDs from timestamps or `sgf resume` list order.
 
 ### Programmatic mode
 
