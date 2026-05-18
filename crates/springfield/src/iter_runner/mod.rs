@@ -617,9 +617,10 @@ pub fn run_programmatic(
 
     let mut cmd = Command::new(agent_cmd);
     cmd.args([
+        "--verbose",
         "--print",
         "--output-format",
-        "json",
+        "stream-json",
         "--dangerously-skip-permissions",
         "--settings",
         r#"{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}"#,
@@ -670,28 +671,9 @@ pub fn run_programmatic(
         }
     }
 
-    let (content, result_session_id) =
-        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&stdout) {
-            let result_obj = match &parsed {
-                serde_json::Value::Array(arr) => arr
-                    .iter()
-                    .find(|v| v["type"].as_str() == Some("result"))
-                    .unwrap_or(&parsed),
-                _ => &parsed,
-            };
-            let content = result_obj["result"]
-                .as_str()
-                .unwrap_or_else(|| {
-                    warn!("agent JSON output has no \"result\" field — turn content will be empty");
-                    ""
-                })
-                .to_string();
-            let sid = result_obj["session_id"].as_str().unwrap_or("").to_string();
-            (content, sid)
-        } else {
-            warn!("failed to parse agent JSON output");
-            (stdout, String::new())
-        };
+    let extracted = format::extract_result_from_stream(&stdout);
+    let content = extracted.content;
+    let result_session_id = extracted.session_id;
 
     Ok(ProgrammaticResult {
         content,
@@ -1534,13 +1516,12 @@ mod tests {
     }
 
     #[test]
-    fn run_programmatic_parses_json_response() {
+    fn run_programmatic_parses_stream_json_response() {
         let dir = tempfile::tempdir().unwrap();
-        let result_json = r#"{"result":"All done.","session_id":"sess-abc123"}"#;
         let script = mock_script(
             dir.path(),
             "prog_json.sh",
-            &format!("#!/bin/sh\necho '{}'\n", result_json),
+            "#!/bin/sh\necho '{\"type\":\"system\"}'\necho '{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"All done.\"}]}}'\necho '{\"type\":\"result\",\"result\":\"All done.\",\"session_id\":\"sess-abc123\"}'\n",
         );
 
         let config = make_config(dir.path(), script.clone());
@@ -1571,7 +1552,7 @@ mod tests {
 
         let result = run_programmatic(&script, &config, false, &controller, 1, "test-sid").unwrap();
 
-        assert_eq!(result.content, "not json\n");
+        assert!(result.content.is_empty());
         assert!(result.session_id.is_empty());
         assert_eq!(result.exit_code, 0);
     }
@@ -1579,11 +1560,10 @@ mod tests {
     #[test]
     fn run_programmatic_captures_exit_code() {
         let dir = tempfile::tempdir().unwrap();
-        let result_json = r#"{"result":"error","session_id":"s1"}"#;
         let script = mock_script(
             dir.path(),
             "prog_fail.sh",
-            &format!("#!/bin/sh\necho '{}'\nexit 1\n", result_json),
+            "#!/bin/sh\necho '{\"type\":\"result\",\"result\":\"error\",\"session_id\":\"s1\"}'\nexit 1\n",
         );
 
         let config = make_config(dir.path(), script.clone());
@@ -1602,7 +1582,6 @@ mod tests {
     #[test]
     fn run_programmatic_with_resume_passes_input_as_arg() {
         let dir = tempfile::tempdir().unwrap();
-        // Script checks that --resume and the input are present in args
         let script = mock_script(
             dir.path(),
             "prog_resume.sh",
@@ -1616,9 +1595,9 @@ for arg in "$@"; do
     esac
 done
 if [ "$has_resume" = "1" ] && [ "$has_input" = "1" ]; then
-    echo '{"result":"resumed","session_id":"s2"}'
+    echo '{"type":"result","result":"resumed","session_id":"s2"}'
 else
-    echo '{"result":"missing_args","session_id":"s2"}'
+    echo '{"type":"result","result":"missing_args","session_id":"s2"}'
 fi
 "#,
         );
@@ -1641,12 +1620,12 @@ fi
     }
 
     #[test]
-    fn run_programmatic_missing_fields_defaults_to_empty() {
+    fn run_programmatic_missing_result_defaults_to_empty() {
         let dir = tempfile::tempdir().unwrap();
         let script = mock_script(
             dir.path(),
             "prog_minimal.sh",
-            "#!/bin/sh\necho '{\"other\":\"field\"}'\n",
+            "#!/bin/sh\necho '{\"type\":\"system\"}'\n",
         );
 
         let config = make_config(dir.path(), script.clone());
@@ -1664,13 +1643,15 @@ fi
     }
 
     #[test]
-    fn run_programmatic_parses_verbose_json_array() {
+    fn run_programmatic_tool_use_only_synthesizes_content() {
         let dir = tempfile::tempdir().unwrap();
-        let verbose_json = r#"[{"type":"system","subtype":"init"},{"type":"assistant"},{"type":"result","subtype":"success","result":"Done.","session_id":"sess-verbose"}]"#;
         let script = mock_script(
             dir.path(),
-            "prog_verbose.sh",
-            &format!("#!/bin/sh\necho '{}'\n", verbose_json),
+            "prog_tools.sh",
+            "#!/bin/sh\n\
+             echo '{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"Let me fix that.\"}]}}'\n\
+             echo '{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"Edit\",\"input\":{\"file_path\":\"src/main.rs\"}},{\"type\":\"tool_use\",\"name\":\"Bash\",\"input\":{\"command\":\"git commit -m fix\"}}]}}'\n\
+             echo '{\"type\":\"result\",\"result\":\"\",\"session_id\":\"sess-tools\"}'\n",
         );
 
         let config = make_config(dir.path(), script.clone());
@@ -1682,8 +1663,8 @@ fi
 
         let result = run_programmatic(&script, &config, false, &controller, 1, "test-sid").unwrap();
 
-        assert_eq!(result.content, "Done.");
-        assert_eq!(result.session_id, "sess-verbose");
+        assert_eq!(result.content, "Edit: src/main.rs, Bash: git commit -m fix");
+        assert_eq!(result.session_id, "sess-tools");
         assert_eq!(result.exit_code, 0);
     }
 
@@ -1693,7 +1674,7 @@ fi
         let script = mock_script(
             dir.path(),
             "prog_env.sh",
-            "#!/bin/sh\necho \"{\\\"result\\\":\\\"$MY_VAR\\\",\\\"session_id\\\":\\\"s1\\\"}\"\n",
+            "#!/bin/sh\necho \"{\\\"type\\\":\\\"result\\\",\\\"result\\\":\\\"$MY_VAR\\\",\\\"session_id\\\":\\\"s1\\\"}\"\n",
         );
 
         let mut config = make_config(dir.path(), script.clone());

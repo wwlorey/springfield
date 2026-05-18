@@ -185,6 +185,72 @@ pub fn format_line(line: &str) -> FormattedOutput {
     }
 }
 
+pub struct StreamExtraction {
+    pub content: String,
+    pub session_id: String,
+}
+
+pub fn extract_result_from_stream(stdout: &str) -> StreamExtraction {
+    let mut result_text = String::new();
+    let mut result_session_id = String::new();
+    let mut last_assistant_texts: Vec<String> = Vec::new();
+    let mut last_assistant_tools: Vec<FormattedToolCall> = Vec::new();
+
+    for line in stdout.lines() {
+        if !line.starts_with('{') {
+            continue;
+        }
+        let event: StreamEvent = match serde_json::from_str(line) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        match event {
+            StreamEvent::Assistant { message } => {
+                last_assistant_texts.clear();
+                last_assistant_tools.clear();
+                for block in message.content {
+                    match block {
+                        ContentBlock::Text { text } => last_assistant_texts.push(text),
+                        ContentBlock::ToolUse { name, input } => {
+                            let detail = format_tool_detail(&name, &input);
+                            last_assistant_tools.push(FormattedToolCall { name, detail });
+                        }
+                        ContentBlock::Unknown => {}
+                    }
+                }
+            }
+            StreamEvent::Result {
+                result, session_id, ..
+            } => {
+                result_text = result;
+                result_session_id = session_id.unwrap_or_default();
+            }
+            _ => {}
+        }
+    }
+
+    let content = if !result_text.is_empty() {
+        result_text
+    } else if !last_assistant_texts.is_empty() {
+        last_assistant_texts.join("\n")
+    } else if !last_assistant_tools.is_empty() {
+        tracing::info!("result text empty, synthesizing content from final turn tool calls");
+        last_assistant_tools
+            .iter()
+            .map(|tc| format!("{}: {}", tc.name, tc.detail))
+            .collect::<Vec<_>>()
+            .join(", ")
+    } else {
+        tracing::warn!("agent produced no result text and no assistant content");
+        String::new()
+    };
+
+    StreamExtraction {
+        content,
+        session_id: result_session_id,
+    }
+}
+
 fn extract_tool_result_text(content: &Option<serde_json::Value>) -> String {
     match content {
         None => String::new(),
@@ -206,7 +272,7 @@ fn extract_tool_result_text(content: &Option<serde_json::Value>) -> String {
     }
 }
 
-fn format_tool_detail(name: &str, input: &serde_json::Value) -> String {
+pub(crate) fn format_tool_detail(name: &str, input: &serde_json::Value) -> String {
     match name {
         "Read" => {
             let file_path = input["file_path"].as_str().unwrap_or("?");
@@ -538,5 +604,53 @@ mod tests {
     fn empty_content_returns_skip() {
         let line = r#"{"type":"assistant","message":{"content":[]}}"#;
         assert_eq!(format_line(line), FormattedOutput::Skip);
+    }
+
+    #[test]
+    fn extract_stream_with_result_text() {
+        let stdout = r#"{"type":"system"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"I fixed the bug."}]}}
+{"type":"result","result":"I fixed the bug.","session_id":"sess-1"}"#;
+        let extracted = extract_result_from_stream(stdout);
+        assert_eq!(extracted.content, "I fixed the bug.");
+        assert_eq!(extracted.session_id, "sess-1");
+    }
+
+    #[test]
+    fn extract_stream_tool_use_only_synthesizes() {
+        let stdout = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Let me commit."}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"src/main.rs"}},{"type":"tool_use","name":"Bash","input":{"command":"git commit -m fix"}}]}}
+{"type":"result","result":"","session_id":"sess-2"}"#;
+        let extracted = extract_result_from_stream(stdout);
+        assert_eq!(
+            extracted.content,
+            "Edit: src/main.rs, Bash: git commit -m fix"
+        );
+        assert_eq!(extracted.session_id, "sess-2");
+    }
+
+    #[test]
+    fn extract_stream_empty_result_with_text_in_last_assistant() {
+        let stdout = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"All done."}]}}
+{"type":"result","result":"","session_id":"sess-3"}"#;
+        let extracted = extract_result_from_stream(stdout);
+        assert_eq!(extracted.content, "All done.");
+        assert_eq!(extracted.session_id, "sess-3");
+    }
+
+    #[test]
+    fn extract_stream_no_events() {
+        let extracted = extract_result_from_stream("not json\ngarbage\n");
+        assert!(extracted.content.is_empty());
+        assert!(extracted.session_id.is_empty());
+    }
+
+    #[test]
+    fn extract_stream_result_takes_precedence_over_assistant() {
+        let stdout = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"stale text"}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"git push"}}]}}
+{"type":"result","result":"Pushed successfully.","session_id":"sess-4"}"#;
+        let extracted = extract_result_from_stream(stdout);
+        assert_eq!(extracted.content, "Pushed successfully.");
     }
 }

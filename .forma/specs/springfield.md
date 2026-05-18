@@ -840,7 +840,7 @@ Spawns via `ChildGuard::spawn()` (which calls `setpgid(0, 0)` in `pre_exec` for 
 cl \
   --verbose \
   --print \
-  --output-format json \
+  --output-format stream-json \
   --dangerously-skip-permissions \
   --settings '{"autoMemoryEnabled": false, "sandbox": {"allowUnsandboxedCommands": false}}' \
   [--session-id <uuid>]           # always (fresh UUID per invocation)
@@ -849,7 +849,12 @@ cl \
   @<PROMPT_FILE>                   # only on first turn (not on --resume)
 ```
 
-Spawns with piped stdout and piped stdin (the outer agent's message is written to stdin). The `cl` process runs one turn: it reads the input, the inner agent processes it and responds, then `cl` exits. sgf captures the JSON output, wraps it with cursus metadata (current iter, iteration, session_id), and emits structured NDJSON events on its own stdout.
+Spawns with piped stdout and `Stdio::null()` for stdin. The `cl` process runs one turn, emitting NDJSON events on stdout (`stream-json`). sgf collects all stdout after the process exits, then parses the NDJSON to extract content and session ID.
+
+Content extraction follows a priority chain:
+1. **Result text** — the `result` field from the `type: "result"` event (normal case: agent ended with a text message)
+2. **Last assistant text** — text blocks from the last `type: "assistant"` event (defensive fallback)
+3. **Synthesized tool summary** — when the agent's final turn was tool-use-only (e.g., committed files, wrote code), sgf synthesizes content from the tool call names and inputs: `"Edit: src/main.rs, Bash: git commit -m fix"`. This ensures turn content is never empty when the agent did meaningful work.
 
 Programmatic mode is activated when:
 1. `isatty(stdin) == false` (stdin is piped — automatic detection), OR
@@ -876,14 +881,14 @@ This timeout only applies to AFK mode. Interactive mode uses PTY passthrough and
 | Mode | Execution | Description |
 |------|-----------|-------------|
 | `interactive` | `cl` via PTY | Full PTY passthrough with raw mode; `cl` invoked with `--verbose --dangerously-skip-permissions`, output tee'd to log file |
-| `afk` | `cl` via iteration runner | Autonomous execution; `cl` invoked with `--dangerously-skip-permissions`, NDJSON stream formatting |
-| `programmatic` | `cl` via programmatic runner | Turn-by-turn agent-driven execution; `cl` invoked with `--output-format json`, structured NDJSON events emitted on stdout |
+| `afk` | `cl` via iteration runner | Autonomous execution; `cl` invoked with `--verbose --output-format stream-json`, NDJSON stream formatting |
+| `programmatic` | `cl` via programmatic runner | Turn-by-turn agent-driven execution; `cl` invoked with `--verbose --output-format stream-json`, content extracted from NDJSON with tool-use synthesis fallback |
 
 **Interactive mode**: Calls `cl` via PTY with `--dangerously-skip-permissions`. Generates a loop_id and writes session metadata to `.sgf/run/{loop_id}.json` for resume capability. `cl` handles context file injection (MEMENTO, BACKPRESSURE). When `auto_push` is true, auto-pushes after the session if HEAD changed. Passes `--session-id <uuid>` to `cl` for session tracking. Output is simultaneously written to both the real terminal and a log file.
 
 **AFK mode**: Calls `cl` directly via the iteration runner. PID file, log tee, and loop ID are managed by sgf. Session metadata (`.sgf/run/{loop_id}.json`) is written before spawn and updated on exit.
 
-**Programmatic mode**: Calls `cl` with `--output-format json` and piped stdin/stdout. Each invocation runs one turn: sgf sends the outer agent's message as stdin, captures the JSON response, wraps it with cursus metadata, and emits structured NDJSON events on stdout. Session metadata and run state are persisted between invocations so `--resume` can restore the full pipeline state.
+**Programmatic mode**: Calls `cl` with `--verbose --output-format stream-json` and piped stdout. Each invocation runs one turn: sgf captures the NDJSON response, extracts content (with tool-use synthesis fallback for tool-use-only final turns), wraps it with cursus metadata, and emits structured NDJSON events on its own stdout. Session metadata and run state are persisted between invocations so `--resume` can restore the full pipeline state.
 
 #### Session Metadata
 
@@ -908,7 +913,7 @@ Interrupt handling uses the shared `shutdown` crate's `ShutdownController` (see 
 
 **Non-AFK mode** (`sgf build`, `sgf verify`, etc.): sgf spawns `cl` via PTY. The controller is created with `monitor_stdin: false` — stdin is managed by the PTY for user interaction with Claude. Ctrl+C is forwarded to the child as a raw byte (0x03) through the PTY. SIGTERM triggers immediate shutdown.
 
-**Programmatic mode**: sgf spawns `cl` with piped stdin and stdout. The controller is created with `monitor_stdin: false` — stdin is managed by the outer agent's piped input. Ctrl+C/Ctrl+D are not applicable (no terminal). SIGTERM triggers immediate shutdown.
+**Programmatic mode**: sgf spawns `cl` with piped stdout. The controller is created with `monitor_stdin: false` — stdin is not used (Stdio::null). Ctrl+C/Ctrl+D are not applicable (no terminal). SIGTERM triggers immediate shutdown.
 
 Signal handlers are registered just before spawning the child — during pre-launch checks, daemon startup, and other steps before handler registration, default signal behavior applies (single SIGINT exits).
 
@@ -936,7 +941,7 @@ For each iteration `i` in `1..=iterations`:
    - **Resume handling**: If `--resume` is provided from the CLI, it only applies on the first invocation.
    - Interactive: PTY-based execution via `pty_tee.rs` with raw mode, I/O forwarding, and log tee
    - AFK: `ChildGuard::spawn()` with piped stdout, read lines via reader thread + channel through `format_line()`
-   - Programmatic: spawn with piped stdin/stdout, write outer agent's message to stdin, read JSON response, emit structured NDJSON events
+   - Programmatic: spawn with piped stdout, collect all output after exit, parse NDJSON for content extraction with tool-use synthesis fallback
 5. Restore terminal settings (`tcsetattr`)
 6. If interrupted: log warning, exit 130
 7. If agent process failed (retryable): trigger auto-retry (see Error Handling)

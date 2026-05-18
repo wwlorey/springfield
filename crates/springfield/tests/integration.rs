@@ -5399,16 +5399,16 @@ fn cursus_afk_then_interactive_stdin_not_stolen() {
     let mock_dir = TempDir::new().unwrap();
     let stdin_capture = mock_dir.path().join("stdin_capture.txt");
 
-    // Unified mock cl that handles both AFK mode (stream-json) and interactive mode (json).
-    // AFK path uses --output-format stream-json; programmatic interactive uses --output-format json.
-    // In programmatic interactive mode, user input arrives as the last positional arg.
+    // Unified mock cl that handles both AFK mode and programmatic interactive mode.
+    // Both use --output-format stream-json. Distinguish by prompt: AFK iter uses
+    // build.md, interactive iter uses a _stdin or spec file path.
     let mock_agent = create_mock_script(
         mock_dir.path(),
         "mock_agent.sh",
         &format!(
             concat!(
                 "#!/bin/bash\n",
-                "if echo \"$@\" | grep -q -- 'stream-json'; then\n",
+                "if echo \"$@\" | grep -q 'build.md'; then\n",
                 "  mkdir -p \"$SGF_RUN_CONTEXT\" 2>/dev/null\n",
                 "  echo 'gathered' > \"$SGF_RUN_CONTEXT/gather-output.md\"\n",
                 "  touch \"${{PWD}}/.iter-complete\"\n",
@@ -8993,9 +8993,9 @@ fn cursus_programmatic_turn_by_turn_interactive_iter() {
                 "echo $COUNT > \"{count}\"\n",
                 "if [ $COUNT -ge 2 ]; then\n",
                 "  touch \"${{PWD}}/.iter-complete\"\n",
-                "  echo '{{\"result\": \"Done! Task complete.\", \"session_id\": \"sess-final\"}}'\n",
+                "  echo '{{\"type\": \"result\", \"result\": \"Done! Task complete.\", \"session_id\": \"sess-final\"}}'\n",
                 "else\n",
-                "  echo '{{\"result\": \"What should I do next?\", \"session_id\": \"sess-001\"}}'\n",
+                "  echo '{{\"type\": \"result\", \"result\": \"What should I do next?\", \"session_id\": \"sess-001\"}}'\n",
                 "fi\n",
                 "exit 0\n",
             ),
@@ -10123,7 +10123,7 @@ fn cursus_programmatic_interactive_multiline_stdin_reaches_agent() {
                 "  echo \"$LAST_ARG\" > \"{capture}\"\n",
                 "fi\n",
                 "touch \"${{PWD}}/.iter-complete\"\n",
-                "echo '{{\"result\": \"Done\", \"session_id\": \"sess-multi\"}}'\n",
+                "echo '{{\"type\": \"result\", \"result\": \"Done\", \"session_id\": \"sess-multi\"}}'\n",
                 "exit 0\n",
             ),
             capture = stdin_capture.display()
@@ -10218,7 +10218,7 @@ fn cursus_programmatic_interactive_empty_stdin_emits_warning() {
         concat!(
             "#!/bin/bash\n",
             "touch \"${PWD}/.iter-complete\"\n",
-            "echo '{\"result\": \"ok\", \"session_id\": \"sess-empty\"}'\n",
+            "echo '{\"type\": \"result\", \"result\": \"ok\", \"session_id\": \"sess-empty\"}'\n",
             "exit 0\n",
         ),
     );
