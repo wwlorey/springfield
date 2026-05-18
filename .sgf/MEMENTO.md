@@ -32,6 +32,12 @@ These rules override default behavior. Follow them exactly.
 |----------|---------|
 | `cp`     | Commit and push |
 
+### CLI Utilities
+
+| Command | Purpose |
+|---------|---------|
+| `transcribe-yt <youtube-url>` | Download a YouTube video's transcript to a text file in the current directory. Saves as `<slugified-title>.txt`. Use this to study video content. |
+
 ### Invoking `sgf` programmatically
 
 When calling `sgf` commands from within a Claude Code session (e.g., via Bash tool), **pipe the message through stdin** — do NOT pass it as a positional argument. The positional argument is reserved for spec stems (e.g., `sgf c auth`), not free-text descriptions. Piped stdin activates programmatic mode, which emits structured NDJSON events.
