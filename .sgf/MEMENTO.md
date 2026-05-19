@@ -1,3 +1,9 @@
+## MANDATORY:
+
+- Check env vars using `echo $SGF_AGENT $SGF_ORCHESTRATOR`.
+
+---
+
 ## Rules
 
 These rules override default behavior. Follow them exactly.
@@ -5,14 +11,14 @@ These rules override default behavior. Follow them exactly.
 - **Relative paths only** — use paths from the repo root for file operations, not absolute paths.
 - **`pn`, never `gh`** — issues live in `pn`, not `gh`. ALWAYS use `pn` for bugs and issues.
 - **No bare `tsx`** — the Claude Code sandbox blocks the IPC pipe. Use `node --import tsx/esm <script>` instead.
-- **Edit settings in dotfiles** — always edit `~/Repos/dotfiles/.claude` (not `~/`).
+- **Editing settings, prompts, scripts, etc** — ALWAYS edit `~/Repos/dotfiles/` (not `~/`).
 - **Subagent limits** — do not spawn more than 3 concurrent Agent/subagent calls. Large refactors must be done sequentially.
 - **Session start** — run `fm list --json` at the beginning of EACH SESSION.
 - **Uncommitted changes** — if `git status` shows a dirty working tree at session start, check the most recent `.sgf/logs` entry to understand what produced them before asking the user what to do with them. They are usually formatter residue from backpressure and should likely be committed.
 - **MCP tools** — use MCP tools instead of running commands directly via Bash when a wrapper exists. They bypass sandbox restrictions.
 - **Making config changes** — always make changes in `~/Repos/dotfiles` — never edit the deployed copy directly.
 - **Prompts** — frequently used prompts live in `~/.agents/prompts/*.md`. If asked to study something or reference something, look there.
-- **MANDATORY voice output** — Every response you send to the user MUST end with a `run_dic` MCP tool call (run in background) speaking a brief summary. See `Voice Output` section for exceptions.
+- **Voice output (mandatory when active)** — If `$SGF_AGENT` is not set or `$SGF_ORCHESTRATOR` is set, every response MUST end with a `run_dic` MCP tool call (run in background) speaking a brief summary. Otherwise, do NOT call `run_dic`. See `Voice Output` section for voice/format details.
 
 ### MCP Tools
 
