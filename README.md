@@ -1,5 +1,15 @@
 # Springfield (`sgf`)
 
+> 📦 **ARCHIVED — superseded by [wwlorey/dotfiles](https://github.com/wwlorey/dotfiles)**
+>
+> Springfield's role — orchestrating Claude Code through Ralph-style iterative loops, scoping work into prompts, and coordinating multi-stage pipelines — is now handled directly inside Claude Code via a skills-based system under `~/.agents/skills/`, mirrored in the [dotfiles repo](https://github.com/wwlorey/dotfiles) under `.agents/skills/`.
+>
+> The replacement model: instead of a separate Rust CLI spawning agent loops from `.sgf/cursus/*.toml` and `.sgf/prompts/*.md`, each workflow is a skill (`change`, `build`, `orchestrate`, `spec`, `specs`, `issues`, `backpressure`, …) that Claude Code consults on demand. The agent runs the loop itself, delegating fan-out work to subagents via the `orchestrate` skill. No daemon, no wrapper binary, no cursus TOML — the harness is the agent.
+>
+> Study [`wwlorey/dotfiles`](https://github.com/wwlorey/dotfiles) — start at `.agents/skills/` — to see how the springfield workflows map onto skills.
+
+---
+
 A suite of Rust tools for orchestrating AI-driven software development using iterative agent loops. The CLI entry point is `sgf`.
 
 > ⚠️ **WARNING**: This is a research project that frequently undergoes breaking, fundamental changes. I recommend using it directly to explore how it works—or pick one part to explore (the prompts in `.sgf/prompts/` are a good place to start). Note that the documentation is not trustworthy at this time.
