@@ -2,7 +2,7 @@
 
 > ### ⚠️ This project is no longer maintained.
 >
-> Springfield's role — orchestrating Claude Code through Ralph-style iterative loops, scoping work into prompts, and coordinating multi-stage pipelines — is now handled **directly inside Claude Code** via a skills-based system under `~/.agents/skills/`, mirrored in the [dotfiles repo](https://github.com/wwlorey/dotfiles) under `.agents/skills/`.
+> Springfield's role — orchestrating Claude Code through Ralph-style iterative loops, scoping work into prompts, and coordinating multi-stage pipelines — is now handled **directly inside Claude Code** via a skills-based system under `~/.agents/skills/`, mirrored in [dotfiles repo](https://github.com/wwlorey/dotfiles) under `.agents/skills/`.
 
 ---
 
